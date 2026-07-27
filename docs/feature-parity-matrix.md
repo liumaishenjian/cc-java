@@ -140,13 +140,18 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 193 |
-| 当前阶段 | S00 |
-| 当前等级 | 193 项均为 L0 |
+| 当前阶段 | S01 Runtime Kernel（L1 学习骨架） |
+| 当前等级 | 19 项为 L1，174 项为 L0 |
 | 默认最终目标 | 193 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 0% |
-| 下一阶段 | S01 Agent Loop |
+| 当前能力覆盖 | 3.28%（193 项等权、目标 L3） |
+| 下一阶段 | S02 Model + Streaming CLI |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
+
+S01 等级证据见 [Runtime Kernel ADR](./adr/ADR-017-s01-runtime-kernel.md)、
+[离线 Agent Loop Demo](./demos/S01-agent-loop.md)和
+[S01 差距报告](./gap-reports/S01.md)。本阶段统一只记为 L1，不把离线 Fake
+回放宣传为真实任务可用的 L2。
 
 ## 6. Scaffolding / Bootstrap 对照
 
@@ -156,7 +161,7 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | BOOT-02 | 确定 Workspace 与 Git 状态 | `WorkspaceSnapshot` | L0 | S03 | REF-02 |
 | BOOT-03 | 加载模型、工具和权限 | `SessionBootstrapper` | L0 | S02/S05 | REF-01 |
 | BOOT-04 | 加载项目指令 | `InstructionLoader` | L0 | S03/S08 | REF-05 |
-| BOOT-05 | 创建 Session 和初始 Context | `SessionFactory` | L0 | S01 | REF-02 |
+| BOOT-05 | 创建 Session 和初始 Context | `SessionStore` + `ContextAssembler` | L1 | S01 | REF-02 |
 | BOOT-06 | 启动诊断 | `/doctor` 与配置来源报告 | L0 | S08/S14 | REF-02 |
 | BOOT-07 | 延迟加载高成本能力 | Lazy Tool/Skill/MCP Metadata | L0 | S07/S10/S11 | REF-01/03 |
 
@@ -181,13 +186,13 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| LOOP-01 | 显式循环状态 | `AgentRunState` | L0 | S01 | REF-01 |
-| LOOP-02 | User → Model → Tool → Model | User-controlled Loop | L0 | S01 | REF-01/08 |
-| LOOP-03 | 单回合多个 Tool Call | 保持消息和 Call ID 协议 | L0 | S01 | REF-08 |
+| LOOP-01 | 显式循环状态 | `AgentRunState` | L1 | S01 | REF-01 |
+| LOOP-02 | User → Model → Tool → Model | User-controlled Loop | L1 | S01 | REF-01/08 |
+| LOOP-03 | 单回合多个 Tool Call | 保持消息和 Call ID 协议 | L1 | S01 | REF-08 |
 | LOOP-04 | 流式 Model Turn | Delta + 聚合结果 | L0 | S02 | REF-02/08 |
-| LOOP-05 | Tool Result 驱动下一回合 | Canonical Message History | L0 | S01 | REF-08 |
-| LOOP-06 | 多 Continue 原因 | 显式 Transition/Stop Reason | L0 | S01/S07 | REF-01 |
-| LOOP-07 | 最大回合和工具数 | `AgentLimits` | L0 | S01 | REF-01 |
+| LOOP-05 | Tool Result 驱动下一回合 | Canonical Message History | L1 | S01 | REF-08 |
+| LOOP-06 | 多 Continue 原因 | 显式 Transition/Stop Reason | L1 | S01/S07 | REF-01 |
+| LOOP-07 | 最大回合和工具数 | `AgentLimits` | L1 | S01 | REF-01 |
 | LOOP-08 | Deadline 与取消 | Cancellation 传播 | L0 | S02/S04 | REF-02 |
 | LOOP-09 | 模型错误重试 | 有界 Retry Policy | L0 | S02/S14 | REF-01 |
 | LOOP-10 | 输出长度恢复 | 明确停止或降级 | L0 | S07/S14 | REF-01 |
@@ -200,9 +205,9 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| MODEL-01 | Model Gateway | Provider-neutral Port | L0 | S01 | REF-08 |
+| MODEL-01 | Model Gateway | Provider-neutral Port | L1 | S01 | REF-08 |
 | MODEL-02 | 一个真实 Provider | Spring AI Adapter | L0 | S02 | REF-08 |
-| MODEL-03 | Scripted Fake Model | 确定性测试 | L0 | S01 | REF-08 |
+| MODEL-03 | Scripted Fake Model | 确定性测试 | L1 | S01 | REF-08 |
 | MODEL-04 | Text Streaming | Adapter 内消费 Flux | L0 | S02 | REF-08 |
 | MODEL-05 | Tool Call Streaming | Chunk 聚合 | L0 | S02 | REF-08 |
 | MODEL-06 | Usage / Finish Reason | 规范化 Capability | L0 | S02 | REF-08 |
@@ -217,9 +222,9 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| TOOL-01 | Tool Definition + Schema | Framework-free Contract | L0 | S01 | REF-08 |
-| TOOL-02 | Tool Registry | Source-aware Registry | L0 | S01 | REF-01 |
-| TOOL-03 | 统一执行 Pipeline | Validate → Permit → Execute → Normalize | L0 | S01/S05 | REF-01/07 |
+| TOOL-01 | Tool Definition + Schema | Framework-free Contract | L1 | S01 | REF-08 |
+| TOOL-02 | Tool Registry | Source-aware Registry | L1 | S01 | REF-01 |
+| TOOL-03 | 统一执行 Pipeline | Validate → Permit → Execute → Normalize | L1 | S01/S05 | REF-01/07 |
 | TOOL-04 | List / Glob | Workspace 文件枚举 | L0 | S03 | REF-02 |
 | TOOL-05 | Grep / Search | 文本和行号搜索 | L0 | S03 | REF-02 |
 | TOOL-06 | Read File | 分段、行号、大小限制 | L0 | S03 | REF-02 |
@@ -229,7 +234,7 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | TOOL-10 | Run Command | Shell、timeout、exit code | L0 | S04 | REF-02 |
 | TOOL-11 | Tool Output Streaming | stdout/stderr Event | L0 | S04 | REF-02 |
 | TOOL-12 | Result Truncation | 显式截断和摘要 | L0 | S03/S07 | REF-01 |
-| TOOL-13 | Structured Tool Error | 模型可纠正错误 | L0 | S01/S03 | REF-01 |
+| TOOL-13 | Structured Tool Error | 模型可纠正错误 | L1 | S01/S03 | REF-01 |
 | TOOL-14 | Tool Cancellation | Model/Process/File 取消 | L0 | S04 | REF-02 |
 | TOOL-15 | 并行安全工具 | Read-only 并行执行 | L0 | S12 | REF-01 |
 | TOOL-16 | Tool Search / Lazy Schema | 大工具集按需加载 | L0 | S10/S11 | REF-02/03 |
@@ -258,7 +263,7 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| HOOK-01 | 内部 Lifecycle Event | Session/Run/Model/Tool/Permission | L0 | S01/S05 | REF-07 |
+| HOOK-01 | 内部 Lifecycle Event | Session/Run/Model/Tool/Permission | L1 | S01/S05 | REF-07 |
 | HOOK-02 | Pre Tool | 执行前观察和阻断 | L0 | S05/S09 | REF-07 |
 | HOOK-03 | Post Tool | 结果观察和附加 Context | L0 | S05/S09 | REF-07 |
 | HOOK-04 | Session Start/End | 环境和清理扩展 | L0 | S09 | REF-07 |
@@ -293,7 +298,7 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| CTX-01 | System Context Assembly | 稳定策略 + Runtime Metadata | L0 | S01/S02 | REF-02 |
+| CTX-01 | System Context Assembly | 稳定策略 + Runtime Metadata | L1 | S01/S02 | REF-02 |
 | CTX-02 | Project Instructions | 根 AGENTS.md | L0 | S03 | REF-05 |
 | CTX-03 | Hierarchical Instructions | User/Project/Directory | L0 | S08 | REF-05 |
 | CTX-04 | Path-scoped Rules | 只在相关文件加载 | L0 | S08 | REF-05 |
@@ -330,8 +335,8 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| SESSION-01 | Session ID | Workspace-aware ID | L0 | S01 | REF-06 |
-| SESSION-02 | In-memory Session | 当前对话连续性 | L0 | S01/S02 | REF-06 |
+| SESSION-01 | Session ID | Workspace-aware ID | L1 | S01 | REF-06 |
+| SESSION-02 | In-memory Session | 当前对话连续性 | L1 | S01/S02 | REF-06 |
 | SESSION-03 | Append-only JSONL | 版本化事件存储 | L0 | S06 | REF-06 |
 | SESSION-04 | Continue | 最近 Session | L0 | S06 | REF-06 |
 | SESSION-05 | Resume | 选择 Session | L0 | S06 | REF-06 |
@@ -399,14 +404,14 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| OBS-01 | Agent Event | 可重放控制流 | L0 | S01 | REF-01 |
+| OBS-01 | Agent Event | 可重放控制流 | L1 | S01 | REF-01 |
 | OBS-02 | Turn/Tool Timing | Micrometer Metrics | L0 | S02/S14 | REF-01 |
 | OBS-03 | Token / Cost | Provider Usage 统计 | L0 | S02/S14 | REF-01 |
 | OBS-04 | Stop / Recovery Analytics | 失败原因分布 | L0 | S07/S14 | REF-01 |
 | OBS-05 | Privacy Controls | Prompt/Content 默认关闭 | L0 | S02/S14 | REF-01 |
 | OBS-06 | OpenTelemetry | 可选 Trace Export | L0 | S14 | REF-01 |
 | EVAL-01 | Seed Tasks | Java Fixture 任务集 | L0 | S04/S14 | REF-01 |
-| EVAL-02 | Behavior Replay | Fake Model 确定性回放 | L0 | S01/S06 | REF-01 |
+| EVAL-02 | Behavior Replay | Fake Model 确定性回放 | L1 | S01/S06 | REF-01 |
 | EVAL-03 | Agent Success Metrics | 完成率、成本、工具轨迹 | L0 | S14 | REF-01 |
 | EVAL-04 | Security Eval | 越权与 Prompt Injection | L0 | S13 | REF-01 |
 | DIST-01 | Runnable Jar | 基础发行 | L0 | S04 | REF-02 |

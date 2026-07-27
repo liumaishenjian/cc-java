@@ -1,14 +1,14 @@
 # cc-java 技术设计文档
 
-> 文档状态：Proposed v0.3
+> 文档状态：Proposed v0.4
 >
-> 最后更新：2026-07-27
+> 最后更新：2026-07-28
 >
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
-> 当前学习阶段：S00 Harness 地图
+> 当前学习阶段：S01 Runtime Kernel
 >
-> 当前实现状态：尚未创建代码模块
+> 当前实现状态：离线 Agent Loop 已实现；真实模型和 CLI 尚未开始
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 
@@ -106,16 +106,18 @@ S01～S04 依次完成 Loop、真实模型与 CLI、只读工具、写入与命�
 
 | 项目 | 建议 | 状态 |
 | --- | --- | --- |
-| Java | 21 LTS | Proposed |
-| Maven | Wrapper 3.9.x | Proposed |
-| Spring Boot | 4.1.0 | Proposed |
-| Spring AI | 2.0.0 BOM | Proposed |
-| CLI Parser | Picocli | Proposed |
-| Interactive Terminal | JLine | Proposed |
-| Test | JUnit 5 + AssertJ | Proposed |
-| 首个 Provider | 单一 Spring AI Model Starter | Open |
+| Java | 21 | Accepted（S01） |
+| Maven | Wrapper 3.3.4 → Maven 3.9.16 | Accepted（S01） |
+| GroupId / 根包 | `io.github.liumaishenjian` / `io.github.liumaishenjian.ccjava` | Accepted（S01） |
+| Test | JUnit 5.14.3 + AssertJ 3.27.7 | Accepted（S01） |
+| Spring Boot | 在 S02 按真实用途确认 | Deferred |
+| Spring AI | 在 S02 按 Provider Spike 确认 | Deferred |
+| CLI Parser | Picocli 候选 | Proposed（S02） |
+| Interactive Terminal | JLine 候选 | Proposed（S02） |
+| 首个 Provider | 单一 Spring AI Model Starter | Open（S02） |
 
-Spring AI 2.0.x 官方支持 Spring Boot 4.0.x 和 4.1.x；Spring Boot 4.1.0 最低要求 Java 17 和 Maven 3.6.3。项目建议 Java 21 是本项目选择，而不是框架最低要求。
+S01 不引入 Spring Boot、Spring AI、Picocli 或 JLine。框架准确版本必须在 S02
+通过真实 Provider 与流式 Tool Call Spike 决定，不能仅为占位锁定依赖。
 
 参考：
 
@@ -189,6 +191,10 @@ cc-java-model-spring-ai
 cc-java-tools-local
 cc-java-cli
 ```
+
+S01 只有 `cc-java-domain` 和 `cc-java-core` 包含 Runtime 实现；
+`model-spring-ai`、`tools-local` 和 `cli` 目前只固定模块依赖方向与包边界，
+不包含 Spring AI、文件 Tool 或终端实现，也不因此提升对应矩阵能力。
 
 依赖方向：
 
@@ -1093,14 +1099,15 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | ADR-006 | Accepted | S01～S04 逐步形成能读、改、运行和验证的 Mini CLI；它是检查点而非终点 |
 | ADR-007 | Accepted | 同步控制流 + 流式事件，不把 Reactor 泄漏到 Core |
 | ADR-008 | Accepted | S01 创建五个 Maven 模块，后续按 Stage 渐进扩展而不提前创建空模块 |
-| ADR-009 | Proposed | Java 21、Boot 4.1.0、Spring AI 2.0.0 |
-| ADR-010 | Proposed | Picocli + JLine |
+| ADR-009 | Accepted / Deferred | Java 21 已确认；Boot 与 Spring AI 准确版本延后到 S02 |
+| ADR-010 | Proposed（S02） | Picocli + JLine |
 | ADR-011 | Open | 首个模型 Provider |
 | ADR-012 | Open | Windows/Linux 默认 Shell |
-| ADR-013 | Open | GroupId 和根包名 |
+| ADR-013 | Accepted | `io.github.liumaishenjian` / `io.github.liumaishenjian.ccjava` |
 | ADR-014 | Open | 开源或 Noncommercial source-available License |
 | ADR-015 | Accepted | S00～S15 的能力归属、完成度和差距以功能对照矩阵为权威 |
 | ADR-016 | Accepted | 每个 Stage 必须交付矩阵更新、设计说明/ADR、测试/Demo 和差距报告 |
+| [ADR-017](./adr/ADR-017-s01-runtime-kernel.md) | Accepted | S01 使用同步显式 Loop、原子 Tool 批次预算和测试源 Fake |
 
 ## 26. 需求追踪
 
@@ -1121,15 +1128,18 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 
 ## 27. S00～S15 实施顺序
 
-### 27.1 当前 S00
+### 27.1 当前 S01
 
-开始代码前先完成：
+S01 已把五模块骨架、Framework-free Domain、显式 `AgentRuntime`、统一
+`ToolExecutionPipeline`、内存 Session 和有序 Lifecycle Event 落到代码。
+Scripted Fake Model、Fake Tool 和 Fake Event Sink 只存在于测试源。
 
-1. 固定 Reference Baseline 和 clean-room 规则；
-2. 使 PRD、本文、参考架构与功能矩阵使用相同 S00～S15 术语；
-3. 确认 ADR-009～ADR-014 中会阻塞 S01～S04 的 Open/Proposed 决策；
-4. 为 S01 选择矩阵 Capability ID，并写出参考行为和离线验收行为；
-5. 提交 S00 的矩阵更新、设计/ADR、文档检查 Demo 和差距报告。
+本阶段证据：
+
+1. [Runtime Kernel ADR](./adr/ADR-017-s01-runtime-kernel.md)；
+2. [离线 Agent Loop Demo](./demos/S01-agent-loop.md)；
+3. [S01 差距报告](./gap-reports/S01.md)；
+4. [功能对照矩阵](./feature-parity-matrix.md)中的 19 项 L1。
 
 ### 27.2 分 Stage 实现
 

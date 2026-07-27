@@ -17,17 +17,17 @@
 
 ## 2. 当前项目阶段
 
-仓库当前处于 **S00：参考架构与学习地图** 阶段。
+仓库当前处于 **S01：Runtime Kernel** 阶段。
 
-在维护者明确开始 S01 之前：
+本阶段允许并要求：
 
-- 不创建 Maven 模块；
-- 不添加生产代码或测试代码；
-- 不添加框架依赖；
-- 不宣称项目已经可以运行；
-- 应继续完善参考基线、能力矩阵、需求和设计。
+- 创建 `domain`、`core`、`model-spring-ai`、`tools-local` 和 `cli` 五个 Maven 模块；
+- 实现 Framework-free Domain、显式 Agent Runtime、Tool Pipeline 骨架和内存 Session；
+- 仅使用测试源中的 Scripted Fake Model 与 Fake Tool 完成离线协议验证；
+- 保持真实 Provider、流式 CLI、文件 Tool、Shell、完整权限策略和持久化能力为未实现状态；
+- 完成后同步提交矩阵更新、ADR、可复现 Demo 和 S01 差距报告。
 
-开始 S01 时，必须在创建初始工程骨架的同一个变更中更新本节。
+在 S01 退出包验证完成前，不得提前宣称 S02 或更后阶段能力已经可用。
 
 ## 3. 项目定位
 

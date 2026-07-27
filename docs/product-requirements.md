@@ -1,10 +1,10 @@
 # cc-java 产品需求文档
 
-> 文档状态：Draft v0.3
+> 文档状态：Draft v0.4
 >
-> 最后更新：2026-07-27
+> 最后更新：2026-07-28
 >
-> 当前阶段：S00 参考架构与学习地图
+> 当前阶段：S01 Runtime Kernel
 >
 > 产品负责人：项目维护者
 
@@ -483,18 +483,23 @@ S04 完成必须满足：
 | 参考受限源码 | 无法合法开源 | 只采用公开行为和通用架构思想，独立命名和实现 |
 | “开源不商用”含义不清 | License 与目标冲突 | S00 明确是维护者不商业化，还是许可证禁止商业使用 |
 
-## 20. 待确认决策
+## 20. 已确认与待确认决策
 
-开始 S01 前需要确认：
+S01 已确认：
 
-1. 长期项目名和可执行命令使用 `cc-java` 还是另取名称；
-2. Java 21 是否作为项目基线；
-3. 首个模型 Provider；
-4. Picocli + JLine 是否作为 CLI 技术组合；
-5. Maven GroupId 与 Java 根包名；
-6. `run_command` 在 Windows 和 Linux 的默认 Shell；
-7. S04 是否允许“当前会话始终允许”Shell，或只允许单次批准；
-8. “开源不商用”的准确含义：
+1. 项目名和仓库名使用 `cc-java`；
+2. Java 21 作为基线，Maven Wrapper 固定 Maven 3.9.16；
+3. Maven GroupId 使用 `io.github.liumaishenjian`，Java 根包使用
+   `io.github.liumaishenjian.ccjava`；
+4. S01 不接真实 Provider，Fake Model 只存在于测试源。
+
+后续 Stage 仍需确认：
+
+1. S02 的首个模型 Provider；
+2. Picocli + JLine 是否作为 CLI 技术组合；
+3. `run_command` 在 Windows 和 Linux 的默认 Shell；
+4. S04 是否允许“当前会话始终允许”Shell，或只允许单次批准；
+5. “开源不商用”的准确含义：
    - 维护者自己不计划商业化，但采用 Apache-2.0/MIT；或
    - 许可证禁止商业使用，此时属于 source-available，而非 OSI Open Source。
 
