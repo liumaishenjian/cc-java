@@ -1,750 +1,1162 @@
 # cc-java 技术设计文档
 
-> 文档状态：Proposed v0.1
+> 文档状态：Proposed v0.3
 >
 > 最后更新：2026-07-27
 >
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
+> 当前学习阶段：S00 Harness 地图
+>
 > 当前实现状态：尚未创建代码模块
+>
+> 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 
 ## 1. 设计目标
 
-本文档回答四个问题：
+`cc-java` 的技术目标是从零实现一个 Java 原生、可嵌入、可测试的 Coding Agent Runtime，并首先通过终端 CLI 交付。
 
-1. 第一个可运行版本由哪些组件组成；
-2. Agent Loop、工具和模型之间如何保持解耦；
-3. 只读调查如何逐步演进到安全的自动 FixBug；
-4. 哪些能力现在实现，哪些明确延后。
+项目采用“参考建模 → Java 独立重实现 → 黑盒行为对照 → 差距复盘 → 独立创新”的学习路径。技术实现不是围绕一次性 MVP 自由生长，而是按 S00～S15 逐步理解和重建成熟 Coding Agent Harness 的公开能力。
 
-架构首先服务于 M1 只读调查闭环，同时保证 M2 可以增加 Worktree、补丁和构建验证，而不推翻核心模型。
+核心架构必须能够支撑：
 
-## 2. 架构驱动因素
+- 交互式和非交互式运行；
+- 模型流式输出与 Tool Calling；
+- 文件读取、搜索、修改和命令执行；
+- 权限、审批、取消、限制和生命周期事件；
+- 会话、上下文、Hooks、Skills、MCP 和 Sub-Agent 的渐进演进。
 
-按优先级排序：
+FixBug 不出现在 Runtime 架构中。它未来只能作为一组 Prompt、Skill、Tool 或上层 Application 使用通用 Runtime。
 
-1. **安全边界确定**：模型只能提出工具请求，应用决定是否执行。
-2. **执行过程可测试**：不调用真实模型也能完整测试 Agent Loop。
-3. **证据可复核**：结论必须能追溯到工具结果、文件和行号。
-4. **框架可替换**：Spring AI 是适配器，不进入核心领域。
-5. **范围可控制**：M1 不引入修复、MCP、数据库、桌面端和多 Agent。
-6. **面向演进**：M2/M3 通过新增端口和适配器扩展，而不是把业务逻辑塞进 CLI。
+S01～S04 会逐步形成第一个可运行的 Mini Coding Agent CLI。它只是验证 Runtime、Model、Tool 和终端边界的阶段检查点，不是功能终点，也不表示已达到参考产品对等。后续仍须按矩阵完成 Permission、Session、Context、Hooks、MCP、Skills、Sub-Agent、Sandbox 和 Production Harness。
+
+## 2. 参考方法与 clean-room 边界
+
+设计输入来自：
+
+1. 本项目自己的产品需求和验收任务；
+2. Spring AI 官方公开 API；
+3. Claude Code 等成熟 CLI 的公开文档和可观察行为；
+4. Harness Engineering 的通用架构分析。
+
+设计不使用以下输入：
+
+- 泄露源码的具体实现；
+- 受限制源码中的函数体、类型名、注释、Prompt、错误文案和文件结构；
+- 商业产品内部 Session、Hook 或配置格式；
+- 无法确认许可证的代码片段。
+
+本项目借鉴的是“显式 Agent Loop、统一 Tool Pipeline、纵深权限、上下文压力、可恢复会话和扩展层”等架构原则，而不是进行 Java 翻译。
+
+详细映射见 [参考架构研究](./reference-architecture.md)。
+
+### 2.1 阶段权威与完成证据
+
+[功能对照矩阵](./feature-parity-matrix.md) 是以下内容的唯一权威：
+
+- S00～S15 的主题、顺序和完成定义；
+- 每项 Capability ID 所属 Stage；
+- L0～L4 完成度及行为对照状态；
+- 当前差距和下一项学习能力。
+
+本文负责解释这些能力在 Java 中如何分层、如何保持依赖方向以及如何实现安全边界。若本文中的阶段归属与矩阵冲突，应先以矩阵为准，再在同一变更中修正本文。
+
+每个 Stage 结束前必须同时交付：
+
+1. 更新功能对照矩阵中的等级、行为测试和证据链接；
+2. 更新相关设计说明，并新增或修订 ADR；
+3. 提供与本 Stage 对应的离线测试和可运行 Demo；
+4. 提交差距报告，说明参考实现仍然更强之处、当前 Java 实现的限制和下一步能力。
+
+只完成代码、只跑通 Demo 或只更新矩阵，都不构成 Stage 完成。
 
 ## 3. 架构原则
 
-### 3.1 模型不拥有权限
+### 3.1 Runtime 是产品核心
 
-System Prompt 可以说明规则，但不能承担安全控制。文件边界、工具白名单、调用限制和审批必须由确定性 Java 代码执行。
+CLI、未来桌面端和 SDK 都只是 Runtime 的 Client。Agent Loop、工具执行、权限和 Session 不能写进终端代码。
 
-### 3.2 核心拥有 Agent Loop
+### 3.2 模型只产生意图
 
-Spring AI 的自动工具循环在本项目中默认关闭。核心层负责：
+模型可以请求工具，但不能直接访问文件、进程、网络或权限配置。应用代码负责决定：
 
-- 检查模型是否请求工具；
-- 解析并校验工具参数；
-- 进行权限判断；
-- 执行和记录工具；
-- 追加消息；
-- 判断继续、完成或终止。
+- 请求是否合法；
+- 当前模式是否允许；
+- 是否需要人工审批；
+- 应如何执行；
+- 结果如何裁剪和回传。
 
-这样才能统一实现最大步数、取消、审批、审计和后续桌面端进度事件。
+### 3.3 所有工具经过同一 Pipeline
 
-### 3.3 工具默认不可用
+内置 Tool、未来 MCP Tool、Plugin Tool 和 Sub-Agent Tool 必须进入同一个 Tool Execution Pipeline。任何绕过 Pipeline 的执行入口都会破坏权限、Hooks、事件和审计。
 
-每次请求只暴露当前阶段和权限策略允许的工具。高风险工具不得配置为全局默认工具。
+### 3.4 流式观察，顺序控制
 
-### 3.4 先同步、后流式
+S01 建立顺序 Agent Loop；S02 接入流式模型与终端事件。模型文本、工具输出和状态通过事件增量发给终端，但首轮重实现不把 Reactor 类型泄漏到核心。安全读工具的有界并行延后到 S12，写工具始终默认顺序执行。
 
-M1 使用同步 Agent Loop 和同步模型调用，通过事件回调向 CLI 报告进度。Reactive/Streaming 不进入核心首版，避免同时处理流聚合、背压和不完整 Trace。
+### 3.5 状态显式，终止有限
 
-### 3.5 先纵向闭环、后通用平台
+当前消息、回合数、工具次数、Token、运行时间、权限模式和取消状态都在显式 Run State 中。每条循环路径都有 Stop Reason。
 
-M1 只实现调查问题所需的最小能力。Checkpoint、事件溯源、动态插件、多模型路由、RAG 和多 Agent 均等待真实需求。
+### 3.6 先建立可运行检查点，再持续补齐 Harness
+
+S01～S04 依次完成 Loop、真实模型与 CLI、只读工具、写入与命令，形成真实的“读 → 改 → 跑 → 验证”检查点；S05 再系统完成 Permission Pipeline。此检查点用于验证架构和学习成果，不改变 S06～S15 的既定路线，也不提前实现 Hooks、MCP、Sub-Agent、Sandbox 或插件系统。
 
 ## 4. 技术基线
 
-以下为开始实现时的建议默认值；标记为“待确认”的项目应由维护者在 M0 结束前决定。
+| 项目 | 建议 | 状态 |
+| --- | --- | --- |
+| Java | 21 LTS | Proposed |
+| Maven | Wrapper 3.9.x | Proposed |
+| Spring Boot | 4.1.0 | Proposed |
+| Spring AI | 2.0.0 BOM | Proposed |
+| CLI Parser | Picocli | Proposed |
+| Interactive Terminal | JLine | Proposed |
+| Test | JUnit 5 + AssertJ | Proposed |
+| 首个 Provider | 单一 Spring AI Model Starter | Open |
 
-| 项目 | 建议 | 状态 | 说明 |
-| --- | --- | --- | --- |
-| Java | 21 LTS | 待确认 | 框架最低为 Java 17；21 更适合作为新开源项目基线 |
-| Maven | Wrapper 固定维护中的 3.9.x | 建议采用 | Spring Boot 4.1 最低要求 3.6.3 |
-| Spring Boot | 4.1.0 | 建议采用 | 与 Spring AI 2.0.x 兼容 |
-| Spring AI | 2.0.0 BOM | 建议采用 | 当前稳定版本 |
-| CLI | Picocli | 待确认 | 仅负责参数与退出码，不承载业务逻辑 |
-| 测试 | JUnit 5 + AssertJ | 建议采用 | Fake Model 和安全测试优先 |
-| 日志 | SLF4J + Logback | 建议采用 | 默认不输出敏感内容 |
-| 首个模型提供方 | 单一 Provider Starter | 待确认 | 首版不同时引入多个模型 Starter |
+Spring AI 2.0.x 官方支持 Spring Boot 4.0.x 和 4.1.x；Spring Boot 4.1.0 最低要求 Java 17 和 Maven 3.6.3。项目建议 Java 21 是本项目选择，而不是框架最低要求。
 
-官方基线依据：
+参考：
 
-- [Spring AI Getting Started](https://docs.spring.io/spring-ai/reference/getting-started.html)：Spring AI 2.0.0、BOM 以及 Spring Boot 4.0.x/4.1.x 兼容范围。
-- [Spring Boot System Requirements](https://docs.spring.io/spring-boot/system-requirements.html)：Spring Boot 4.1.0 需要 Java 17+、Maven 3.6.3+。
-- [Spring AI Tool Calling](https://docs.spring.io/spring-ai/reference/api/tools.html)：工具执行模式、`ToolCallingAdvisor`、`ToolCallingManager` 和用户控制循环。
-- [Spring AI Observability](https://docs.spring.io/spring-ai/reference/observability/index.html)：ChatClient、模型和工具调用的观察项。
-- [Spring AI MCP Client](https://docs.spring.io/spring-ai/reference/api/mcp/mcp-client-boot-starter-docs.html)：后续 MCP Client 的 Starter、传输和工具过滤能力。
+- [Spring AI Getting Started](https://docs.spring.io/spring-ai/reference/getting-started.html)
+- [Spring AI Tool Calling](https://docs.spring.io/spring-ai/reference/api/tools.html)
+- [Spring Boot System Requirements](https://docs.spring.io/spring-boot/system-requirements.html)
 
-## 5. 系统上下文
-
-```mermaid
-flowchart LR
-    U["开发者 / 审核者"] --> CLI["cc-java CLI"]
-    CLI --> APP["Agent Application"]
-    APP --> MODEL["模型提供方"]
-    APP --> REPO["本地 Git 仓库"]
-    APP -. "M2+" .-> BUILD["Git / Maven / Tests"]
-    APP -. "M3+" .-> EXT["缺陷、日志、数据库适配器"]
-    APP -. "M5" .-> UI["桌面端"]
-```
-
-M1 只包含实线链路。虚线链路是已知演进方向，不应提前成为依赖。
-
-## 6. M1 总体架构
+## 5. 逻辑分层
 
 ```mermaid
 flowchart TB
-    CLI["cc-java-cli<br/>Composition Root"] --> UC["InvestigateUseCase"]
-    UC --> LOOP["AgentLoop<br/>cc-java-core"]
-    LOOP --> MG["ModelGateway Port"]
-    MG --> SAI["SpringAiModelGateway<br/>cc-java-model-spring-ai"]
-    SAI --> LLM["Model Provider"]
+    subgraph Interface["Interface"]
+        REPL["Interactive REPL"]
+        PRINT["Print / Headless"]
+        FUTURE["Future SDK / Desktop / API"]
+    end
 
-    LOOP --> REG["ToolRegistry"]
-    REG --> TOOL["AgentTool Port"]
-    TOOL --> LOCAL["Local Read-only Tools<br/>cc-java-tools-local"]
-    LOCAL --> GUARD["WorkspaceGuard"]
-    GUARD --> REPO["Local Repository"]
+    subgraph Application["Application"]
+        BOOT["Bootstrap / Scaffolding"]
+        SESSION_SERVICE["Session Service"]
+        COMMANDS["Command Dispatcher"]
+    end
 
-    LOOP --> EVENT["AgentEventSink Port"]
-    EVENT --> CONSOLE["Console Event Renderer"]
+    subgraph Runtime["Agent Runtime Kernel"]
+        LOOP["Agent Loop"]
+        CONTEXT["Context Manager"]
+        MODEL_PORT["Model Gateway"]
+        EVENTS["Agent Event Bus"]
+    end
 
-    DOMAIN["cc-java-domain"] --> LOOP
-    DOMAIN --> SAI
-    DOMAIN --> LOCAL
+    subgraph Control["Control Plane"]
+        PIPELINE["Tool Execution Pipeline"]
+        PERMISSION["Permission Gate"]
+        APPROVAL["Approval Handler"]
+        LIMITS["Limits / Cancellation"]
+        LIFECYCLE["Lifecycle Dispatcher"]
+    end
+
+    subgraph Capability["Capabilities"]
+        BUILTIN["Built-in Tools"]
+        MCP["MCP Tools (S10)"]
+        SKILL["Skills / Plugins (S11)"]
+        SUBAGENT["Sub-Agents (S12)"]
+    end
+
+    subgraph Infrastructure["Infrastructure"]
+        SPRING_AI["Spring AI Adapter"]
+        FS["Filesystem / Process / Git"]
+        STORE["Session Store (S06)"]
+        SANDBOX["Sandbox Backend (S13)"]
+    end
+
+    Interface --> Application
+    Application --> Runtime
+    Runtime --> Control
+    Runtime --> MODEL_PORT
+    MODEL_PORT --> SPRING_AI
+    PIPELINE --> Capability
+    Capability --> Infrastructure
+    SESSION_SERVICE --> STORE
 ```
 
-依赖方向必须始终指向核心抽象。`cc-java-core` 不知道 Spring AI、Picocli、Git 命令或具体模型提供方。
+## 6. S01 起步的 Maven 模块
 
-## 7. M1 Maven 模块
+S01 只创建五个模块，后续 Stage 在这组稳定边界上渐进实现能力。S06 以后只有在矩阵明确需要新的基础设施 Adapter 时才增加模块，不为未来能力提前创建空壳。
 
-### 7.1 `cc-java-domain`
+```text
+cc-java-domain
+cc-java-core
+cc-java-model-spring-ai
+cc-java-tools-local
+cc-java-cli
+```
 
-职责：只保存与框架无关的不可变领域类型。
+依赖方向：
 
-建议包含：
+```mermaid
+flowchart BT
+    CORE["cc-java-core"] --> DOMAIN["cc-java-domain"]
+    MODEL["cc-java-model-spring-ai"] --> CORE
+    MODEL --> DOMAIN
+    TOOLS["cc-java-tools-local"] --> CORE
+    TOOLS --> DOMAIN
+    CLI["cc-java-cli"] --> CORE
+    CLI --> MODEL
+    CLI --> TOOLS
+```
 
-- `AgentMessage` 及 System、User、Assistant、ToolResult 消息；
-- `ModelRequest`、`ModelTurn`、`TokenUsage`；
+### 6.1 `cc-java-domain`
+
+保存框架无关的协议和值对象：
+
+- `SessionId`、`RunId`；
+- `AgentMessage`；
+- `ModelRequest`、`ModelTurn`、`ModelUsage`；
 - `ToolDefinition`、`ToolCall`、`ToolResult`；
-- `AgentCommand`、`AgentLimits`、`AgentStatus`、`AgentResult`；
-- `AgentEvent` 和错误分类。
+- `ToolEffect`、`ToolSource`；
+- `PermissionMode`、`PermissionDecision`；
+- `AgentLimits`、`RunStatus`、`StopReason`；
+- `AgentEvent`、`LifecycleEvent`。
 
 约束：
 
-- 不依赖 Spring AI、Spring Framework、文件系统或进程 API；
-- 不直接复刻 Spring AI 的消息对象；
-- 工具参数和 JSON Schema 可用受校验的 JSON 字符串表达；
-- 不为了形式上的 DDD 创建 Repository、Entity 或 Aggregate 层次。
+- 不依赖 Spring、Reactor、文件系统、终端或 JSON SDK 类型；
+- 类型不可变；
+- 不复制 Spring AI 消息对象；
+- 不包含 FixBug、BugCase 或电商业务概念。
 
-### 7.2 `cc-java-core`
+### 6.2 `cc-java-core`
 
-职责：实现用例和核心控制逻辑。
+实现 Runtime 与端口：
 
-建议包含：
-
-- `InvestigateUseCase`；
-- `AgentLoop`；
-- `ModelGateway` 端口；
-- `AgentTool` 端口；
+- `AgentRuntime` / `AgentLoop`；
+- `ModelGateway`；
+- `ContextManager`；
 - `ToolRegistry`；
-- `AgentEventSink` 端口；
-- 限制、终止和错误转换规则。
+- `ToolExecutionPipeline`；
+- `AgentTool`；
+- `PermissionGate`；
+- `ApprovalHandler`；
+- `LifecycleDispatcher`；
+- `SessionStore` Port 和内存实现；
+- `AgentEventSink`；
+- `CancellationToken`；
+- 限额、错误和 Stop Reason。
 
-约束：
+核心不得：
 
-- 不依赖任何模型 SDK；
-- 不直接读取文件或启动进程；
-- 不包含 CLI 参数解析；
-- 不包含 Spring Bean 配置。
+- 直接使用 Spring AI；
+- 直接读写文件；
+- 启动进程；
+- 从终端读取输入；
+- 打印 ANSI；
+- 写 JSONL 文件。
 
-### 7.3 `cc-java-model-spring-ai`
+### 6.3 `cc-java-model-spring-ai`
 
-职责：把核心模型协议映射到 Spring AI 2.0。
+只负责模型协议适配：
 
-建议包含：
-
-- 核心消息与 Spring AI 消息的双向转换；
-- 工具定义与模型可见 Tool Schema 的转换；
-- Tool Call、Finish Reason 和 Token Usage 转换；
-- 模型异常到核心错误的转换；
-- Provider 配置适配。
+- 核心消息与 Spring AI 消息转换；
+- Tool Definition 转模型 Tool Schema；
+- 流式文本增量转换成 Model Event；
+- 聚合 Tool Call；
+- Usage、Finish Reason 和异常转换；
+- Provider 配置装配。
 
 关键约束：
 
-> 该模块只能返回原始模型结果和 Tool Call，不得在内部自动执行 AgentTool。
+> Spring AI Adapter 不执行 AgentTool，也不拥有 Agent Loop。
 
-### 7.4 `cc-java-tools-local`
+### 6.4 `cc-java-tools-local`
 
-职责：实现 M1 本地只读工具和共同的工作区安全边界。
+实现本地能力：
 
-首版仅包含：
-
-- `list_files`；
-- `read_file`；
-- `search_text`；
-- `git_diff`；
 - `WorkspaceGuard`；
-- 文本、大小、结果数和敏感文件策略。
+- S03：`list_files`、`read_file`、`search_text`、`git_status`、`git_diff`；
+- S04：`apply_patch`、`write_file`、`run_command`；
+- 路径、进程、输出和错误适配。
 
-工具只实现核心的 `AgentTool`，不使用 Spring AI 的 `@Tool` 注解，避免绑定模型框架。
+本模块只实现核心 `AgentTool`，不使用 Spring AI `@Tool` 作为业务接口。
 
-### 7.5 `cc-java-cli`
+### 6.5 `cc-java-cli`
 
-职责：应用装配和终端交互。
+作为 Composition Root：
 
-建议首个命令：
+- S02 的 Picocli 参数和 JLine REPL；
+- Spring Boot 启动和 Bean 装配；
+- Workspace 与 Provider 配置；
+- S04～S05 的 Approval Handler 终端实现；
+- Agent Event 终端渲染；
+- `Ctrl+C` 和进程退出码；
+- Interactive / Print 模式。
 
-```text
-cc-java investigate --repo <path> --question <text>
-```
+CLI 不做模型决策、权限判断或 Tool Call 消息拼接。
 
-CLI 负责：
+## 7. 核心运行模型
 
-- 解析和校验参数；
-- 加载非敏感配置；
-- 创建 Spring AI Adapter、工具与 Agent Loop；
-- 渲染 Agent Event 和最终报告；
-- 映射进程退出码。
+### 7.1 Session、Run 与 Turn
 
-CLI 不负责：
+- **Session**：从 CLI 启动到退出的一段连续对话。
+- **Run**：一条用户消息触发的一次 Agent 执行。
+- **Model Turn**：一次模型请求和聚合响应。
+- **Tool Call**：模型在某个 Turn 中提出的一个环境操作。
 
-- 判断应调用哪个工具；
-- 拼接 Agent 消息历史；
-- 进行业务状态流转；
-- 直接操作仓库。
+一个 Session 包含多个 Run；一个 Run 包含多个 Model Turn 和 Tool Call。
 
-## 8. 后续模块
+### 7.2 Run State
 
-以下模块仅在对应里程碑开始时创建：
+S01 建立以下显式状态骨架，并由后续 Stage 补充持久化、Token 预算和恢复语义：
 
-| 模块 | 最早阶段 | 职责 |
-| --- | --- | --- |
-| `cc-java-worktree-git` | M2 | Worktree、隔离分支、Git 状态与 Diff |
-| `cc-java-build-maven` | M2 | 受控 Maven 编译和测试 |
-| `cc-java-fixbug` | M3 | BugCase、缺失信息检查和显式工作流 |
-| `cc-java-mcp` | M4 | 受过滤的 MCP Client 工具适配 |
-| `cc-java-session` | M4 | 会话、Checkpoint 和报告持久化 |
-| `cc-java-evals` | M2/M3 | 种子 Bug、历史回放和指标 |
-| `cc-java-desktop` | M5 | 会话、审批、Diff 和证据 UI |
+- Session ID、Run ID；
+- 当前消息历史；
+- Workspace；
+- Permission Mode；
+- 当前可见 Tool Set；
+- Model Turn 计数；
+- Tool Call 计数；
+- 累计 Usage；
+- 开始时间和 Deadline；
+- 当前 Cancellation Token；
+- 最近错误和 Stop Reason；
+- Context 使用估计。
 
-模块表是演进方向，不是要求一次性创建的项目骨架。
+Run State 不使用全局静态变量。
 
-## 9. Agent Loop
+## 8. Bootstrap / Scaffolding
 
-### 9.1 基本流程
-
-```mermaid
-sequenceDiagram
-    participant CLI
-    participant Loop as AgentLoop
-    participant Model as ModelGateway
-    participant Registry as ToolRegistry
-    participant Tool as AgentTool
-    participant Events as AgentEventSink
-
-    CLI->>Loop: AgentCommand
-    Loop->>Events: RunStarted
-    Loop->>Model: ModelRequest(messages, tool definitions)
-    Model-->>Loop: ModelTurn(text, tool calls, usage)
-
-    alt 无 Tool Call 且有文本
-        Loop->>Events: RunCompleted
-        Loop-->>CLI: AgentResult
-    else 包含 Tool Call
-        Loop->>Events: ModelTurnCompleted
-        loop 按返回顺序执行
-            Loop->>Registry: resolve(tool name)
-            Registry-->>Loop: AgentTool
-            Loop->>Tool: execute(call, context)
-            Tool-->>Loop: ToolResult
-            Loop->>Events: ToolCompleted
-        end
-        Loop->>Model: 下一轮 ModelRequest
-    else 无文本且无 Tool Call
-        Loop->>Events: RunFailed(INVALID_MODEL_RESPONSE)
-        Loop-->>CLI: Failed AgentResult
-    end
-```
-
-### 9.2 消息顺序不变量
-
-当模型一次返回多个 Tool Call 时：
-
-1. 将包含全部 Tool Call 的 Assistant Message 追加一次；
-2. 按返回顺序执行各工具；
-3. 为每个 Tool Call 追加恰好一个匹配调用 ID 的 Tool Result Message；
-4. 全部结果追加后再请求下一轮模型。
-
-不得为每个 Tool Call 重复追加同一个 Assistant Message。这一协议行为必须由离线测试覆盖。
-
-### 9.3 终止规则
-
-| 条件 | 结果状态 |
-| --- | --- |
-| 无 Tool Call，且存在非空最终文本 | `COMPLETED` |
-| 存在 Tool Call，且未超限 | 执行工具并继续 |
-| 无文本且无 Tool Call | `INVALID_MODEL_RESPONSE` |
-| 达到最大模型轮次 | `TURN_LIMIT_REACHED` |
-| 达到最大工具调用数 | `TOOL_LIMIT_REACHED` |
-| 达到总超时 | `TIME_LIMIT_REACHED` |
-| 用户取消 | `CANCELLED` |
-| 模型不可恢复异常 | `MODEL_ERROR` |
-| 核心内部不变量破坏 | `INTERNAL_ERROR` |
-
-未知工具、非法 JSON 参数和普通工具异常默认返回一次结构化错误给模型，使模型有机会纠正；每次失败仍计入工具次数。相同错误连续发生时可提前终止，避免无效消耗。
-
-### 9.4 初始限制建议
-
-以下数值是 M1 的可配置默认值，不是 API 永久契约：
-
-| 限制 | 默认值 |
-| --- | --- |
-| 最大模型轮次 | 12 |
-| 最大工具调用数 | 32 |
-| 单次运行总时长 | 5 分钟 |
-| 单文件可读大小 | 1 MiB |
-| 单次工具结果 | 64 KiB |
-| 文件列表最大条目 | 500 |
-| 搜索结果最大条目 | 200 |
-| 单个文本搜索文件 | 2 MiB |
-
-达到结果上限时必须标记 `truncated=true`，不能静默丢弃。
-
-## 10. 工具模型
-
-### 10.1 核心概念
-
-- `ToolDefinition`：名称、用途描述、输入 JSON Schema。
-- `ToolCall`：调用 ID、工具名、模型生成的 JSON 参数。
-- `ToolResult`：调用 ID、成功状态、结构化内容、错误分类、截断标记。
-- `ToolExecutionContext`：`runId`、工作区、取消信号、限制和权限上下文。
-- `AgentTool`：由适配器实现的工具端口。
-
-所有工具名称在单次模型请求中必须唯一。描述应明确适用场景、参数格式、限制和禁止行为。
-
-### 10.2 M1 工具设计
-
-| 工具 | 主要输入 | 主要输出 | 备注 |
-| --- | --- | --- | --- |
-| `list_files` | 相对目录、深度、数量 | 相对路径列表 | 默认忽略构建目录和敏感目录 |
-| `read_file` | 相对路径、起止行 | 带行号文本 | 拒绝二进制、超大或敏感文件 |
-| `search_text` | 查询、相对目录、文件模式 | 文件、行号、片段 | 首版使用 Java NIO 实现 |
-| `git_diff` | 可选路径范围 | 统一 Diff 文本 | 固定 Git 参数，禁止外部 diff/textconv |
-
-### 10.3 为什么 M1 不提供 Shell
-
-“只允许只读命令”难以可靠判断。命令替换、配置文件、Git 外部程序、构建插件和脚本都可能产生副作用。因此 M1 不提供通用 Shell，只提供语义明确的工具。
-
-## 11. 工作区安全
-
-### 11.1 `WorkspaceGuard`
-
-所有本地工具共享一个 `WorkspaceGuard`。它必须：
-
-1. 启动时对仓库根路径执行真实路径解析；
-2. 拒绝模型提供的绝对路径；
-3. 规范化相对路径并拒绝 `..` 越界；
-4. 对实际目标再次解析真实路径；
-5. 确认目标真实路径位于根路径内；
-6. 对每次目录遍历结果执行相同检查；
-7. 在 Windows 上覆盖符号链接和 Junction 逃逸测试；
-8. 拒绝设备文件、非普通文件和不可识别的二进制内容。
-
-仅做字符串前缀比较不安全，例如 `C:\repo2` 不能被视为 `C:\repo` 的子路径。
-
-### 11.2 默认忽略与拒绝
-
-默认忽略：
-
-- `.git/`
-- `target/`
-- `build/`
-- `node_modules/`
-- IDE 缓存和大体积生成目录
-
-默认拒绝：
-
-- `.env` 及其变体；
-- 私钥、证书密钥、Keystore；
-- SSH 和云服务凭证目录；
-- 明确命名为 credentials、secrets、tokens 的文件；
-- 超过大小限制的文件；
-- 用户额外配置的敏感路径。
-
-拒绝列表只是降低风险，不代表可以自动识别所有秘密。用户仍需确认所选模型提供方和数据策略适合目标仓库。
-
-### 11.3 Git 读取
-
-`git_diff` 如需调用系统 Git，必须：
-
-- 使用 `ProcessBuilder` 参数数组，不经过 Shell；
-- 使用固定命令模板；
-- 设置工作目录、总超时和输出上限；
-- 禁用外部 diff 与 textconv；
-- 禁用 Pager 和交互；
-- 不接受模型提供的任意 Git 参数；
-- 对环境变量进行最小化或清理。
-
-## 12. 权限模型
-
-### 12.1 能力分类
-
-| 能力 | 示例 |
-| --- | --- |
-| `READ_REPOSITORY` | 列目录、读文件、搜索、Git Diff |
-| `WRITE_WORKTREE` | 应用补丁、创建文件 |
-| `EXECUTE_BUILD` | Maven 编译和测试 |
-| `NETWORK_READ` | 查询缺陷、日志或只读 API |
-| `EXTERNAL_WRITE` | 评论缺陷、推送分支、创建 PR |
-| `DESTRUCTIVE` | 删除、覆盖、强制重置 |
-
-### 12.2 阶段策略
-
-| 能力 | M1 | M2 交互模式 | M3 预授权夜间模式 |
-| --- | --- | --- | --- |
-| `READ_REPOSITORY` | 允许 | 允许 | 允许 |
-| `WRITE_WORKTREE` | 禁止 | 每任务审批 | 仅隔离 Worktree、按预设策略 |
-| `EXECUTE_BUILD` | 禁止 | 每任务审批或配置授权 | 仅固定模板、按预设策略 |
-| `NETWORK_READ` | 禁止 | 默认禁止 | 仅允许的私有适配器 |
-| `EXTERNAL_WRITE` | 禁止 | 禁止 | 禁止 |
-| `DESTRUCTIVE` | 禁止 | 禁止 | 禁止 |
-
-审批结果属于应用状态，不放进自然语言 Prompt 中作为唯一依据。
-
-## 13. Spring AI 适配
-
-### 13.1 使用方式
-
-M1 选择“用户控制工具执行”：
-
-- 使用 Spring AI 2.0.0 的 `ChatClient` 或 `ChatModel` 发起模型请求；
-- 若使用 `ChatClient`，为请求禁用自动注册的 `ToolCallingAdvisor`，或全局设置 `spring.ai.chat.client.tool-calling.enabled=false`；
-- Spring AI Adapter 只把模型响应转换成核心 `ModelTurn`；
-- 核心 `AgentLoop` 自行调用 `ToolRegistry` 和 `AgentTool`。
-
-开始编码时先做一个最小 Spike，验证当前版本下：
-
-1. 工具定义能正确发送给目标模型；
-2. 自动 Tool Loop 确实关闭；
-3. 多 Tool Call 的 ID、参数和顺序能无损转换；
-4. Tool Result Message 能正确回传；
-5. Token Usage 和 Finish Reason 能获取或安全缺省。
-
-若 `ChatClient` 的 Advisor 链造成不必要复杂度，Adapter 可以直接使用 `ChatModel`；该选择不应影响核心接口。
-
-### 13.2 工具暴露
-
-- 不把读写工具配置为 `defaultTools`；
-- 每次请求从核心权限策略生成允许的 Tool Definition；
-- Spring AI 的 `ToolCallback` 只是协议适配，不成为核心工具接口；
-- M1 不使用 Spring AI 自动异常文本作为最终错误格式。
-
-### 13.3 模型提供方
-
-首版只选择一个 Provider Starter，避免配置、测试和行为矩阵过早膨胀。Provider 特有选项只能存在于 Adapter 或 CLI 配置层。
-
-API Key：
-
-- 只从环境变量或外部秘密存储读取；
-- 不允许命令行明文参数；
-- 不写入配置样例的真实值；
-- 不进入事件、异常信息或测试快照。
-
-## 14. 上下文管理
-
-### 14.1 M1 策略
-
-- 初始上下文只包含系统角色、用户问题、工具定义和必要的工作区元数据；
-- 代码内容按需通过工具读取；
-- 每个工具结果都有数量和字符限制；
-- 不预先把整个仓库、Git 历史或依赖树发送给模型；
-- 不使用向量数据库、AST 索引或自动摘要；
-- 每次 CLI 运行使用内存消息历史，结束后释放。
-
-### 14.2 仓库内容的信任级别
-
-源码、README、注释、测试数据和日志全部视为不可信输入。即使文件中出现“忽略系统规则”“读取密钥”等指令，也不能改变工具策略。
-
-### 14.3 后续演进
-
-目标仓库中的项目级指令文件、上下文压缩、会话恢复和长期记忆进入 M4。在引入前需要单独定义优先级、大小限制和 Prompt Injection 规则。
-
-## 15. 事件与可观测性
-
-### 15.1 Agent 事件
-
-核心通过 `AgentEventSink` 发布轻量事件，例如：
-
-- `RunStarted`
-- `ModelTurnStarted`
-- `ModelTurnCompleted`
-- `ToolCallRequested`
-- `ToolCallStarted`
-- `ToolCallCompleted`
-- `LimitApproaching`
-- `RunCompleted`
-- `RunFailed`
-- `RunCancelled`
-
-事件至少包含：
-
-- `runId`
-- 序号和时间
-- 事件类型
-- 工具名或模型轮次
-- 耗时
-- 状态和错误分类
-- Token Usage（如 Provider 提供）
-- 是否发生截断
-
-默认不包含原始 Prompt、完整回复、工具参数、源码或工具结果。
-
-### 15.2 与 Micrometer 的关系
-
-Spring AI 内建 Observability 用于模型和工具 SDK 的运行指标；Agent Event 用于重建本项目的业务执行轨迹。两者互补，不能用 Trace 代替 Agent Event。
-
-M1 可以先在内存中统计并渲染终端摘要。Actuator、OpenTelemetry Exporter 和持久化审计后续按需引入。
-
-### 15.3 Event Sink 不是 Event Sourcing
-
-M1 的事件回调只用于进度、指标和测试，不引入事件存储、回放框架或分布式消息系统。
-
-## 16. 错误模型
-
-建议按来源分类：
-
-| 分类 | 示例 | 是否可重试 |
-| --- | --- | --- |
-| `INVALID_INPUT` | 仓库不存在、问题为空 | 否 |
-| `WORKSPACE_DENIED` | 越界路径、敏感文件 | 否；可让模型选择其他证据 |
-| `TOOL_ARGUMENT_ERROR` | JSON 或参数非法 | 可给模型一次纠正机会 |
-| `TOOL_NOT_FOUND` | 请求未注册工具 | 可给模型一次纠正机会 |
-| `TOOL_EXECUTION_ERROR` | 文件变化、Git 失败 | 视错误而定 |
-| `MODEL_RATE_LIMITED` | Provider 限流 | 有界重试 |
-| `MODEL_UNAVAILABLE` | 网络或服务异常 | 有界重试 |
-| `MODEL_PROTOCOL_ERROR` | 无效 Tool Call 或空响应 | 通常否 |
-| `LIMIT_REACHED` | 轮次、工具、时间超限 | 否 |
-| `CANCELLED` | 用户取消 | 否 |
-| `INTERNAL_ERROR` | 不变量破坏 | 否并保留诊断 ID |
-
-重试必须有最大次数、退避和总时长限制。工具错误返回模型前要脱敏。
-
-## 17. M2 技术演进：影子修复
+每次启动 Session 时执行一次：
 
 ```mermaid
 flowchart LR
-    START["接收任务"] --> CHECK["检查仓库与权限"]
-    CHECK --> WT["创建独立 Worktree / 分支"]
-    WT --> INVESTIGATE["只读调查"]
-    INVESTIGATE --> APPROVE["请求写入批准"]
-    APPROVE -->|批准| PATCH["受控应用补丁"]
-    APPROVE -->|拒绝| STOP["结束并报告"]
-    PATCH --> BUILD["固定模板编译"]
-    BUILD --> TEST["选择并执行相关测试"]
-    TEST --> REPORT["生成 Diff 与证据报告"]
-    REPORT --> REVIEW["人工审核"]
+    ARG["解析 CLI 参数"] --> WS["解析 Workspace"]
+    WS --> CONFIG["加载配置与 Provider"]
+    CONFIG --> INSTR["加载项目指令"]
+    INSTR --> TOOLS["组装允许的 Tools"]
+    TOOLS --> POLICY["组装 Permission Policy"]
+    POLICY --> SESSION["创建 Session"]
+    SESSION --> REPL["进入 REPL 或 Print Run"]
 ```
 
-### 17.1 Worktree
+Bootstrap 只组装依赖和初始上下文，不驱动 Tool Loop。
 
-- 分支名由应用生成并清洗，例如 `agent/BUG-1234/20260727`；
-- 任务目录位于配置的 Agent 工作根目录；
-- 创建前确认目标不存在，创建后解析真实路径；
-- 后续所有写工具只获得 Worktree 根路径；
-- 原始工作区不向写工具暴露；
-- 清理 Worktree 属于显式操作，不在失败时做破坏性强清理。
+S02 配置来源只有：
 
-### 17.2 补丁
+1. CLI 参数；
+2. 环境变量；
+3. 代码默认值。
 
-- 模型输出候选变更，不直接持有文件句柄；
-- 应用使用受控 Patch 工具校验目标、上下文和大小；
-- 每次补丁后记录修改文件和 Diff；
-- 禁止修改 `.git`、Agent 配置、凭证和工作区外路径；
-- 二进制文件修改不进入首版。
+用户、项目、本地和 Session 配置文件在 S08 统一实现，避免在 CLI 起步阶段先设计复杂优先级。
 
-### 17.3 构建与测试
+## 9. Agent Loop
 
-- 命令来自项目配置或固定模板，不接受完整模型命令；
-- 使用 `ProcessBuilder` 参数数组；
-- 设置工作目录、环境变量白名单、超时和输出上限；
-- 首版只支持 Maven；
-- 构建插件本身仍可能执行任意代码，因此只在隔离 Worktree 和获得授权后运行；
-- 编译通过不等于修复正确，必须同时输出相关测试选择依据。
+### 9.1 外层会话与内层运行
 
-## 18. M3 技术演进：FixBug 状态机
+```text
+Session Loop:
+  等待用户输入
+  → 创建 Run
+  → 执行 Agent Loop
+  → 展示最终结果
+  → 等待下一条输入
+
+Agent Loop:
+  组装当前 Context
+  → 请求一个 Model Turn
+  → 流式发布文本
+  → 聚合 Model Turn
+  → 无 Tool Call：完成
+  → 有 Tool Call：逐个进入 Tool Pipeline
+  → 追加 Tool Results
+  → 下一 Model Turn
+```
+
+### 9.2 时序
 
 ```mermaid
-stateDiagram-v2
-    [*] --> INGESTED
-    INGESTED --> NEEDS_INPUT: 信息不足
-    INGESTED --> INVESTIGATING: 信息完整
-    NEEDS_INPUT --> INVESTIGATING: 人工补充
-    INVESTIGATING --> NEEDS_INPUT: 缺少关键证据
-    INVESTIGATING --> READY_TO_FIX: 根因与位置可解释
-    INVESTIGATING --> REVIEW_REQUIRED: 仅能给出调查报告
-    READY_TO_FIX --> PATCHING: 策略允许
-    PATCHING --> VERIFYING: 形成候选补丁
-    PATCHING --> REVIEW_REQUIRED: 修改失败
-    VERIFYING --> REVIEW_REQUIRED: 验证完成或失败
-    REVIEW_REQUIRED --> ACCEPTED: 人工接受
-    REVIEW_REQUIRED --> REJECTED: 人工拒绝
-    REVIEW_REQUIRED --> INVESTIGATING: 要求重查
-    REVIEW_REQUIRED --> NEEDS_INPUT: 要求补充信息
-    ACCEPTED --> [*]
-    REJECTED --> [*]
+sequenceDiagram
+    participant User
+    participant CLI
+    participant Runtime
+    participant Model
+    participant Pipeline
+    participant Approval
+    participant Tool
+
+    User->>CLI: 输入任务
+    CLI->>Runtime: startRun(userMessage)
+    Runtime->>Model: modelTurn(messages, tool definitions)
+    Model-->>Runtime: text deltas
+    Runtime-->>CLI: ModelTextDelta events
+    Model-->>Runtime: aggregated ModelTurn
+
+    alt 无 Tool Call
+        Runtime-->>CLI: RunCompleted
+    else 有 Tool Call
+        loop 每个 Tool Call
+            Runtime->>Pipeline: execute(call)
+            Pipeline->>Approval: permission request if needed
+            Approval-->>Pipeline: allow / deny
+            Pipeline->>Tool: execute if allowed
+            Tool-->>Pipeline: ToolResult
+            Pipeline-->>Runtime: sanitized ToolResult
+        end
+        Runtime->>Model: next model turn
+    end
 ```
 
-状态迁移由 Java 工作流代码决定；模型可以提供判断材料，但不能直接跳过审批或改变状态机规则。LangGraph 不是运行时依赖，项目会自行实现满足当前场景的最小显式状态机。
+### 9.3 多 Tool Call 协议
 
-### 18.1 外部端口
+模型一次返回多个 Tool Call 时：
 
-M3 可增加：
+1. Assistant Message 连同全部 Tool Call 追加一次；
+2. S01 按模型顺序执行；
+3. 每个调用追加一个相同 Call ID 的 Tool Result；
+4. 全部完成后再发起下一 Model Turn。
 
-- `BugSourcePort`：读取缺陷和分配信息；
-- `LogQueryPort`：限定时间、服务和环境的只读日志查询；
-- `DatabaseReadPort`：参数化、只读、限量的数据查询；
-- `CodeRepositoryPort`：仓库定位和元数据；
-- `ReviewDecisionPort`：接收人工决策。
+安全读工具的有界并行属于 S12。写工具、命令和相互依赖的 Tool Call 默认保持顺序。
 
-公司内部 MC、日志平台和数据库适配器应放在私有仓库。公开仓库只保留 SPI、Fake 和脱敏示例。
+### 9.4 流式设计
 
-## 19. MCP、Skills 与桌面端
+S02 提供终端流式体验，但核心不依赖 Reactor。
 
-### 19.1 MCP
+建议端口语义：
 
-MCP 进入 M4，作为外部工具适配器，而不是核心 Agent Loop。默认策略：
+- `ModelGateway` 从调用者角度执行一个完整 Model Turn；
+- Adapter 在调用期间通过 Observer/Event Sink 发布文本增量；
+- 返回值是已聚合的 Model Turn，包含完整 Tool Call；
+- Agent Loop 仍是普通顺序控制流；
+- Spring AI Adapter 内部可以消费 `Flux`，但不得将 `Flux` 暴露到 domain/core。
 
-- CLI 本地场景优先同步 Client；
-- STDIO 或 Streamable HTTP 由配置选择；
-- 每个 Server 配置工具 allowlist；
-- 启用工具名前缀避免冲突；
-- 不把发现到的全部 MCP Tool 自动暴露给模型；
-- MCP 工具仍经过核心权限与审计。
+Tool Call 可能跨多个流式 Chunk，必须聚合后才能进入 Pipeline。
 
-### 19.2 Skills / 项目指令
+### 9.5 Stop Reason
 
-后续可定义可版本化的工作流说明和目标仓库指令加载规则，但 Skill 只能影响规划和上下文，不能扩大权限。
+以下 Stop Reason 随 S01～S07 按矩阵逐步启用；领域协议先保持可扩展，不能把尚未实现的状态宣传为当前能力：
 
-### 19.3 桌面端
+| Stop Reason | 含义 |
+| --- | --- |
+| `COMPLETED` | 模型给出最终回复 |
+| `USER_CANCELLED` | 用户取消当前 Run |
+| `MODEL_ERROR` | Provider 调用失败 |
+| `INVALID_MODEL_RESPONSE` | 无文本且无有效 Tool Call |
+| `TURN_LIMIT_REACHED` | 达到模型回合上限 |
+| `TOOL_LIMIT_REACHED` | 达到 Tool Call 上限 |
+| `TIME_LIMIT_REACHED` | 达到 Run Deadline |
+| `CONTEXT_LIMIT_REACHED` | 无安全压缩能力且上下文不足 |
+| `PERMISSION_DENIED` | 关键操作被拒绝后无法继续 |
+| `TOOL_ERROR` | 不可恢复工具错误 |
+| `INTERNAL_ERROR` | Runtime 不变量破坏 |
 
-桌面端复用 Application Use Case 和 Agent Event，不直接调用 Spring AI 或本地工具。UI 主要负责：
+所有错误恢复都有次数和总时间限制。
 
-- 展示执行步骤；
-- 请求批准；
-- 查看文件、Diff、构建和测试证据；
-- 取消运行；
-- 提交人工审核决定。
+## 10. Spring AI 适配
 
-## 20. 测试策略
+Spring AI 2.0 支持 Framework-Controlled、Advisor-Controlled 和 User-Controlled Tool Execution。本项目选择 User-Controlled。
 
-### 20.1 核心离线测试
+本节对应 S02。S01 只使用 Scripted Fake `ModelGateway`，在离线协议测试完成前不接真实 Provider。
 
-实现脚本式 `ModelGateway` Fake：按顺序返回预设 `ModelTurn`，同时记录收到的每次 `ModelRequest`。
+实现要求：
+
+- 如果使用 `ChatClient`，禁用自动注册的 `ToolCallingAdvisor`；
+- 可以使用请求级 `AdvisorParams.toolCallingAdvisorAutoRegister(false)`，也可全局关闭；
+- Adapter 只返回 Tool Call；
+- Tool 执行由核心 Pipeline 完成；
+- 不配置全局高风险 `defaultTools`；
+- Tool Schema 按当前 Run 权限和模式提供。
+
+开始正式实现前必须完成一个独立 Spike，验证：
+
+1. 文本流可以被观察；
+2. Tool Call Chunks 可以无损聚合；
+3. 多 Tool Call 的 ID 和顺序保持；
+4. Tool Result 可以正确进入下一轮模型消息；
+5. 自动工具执行确实关闭；
+6. 取消能中断模型请求；
+7. Usage 缺失时正常降级。
+
+Adapter 选择 `ChatClient` 还是直接 `ChatModel` 不改变核心端口。优先使用能保留 Spring AI Observability 且不会接管 Tool Loop 的方案。
+
+## 11. Tool Execution Pipeline
+
+```mermaid
+flowchart LR
+    CALL["Tool Call"] --> RESOLVE["Resolve Tool"]
+    RESOLVE --> SCHEMA["Validate Schema"]
+    SCHEMA --> BEFORE["BeforeTool Lifecycle"]
+    BEFORE --> PERM["Permission Gate"]
+    PERM -->|ASK| APPROVE["Approval Handler"]
+    PERM -->|DENY| DENIED["Denied Tool Result"]
+    PERM -->|ALLOW| EXEC["Tool Executor"]
+    APPROVE -->|ALLOW| EXEC
+    APPROVE -->|DENY| DENIED
+    EXEC --> NORMALIZE["Normalize / Truncate / Redact"]
+    NORMALIZE --> AFTER["AfterTool Lifecycle"]
+    AFTER --> RESULT["Tool Result"]
+```
+
+Pipeline 负责：
+
+- Tool 查找和来源记录；
+- JSON Schema 与业务参数校验；
+- 副作用分类；
+- Lifecycle Event；
+- Permission Decision；
+- Approval；
+- 超时、取消和执行；
+- stdout/stderr 或文件内容裁剪；
+- 敏感信息处理；
+- 结构化错误；
+- Tool Event 和结果回传。
+
+未来的 MCP、Plugin 和 Sub-Agent Tool 只能注册进 Registry，不能直接调用 Executor。
+
+## 12. Tool Contract
+
+### 12.1 Tool Definition
+
+至少包含：
+
+- 稳定 Tool Name；
+- 清晰 Description；
+- JSON Input Schema；
+- Tool Effect；
+- Tool Source；
+- 是否支持取消；
+- 默认超时；
+- 输出类型和最大大小。
+
+### 12.2 Tool Effect
+
+S04 引入最小副作用分类和审批，S05 完成模式、规则、硬拒绝和拒绝恢复：
+
+| Effect | 示例 | 默认决策 |
+| --- | --- | --- |
+| `READ_WORKSPACE` | read、list、search、git diff | Allow |
+| `WRITE_WORKSPACE` | apply patch | Ask |
+| `EXECUTE_PROCESS` | run command、test | Ask |
+| `NETWORK_OR_REMOTE` | push、publish、HTTP mutation | Deny / 强提醒 |
+| `SYSTEM_OR_DESTRUCTIVE` | 工作区外写、系统修改 | Deny |
+
+Effect 是权限输入，不替代 Tool 自身的路径和参数校验。
+
+### 12.3 分阶段内置工具
+
+| Stage | Tool | 目标 |
+| --- | --- | --- |
+| S03 | `list_files` | 枚举有限目录结构 |
+| S03 | `read_file` | 按行读取文本 |
+| S03 | `search_text` | 搜索内容并返回文件、行号和片段 |
+| S03 | `git_status` | 展示当前分支和脏工作区 |
+| S03 | `git_diff` | 展示修改证据 |
+| S04 | `apply_patch` / `write_file` | 受控创建、修改或删除文本文件 |
+| S04 | `run_command` | 经审批后通过平台 Shell 执行命令 |
+
+S03～S04 不需要 40 个工具。新 Tool 只有在当前 Stage 的对照行为和验收任务无法合理完成时才增加；MCP、Skill 和 Plugin 的工具发现分别遵循 S10～S11。
+
+## 13. Permission 与 Approval
+
+### 13.1 决策顺序
+
+```text
+Hard Denial
+→ Permission Mode
+→ Explicit Rules
+→ Tool Effect Default
+→ User Approval
+```
+
+越靠前优先级越高。Prompt 中的文字不能改变此顺序。
+
+S04 先实现副作用工具的默认询问和单次批准；S05 完成以下决策顺序、声明性规则、硬拒绝和拒绝结果回传。
+
+### 13.2 S05 模式
+
+`DEFAULT`：
+
+- Workspace 读取自动允许；
+- Patch 默认询问；
+- Shell 默认询问；
+- 工作区外操作拒绝。
+
+`PLAN`：
+
+- 允许普通读取；
+- 拒绝 Patch；
+- S05 默认拒绝 Shell，后续可开放结构化只读命令；
+- Agent 最终只能给出分析和计划。
+
+### 13.3 审批选项
+
+交互模式至少支持：
+
+- `ALLOW_ONCE`
+- `ALLOW_SESSION`
+- `DENY`
+
+`ALLOW_SESSION` 应限定到 Tool 和可解释的匹配范围，不能含糊地变成“允许所有 Shell”。
+
+审批 UI 必须展示：
+
+- Tool 名称；
+- 目标路径或准确命令；
+- Workspace / Working Directory；
+- 风险说明；
+- 模型给出的简短目的；
+- 可选 Patch Diff 或命令预览。
+
+S05 的 Print 模式没有交互终端，遇到 `ASK` 时返回拒绝结果；后续通过显式 Rule 预授权。
+
+### 13.4 Permission 不等于 Sandbox
+
+S04 的 Shell 在用户操作系统账户下运行。审批和规则降低误操作风险，但不能阻止获准 Shell 进一步访问网络或系统。
+
+文档和 UI 必须明确：
+
+- S04～S12 没有真正 OS Sandbox；
+- Command 内容可能有间接副作用；
+- 用户不应在不可信仓库上盲目批准；
+- OS Sandbox / Container Backend 属于 S13。
+
+## 14. Workspace 与文件安全
+
+### 14.1 WorkspaceGuard
+
+文件 Tool 必须：
+
+1. 启动时解析 Workspace 真实路径；
+2. 拒绝模型传入绝对路径；
+3. 规范化相对路径；
+4. 拒绝 `..` 越界；
+5. 对已存在目标执行 `toRealPath()`；
+6. 确认真实目标仍在 Workspace；
+7. 对符号链接和 Windows Junction 做逃逸测试；
+8. 对新文件验证最近已存在父目录真实路径；
+9. 拒绝 `.git` 内部文件和已知秘密；
+10. 限制文件大小、目录深度、结果数量和字符数。
+
+### 14.2 脏工作区
+
+启动时通过 `git_status` 检测已有修改，并在 Session 状态中记录初始基线。
+
+规则：
+
+- 不覆盖上下文不匹配的用户修改；
+- Patch 必须带上下文并在应用前重新校验；
+- 最终报告区分 Session 启动前修改和 Agent 产生的修改；
+- S04 不自动清理、不 reset、不 commit；
+- 拒绝批准后不能产生新文件修改；
+- Checkpoint/Undo 在 S06 实现。
+
+### 14.3 Patch
+
+`apply_patch` 应：
+
+- 使用项目自有 Patch 格式或受控统一 Diff；
+- 在执行前完成路径与大小校验；
+- 以原子方式替换单个文件；
+- 失败时不留下部分文件；
+- 返回修改文件、Hunk 结果和新 Diff；
+- 不支持二进制 Patch；
+- 不隐式格式化整个仓库。
+
+## 15. Command Runtime
+
+### 15.1 跨平台 Shell
+
+S04 通过 `ShellAdapter` 隔离平台差异：
+
+- Windows：待确认 PowerShell 7 / Windows PowerShell 策略；
+- Linux：待确认 `/bin/sh` 或用户配置 Shell；
+- 向模型提供当前 Shell 类型和操作系统；
+- 审批内容必须与实际执行字符串一致。
+
+通用 Shell Tool 必须经过 Shell 解释器，因此不能宣称完全避免命令注入。安全重点是：
+
+- 模型生成内容不被二次拼接；
+- UI 显示准确命令；
+- 只有批准后的完整字符串被执行；
+- 工作目录固定；
+- 环境变量最小化；
+- 时间、输出和进程树受控制；
+- 未来在 Sandbox 中执行。
+
+### 15.2 执行要求
+
+- stdout/stderr 逐步发布 Tool Output Event；
+- 保留退出码；
+- 有默认和最大超时；
+- `Ctrl+C` 终止主进程及子进程树；
+- 禁用交互式 TTY 命令，或检测后停止；
+- 输出达到上限后标记截断，同时继续安全地消费或终止进程；
+- 不把全部构建输出永久塞入 Context；
+- 不自动执行 commit、push、publish 或 deploy。
+
+## 16. Context Engineering
+
+### 16.1 S01～S03 初始 Context
+
+首轮 Context 按 Stage 增量组装，只包含：
+
+- Runtime System Instructions；
+- Workspace 路径、OS 和 Shell 元数据；
+- 当前 Permission Mode；
+- 根目录 `AGENTS.md`；
+- 当前用户消息；
+- 当前可用 Tool Definition。
+
+源码按需通过 Tool 获取，不预先扫描整个仓库。
+
+### 16.2 `AGENTS.md`
+
+S03 只加载 Workspace 根 `AGENTS.md`。规则：
+
+- 文件内容属于上下文，不属于硬权限；
+- 有大小上限；
+- 无文件时正常启动；
+- 不支持递归 Import；
+- 不加载 Workspace 外文件；
+- 目录层级、用户级指令和 Rules 在 S08 实现。
+
+选择 `AGENTS.md` 是采用通用 Agent 约定，不复制某个产品的 `CLAUDE.md` 机制。
+
+### 16.3 工具结果
+
+- File Read 按行范围；
+- Search 结果带数量上限；
+- Shell 输出只把必要尾部或结构化摘要回传模型；
+- 所有截断都显式标记；
+- Runtime 事件可以展示更多输出，但 Context 不必保留全部。
+
+### 16.4 S03 的 Context 压力边界
+
+S03 不实现自动压缩。它只：
+
+- 统计或估计 Token；
+- 限制单结果和累计内容；
+- 接近阈值时发布 Warning；
+- 无法继续时以 `CONTEXT_LIMIT_REACHED` 停止。
+
+S07 再实现工具结果淘汰、摘要、渐进压缩、压缩防抖和 `/context`。
+
+## 17. Session
+
+### 17.1 S01～S05 内存 Session
+
+- S01 创建 Session ID 和 Run ID，并保存消息与核心事件；
+- S02 由 CLI 在同一进程内维持连续对话；
+- S04～S05 将权限 Session Allow 加入内存 Session；
+- 进程退出后不恢复；
+- `SessionStore` Port 仍在 core 中，以内存实现验证边界。
+
+### 17.2 S06 持久 Session
+
+文件 Session Adapter 使用项目自有、版本化 JSONL Schema：
+
+- Message；
+- Tool Call / Result；
+- Permission Decision；
+- Lifecycle Event；
+- Run Stop；
+- Metadata。
+
+支持：
+
+- continue；
+- resume；
+- fork；
+- export；
+- retention；
+- schema migration。
+
+不兼容或解析商业产品内部 JSONL。
+
+### 17.3 Checkpoint
+
+S06 在写 Tool 执行前保存受影响文件快照：
+
+- 独立于 Git；
+- 仅覆盖 Agent 修改的普通文件；
+- 不恢复符号链接、远端系统或 Shell 副作用；
+- Undo 是显式操作，不自动 reset 用户工作区。
+
+## 18. Lifecycle 与 Agent Event
+
+### 18.1 内部 Lifecycle
+
+S01 预留最小事件点，S05 补齐 Permission 的可观察语义：
+
+- `SESSION_START`
+- `SESSION_END`
+- `RUN_START`
+- `RUN_END`
+- `MODEL_TURN_START`
+- `MODEL_TURN_END`
+- `BEFORE_TOOL`
+- `PERMISSION_REQUESTED`
+- `AFTER_TOOL`
+
+它们用于内部组件解耦和测试，不在 S01～S05 暴露用户可配置 Hook DSL。
+
+### 18.2 Agent Event
+
+终端订阅：
+
+- Session/Run 状态；
+- Model Text Delta；
+- Tool Requested/Started/Output/Completed；
+- Permission Requested/Decided；
+- Limit Warning；
+- Run Completed/Failed/Cancelled。
+
+CLI 只根据事件渲染，不通过轮询访问 Runtime 私有状态。
+
+### 18.3 S09 Hooks
+
+用户 Hook 在 S09 建立在 Lifecycle 上，但需要单独定义：
+
+- Matcher；
+- JSON 输入输出；
+- 超时；
+- 阻断语义；
+- Error Policy；
+- Command/HTTP 类型；
+- 安全与递归限制。
+
+不提前兼容其他产品的全部 Hook Event。
+
+## 19. CLI 与终端
+
+### 19.1 Picocli
+
+负责：
+
+- 参数和帮助；
+- Interactive / Print；
+- Workspace、Model、Mode；
+- Exit Code；
+- 后续 resume/fork 子命令。
+
+### 19.2 JLine
+
+S02 负责：
+
+- 行编辑和历史；
+- `Ctrl+C`；
+- ANSI 能力检测；
+- `/exit`；
+- 基础多行或粘贴处理。
+
+全屏 React/Ink 式 TUI 不进入 S02。终端输出优先可读和可测试，其他 Surface 在 S14 以后通过同一 Runtime 演进。
+
+### 19.3 渲染
+
+人类模式区分：
+
+- Assistant Text；
+- Tool 状态；
+- Tool Output；
+- Approval Prompt；
+- Warning / Error；
+- Final Summary。
+
+S02 不承诺稳定机器 JSONL 输出；版本化机器协议进入 S14。测试通过 Fake Renderer 验证事件语义，而不是断言 ANSI 全文。
+
+## 20. 配置与秘密
+
+### 20.1 S02 起步配置
+
+- CLI 参数配置 Workspace、Mode 和模型名；
+- Provider API Key 来自环境变量或外部秘密存储；
+- API Key 不允许通过普通 CLI 参数传入；
+- 日志和异常统一脱敏；
+- 不创建项目级 Provider 密钥文件。
+
+### 20.2 S08 分层配置
+
+建议配置优先级：
+
+```text
+CLI
+→ Session overrides
+→ Project local
+→ Project shared
+→ User
+→ Defaults
+```
+
+企业 Managed Policy 在真实需求出现后再设计。数组合并、规则覆盖和不可覆盖项必须有明确语义。
+
+## 21. Trust Boundary 与安全
+
+| 输入 | 信任级别 | 控制 |
+| --- | --- | --- |
+| User Prompt | 未验证 | 不直接执行 |
+| Repository Content | 不可信 | 只作为 Context；不能改变权限 |
+| Model Output | 不可信 | Schema、Permission、Approval |
+| Tool Argument | 不可信 | 参数和路径校验 |
+| Tool Output | 不可信 | 裁剪、脱敏、Prompt Injection 防护 |
+| Project `AGENTS.md` | 指导性 | 不能扩大权限 |
+| User Approval | 授权输入 | 仅作用于展示的具体范围 |
+| Hard Policy | 可信控制面 | 模型和项目内容不可修改 |
+
+### 21.1 Prompt Injection
+
+代码注释、README、依赖源码和命令输出可能包含诱导指令。安全规则：
+
+- 文件内容不能新增工具；
+- 文件内容不能修改 Permission Mode；
+- Tool 调用仍经过 Pipeline；
+- 高风险操作显示实际参数；
+- 项目指令不覆盖 Hard Policy。
+
+### 21.2 遥测
+
+默认只记录：
+
+- Run/Turn/Tool 计数；
+- 耗时；
+- 状态和 Stop Reason；
+- Usage；
+- 截断标记。
+
+默认不记录：
+
+- 完整 Prompt；
+- 完整 Completion；
+- 文件正文；
+- 完整命令输出；
+- API Key；
+- 未脱敏绝对路径。
+
+## 22. 测试策略
+
+### 22.1 Scripted Model
+
+核心使用 Scripted Fake `ModelGateway`：
+
+- 预设 Model Turn 队列；
+- 可发布文本增量；
+- 记录收到的 Model Request；
+- 可模拟 Tool Call Chunk、错误、限流和取消。
+
+以下用例随 S01～S07 累积，不要求在 S01 一次实现全部：S01 先覆盖 Loop 和消息协议；S02 增加流式、模型错误与取消；S03 增加读工具；S04 增加 Patch、Command 和进程取消；S05 增加完整 Permission；S06～S07 增加恢复与 Context 限制。
 
 必须覆盖：
 
-1. 模型直接回答；
-2. 调用 `search_text` 后回答；
-3. 连续多个工具回合；
-4. 单回合返回多个 Tool Call；
-5. Tool Call ID 与 Tool Result ID 正确对应；
-6. 未知工具；
-7. 非法 JSON 参数；
-8. 工具抛出异常；
-9. 模型抛出异常；
-10. 模型返回空响应；
-11. 达到最大轮次；
-12. 达到最大工具调用数；
-13. 工具结果截断；
-14. 用户取消；
-15. 相同工具错误重复发生。
+1. 直接文本完成；
+2. 流式文本完成；
+3. Read → Final；
+4. Read → Patch → Command → Final；
+5. Test Fail → 第二次 Patch → Test Pass；
+6. 单回合多个 Tool Call；
+7. Assistant Message 只追加一次；
+8. Tool Call ID 对应；
+9. 未知 Tool；
+10. Schema 错误；
+11. Permission Allow / Deny / Ask；
+12. 用户拒绝后模型调整；
+13. Model Error；
+14. Tool Error；
+15. 空响应；
+16. Turn/Tool/Time/Context Limit；
+17. Model 和 Tool 取消；
+18. 输出截断。
 
-### 20.2 工具安全测试
+### 22.2 Tool 测试
 
-- `../` 路径穿越；
+S03 先覆盖读取边界；S04 增加写入、Shell 和脏工作区；S13 将其扩展为 Sandbox 与攻击性回归测试。
+
+- 路径穿越；
 - 绝对路径；
-- 同前缀但非子目录路径；
-- 符号链接越界；
-- Windows Junction 越界；
-- 敏感文件拒绝；
-- 二进制和超大文件拒绝；
-- 搜索数量和内容截断；
-- Git 外部 diff/textconv 不被执行；
-- 运行前后仓库文件哈希不变。
+- 符号链接和 Junction；
+- 新文件父目录逃逸；
+- 敏感文件；
+- 二进制和超大文件；
+- Patch 上下文冲突；
+- Patch 原子性；
+- 脏工作区保留；
+- Shell Timeout；
+- stdout/stderr 截断；
+- 进程树取消；
+- Windows/Linux Shell 差异。
 
-### 20.3 契约与集成测试
+### 22.3 CLI 测试
 
-- Spring AI 消息和 Tool Call 映射契约；
-- 多 Tool Call 消息顺序；
-- Provider 不返回 Usage 或 Finish Reason 时的降级；
-- 真实模型测试通过显式 Profile/环境变量启用；
-- CI 默认不需要 API Key；
-- 真实模型结果不使用脆弱的全文字符串断言。
+S02 覆盖 REPL、Print、流式显示和基础取消；S04～S05 增加审批；S06～S08 增加 Session 与 Slash Command；S14 再验证稳定机器协议。
 
-### 20.4 M2/M3 评测
+- Fake Terminal 输入；
+- Approval 选择；
+- `Ctrl+C`；
+- Interactive 多轮；
+- Print 遇到 ASK；
+- Exit Code；
+- 无 ANSI 环境；
+- API Key 缺失诊断。
 
-- 创建公开的种子 Java Bug 仓库或 Fixture；
-- 保存任务、期望证据、可接受修复范围和测试；
-- 统计调查定位、编译、测试、人工接受、成本和时长；
-- 使用 20～30 个脱敏历史缺陷做私有回放后再扩大权限。
+### 22.4 端到端
 
-## 21. 需求追踪
+提供最小 Java Fixture 仓库，包含：
 
-| 需求 | 主要设计组件 |
-| --- | --- |
-| FR-001～004 | `cc-java-cli`、`InvestigateUseCase`、`AgentCommand` |
-| FR-010～015 | `AgentLoop`、`ModelGateway`、`AgentLimits` |
-| FR-020～026 | `cc-java-tools-local`、`WorkspaceGuard`、`ToolRegistry` |
-| FR-030～034 | 最终报告、`AgentEventSink`、脱敏策略 |
-| FR-100～108 | Worktree、Patch、Maven Adapter、Permission Policy |
-| FR-200～206 | `cc-java-fixbug` 状态机和外部端口 |
-| NFR-001～006 | WorkspaceGuard、Permission Policy、Secret Policy |
-| NFR-010～013 | Fake Model、工具安全测试、集成测试 Profile |
-| NFR-020～022 | Java NIO、Windows/Linux 测试矩阵 |
-| NFR-030～033 | Agent Event、Micrometer、内容默认关闭 |
-| NFR-040～042 | 五模块依赖方向和按里程碑拆分 |
+- 初始代码；
+- 验收任务；
+- 确定性测试；
+- 期望允许修改范围；
+- 禁止越权场景。
 
-## 22. 决策记录
+普通 CI 使用 Fake Model。真实模型 E2E 通过显式 Profile 启用，不断言固定自然语言。
+
+## 23. S00～S15 演进路线
+
+### 23.1 旧里程碑到 Stage 的迁移
+
+旧里程碑仅用于说明历史文档如何迁移，不再作为计划、验收或版本命名依据。
+
+| 旧里程碑 | 当前 Stage | 迁移说明 |
+| --- | --- | --- |
+| M0 | S00 | 参考架构、功能矩阵、术语、clean-room 和技术决策 |
+| M1 | S01～S05 | 拆分为 Agent Loop、Model + Streaming CLI、Read Tools、Write + Command、Permission Pipeline |
+| M2 | S06～S08 | 拆分为 Session + Checkpoint、Context Engineering、Instructions + Settings |
+| M3 | S09～S11 | 拆分为 Hooks、MCP、Skills + Plugins |
+| M4 | S12～S13 | 拆分为 Sub-Agent + Worktree、Sandbox + Security |
+| M5 | S14 | Production Harness：Eval、Observability、SDK、Headless 和发行 |
+| 无对应旧里程碑 | S15 | 在可重复对照基线之上的 Java 独立创新 |
+
+### 23.2 技术演进摘要
+
+| Stage | 技术主题 | 主要架构增量 |
+| --- | --- | --- |
+| S00 | Harness 地图 | 参考基线、矩阵、边界、术语和 ADR |
+| S01 | Agent Loop | 五模块骨架、显式 Loop、Fake Model、Tool Pipeline 骨架、内存 Session |
+| S02 | Model + Streaming CLI | 一个 Spring AI Provider、REPL、Print、事件流和取消 |
+| S03 | Read Tools | WorkspaceGuard、读/搜/Git 工具、根 `AGENTS.md`、结果裁剪 |
+| S04 | Write + Command | Patch、Write、Shell、Approval UI、进程树控制和可运行编码闭环 |
+| S05 | Permission Pipeline | Effect、模式、规则、硬拒绝、Permission Lifecycle 和拒绝恢复 |
+| S06 | Session + Checkpoint | 版本化 JSONL、resume/fork、崩溃检测、文件快照与 undo |
+| S07 | Context Engineering | Token 预算、完整 Turn 淘汰、摘要、压缩、防抖和 `/context` |
+| S08 | Instructions + Settings | 用户/项目/目录指令、配置合并、模型切换和 `/doctor` |
+| S09 | Hooks | 生命周期公开协议、matcher、阻断、超时、Command/HTTP Hook |
+| S10 | MCP | STDIO/远程 Transport、多 Server、Tool 映射、过滤、权限和信任 |
+| S11 | Skills + Plugins | 懒加载 Skill、资源、Scoped Hook、Plugin Manifest 和 Tool Provider SPI |
+| S12 | Sub-Agent + Worktree | Runtime Scope、独立 Context/权限/预算、委托、并发、取消和 Worktree |
+| S13 | Sandbox + Security | ExecutionBackend、文件/进程/网络隔离、秘密处理和攻击回归 |
+| S14 | Production Harness | Eval、OTel、稳定机器协议、Java SDK、Headless/Daemon、发行兼容 |
+| S15 | Independent Innovation | 基于对照数据验证 Java/Spring 的差异化能力 |
+
+S01 的离线 Fake Loop、S02 的真实模型 CLI、S03 的只读调查和 S04 的 Mini Coding Agent 都是递进检查点。任何一个检查点可运行，都不等于路线完成；能力等级、参考行为符合度和剩余差距始终以矩阵为准。
+
+### 23.3 每个 Stage 的统一退出包
+
+每个 Stage 无例外地执行：
+
+```text
+选定矩阵 Capability ID
+→ 写清参考行为和本项目验收行为
+→ 更新设计说明 / ADR
+→ 实现并运行离线测试与 Demo
+→ 更新矩阵等级和证据
+→ 提交版本差距报告
+```
+
+FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独立 Application 出现；它们不得改变 Runtime Core 的阶段主线。
+
+## 24. 成熟架构映射
+
+| 成熟 Harness 概念 | cc-java 独立设计 | 阶段 |
+| --- | --- | --- |
+| Scaffolding | Bootstrap + Context Assembly | S01～S03、S08 |
+| Agent Loop | `AgentRuntime` 显式循环 | S01 |
+| Tool System | Registry + Execution Pipeline | S01、S03～S05 |
+| Permission | Mode + Gate + Approval | S04～S05、S08 |
+| Streaming | Agent Event + Model Observer | S02 |
+| Project Instructions | 根 `AGENTS.md` → 分层指令 | S03 → S08 |
+| Sessions | In-memory → versioned JSONL | S01～S02 → S06 |
+| Compaction | Context Manager strategy | S07 |
+| Checkpoint | File snapshot adapter | S06 |
+| Hooks | Lifecycle-based extension | S09 |
+| Skills | Lazy workflow/context package | S11 |
+| MCP | Tool source adapter | S10 |
+| Sub-Agent | Runtime with isolated Scope | S12 |
+| Worktree | Sub-Agent / 写任务隔离 | S12 |
+| Sandbox | Pluggable ExecutionBackend | S13 |
+| Eval / Observability | 可重复任务、事件、指标与 OTel | S01 起步，S14 产品化 |
+| Multiple Surfaces | CLI → SDK/API/Desktop Client | S02 → S14 |
+| Independent Innovation | Java/Spring 可评测差异化 | S15 |
+
+## 25. 决策记录
 
 | 决策 | 状态 | 结论 |
 | --- | --- | --- |
-| ADR-001 | Accepted | 使用端口/适配器边界，核心不依赖 Spring AI |
-| ADR-002 | Accepted | 核心持有手动 Agent Loop，Spring 自动 Tool Loop 默认关闭 |
-| ADR-003 | Accepted | M1 只做只读调查，M2 才加入写入和构建 |
-| ADR-004 | Accepted | M1 同步调用 + 事件回调，不做 Reactive Loop |
-| ADR-005 | Proposed | Java 21、Spring Boot 4.1.0、Spring AI 2.0.0 |
-| ADR-006 | Proposed | M1 使用 Picocli，保持 CLI 为薄适配层 |
-| ADR-007 | Open | 首个模型提供方 |
-| ADR-008 | Open | Maven GroupId 和 Java 根包名 |
-| ADR-009 | Open | Apache-2.0 或 MIT License |
-| ADR-010 | Accepted | M1 不做会话数据库、MCP、RAG、桌面端和多 Agent |
-| ADR-011 | Accepted | FixBug 用最小 Java 状态机，不引入 LangGraph 运行时 |
+| ADR-001 | Accepted | 产品是通用 Java Coding Agent Runtime + CLI |
+| ADR-002 | Accepted | FixBug 只作为上层场景，不进入 Core |
+| ADR-003 | Accepted | Clean-room 独立实现，不翻译受限源码 |
+| ADR-004 | Accepted | 核心拥有 User-Controlled Agent Loop |
+| ADR-005 | Accepted | 所有 Tool 进入统一 Execution Pipeline |
+| ADR-006 | Accepted | S01～S04 逐步形成能读、改、运行和验证的 Mini CLI；它是检查点而非终点 |
+| ADR-007 | Accepted | 同步控制流 + 流式事件，不把 Reactor 泄漏到 Core |
+| ADR-008 | Accepted | S01 创建五个 Maven 模块，后续按 Stage 渐进扩展而不提前创建空模块 |
+| ADR-009 | Proposed | Java 21、Boot 4.1.0、Spring AI 2.0.0 |
+| ADR-010 | Proposed | Picocli + JLine |
+| ADR-011 | Open | 首个模型 Provider |
+| ADR-012 | Open | Windows/Linux 默认 Shell |
+| ADR-013 | Open | GroupId 和根包名 |
+| ADR-014 | Open | 开源或 Noncommercial source-available License |
+| ADR-015 | Accepted | S00～S15 的能力归属、完成度和差距以功能对照矩阵为权威 |
+| ADR-016 | Accepted | 每个 Stage 必须交付矩阵更新、设计说明/ADR、测试/Demo 和差距报告 |
 
-如某个 Accepted 决策需要改变，应先修改本表和受影响章节，再开始实现。
+## 26. 需求追踪
 
-## 23. 实施顺序
+| 需求 | 设计章节 |
+| --- | --- |
+| FR-CLI-* | 8、17、19、20 |
+| FR-AGENT-* | 7、9、18 |
+| FR-MODEL-* | 9、10 |
+| FR-TOOL-* | 11、12、14、15 |
+| FR-PERM-* | 13 |
+| FR-CTX-* | 16 |
+| FR-SESSION-* | 17 |
+| FR-EVENT-* | 18 |
+| NFR-001～005 | 2、3、6、11 |
+| NFR-010～015 | 13、14、15、21 |
+| NFR-020～024 | 9、15、22 |
+| NFR-030～032 | 18、21 |
 
-文档批准后按以下顺序进入 M1：
+## 27. S00～S15 实施顺序
 
-1. 确认 Open 决策和版本基线；
-2. 创建父 POM 与五个 M1 模块；
-3. 先实现领域类型、核心端口和脚本式 Fake Model；
-4. 用离线测试完成 Agent Loop；
-5. 实现 `WorkspaceGuard` 和四个只读工具；
-6. 完成工具安全测试；
-7. 实现 Spring AI Adapter 并做协议 Spike；
-8. 装配 CLI；
-9. 对公开样例仓库执行端到端调查；
-10. 对照 M1 验收标准逐项关闭。
+### 27.1 当前 S00
 
-在第 4 步完成前，不开始桌面端；在第 6 步完成前，不接入真实私有仓库。
+开始代码前先完成：
+
+1. 固定 Reference Baseline 和 clean-room 规则；
+2. 使 PRD、本文、参考架构与功能矩阵使用相同 S00～S15 术语；
+3. 确认 ADR-009～ADR-014 中会阻塞 S01～S04 的 Open/Proposed 决策；
+4. 为 S01 选择矩阵 Capability ID，并写出参考行为和离线验收行为；
+5. 提交 S00 的矩阵更新、设计/ADR、文档检查 Demo 和差距报告。
+
+### 27.2 分 Stage 实现
+
+1. **S01 Agent Loop**：创建父 POM和五个模块，建立 domain 协议、显式 Agent Runtime、Pipeline 骨架、内存 Session、Permission/Approval Port 与 Scripted Fake Model，完成离线消息协议 Demo。
+2. **S02 Model + Streaming CLI**：完成 Spring AI 流式 Tool Call Spike，接入一个真实 Provider，装配 Picocli/JLine Interactive 与 Print，验证取消和非 TTY 降级。
+3. **S03 Read Tools**：实现 WorkspaceGuard、只读 Tool、根 `AGENTS.md` 和结果裁剪，在公开仓库完成代码解释 Demo 与越界测试。
+4. **S04 Write + Command**：实现 Patch、Write、Command、Approval UI、脏工作区保护、超时和进程树取消，在公开 Fixture 跑通“修改 → 测试失败 → 再修改 → 成功”。
+5. **S05 Permission Pipeline**：完成 Effect、Default/Plan/Accept Edits、allow/ask/deny、session approval、hard denial、Permission Lifecycle 和拒绝恢复。
+6. **S06 Session + Checkpoint**：实现版本化 JSONL、continue/resume/fork、未完成 Tool 检测、文件 Checkpoint 和 undo。
+7. **S07 Context Engineering**：实现 Token 预算、完整 Turn 淘汰、旧 Tool Output 清理、摘要、渐进压缩、防抖和长会话 Eval。
+8. **S08 Instructions + Settings**：实现用户/项目/本地/目录指令、配置合并、模型与权限设置、Slash Command、`/doctor` 和迁移策略。
+9. **S09 Hooks**：公开稳定生命周期协议，实现 matcher、Pre/Post Tool、Session/Run/Compact、超时和阻断语义。
+10. **S10 MCP**：实现 STDIO 和一个远程 Transport、多 Server、Tool 前缀/过滤、统一 Permission、认证、信任 UX 和故障恢复。
+11. **S11 Skills + Plugins**：实现 Skill metadata/markdown/lazy load、显式与模型调用、资源、Scoped Hook、Plugin Manifest、命名空间和 Tool Provider SPI。
+12. **S12 Sub-Agent + Worktree**：复用 `AgentRuntime.run(request, scope)`，实现独立 Context/Tool/Permission/Budget、父子任务、有界并发、取消、摘要和 Worktree。
+13. **S13 Sandbox + Security**：实现可插拔 `ExecutionBackend`、文件/进程/网络策略、秘密处理、攻击性 Fixture 和安全回归。
+14. **S14 Production Harness**：实现 Eval、OTel、稳定 JSON/JSONL、Java SDK、Headless/Daemon、多模型恢复、跨平台发行和兼容策略。
+15. **S15 Independent Innovation**：只在矩阵前置条件满足且已有可重复 Eval 基线后，选择 Java/Spring 差异化能力并用数据验证。
+
+### 27.3 每个 Stage 的完成动作
+
+上述每一步都必须以相同顺序收尾：
+
+1. 更新 [功能对照矩阵](./feature-parity-matrix.md) 的 Capability Level、行为测试和证据；
+2. 更新本文相关章节，并新增或修订 ADR；
+3. 运行本 Stage 的离线测试和可运行 Demo，记录真实结果；
+4. 按矩阵模板提交差距报告；
+5. 只有在剩余差距和跨 Stage 工作已说明后，才进入下一 Stage。
+
+在 S01 离线协议测试完成前不接真实模型；在 S03 安全测试完成前不在私有仓库运行；在 S04 检查点跑通后不得宣称参考能力对等；MCP、Sub-Agent、Sandbox 和 Production Harness 分别只能按 S10、S12、S13、S14 的矩阵范围进入实现。

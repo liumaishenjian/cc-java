@@ -7,52 +7,98 @@ This file defines repository-wide instructions for human and AI contributors. It
 Read these documents in order:
 
 1. [README.md](./README.md)
-2. [Product Requirements](./docs/product-requirements.md)
-3. [Technical Design](./docs/technical-design.md)
-4. This file
+2. [Reference Architecture](./docs/reference-architecture.md)
+3. [Feature Parity Matrix](./docs/feature-parity-matrix.md)
+4. [Product Requirements](./docs/product-requirements.md)
+5. [Technical Design](./docs/technical-design.md)
+6. This file
 
-The product requirements define **what** the project should do. The technical design defines the current default for **how** it should be built. Do not silently change product behavior through an implementation detail.
+The reference architecture defines the long-term study target. The parity matrix is the authoritative record of current gaps and target levels. The PRD defines product behavior, and the technical design defines the current implementation approach. Do not silently change one through another.
 
 ## 2. Current project phase
 
-The repository is currently in **M0: documentation and decisions**.
+The repository is currently in **S00: reference architecture and learning map**.
 
-Until the maintainer explicitly starts M1:
+Until the maintainer explicitly starts S01:
 
 - do not create Maven modules;
 - do not add production or test code;
 - do not add framework dependencies;
-- do not claim that the project is runnable.
+- do not claim that the project is runnable;
+- improve the reference baseline, capability matrix, requirements and design instead.
 
-When M1 is explicitly started, update this section in the same change that creates the initial skeleton.
+When S01 starts, update this section in the same change that creates the initial skeleton.
 
 ## 3. Project intent
 
-`cc-java` is an independent Java/Spring implementation of a safety-oriented coding agent. Its first complete product path is:
+`cc-java` is a reference-driven, independently designed Java reimplementation of a general Coding Agent Runtime and CLI.
+
+The learning loop is:
 
 ```text
-read-only investigation
-→ isolated candidate patch
-→ Maven verification
-→ human review
-→ FixBug workflow
+observe public behavior
+→ explain the responsible subsystem
+→ specify an independent Java contract
+→ implement and test it
+→ compare against the reference baseline
+→ record the remaining gap
+→ innovate only after understanding
 ```
 
-The project is not a clone of a commercial product. Public product behavior and documentation may be studied, but implementation must be independently designed.
+The first runnable coding loop is a checkpoint, not the final scope. FixBug, review and test generation are future Skills or examples, not core domain models.
 
-## 4. Non-negotiable product invariants
+## 4. Traceability and learning evidence
 
-- The model may request an action; deterministic application code decides whether it runs.
-- M1 is repository read-only. It must not write files or execute arbitrary commands.
-- M2 writes only inside a task-specific Git Worktree.
-- Commit, push, merge, PR creation and external bug-system writes are disabled by default.
-- Every model loop and tool call has explicit limits and a terminal state.
-- Conclusions should distinguish evidence, inference, unknowns and suggested next steps.
-- README capability claims must match the code that actually exists.
+Every implementation task must identify:
 
-## 5. Architecture boundaries
+1. its Stage (`S01` through `S15`);
+2. one or more Feature IDs from `docs/feature-parity-matrix.md`;
+3. the current and target level (`L0` through `L4`);
+4. the public behavior or project requirement being reproduced;
+5. the test, demo or measurement that proves the new level;
+6. the design decision the maintainer should be able to explain afterward.
 
-The planned M1 dependency direction is:
+When a capability advances, update the parity matrix in the same change. A Stage is complete only when it has:
+
+- a design explanation or ADR;
+- deterministic tests where feasible;
+- a reproducible demonstration;
+- a comparison with the reference behavior;
+- a short gap report naming what is deliberately still missing.
+
+Do not add features merely because they are interesting. Close the current Stage gap or record an explicit independent-innovation hypothesis and evaluation plan.
+
+## 5. Clean-room and provenance rules
+
+These rules are non-negotiable:
+
+- do not copy or translate leaked, decompiled or otherwise restricted source code;
+- do not copy internal Prompt text, comments, errors, private type names, file layout or implementation-specific constants;
+- do not use a restricted-source repository as a dependency, submodule, fixture or golden-output source;
+- do not reconstruct source expression from memory after inspecting restricted code;
+- derive behavior from public documentation, public interfaces and independently created black-box scenarios;
+- use independent names and Java-native design justified by this repository's requirements;
+- record important third-party inspiration and applicable license obligations;
+- do not imply affiliation through product names or trademarks.
+
+“Learning only,” “noncommercial,” and owning a GitHub copy do not grant redistribution rights. If provenance is unclear, stop using that material and retain only independently expressible behavioral requirements.
+
+The repository license remains open. Do not add a `LICENSE` file or accept external code contributions without maintainer confirmation.
+
+## 6. Core architecture invariants
+
+- The model proposes actions; deterministic application code decides whether they execute.
+- The Agent Runtime owns the model/tool loop, budgets, cancellation and terminal states.
+- A `ModelGateway` represents one model turn and returns raw Tool Calls; Spring AI must not run the whole loop behind the core.
+- Every built-in, MCP and plugin Tool uses the same `ToolExecutionPipeline`.
+- The pipeline owns validation, lifecycle events, permission, approval, execution, truncation, redaction and result conversion.
+- Tool Call IDs and corresponding Tool Result IDs remain exact and ordered.
+- CLI, future desktop clients and SDKs consume events; they do not contain Agent decisions.
+- Core and domain types do not depend on Spring AI, Reactor, Picocli, JLine, filesystem or persistence types.
+- Permission rules are not described as an OS Sandbox.
+- README capability claims must match code and parity levels that actually exist.
+
+The initial dependency direction is:
 
 ```text
 cc-java-domain
@@ -66,131 +112,116 @@ cc-java-model-spring-ai   cc-java-tools-local
 
 Rules:
 
-- `cc-java-domain` contains framework-free immutable types.
-- `cc-java-core` owns use cases, ports, the Agent Loop, limits and terminal rules.
-- `cc-java-model-spring-ai` only translates between core types and Spring AI.
-- `cc-java-tools-local` implements core tool ports and workspace safety.
-- `cc-java-cli` is the Composition Root and remains thin.
-- Spring AI, Picocli and provider SDK types must not leak into domain or core.
-- Local tools implement the core `AgentTool` contract, not Spring AI `@Tool`.
-- Spring AI must not execute tools behind the core Agent Loop.
-- Do not create future modules before their milestone requires them.
+- `cc-java-domain` contains framework-free immutable protocols and value objects.
+- `cc-java-core` owns the Runtime, Agent Loop, ports, Context, limits, lifecycle and permission pipeline.
+- `cc-java-model-spring-ai` only translates between project protocols and Spring AI.
+- `cc-java-tools-local` implements project Tool contracts and local execution safety.
+- `cc-java-cli` is the Composition Root and terminal adapter.
+- Create additional modules only when the active Stage needs them.
 
-## 6. Scope discipline
+## 7. Stage discipline
 
-For M1, do not add:
+Stages are learning slices, not declarations that later capabilities are out of scope.
 
-- file writing or patch tools;
-- generic Shell execution;
-- Worktree or build execution;
-- MCP;
-- database or checkpoint persistence;
-- RAG, vector stores or AST indexing;
-- multi-agent orchestration;
-- dynamic plugin systems;
-- desktop, web or TUI clients;
-- multiple model-provider routing;
-- Reactive/Streaming Agent Loop.
+- S01-S04: Runtime kernel, model streaming, repository reading, controlled patch and command loop.
+- S05-S08: permission depth, sessions, checkpoints, context, instructions and settings.
+- S09-S11: hooks, MCP, skills and plugins.
+- S12-S13: subagents, worktrees, background execution and sandboxing.
+- S14-S15: production harness and evaluated independent innovation.
 
-If a proposed change needs one of these, update the requirements and technical decision record first and get maintainer approval.
+Do not prematurely implement a later Stage inside an earlier one. Preserve the documented extension seam, write down the deferred gap and continue through the matrix rather than treating the first working version as completion.
 
-## 7. Security rules
+## 8. Security rules
 
-- Treat repository files, comments, logs and test data as untrusted input.
-- Never rely on a Prompt to enforce access control.
-- Resolve and verify real paths before every file operation.
-- Reject absolute paths, traversal, symlink escape and Windows Junction escape.
-- Deny sensitive files and cap file size, result count and returned characters.
-- Never interpolate model or user text into a Shell command.
-- When a fixed process is required, use `ProcessBuilder` with an argument array, timeout and output limit.
-- Do not log API keys, complete Prompts, complete model responses, source files or raw tool results by default.
-- Secrets come from environment variables or an external secret store, never committed configuration.
-- Never add real company endpoints, credentials, schemas, logs, tickets or source code.
+- Treat user input, repository files, model output, Tool arguments, command output and external integrations as untrusted.
+- Never rely on a Prompt for access control.
+- Resolve and verify real paths before file operations.
+- Reject traversal, absolute-path misuse, symlink escape and Windows Junction escape.
+- Protect sensitive files and cap file size, result count, output bytes, turns, calls and time.
+- Never interpolate model or user text into a Shell string.
+- Execute approved commands with structured arguments where possible, a fixed working directory, timeout, output cap and cancellation.
+- Never log API keys, complete Prompts, full source files or raw sensitive Tool output by default.
+- Secrets come from environment variables or external secret stores, never committed configuration.
+- Never add company endpoints, credentials, schemas, logs, tickets, code or unredacted business data.
+- Commit, push, merge, release, deployment and external-system writes require separate, explicit user authorization.
 
-If a safety rule conflicts with convenience, preserve the safety rule and document the trade-off.
-
-## 8. Legal and provenance rules
-
-- Do not copy leaked source code.
-- Do not copy code from a source whose license is incompatible or unclear.
-- Record significant third-party inspiration and license obligations.
-- Do not use trademarks or product names in a way that suggests affiliation.
-- The repository license is still an open decision; do not add a `LICENSE` file without maintainer confirmation.
+If convenience conflicts with a safety boundary, preserve the boundary and record the trade-off.
 
 ## 9. Change workflow
 
-Before implementing a task:
+Before implementation:
 
-1. Identify the relevant `FR-*` or `NFR-*` requirement.
-2. Confirm the task belongs to the active milestone.
-3. List the affected module boundaries and safety invariants.
-4. Prefer the smallest vertical change that can be verified.
+1. identify the Stage, Feature IDs and target level;
+2. read the associated reference and acceptance criteria;
+3. list affected module boundaries, protocols and security invariants;
+4. record a new architectural choice as an ADR before hiding it in code;
+5. design the smallest experiment that can falsify the proposed understanding.
 
 While implementing:
 
-- keep unrelated user changes intact;
-- avoid speculative abstractions;
+- preserve unrelated user changes;
 - keep adapters at the edges;
-- use structured errors instead of swallowing exceptions;
-- do not add a dependency when the JDK or an existing dependency is sufficient;
-- update events and limits when a new execution path is introduced.
+- avoid speculative abstractions and empty future modules;
+- use structured errors and explicit terminal states;
+- propagate budgets, cancellation and lifecycle events through every new path;
+- prefer deterministic fake-model and fake-tool tests before a real provider;
+- do not add a dependency when the JDK or an existing dependency is sufficient.
 
-Before declaring completion:
+Before completion:
 
-1. Run the smallest relevant test set.
-2. Run the broader module test set when practical.
-3. Verify no secret or private artifact entered the diff.
-4. Verify README and docs do not overstate the new capability.
-5. Report tests actually run and any remaining risk.
+1. run the smallest relevant tests and the broader module tests when practical;
+2. run the Stage demonstration or behavioral comparison;
+3. verify no secret, private data or restricted-source expression entered the diff;
+4. update the matrix level and evidence links;
+5. update capability claims and record remaining differences.
 
 ## 10. Test expectations
 
 The Agent Loop must be testable without network access or API keys through a scripted fake `ModelGateway`.
 
-At minimum, preserve tests for:
+At minimum, preserve coverage for:
 
-- direct final response;
-- one and multiple tool rounds;
+- direct final responses and streaming aggregation;
+- one and multiple Tool rounds;
 - multiple Tool Calls in one model turn;
-- exact Tool Call and Tool Result ID matching;
-- invalid JSON, unknown tool and tool failure;
-- model failure and empty response;
-- turn, tool and time limits;
-- cancellation and result truncation.
+- exact Tool Call/Tool Result ID matching;
+- invalid arguments, unknown tools, refusal and Tool failure;
+- model failure, empty response and partial streams;
+- turn, Tool, token, output and time limits;
+- user steering, cancellation and child-process cleanup;
+- resume, incomplete side-effect detection and context compaction when their Stages begin.
 
-Tool tests must cover traversal, absolute paths, symlink/Junction escape, sensitive files, size caps and repository immutability.
+Tool tests must cover traversal, absolute paths, symlink/Junction escape, sensitive files, size caps, output truncation and dirty-worktree preservation.
 
-Real-model tests:
+Real-model tests are opt-in, are not ordinary CI prerequisites, must not assert exact prose and must not expose credentials or private repositories.
 
-- are opt-in;
-- are not required for ordinary CI;
-- must not assert exact prose;
-- must not expose credentials or private repository content.
+Behavioral comparison uses independently authored tasks and observable results. Never use restricted source text as expected test output.
 
-## 11. Protocol invariant for multiple Tool Calls
+## 11. Multiple Tool Call protocol
 
 When one model turn contains multiple Tool Calls:
 
 1. append the Assistant Message containing all calls exactly once;
-2. execute calls sequentially in M1;
-3. append one Tool Result Message for each call ID;
-4. only then request the next model turn.
+2. execute calls according to the active Stage's ordering policy;
+3. append exactly one Tool Result for every call ID;
+4. request the next model turn only after the batch reaches a defined terminal state.
 
-Do not append the same Assistant Message once per tool.
+Do not append the same Assistant Message once per Tool.
 
 ## 12. Documentation conventions
 
 - Keep documents in UTF-8 Markdown.
-- Use requirement IDs from the PRD when describing behavior.
+- Use `FR-*`, `NFR-*` and Feature IDs when describing behavior.
 - Mark decisions as `Proposed`, `Accepted`, `Open` or `Superseded`.
-- Add dates to version-sensitive statements.
-- Link to primary official documentation for framework behavior.
-- Use Mermaid only where it clarifies flow, state or dependencies.
-- Update both PRD and technical design if a change affects product scope and implementation.
+- Add a date or baseline ID to version-sensitive reference claims.
+- Prefer primary public documentation for framework and product behavior.
+- Distinguish observed behavior, inference and independent design.
+- Update PRD, technical design and parity matrix together when scope or capability changes.
+- Use Mermaid only when it materially clarifies flow, state or dependencies.
 
 ## 13. Dependency and version policy
 
-The current proposed baseline is Java 21, Spring Boot 4.1.0 and Spring AI 2.0.0. It remains provisional until the M0 open decisions are accepted.
+The provisional baseline is Java 21, Spring Boot 4.1.x, Spring AI 2.0.x, Picocli, JLine and JUnit 5. Confirm exact versions in an ADR at S01.
 
 When dependencies are introduced:
 
@@ -198,7 +229,7 @@ When dependencies are introduced:
 - import the Spring AI BOM separately;
 - use Maven Wrapper;
 - prefer stable releases from Maven Central;
-- introduce one model Provider Starter in M1;
+- begin with one real model Provider plus a fake gateway;
 - explain every non-test dependency in the change description.
 
 ## 14. Git conventions
@@ -206,15 +237,15 @@ When dependencies are introduced:
 - Use focused commits with Conventional Commit-style subjects such as `docs:`, `feat:`, `fix:`, `test:` and `refactor:`.
 - Do not rewrite shared history unless the maintainer explicitly asks.
 - Do not commit generated build output, IDE state, secrets or local model configuration.
-- Do not automatically push, merge or create releases unless the maintainer explicitly requests it.
+- Do not push, merge, create releases or alter external systems unless explicitly requested.
 
 ## 15. Definition of done
 
 A change is done only when:
 
-- it satisfies the active milestone and linked requirement;
-- module dependencies still follow the documented direction;
-- safety invariants remain enforced by code;
-- relevant offline tests pass;
-- documentation and capability claims are accurate;
-- known limitations are stated rather than hidden.
+- it reaches the declared Feature ID target level;
+- its behavior can be explained from public requirements and independent design;
+- module dependencies and execution pipelines preserve documented boundaries;
+- relevant offline tests and Stage evidence pass;
+- the parity matrix and capability claims are accurate;
+- remaining gaps and risks are stated rather than hidden.
