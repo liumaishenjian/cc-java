@@ -1,0 +1,33 @@
+README.md
+  s_371b145dc5ecd9::t_34f84d2af122ec 5-7,9,172-174
+docs/demos/S01-agent-loop.md
+  s_371b145dc5ecd9::t_99787139e875e7 6-7,75,77,86-87
+docs/evidence/S01-runtime-kernel-2026-07-28.md
+  s_371b145dc5ecd9::t_3b8d7d1ecf698a 4,17-18,20-21,25-26,68-70,76-78,119,139,149-150,152,154-157
+docs/feature-parity-matrix.md
+  s_371b145dc5ecd9::t_2d55d3dc8195ce 9,152-153,157
+docs/gap-reports/S01.md
+  s_371b145dc5ecd9::t_9c4e34a8a65c2b 7,35-36,55-56,113,115-117
+docs/product-requirements.md
+  s_371b145dc5ecd9::t_af2ecceb7f00ea 7,552
+docs/progress.html
+  s_371b145dc5ecd9::t_4ff558d35ae00a 226,231,234,250,259,266,276,289,322,333-335,337-338
+docs/technical-design.md
+  s_371b145dc5ecd9::t_f0da6fc1a420cd 9,125,1233,1251-1253
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "19b50d8d618df49aa684d40e53ab89cf742854ce",
+  "prompts": {},
+  "sessions": {
+    "s_371b145dc5ecd9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa772-84c7-7680-9e8a-026c8e1161ea",
+        "model": "unknown"
+      },
+      "human_author": "yliu27 <yliu27@leqee.com>"
+    }
+  }
+}
