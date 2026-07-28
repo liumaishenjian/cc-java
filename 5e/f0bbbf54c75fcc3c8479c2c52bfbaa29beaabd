@@ -1,0 +1,37 @@
+docs/progress.html
+  s_371b145dc5ecd9::t_6e71fe1ac18d77 1-377
+docs/reference-architecture.md
+  s_dea833c5621066::t_d5abef879e4f45 5,11-12,24,28-32,34-37,39-54,58-59,62-68,73-75,94-97,414-426,433-434
+docs/reference-baselines/R2026.03-authorized-source.md
+  s_371b145dc5ecd9::t_a6095e2d2afced 1-150
+docs/templates/stage-evidence-package.md
+  s_371b145dc5ecd9::t_01ce408c6c88c1 1-150
+mvnw.cmd
+  s_371b145dc5ecd9::t_f5d219003745b8 91-97,100
+scripts/ProgressDashboard.java
+  s_371b145dc5ecd9::t_593d01dbd856b3 1-1185
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd",
+  "prompts": {},
+  "sessions": {
+    "s_371b145dc5ecd9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa772-84c7-7680-9e8a-026c8e1161ea",
+        "model": "unknown"
+      },
+      "human_author": "yliu27 <yliu27@leqee.com>"
+    },
+    "s_dea833c5621066": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa7ad-81ce-7aa3-8155-ee9b8c37fe6d",
+        "model": "unknown"
+      },
+      "human_author": "yliu27 <yliu27@leqee.com>"
+    }
+  }
+}
