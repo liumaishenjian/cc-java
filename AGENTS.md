@@ -22,17 +22,23 @@
 
 ## 2. 当前项目阶段
 
-仓库当前处于 **S01：Runtime Kernel** 阶段。
+仓库已经完成 **S01：Runtime Kernel**，G0-G6 与 Stage Exit 均为 Accepted；被测实现
+Commit 为 `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd`。当前处于 **S02 启动 Gate**，
+S02 尚未开始实现。
 
-本阶段允许并要求：
+当前允许并要求：
 
-- 创建 `domain`、`core`、`model-spring-ai`、`tools-local` 和 `cli` 五个 Maven 模块；
-- 实现 Framework-free Domain、显式 Agent Runtime、Tool Pipeline 骨架和内存 Session；
-- 仅使用测试源中的 Scripted Fake Model 与 Fake Tool 完成离线协议验证；
-- 保持真实 Provider、流式 CLI、文件 Tool、Shell、完整权限策略和持久化能力为未实现状态；
-- 完成后同步提交矩阵更新、ADR、可复现 Demo 和 S01 差距报告。
+- 保持 S01 的 Framework-free Domain、显式 Agent Runtime、Tool Pipeline、内存 Session
+  与离线 Fake 测试回归继续通过；
+- 开始任何 S02 代码前，先建立 S02 启动 ADR，列出完整 Feature ID、`Current → Target`
+  等级、真实 Provider/流式 Tool Call Spike、CLI 契约、取消边界和可证伪实验；
+- 只有 Spike 证明真实用途后，才能确认 Spring Boot、Spring AI、Picocli 与 JLine 的
+  准确版本和依赖；
+- 在 S02 启动 Gate 完成前，真实 Provider、流式 CLI、文件 Tool、Shell、完整权限策略
+  和持久化能力继续保持未实现状态；
+- S02 的代码、测试、Demo、证据和看板更新必须作为新的独立变更开展。
 
-在 S01 退出包验证完成前，不得提前宣称 S02 或更后阶段能力已经可用。
+不得仅因为 S01 已退出就宣称 S02 或更后阶段能力已经可用。
 
 ## 3. 项目定位
 

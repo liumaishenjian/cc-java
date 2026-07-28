@@ -2,10 +2,11 @@
 
 一个以成熟 Coding Agent 为参照、用 Java 独立重实现的学习型 Agent Runtime 与 CLI。
 
-> 当前状态：**S01 Runtime Kernel**。框架无关领域协议、显式 Agent Loop、
-> Tool Pipeline 和内存 Session 已进入离线验证；尚无真实模型和可交互 CLI。
+> 当前状态：**S01 Runtime Kernel 已 Accepted，S02 尚未启动**。框架无关领域协议、
+> 显式 Agent Loop、Tool Pipeline 和内存 Session 已通过 Commit-scoped 离线验证；
+> 尚无真实模型和可交互 CLI。
 >
-> Current status: S01 offline runtime kernel; no real model provider or interactive CLI yet.
+> Current status: S01 accepted; S02 not started; no real model provider or interactive CLI yet.
 
 ## 项目目标
 
@@ -168,8 +169,9 @@ Linux/macOS 使用 `./mvnw`。最后一条命令中的 Core 协议测试就是 S
 > Wrapper 固定的 Maven 3.9.16 完成 `clean verify`、聚合 Javadoc 和 Core 23/23
 > 标准测试；包含预算拒绝负例的聚焦 Demo 也以 5/5 通过。完整证据见
 > [S01 标准验证证据](./docs/evidence/S01-runtime-kernel-2026-07-28.md)。
-> 当前唯一退出缺口是把本轮工作区固化为稳定 Commit 并在该 Commit 上复验；在此之前
-> G4/G6 与 S01 Stage Exit 保持 Open，不启动 S02。
+> 相同命令已在 Commit `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd` 的 Clean
+> 工作区上复验；G0-G6 与 S01 Stage Exit 已通过。S02 尚未启动，下一变更先完成其
+> 启动 ADR、Feature/Level 目标和 Provider/CLI Spike 设计。
 
 ### 更新项目进度看板
 

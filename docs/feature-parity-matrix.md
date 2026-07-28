@@ -6,7 +6,7 @@
 >
 > 最后更新：2026-07-28
 >
-> 当前代码状态：S01 Runtime Kernel 已有 19 项 L1；标准验证和 G5 已通过，Commit-scoped G4/G6 仍开放
+> 当前代码状态：S01 Runtime Kernel 已 Accepted；19 项 L1，G0-G6 全部通过
 
 ## 1. 文档目的
 
@@ -149,12 +149,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 195 |
-| 当前阶段 | S01 Runtime Kernel（L1 学习骨架） |
-| Stage Exit | Open：执行验证与 G5 已通过，稳定 Commit 上的 G4/G6 复验待关闭 |
+| 当前阶段 | S01 Runtime Kernel（Accepted；S02 尚未启动） |
+| Stage Exit | Accepted：G0-G6 已在稳定 Commit 证据链上通过 |
 | 当前等级 | 19 项为 L1，176 项为 L0 |
 | 默认最终目标 | 195 项达到 L3，或存在明确 `Accepted Deviation` |
 | 当前能力覆盖 | 3.25%（195 项等权、目标 L3） |
-| 下一步 | 固化并复验 S01 Commit，通过 G4/G6 后再进入 S02 Model + Streaming CLI |
+| 下一步 | 建立 S02 启动 ADR、目标等级和可证伪 Spike，再进入 Model + Streaming CLI |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 

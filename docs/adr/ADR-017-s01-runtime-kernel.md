@@ -230,5 +230,6 @@ Windows Wrapper 的原缺陷来自普通 `.m2` 目录的 `Target` 为 `$null`，
 身份、测试报告哈希和 G4/G5 边界见
 [`S01 标准验证证据`](../evidence/S01-runtime-kernel-2026-07-28.md)，具体场景与观察方法见
 [`S01 Agent Loop Demo`](../demos/S01-agent-loop.md)，当前差距见
-[`S01 差距报告`](../gap-reports/S01.md)。在稳定 Commit 上复验前，G4/G6 和 S01 Stage
-Exit 仍保持 Open。
+[`S01 差距报告`](../gap-reports/S01.md)。上述标准链已经在 Commit
+`5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd` 的 Clean 工作区上复验；G4/G6 和 S01
+Stage Exit 已通过。

@@ -3,8 +3,8 @@
 > Stage：S01 — Runtime Kernel（Agent Loop）
 > Demo 类型：测试驱动的可重复协议演示
 > 真实模型与 API Key：不需要
-> 当前验证状态：标准 Windows Wrapper 与正反例 Demo 已通过；Commit-scoped G4 待完成
-> 证据分类：Standard Worktree；构成 G5 实际执行证据，不替代最终 G4 Commit 身份
+> 当前验证状态：Accepted；标准 Windows Wrapper、G4 与 G5 已在稳定 Commit 上通过
+> 证据分类：Commit Verified
 
 ## 1. 演示目标
 
@@ -72,9 +72,9 @@ Fake User
 
 | 字段 | 记录 |
 | --- | --- |
-| Evidence Class | `Standard Worktree`；G5 Passed，最终 G4 等待稳定 Commit |
+| Evidence Class | `Commit Verified`；G4/G5 Passed |
 | Date | 2026-07-28 |
-| Code Identity | Base Commit `27129342087af68d957f10c52ed807c64778fbad` + Code/Build Digest `04886d5d1ab9` |
+| Code Identity | Commit `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd` + Code/Build Digest `04886d5d1ab9` |
 | Environment | Windows 10 amd64；Eclipse Temurin 21.0.11+10；Apache Maven 3.9.16 |
 | Standard Command | `.\mvnw.cmd -pl cc-java-core -am test` |
 | Standard Result | 23 通过，0 失败，0 错误，0 跳过；`BUILD SUCCESS` |
@@ -83,8 +83,8 @@ Fake User
 | Persistent Record | [`docs/evidence/S01-runtime-kernel-2026-07-28.md`](../evidence/S01-runtime-kernel-2026-07-28.md) |
 
 本轮已经关闭 Wrapper 启动、标准 Maven 3.9.16 验证和可核验 Demo 三个执行缺口。
-由于 Wrapper 修复和证据仍在未提交工作区，G4 还缺稳定 Commit 身份；这不影响把本次实际
-Demo 记为 G5 Passed，但在 Commit-scoped 复验前不得把 S01 标记为 Accepted。
+相同命令已在 Clean 的稳定 Commit 上复验，G4 与 G5 均为 Passed，S01 已 Accepted。
+S02 仍未启动。
 
 ## 4. 如何观察主链路
 

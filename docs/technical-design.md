@@ -6,7 +6,7 @@
 >
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
-> 当前学习阶段：S01 Runtime Kernel
+> 当前学习阶段：S01 Runtime Kernel 已 Accepted；S02 尚未启动
 >
 > 当前实现状态：离线 Agent Loop 已实现；真实模型和 CLI 尚未开始
 >
@@ -122,7 +122,7 @@ S01～S04 依次完成 Loop、真实模型与 CLI、只读工具、写入与命�
 | 项目 | 建议 | 状态 |
 | --- | --- | --- |
 | Java | 21 | Accepted（S01） |
-| Maven | Wrapper 3.3.4 → Maven 3.9.16 | Version Accepted；Windows 启动缺陷已修复，Commit-scoped G4 待复验 |
+| Maven | Wrapper 3.3.4 → Maven 3.9.16 | Accepted；Windows 启动缺陷已修复并通过 Commit-scoped G4 |
 | GroupId / 根包 | `io.github.liumaishenjian` / `io.github.liumaishenjian.ccjava` | Accepted（S01） |
 | Test | JUnit 5.14.3 + AssertJ 3.27.7 | Accepted（S01） |
 | Spring Boot | 在 S02 按真实用途确认 | Deferred |
@@ -1230,7 +1230,7 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 
 ## 27. S00～S15 实施顺序
 
-### 27.1 当前 S01
+### 27.1 已接受的 S01
 
 S01 已把五模块骨架、Framework-free Domain、显式 `AgentRuntime`、统一
 `ToolExecutionPipeline`、内存 Session 和有序 Lifecycle Event 落到代码。
@@ -1248,8 +1248,9 @@ Scripted Fake Model、Fake Tool 和 Fake Event Sink 只存在于测试源。
    标准命令、23 个 Core 测试和 5 个正反例 Demo 场景。
 
 S01 代码早于授权源码研究完成；上述新增材料只用于验证方向和规划后续 Stage，不把
-S01 追溯性描述为源码翻译。Windows Wrapper 与执行验证缺口已经关闭，但被测改动尚未
-绑定稳定 Commit，因此 G4/G6 和 Stage Exit 继续保持 Open。
+S01 追溯性描述为源码翻译。Windows Wrapper 与执行验证缺口已经关闭，并在 Commit
+`5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd` 上通过 G4/G6；S01 Stage Exit 已
+Accepted。S02 尚未启动。
 
 ### 27.2 分 Stage 实现
 

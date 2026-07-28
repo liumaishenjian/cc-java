@@ -4,7 +4,7 @@
 >
 > 最后更新：2026-07-28
 >
-> 当前阶段：S01 Runtime Kernel
+> 当前阶段：S01 Runtime Kernel 已 Accepted；S02 尚未启动
 >
 > 产品负责人：项目维护者
 
@@ -549,7 +549,7 @@ S01 已确认：
 
 1. 项目名和仓库名使用 `cc-java`；
 2. Java 21 作为基线，Maven Wrapper 固定 Maven 3.9.16；Windows 普通 `.m2` 目录启动
-   缺陷已修复并通过标准工作区验证，S01 仍需稳定 Commit 上的 G4/G6 复验；
+   缺陷已修复，并在稳定 Commit 上通过 G4/G6 标准复验；
 3. Maven GroupId 使用 `io.github.liumaishenjian`，Java 根包使用
    `io.github.liumaishenjian.ccjava`；
 4. S01 不接真实 Provider，Fake Model 只存在于测试源。

@@ -1,7 +1,7 @@
 # S01 Runtime Kernel 标准验证证据
 
 > Stage：S01 — Runtime Kernel（Agent Loop）
-> Status：In Progress（执行验证完成；Commit-scoped G4/G6 待完成）
+> Status：Accepted（G0-G6 Passed）
 > Release：`0.1.0-SNAPSHOT`
 > Reference Behavior Baseline：`R2026.03`
 > Authorized Snapshot ID：`AUTH-SRC-2026-03-31-A`
@@ -14,17 +14,16 @@
 
 | 字段 | 值 |
 | --- | --- |
-| Base Commit | `27129342087af68d957f10c52ed807c64778fbad` |
-| Code / Build Worktree Digest | `04886d5d1ab9` |
+| Verified Commit | `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd` |
+| Code / Build Digest | `04886d5d1ab9` |
 | Digest Scope | Java 源码、测试源码、全部 POM、Maven Wrapper、`.mvn` 与仓库脚本 |
-| Worktree State | 非 Clean；包含本轮 Wrapper、文档和看板改动 |
-| Formal G4 Identity | Open；需明确授权 Commit 后在稳定 Commit 上复验 |
+| Worktree State | 复验前后均为 Clean |
+| Formal G4 Identity | Passed；全部标准命令在 Verified Commit 上执行 |
 
 `Code / Build Worktree Digest` 由
 [`scripts/ProgressDashboard.java`](../../scripts/ProgressDashboard.java)按路径排序后，对每个
-代码/构建输入的规范化内容做 SHA-256，再生成树摘要。它能够防止看板继续引用已经变化的
-本地实现，但不替代 Git Commit。因此本文件可以核验本轮执行事实，不能单独把 G4 标记为
-最终通过。
+代码/构建输入的规范化内容做 SHA-256，再生成树摘要。Git Commit 固定被测仓库状态，
+摘要用于让进度看板检测后续代码或构建输入变化；两者共同形成本次 G4 的代码身份。
 
 ## 2. Windows Maven Wrapper 缺口
 
@@ -66,17 +65,17 @@ Platform encoding UTF-8
 
 | 完成时间（Asia/Shanghai） | Command | Result |
 | --- | --- | --- |
-| 2026-07-28 17:52:18 | `.\mvnw.cmd clean verify` | `BUILD SUCCESS`；6/6 Reactor 模块成功；Core 23/23 |
-| 2026-07-28 17:55:21 | `.\mvnw.cmd -DskipTests javadoc:aggregate` | `BUILD SUCCESS` |
-| 2026-07-28 17:56:11 | `.\mvnw.cmd -pl cc-java-core -am test` | `BUILD SUCCESS`；23 通过、0 失败、0 错误、0 跳过 |
+| 2026-07-28 18:20:39 | `.\mvnw.cmd clean verify` | `BUILD SUCCESS`；6/6 Reactor 模块成功；Core 23/23 |
+| 2026-07-28 18:22:13 | `.\mvnw.cmd -DskipTests javadoc:aggregate` | `BUILD SUCCESS` |
+| 2026-07-28 18:23:03 | `.\mvnw.cmd -pl cc-java-core -am test` | `BUILD SUCCESS`；23 通过、0 失败、0 错误、0 跳过 |
 
 Core 报告：
 
 | Suite | Passed / Total | SHA-256 |
 | --- | ---: | --- |
-| `AgentRuntimeTest` | 19 / 19 | `CD568F73A772FE0B91B3C711CDEE6DE77815832EE6FADC1FB8227E65A62DEE7A` |
-| `ScriptedModelGatewayTest` | 2 / 2 | `F47831EC8917B64FEDE9A3F5681B21BA66DADD528A901F080A188E831E7BF9C0` |
-| `ToolRegistryTest` | 2 / 2 | `BC2C5C435B83BE4E07A96EE645B4D7D6A9B49ECA5C3C5CFF8159210CD8043436` |
+| `AgentRuntimeTest` | 19 / 19 | `C0AE21FEE987451C47EFE95C877953B00CD3877F6A66D4B62E3F3D54FE012329` |
+| `ScriptedModelGatewayTest` | 2 / 2 | `D3B2D14D40713388463635C49B81589452AC103DC5C0949BE0A16BCAD0D1ED42` |
+| `ToolRegistryTest` | 2 / 2 | `9757C7CB23B31C0BF99824C089457E63FF4FD955DFF688D3ADA79ED4BB7A9E57` |
 
 这些哈希标识本次本地 Surefire XML，不是跨机器 Golden Output；报告含时间、路径和环境
 属性，重新执行时字节哈希可以变化。可复验依据是稳定 Commit、命令、测试名称、断言和
@@ -117,7 +116,7 @@ Core 报告：
   test
 ```
 
-实际结果（2026-07-28 17:56:45，Asia/Shanghai）：
+实际结果（2026-07-28 18:23:34，Asia/Shanghai）：
 
 ```text
 Tests run: 5, Failures: 0, Errors: 0, Skipped: 0
@@ -137,7 +136,7 @@ Demo Surefire XML：
 ```text
 cc-java-core/target/surefire-reports/
 TEST-io.github.liumaishenjian.ccjava.core.AgentRuntimeTest-s01-demo.xml
-SHA-256 D122F770E1038C06BA7D5CF0F236CACAA273D0ED6AC59311369E854D5571A9CB
+SHA-256 F77AE044C9A1A606D9E4553AAC675FEACB93ACABC6E0F2379C3DFC320C38A573
 ```
 
 本节满足 G5 对前置条件、可复制命令、实际结果、负例和事实边界的要求。
@@ -147,15 +146,12 @@ SHA-256 D122F770E1038C06BA7D5CF0F236CACAA273D0ED6AC59311369E854D5571A9CB
 - 19 项 Capability 保持 L1，能力覆盖仍为 3.25%，没有因测试通过虚增等级；
 - README、PRD、技术设计、ADR、矩阵、Demo、Gap Report 和进度看板在本轮变更中对账；
 - Windows Wrapper、标准命令和可核验 Demo 三个执行缺口已经关闭；
-- G4 仍缺稳定 Commit 上的同命令复验，因此 G6 与 S01 Stage Exit 必须保持 Open；
-- 未获得单独 Git Commit 授权前，不提交、不把 S01 标为 Accepted，也不启动 S02。
+- G4 的全部命令已在 Clean 的 Verified Commit 上复验，测试后工作区仍为 Clean；
+- G0-G6 均为 Passed，S01 Stage Exit 为 Accepted。
 
-## 6. 唯一剩余 Exit Blocker
+## 6. Exit 决定
 
-获得明确 Git Commit 授权后：
-
-1. 把当前 S01 代码、Wrapper、证据与文档固化为稳定 Commit；
-2. 在该 Commit 上重跑本文件第 3、4 节命令；
-3. 把 Commit 和复验结果写回本证据包；
-4. 将 G4、G6 与 S01 Stage Exit 更新为 Passed / Accepted；
-5. 再以独立变更启动 S02。
+S01 已满足本阶段 L1 学习骨架的退出条件，没有剩余 Exit Blocker。退出对账提交只更新
+文档、证据状态和生成的进度页，不改变 Verified Commit 的 Java、POM、Wrapper 或仓库
+脚本输入。S02 尚未启动；下一变更必须先建立 S02 启动 ADR、Feature ID、目标等级、可证伪
+实验和 Provider/CLI 技术选择，再进入实现。
