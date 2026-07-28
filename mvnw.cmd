@@ -88,11 +88,16 @@ if (-not (Test-Path -Path $MAVEN_M2_PATH)) {
     New-Item -Path $MAVEN_M2_PATH -ItemType Directory | Out-Null
 }
 
-$MAVEN_WRAPPER_DISTS = $null
-if ((Get-Item $MAVEN_M2_PATH).Target[0] -eq $null) {
+$MAVEN_M2_ITEM = Get-Item -LiteralPath $MAVEN_M2_PATH -Force
+# 普通目录的 Target 在 Windows PowerShell 5.1 下为 $null，不能直接索引。
+$MAVEN_M2_TARGET = @($MAVEN_M2_ITEM.Target) |
+  Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } |
+  Select-Object -First 1
+
+if ($null -eq $MAVEN_M2_TARGET) {
   $MAVEN_WRAPPER_DISTS = "$MAVEN_M2_PATH/wrapper/dists"
 } else {
-  $MAVEN_WRAPPER_DISTS = (Get-Item $MAVEN_M2_PATH).Target[0] + "/wrapper/dists"
+  $MAVEN_WRAPPER_DISTS = "$MAVEN_M2_TARGET/wrapper/dists"
 }
 
 $MAVEN_HOME_PARENT = "$MAVEN_WRAPPER_DISTS/$distributionUrlNameMain"

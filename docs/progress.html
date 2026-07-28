@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>cc-java · 项目进度看板</title>
+  <style>
+    :root {
+      --bg: #07111f;
+      --panel: rgba(15, 31, 50, .88);
+      --panel-strong: #10243a;
+      --line: rgba(148, 184, 214, .18);
+      --text: #eff7ff;
+      --muted: #91a9be;
+      --cyan: #54d6ff;
+      --green: #57e3a1;
+      --amber: #ffcb6b;
+      --red: #ff7b8b;
+      --blue: #7197ff;
+      --shadow: 0 24px 80px rgba(0, 0, 0, .32);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 12% 0%, rgba(84, 214, 255, .16), transparent 32rem),
+        radial-gradient(circle at 88% 12%, rgba(113, 151, 255, .15), transparent 30rem),
+        linear-gradient(180deg, #081624 0%, var(--bg) 55%);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+    a { color: var(--cyan); }
+    button, input, select { font: inherit; }
+    .shell { width: min(1480px, calc(100% - 32px)); margin: 0 auto; padding: 32px 0 64px; }
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 34px;
+      border: 1px solid var(--line);
+      border-radius: 26px;
+      background: linear-gradient(135deg, rgba(18, 45, 70, .96), rgba(11, 26, 43, .92));
+      box-shadow: var(--shadow);
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      width: 300px;
+      height: 300px;
+      right: -90px;
+      top: -130px;
+      border-radius: 50%;
+      border: 46px solid rgba(84, 214, 255, .08);
+    }
+    .eyebrow {
+      margin: 0 0 12px;
+      color: var(--cyan);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 0; max-width: 850px; font-size: clamp(32px, 5vw, 64px); line-height: 1.02; }
+    .hero-copy { max-width: 900px; margin: 18px 0 0; color: #bfd0df; font-size: 17px; line-height: 1.75; }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 7px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: #c9d8e4;
+      background: rgba(5, 15, 25, .42);
+      font-size: 13px;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 18px currentColor; }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin: 18px 0;
+    }
+    .metric, .panel {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, .18);
+    }
+    .metric { min-height: 150px; padding: 22px; border-radius: 20px; }
+    .metric-label { margin: 0 0 16px; color: var(--muted); font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    .metric-value { margin: 0; font-size: clamp(28px, 4vw, 46px); font-weight: 800; line-height: 1; }
+    .metric-note { margin: 12px 0 0; color: #9fb3c5; font-size: 13px; line-height: 1.55; }
+    .progress-track { height: 9px; margin-top: 18px; overflow: hidden; border-radius: 999px; background: rgba(255,255,255,.08); }
+    .progress-bar { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--cyan), var(--green)); box-shadow: 0 0 18px rgba(84,214,255,.48); }
+    .panel { margin-top: 18px; padding: 24px; border-radius: 22px; }
+    .panel-head { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
+    .panel h2 { margin: 0; font-size: 22px; }
+    .panel-desc { margin: 7px 0 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+    .callout {
+      display: grid;
+      grid-template-columns: 170px 1fr;
+      gap: 18px;
+      align-items: start;
+      border-left: 3px solid var(--amber);
+    }
+    .callout strong { color: var(--amber); font-size: 14px; letter-spacing: .08em; text-transform: uppercase; }
+    .callout p { margin: 0; color: #c7d5e1; line-height: 1.7; }
+    .gate-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(150px, 1fr));
+      gap: 10px;
+      padding: 0;
+      margin: 0;
+      list-style: none;
+      overflow-x: auto;
+    }
+    .gate {
+      min-height: 165px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(4, 15, 25, .48);
+    }
+    .gate-id { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 900; }
+    .gate p { margin: 14px 0 0; color: #9eb3c5; font-size: 12px; line-height: 1.55; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 25px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 900;
+      letter-spacing: .06em;
+    }
+    .passed { color: var(--green); background: rgba(87, 227, 161, .1); border-color: rgba(87, 227, 161, .28); }
+    .open, .in-progress { color: var(--amber); background: rgba(255, 203, 107, .1); border-color: rgba(255, 203, 107, .28); }
+    .planned { color: var(--muted); background: rgba(145, 169, 190, .09); }
+    .blocked { color: var(--red); background: rgba(255, 123, 139, .1); }
+    .accepted { color: var(--green); background: rgba(87, 227, 161, .1); }
+    .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 16px; }
+    table { width: 100%; border-collapse: collapse; min-width: 850px; }
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      padding: 13px 14px;
+      color: #a9bed0;
+      background: #10243a;
+      font-size: 11px;
+      letter-spacing: .06em;
+      text-align: left;
+      text-transform: uppercase;
+    }
+    td { padding: 14px; border-top: 1px solid var(--line); color: #cbd8e3; font-size: 13px; line-height: 1.5; vertical-align: top; }
+    tbody tr:hover { background: rgba(84, 214, 255, .035); }
+    .current-row { background: rgba(255, 203, 107, .055); }
+    .stage-id, .cap-id { color: var(--cyan); font-family: "SFMono-Regular", Consolas, monospace; font-weight: 800; white-space: nowrap; }
+    .filters { display: flex; flex-wrap: wrap; gap: 10px; }
+    .filters input, .filters select {
+      min-height: 40px;
+      padding: 8px 12px;
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      outline: none;
+      background: #0a1a2a;
+    }
+    .filters input { width: min(360px, 100%); }
+    .filters input:focus, .filters select:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(84, 214, 255, .1); }
+    .level { font-weight: 900; }
+    .level-L0 { color: #7f96a9; }
+    .level-L1 { color: var(--blue); }
+    .level-L2 { color: var(--cyan); }
+    .level-L3 { color: var(--green); }
+    .level-L4 { color: var(--amber); }
+    .blockers { display: grid; gap: 10px; padding: 0; list-style: none; counter-reset: blocker; }
+    .blockers li {
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 12px;
+      align-items: center;
+      padding: 13px;
+      border: 1px solid rgba(255, 123, 139, .2);
+      border-radius: 13px;
+      color: #cfdae4;
+      background: rgba(255, 123, 139, .045);
+      counter-increment: blocker;
+    }
+    .blockers li::before {
+      content: counter(blocker);
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 9px;
+      color: var(--red);
+      background: rgba(255, 123, 139, .1);
+      font-weight: 900;
+    }
+    .evidence-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .evidence-item { padding: 15px; border: 1px solid var(--line); border-radius: 14px; background: rgba(4, 15, 25, .42); }
+    .evidence-item dt { color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+    .evidence-item dd { margin: 8px 0 0; color: #d3dee8; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+    code { font-family: "SFMono-Regular", Consolas, monospace; color: #bfeaff; }
+    footer { padding: 24px 4px 0; color: #738ca1; font-size: 12px; line-height: 1.7; }
+    .empty { display: none; padding: 28px; color: var(--muted); text-align: center; }
+    @media (max-width: 980px) {
+      .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .evidence-grid { grid-template-columns: 1fr; }
+      .callout { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 620px) {
+      .shell { width: min(100% - 20px, 1480px); padding-top: 10px; }
+      .hero, .panel { padding: 19px; border-radius: 17px; }
+      .summary-grid { grid-template-columns: 1fr; }
+      .panel-head { align-items: stretch; flex-direction: column; }
+    }
+  </style>
+</head>
+<body data-matrix-digest="93cbcaf71d04" data-state-digest="e54af980fbc5" data-code-digest="04886d5d1ab9">
+  <main class="shell">
+    <section class="hero">
+      <p class="eyebrow">Reference-driven Java Agent Runtime</p>
+      <h1>cc-java 项目进度看板</h1>
+      <p class="hero-copy">Runtime Kernel 的 19 项能力保持 L1；标准验证和 G5 已通过，Commit-scoped G4/G6 仍开放。</p>
+      <div class="hero-meta">
+        <span class="chip"><span class="dot"></span>当前 S01 · Runtime Kernel（Agent Loop）</span>
+        <span class="chip">Stage Exit · OPEN</span>
+        <span class="chip">更新 · 2026-07-28</span>
+        <a class="chip" href="feature-parity-matrix.md">打开权威功能矩阵 ↗</a>
+      </div>
+    </section>
+
+    <section class="summary-grid" aria-label="项目摘要">
+      <article class="metric">
+        <p class="metric-label">Capability Coverage</p>
+        <p class="metric-value">3.25%</p>
+        <div class="progress-track"><div class="progress-bar" style="width: 3.25%"></div></div>
+        <p class="metric-note">按 195 项等权、默认目标 L3 计算。</p>
+      </article>
+      <article class="metric">
+        <p class="metric-label">Current Stage</p>
+        <p class="metric-value">S01</p>
+        <p class="metric-note">Runtime Kernel（Agent Loop） · 进行中</p>
+      </article>
+      <article class="metric">
+        <p class="metric-label">Implemented Skeletons</p>
+        <p class="metric-value">19</p>
+        <p class="metric-note">L1 学习骨架；L0 仍有 176 项。</p>
+      </article>
+      <article class="metric">
+        <p class="metric-label">Open Gates</p>
+        <p class="metric-value">2</p>
+        <p class="metric-note">必须关闭 G4-G6 后才能进入下一 Stage。</p>
+      </article>
+    </section>
+
+    <section class="panel callout">
+      <strong>Next allowed action</strong>
+      <p>明确授权 Git Commit 后固化并复验当前 S01；通过 G4/G6 后再以独立变更启动 S02。</p>
+    </section>
+
+    <section class="panel" id="gates">
+      <div class="panel-head">
+        <div>
+          <h2>当前 Stage Gate</h2>
+          <p class="panel-desc">Capability 可以先达到阶段等级，但 Stage 只有 G0-G6 全部通过才退出。</p>
+        </div>
+      </div>
+      <ol class="gate-grid"><li class="gate passed"><div class="gate-id"><span>G0</span><span class="badge passed">已通过</span></div><p>公开行为基线、授权快照、指纹、授权范围和 Unknown 已登记。</p></li><li class="gate passed"><div class="gate-id"><span>G1</span><span class="badge passed">已通过</span></div><p>S01 Feature ID、L1 目标、行为与非目标已经明确。</p></li><li class="gate passed"><div class="gate-id"><span>G2</span><span class="badge passed">已通过</span></div><p>ADR-017 记录 Runtime Kernel 决策；ADR-018/019 固定后续研究和采纳规则。</p></li><li class="gate passed"><div class="gate-id"><span>G3</span><span class="badge passed">已通过</span></div><p>显式 Agent Loop、统一 Tool Pipeline、内存 Session 和测试 Fake 已实现。</p></li><li class="gate open"><div class="gate-id"><span>G4</span><span class="badge open">待关闭</span></div><p>标准 Windows Wrapper、构建、Javadoc 和 23 个测试已通过；待稳定 Commit 上复验后最终通过。</p></li><li class="gate passed"><div class="gate-id"><span>G5</span><span class="badge passed">已通过</span></div><p>5 个聚焦场景全部通过，包含多 Tool 主链路、预算原子拒绝负例、恢复与事件顺序。</p></li><li class="gate open"><div class="gate-id"><span>G6</span><span class="badge open">待关闭</span></div><p>矩阵、README、PRD、技术设计、ADR、Demo、证据与 Gap Report 已对账；待 G4 Commit 身份关闭后接受 Stage。</p></li></ol>
+    </section>
+
+    <section class="panel" id="roadmap">
+      <div class="panel-head">
+        <div>
+          <h2>S00-S15 路线</h2>
+          <p class="panel-desc">Stage 状态来自当前状态文件；主题和交付物直接解析自功能矩阵。</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Stage</th><th>状态</th><th>主题</th><th>核心交付</th><th>关联能力</th></tr></thead>
+          <tbody><tr><td class="stage-id">S00</td><td><span class="badge accepted">已通过</span></td><td>Harness 地图</td><td>参考架构、双基线、矩阵、术语和来源边界</td><td>0</td></tr><tr class="current-row"><td class="stage-id">S01</td><td><span class="badge in-progress">进行中</span></td><td>Runtime Kernel（Agent Loop）</td><td>Fake Model 驱动的显式循环</td><td>19</td></tr><tr><td class="stage-id">S02</td><td><span class="badge planned">未开始</span></td><td>Model + Streaming CLI</td><td>一个真实 Provider、REPL、事件流</td><td>23</td></tr><tr><td class="stage-id">S03</td><td><span class="badge planned">未开始</span></td><td>Read Tools</td><td>在真实仓库自主搜索和解释代码</td><td>14</td></tr><tr><td class="stage-id">S04</td><td><span class="badge planned">未开始</span></td><td>Write + Command</td><td>经审批修改代码、执行测试、根据结果继续</td><td>19</td></tr><tr><td class="stage-id">S05</td><td><span class="badge planned">未开始</span></td><td>Permission Pipeline</td><td>模式、规则、审批、生命周期和拒绝恢复</td><td>18</td></tr><tr><td class="stage-id">S06</td><td><span class="badge planned">未开始</span></td><td>Session + Checkpoint</td><td>JSONL、稳定 ID/Protocol Round、resume/fork、崩溃检测、undo</td><td>15</td></tr><tr><td class="stage-id">S07</td><td><span class="badge planned">未开始</span></td><td>Context Engineering</td><td>Transcript/Projection、四级减压、Rolling Memory、Summary 和有界恢复</td><td>16</td></tr><tr><td class="stage-id">S08</td><td><span class="badge planned">未开始</span></td><td>Instructions + Settings</td><td>用户/项目/目录指令、配置层级和 Context CLI</td><td>18</td></tr><tr><td class="stage-id">S09</td><td><span class="badge planned">未开始</span></td><td>Hooks</td><td>可配置生命周期扩展与阻断</td><td>11</td></tr><tr><td class="stage-id">S10</td><td><span class="badge planned">未开始</span></td><td>MCP</td><td>外部 Server、Tool 过滤、权限统一</td><td>13</td></tr><tr><td class="stage-id">S11</td><td><span class="badge planned">未开始</span></td><td>Skills + Plugins</td><td>懒加载工作流、扩展打包和信任</td><td>16</td></tr><tr><td class="stage-id">S12</td><td><span class="badge planned">未开始</span></td><td>Sub-Agent + Worktree</td><td>RuntimeScope、单 Agent、并发/后台和 Worktree 检查点</td><td>14</td></tr><tr><td class="stage-id">S13</td><td><span class="badge planned">未开始</span></td><td>Sandbox + Security</td><td>Process/File/Network 隔离和攻击测试</td><td>20</td></tr><tr><td class="stage-id">S14</td><td><span class="badge planned">未开始</span></td><td>Production Harness</td><td>Eval/Observability、SDK/Headless、Distribution/Compatibility</td><td>40</td></tr><tr><td class="stage-id">S15</td><td><span class="badge planned">未开始</span></td><td>Independent Innovation</td><td>基于对照结果实现 Java 差异化</td><td>5</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel" id="capabilities">
+      <div class="panel-head">
+        <div>
+          <h2>Capability 明细</h2>
+          <p class="panel-desc"><span id="visibleCount">195</span> / 195 项可见。支持按 ID、名称、目标、等级或 Stage 筛选。</p>
+        </div>
+        <div class="filters">
+          <input id="capabilityQuery" type="search" placeholder="搜索 Capability…" autocomplete="off">
+          <select id="levelFilter" aria-label="按等级筛选"><option value="">全部等级</option><option value="L0">L0 · 176</option><option value="L1">L1 · 19</option><option value="L2">L2 · 0</option><option value="L3">L3 · 0</option><option value="L4">L4 · 0</option></select>
+          <select id="stageFilter" aria-label="按 Stage 筛选"><option value="">全部 Stage</option><option value="S00">S00 · Harness 地图</option><option value="S01">S01 · Runtime Kernel（Agent Loop）</option><option value="S02">S02 · Model + Streaming CLI</option><option value="S03">S03 · Read Tools</option><option value="S04">S04 · Write + Command</option><option value="S05">S05 · Permission Pipeline</option><option value="S06">S06 · Session + Checkpoint</option><option value="S07">S07 · Context Engineering</option><option value="S08">S08 · Instructions + Settings</option><option value="S09">S09 · Hooks</option><option value="S10">S10 · MCP</option><option value="S11">S11 · Skills + Plugins</option><option value="S12">S12 · Sub-Agent + Worktree</option><option value="S13">S13 · Sandbox + Security</option><option value="S14">S14 · Production Harness</option><option value="S15">S15 · Independent Innovation</option></select>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="capabilityTable">
+          <thead><tr><th>ID</th><th>参考能力</th><th>Java 重实现目标</th><th>当前</th><th>Stage</th><th>参考</th></tr></thead>
+          <tbody><tr data-level="L0" data-stages="S02"><td class="cap-id">BOOT-01</td><td>CLI 启动并识别运行模式</td><td>Picocli Interactive / Print</td><td><span class="level level-L0">L0</span></td><td>S02</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S03"><td class="cap-id">BOOT-02</td><td>确定 Workspace 与 Git 状态</td><td>WorkspaceSnapshot</td><td><span class="level level-L0">L0</span></td><td>S03</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S02/S05"><td class="cap-id">BOOT-03</td><td>加载模型、工具和权限</td><td>SessionBootstrapper</td><td><span class="level level-L0">L0</span></td><td>S02/S05</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S03/S08"><td class="cap-id">BOOT-04</td><td>加载项目指令</td><td>InstructionLoader</td><td><span class="level level-L0">L0</span></td><td>S03/S08</td><td>REF-05</td></tr><tr data-level="L1" data-stages="S01"><td class="cap-id">BOOT-05</td><td>创建 Session 和初始 Context</td><td>SessionStore + ContextAssembler</td><td><span class="level level-L1">L1</span></td><td>S01</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S08/S14"><td class="cap-id">BOOT-06</td><td>启动诊断</td><td>/doctor 与配置来源报告</td><td><span class="level level-L0">L0</span></td><td>S08/S14</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S07/S10/S11"><td class="cap-id">BOOT-07</td><td>延迟加载高成本能力</td><td>Lazy Tool/Skill/MCP Metadata</td><td><span class="level level-L0">L0</span></td><td>S07/S10/S11</td><td>REF-01/03</td></tr><tr data-level="L0" data-stages="S02"><td class="cap-id">CLI-01</td><td>Interactive Session</td><td>JLine REPL</td><td><span class="level level-L0">L0</span></td><td>S02</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S02"><td class="cap-id">CLI-02</td><td>Print / Headless</td><td>Picocli --print</td><td><span class="level level-L0">L0</span></td><td>S02</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S02"><td class="cap-id">CLI-03</td><td>流式 Assistant Text</td><td>ModelTextDelta 渲染</td><td><span class="level level-L0">L0</span></td><td>S02</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S02/S03"><td class="cap-id">CLI-04</td><td>Tool 进度与输出</td><td>有序 Agent Event 渲染</td><td><span class="level level-L0">L0</span></td><td>S02/S03</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S04/S05"><td class="cap-id">CLI-05</td><td>Permission Prompt</td><td>终端 Approval UI</td><td><span class="level level-L0">L0</span></td><td>S04/S05</td><td>REF-04</td></tr><tr data-level="L0" data-stages="S02/S04"><td class="cap-id">CLI-06</td><td>Ctrl+C Cancel</td><td>当前 Run/Tool 取消</td><td><span class="level level-L0">L0</span></td><td>S02/S04</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S08"><td class="cap-id">CLI-07</td><td>Steering</td><td>S08 运行中排队用户补充消息</td><td><span class="level level-L0">L0</span></td><td>S08</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S08"><td class="cap-id">CLI-08</td><td>Slash Commands</td><td>S08 提供 help/clear/compact/context/model/permissions/resume</td><td><span class="level level-L0">L0</span></td><td>S08</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S08"><td class="cap-id">CLI-09</td><td>多行、历史、补全</td><td>S08 完整 JLine 交互能力</td><td><span class="level level-L0">L0</span></td><td>S08</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S02/S14"><td class="cap-id">CLI-10</td><td>TTY / Non-TTY 降级</td><td>无 ANSI 输出与管道模式</td><td><span class="level level-L0">L0</span></td><td>S02/S14</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">CLI-11</td><td>机器输出协议</td><td>版本化 JSON/JSONL</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">CLI-12</td><td>多 Surface 共用引擎</td><td>CLI/SDK/API 共用 Runtime</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-02</td></tr><tr data-level="L1" data-stages="S01"><td class="cap-id">LOOP-01</td><td>显式循环状态</td><td>AgentRunState</td><td><span class="level level-L1">L1</span></td><td>S01</td><td>REF-01</td></tr><tr data-level="L1" data-stages="S01"><td class="cap-id">LOOP-02</td><td>User → Model → Tool → Model</td><td>User-controlled Loop</td><td><span class="level level-L1">L1</span></td><td>S01</td><td>REF-01/08</td></tr><tr data-level="L1" data-stages="S01"><td class="cap-id">LOOP-03</td><td>单回合多个 Tool Call</td><td>保持消息和 Call ID 协议</td><td><span class="level level-L1">L1</span></td><td>S01</td><td>REF-08</td></tr><tr data-level="L0" data-stages="S02"><td class="cap-id">LOOP-04</td><td>流式 Model Turn</td><td>Delta + 聚合结果</td><td><span class="level level-L0">L0</span></td><td>S02</td><td>REF-02/08</td></tr><tr data-level="L1" data-stages="S01"><td class="cap-id">LOOP-05</td><td>Tool Result 驱动下一回合</td><td>Canonical Message History</td><td><span class="level level-L1">L1</span></td><td>S01</td><td>REF-08</td></tr><tr data-level="L1" data-stages="S01/S07"><td class="cap-id">LOOP-06</td><td>多 Continue 原因</td><td>显式 Transition/Stop Reason</td><td><span class="level level-L1">L1</span></td><td>S01/S07</td><td>REF-01</td></tr><tr data-level="L1" data-stages="S01"><td class="cap-id">LOOP-07</td><td>最大回合和工具数</td><td>AgentLimits</td><td><span class="level level-L1">L1</span></td><td>S01</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S02/S04"><td class="cap-id">LOOP-08</td><td>Deadline 与取消</td><td>Cancellation 传播</td><td><span class="level level-L0">L0</span></td><td>S02/S04</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S02/S14"><td class="cap-id">LOOP-09</td><td>模型错误重试</td><td>有界 Retry Policy</td><td><span class="level level-L0">L0</span></td><td>S02/S14</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S02/S14"><td class="cap-id">LOOP-10</td><td>Model Output Length Recovery</td><td>S02 识别截断/不完整输出并有界停止或续接 → S14 L3 恢复策略</td><td><span class="level level-L0">L0</span></td><td>S02/S14</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S07"><td class="cap-id">LOOP-11</td><td>Bounded Context Overflow Recovery</td><td>同次 Overflow 最多压缩恢复一次，再失败明确终止</td><td><span class="level level-L0">L0</span></td><td>S07</td><td>REF-01/02/AUTH-SRC-01</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">LOOP-12</td><td>Model Fallback</td><td>Provider-aware Fallback</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S05"><td class="cap-id">LOOP-13</td><td>用户拒绝后继续推理</td><td>Denied Tool Result 回传模型</td><td><span class="level level-L0">L0</span></td><td>S05</td><td>REF-04</td></tr><tr data-level="L0" data-stages="S06"><td class="cap-id">LOOP-14</td><td>崩溃和未完成 Tool</td><td>Session Recovery Gate</td><td><span class="level level-L0">L0</span></td><td>S06</td><td>REF-06</td></tr><tr data-level="L1" data-stages="S01"><td class="cap-id">MODEL-01</td><td>Model Gateway</td><td>Provider-neutral Port</td><td><span class="level level-L1">L1</span></td><td>S01</td><td>REF-08</td></tr><tr data-level="L0" data-stages="S02"><td class="cap-id">MODEL-02</td><td>一个真实 Provider</td><td>Spring AI Adapter</td><td><span class="level level-L0">L0</span></td><td>S02</td><td>REF-08</td></tr><tr data-level="L1" data-stages="S01"><td class="cap-id">MODEL-03</td><td>Scripted Fake Model</td><td>确定性测试</td><td><span class="level level-L1">L1</span></td><td>S01</td><td>REF-08</td></tr><tr data-level="L0" data-stages="S02"><td class="cap-id">MODEL-04</td><td>Text Streaming</td><td>Adapter 内消费 Flux</td><td><span class="level level-L0">L0</span></td><td>S02</td><td>REF-08</td></tr><tr data-level="L0" data-stages="S02"><td class="cap-id">MODEL-05</td><td>Tool Call Streaming</td><td>Chunk 聚合</td><td><span class="level level-L0">L0</span></td><td>S02</td><td>REF-08</td></tr><tr data-level="L0" data-stages="S02"><td class="cap-id">MODEL-06</td><td>Usage / Finish Reason</td><td>规范化 Capability</td><td><span class="level level-L0">L0</span></td><td>S02</td><td>REF-08</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">MODEL-07</td><td>第二 Provider</td><td>S14 验证 Provider-neutral Port</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S08"><td class="cap-id">MODEL-08</td><td>Model Switching</td><td>Session Command</td><td><span class="level level-L0">L0</span></td><td>S08</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">MODEL-09</td><td>Provider Cache / Context Editing</td><td>Adapter 侧 Cache Hint 与原生编辑优化</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-01/AUTH-SRC-01</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">MODEL-10</td><td>Rate Limit / Retry</td><td>Provider Error Policy</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">MODEL-11</td><td>Cost Budget</td><td>Token 与价格模型</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">MODEL-12</td><td>Capability Detection</td><td>Tools/Streaming/Context/Reasoning</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-02</td></tr><tr data-level="L1" data-stages="S01"><td class="cap-id">TOOL-01</td><td>Tool Definition + Schema</td><td>Framework-free Contract</td><td><span class="level level-L1">L1</span></td><td>S01</td><td>REF-08</td></tr><tr data-level="L1" data-stages="S01"><td class="cap-id">TOOL-02</td><td>Tool Registry</td><td>Source-aware Registry</td><td><span class="level level-L1">L1</span></td><td>S01</td><td>REF-01</td></tr><tr data-level="L1" data-stages="S01/S05"><td class="cap-id">TOOL-03</td><td>统一执行 Pipeline</td><td>Validate → Permit → Execute → Normalize</td><td><span class="level level-L1">L1</span></td><td>S01/S05</td><td>REF-01/07</td></tr><tr data-level="L0" data-stages="S03"><td class="cap-id">TOOL-04</td><td>List / Glob</td><td>Workspace 文件枚举</td><td><span class="level level-L0">L0</span></td><td>S03</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S03"><td class="cap-id">TOOL-05</td><td>Grep / Search</td><td>文本和行号搜索</td><td><span class="level level-L0">L0</span></td><td>S03</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S03"><td class="cap-id">TOOL-06</td><td>Read File</td><td>分段、行号、大小限制</td><td><span class="level level-L0">L0</span></td><td>S03</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S03/S04"><td class="cap-id">TOOL-07</td><td>Git Status / Diff</td><td>脏工作区和证据</td><td><span class="level level-L0">L0</span></td><td>S03/S04</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S04"><td class="cap-id">TOOL-08</td><td>Apply Patch / Edit</td><td>原子文本修改</td><td><span class="level level-L0">L0</span></td><td>S04</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S04"><td class="cap-id">TOOL-09</td><td>Write / Create</td><td>新文件写入</td><td><span class="level level-L0">L0</span></td><td>S04</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S04"><td class="cap-id">TOOL-10</td><td>Run Command</td><td>Shell、timeout、exit code</td><td><span class="level level-L0">L0</span></td><td>S04</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S04"><td class="cap-id">TOOL-11</td><td>Tool Output Streaming</td><td>stdout/stderr Event</td><td><span class="level level-L0">L0</span></td><td>S04</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S03/S04"><td class="cap-id">TOOL-12</td><td>Single Tool Result Limit</td><td>S03-S04 类型化硬上限、截断/外置元数据</td><td><span class="level level-L0">L0</span></td><td>S03/S04</td><td>REF-01/AUTH-SRC-01</td></tr><tr data-level="L1" data-stages="S01/S03"><td class="cap-id">TOOL-13</td><td>Structured Tool Error</td><td>模型可纠正错误</td><td><span class="level level-L1">L1</span></td><td>S01/S03</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S04"><td class="cap-id">TOOL-14</td><td>Tool Cancellation</td><td>Model/Process/File 取消</td><td><span class="level level-L0">L0</span></td><td>S04</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S12"><td class="cap-id">TOOL-15</td><td>并行安全工具</td><td>Read-only 并行执行</td><td><span class="level level-L0">L0</span></td><td>S12</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S10/S11"><td class="cap-id">TOOL-16</td><td>Tool Search / Lazy Schema</td><td>大工具集按需加载</td><td><span class="level level-L0">L0</span></td><td>S10/S11</td><td>REF-02/03</td></tr><tr data-level="L0" data-stages="S14/S15"><td class="cap-id">TOOL-17</td><td>Code Intelligence</td><td>LSP / Symbol Tool</td><td><span class="level level-L0">L0</span></td><td>S14/S15</td><td>REF-02/03</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">TOOL-18</td><td>Web Tool</td><td>可控网络检索</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S04/S05"><td class="cap-id">PERM-01</td><td>Tool Effect 分类</td><td>Read/Write/Process/Network/System</td><td><span class="level level-L0">L0</span></td><td>S04/S05</td><td>REF-04</td></tr><tr data-level="L0" data-stages="S04"><td class="cap-id">PERM-02</td><td>Manual / Default</td><td>副作用默认询问</td><td><span class="level level-L0">L0</span></td><td>S04</td><td>REF-04</td></tr><tr data-level="L0" data-stages="S04/S05"><td class="cap-id">PERM-03</td><td>Plan Mode</td><td>S04 固定安全模式 → S05 可配置策略</td><td><span class="level level-L0">L0</span></td><td>S04/S05</td><td>REF-04</td></tr><tr data-level="L0" data-stages="S05"><td class="cap-id">PERM-04</td><td>Accept Edits</td><td>Workspace Write 自动批准</td><td><span class="level level-L0">L0</span></td><td>S05</td><td>REF-04</td></tr><tr data-level="L0" data-stages="S13/S15"><td class="cap-id">PERM-05</td><td>Auto Mode</td><td>独立安全决策器</td><td><span class="level level-L0">L0</span></td><td>S13/S15</td><td>REF-04</td></tr><tr data-level="L0" data-stages="S05/S08"><td class="cap-id">PERM-06</td><td>Allow / Ask / Deny</td><td>声明性规则</td><td><span class="level level-L0">L0</span></td><td>S05/S08</td><td>REF-04</td></tr><tr data-level="L0" data-stages="S04/S05"><td class="cap-id">PERM-07</td><td>Allow Once / Session</td><td>范围化审批缓存</td><td><span class="level level-L0">L0</span></td><td>S04/S05</td><td>REF-04</td></tr><tr data-level="L0" data-stages="S05/S13"><td class="cap-id">PERM-08</td><td>Protected Paths</td><td>不可写路径</td><td><span class="level level-L0">L0</span></td><td>S05/S13</td><td>REF-04</td></tr><tr data-level="L0" data-stages="S05/S13"><td class="cap-id">PERM-09</td><td>Hard Denial</td><td>不可被项目配置覆盖</td><td><span class="level level-L0">L0</span></td><td>S05/S13</td><td>REF-01/04</td></tr><tr data-level="L0" data-stages="S05/S09"><td class="cap-id">PERM-10</td><td>Permission Event</td><td>可观察与 Hook</td><td><span class="level level-L0">L0</span></td><td>S05/S09</td><td>REF-07</td></tr><tr data-level="L0" data-stages="S05/S14"><td class="cap-id">PERM-11</td><td>Denial Tracking</td><td>重复拒绝降级</td><td><span class="level level-L0">L0</span></td><td>S05/S14</td><td>REF-01/04</td></tr><tr data-level="L0" data-stages="S08/S13"><td class="cap-id">PERM-12</td><td>Project/User/Managed Scope</td><td>分层策略</td><td><span class="level level-L0">L0</span></td><td>S08/S13</td><td>REF-04</td></tr><tr data-level="L0" data-stages="S05"><td class="cap-id">PERM-13</td><td>Print Mode Policy</td><td>无交互时确定性处理 ASK</td><td><span class="level level-L0">L0</span></td><td>S05</td><td>REF-04</td></tr><tr data-level="L1" data-stages="S01/S05"><td class="cap-id">HOOK-01</td><td>内部 Lifecycle Event</td><td>Session/Run/Model/Tool/Permission</td><td><span class="level level-L1">L1</span></td><td>S01/S05</td><td>REF-07</td></tr><tr data-level="L0" data-stages="S05/S09"><td class="cap-id">HOOK-02</td><td>Pre Tool</td><td>执行前观察和阻断</td><td><span class="level level-L0">L0</span></td><td>S05/S09</td><td>REF-07</td></tr><tr data-level="L0" data-stages="S05/S09"><td class="cap-id">HOOK-03</td><td>Post Tool</td><td>结果观察和附加 Context</td><td><span class="level level-L0">L0</span></td><td>S05/S09</td><td>REF-07</td></tr><tr data-level="L0" data-stages="S09"><td class="cap-id">HOOK-04</td><td>Session Start/End</td><td>环境和清理扩展</td><td><span class="level level-L0">L0</span></td><td>S09</td><td>REF-07</td></tr><tr data-level="L0" data-stages="S09"><td class="cap-id">HOOK-05</td><td>User Prompt / Run</td><td>输入处理</td><td><span class="level level-L0">L0</span></td><td>S09</td><td>REF-07</td></tr><tr data-level="L0" data-stages="S09"><td class="cap-id">HOOK-06</td><td>Permission Request</td><td>自定义审批逻辑</td><td><span class="level level-L0">L0</span></td><td>S09</td><td>REF-07</td></tr><tr data-level="L0" data-stages="S09"><td class="cap-id">HOOK-07</td><td>External Compact Hooks</td><td>建立在 S07 内部事件之上的可配置扩展</td><td><span class="level level-L0">L0</span></td><td>S09</td><td>REF-07</td></tr><tr data-level="L0" data-stages="S12"><td class="cap-id">HOOK-08</td><td>Sub-Agent Hooks</td><td>子任务生命周期</td><td><span class="level level-L0">L0</span></td><td>S12</td><td>REF-07</td></tr><tr data-level="L0" data-stages="S09"><td class="cap-id">HOOK-09</td><td>Command Hook</td><td>JSON stdin/stdout + Exit Policy</td><td><span class="level level-L0">L0</span></td><td>S09</td><td>REF-07</td></tr><tr data-level="L0" data-stages="S09/S13"><td class="cap-id">HOOK-10</td><td>HTTP Hook</td><td>受控远程回调</td><td><span class="level level-L0">L0</span></td><td>S09/S13</td><td>REF-07</td></tr><tr data-level="L0" data-stages="S12/S15"><td class="cap-id">HOOK-11</td><td>Prompt / Agent Hook</td><td>模型参与决策</td><td><span class="level level-L0">L0</span></td><td>S12/S15</td><td>REF-07</td></tr><tr data-level="L0" data-stages="S09"><td class="cap-id">HOOK-12</td><td>Matcher / Scope</td><td>Tool、路径、Session 条件</td><td><span class="level level-L0">L0</span></td><td>S09</td><td>REF-07</td></tr><tr data-level="L0" data-stages="S09"><td class="cap-id">HOOK-13</td><td>Timeout / Error Policy</td><td>阻断与非阻断错误</td><td><span class="level level-L0">L0</span></td><td>S09</td><td>REF-07</td></tr><tr data-level="L0" data-stages="S03/S04"><td class="cap-id">SEC-01</td><td>Workspace Realpath</td><td>路径与新文件父目录校验</td><td><span class="level level-L0">L0</span></td><td>S03/S04</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S03/S13"><td class="cap-id">SEC-02</td><td>Symlink / Junction</td><td>跨平台逃逸测试</td><td><span class="level level-L0">L0</span></td><td>S03/S13</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S03/S13"><td class="cap-id">SEC-03</td><td>Sensitive Files</td><td>默认拒绝和配置</td><td><span class="level level-L0">L0</span></td><td>S03/S13</td><td>REF-04</td></tr><tr data-level="L0" data-stages="S04/S13"><td class="cap-id">SEC-04</td><td>Process Tree Control</td><td>timeout/cancel/cleanup</td><td><span class="level level-L0">L0</span></td><td>S04/S13</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S04/S13"><td class="cap-id">SEC-05</td><td>Environment Filtering</td><td>最小环境变量</td><td><span class="level level-L0">L0</span></td><td>S04/S13</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S13"><td class="cap-id">SEC-06</td><td>File Sandbox</td><td>Workspace 级 OS 隔离</td><td><span class="level level-L0">L0</span></td><td>S13</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S13"><td class="cap-id">SEC-07</td><td>Network Sandbox</td><td>Domain/Port Policy</td><td><span class="level level-L0">L0</span></td><td>S13</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S13"><td class="cap-id">SEC-08</td><td>Container Backend</td><td>隔离执行环境</td><td><span class="level level-L0">L0</span></td><td>S13</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S05/S13"><td class="cap-id">SEC-09</td><td>Prompt Injection Defense</td><td>不可信仓库测试</td><td><span class="level level-L0">L0</span></td><td>S05/S13</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S03/S14"><td class="cap-id">SEC-10</td><td>Secret Redaction</td><td>Event/Log/Tool Result</td><td><span class="level level-L0">L0</span></td><td>S03/S14</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S11/S13"><td class="cap-id">SEC-11</td><td>Plugin Supply Chain</td><td>签名、信任和隔离</td><td><span class="level level-L0">L0</span></td><td>S11/S13</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S13"><td class="cap-id">SEC-12</td><td>Security Regression Suite</td><td>攻击性 Fixture</td><td><span class="level level-L0">L0</span></td><td>S13</td><td>REF-01</td></tr><tr data-level="L1" data-stages="S01/S02"><td class="cap-id">CTX-01</td><td>System Context Assembly</td><td>稳定策略 + Runtime Metadata</td><td><span class="level level-L1">L1</span></td><td>S01/S02</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S03"><td class="cap-id">CTX-02</td><td>Project Instructions</td><td>根 AGENTS.md</td><td><span class="level level-L0">L0</span></td><td>S03</td><td>REF-05</td></tr><tr data-level="L0" data-stages="S08"><td class="cap-id">CTX-03</td><td>Hierarchical Instructions</td><td>User/Project/Directory</td><td><span class="level level-L0">L0</span></td><td>S08</td><td>REF-05</td></tr><tr data-level="L0" data-stages="S08"><td class="cap-id">CTX-04</td><td>Path-scoped Rules</td><td>只在相关文件加载</td><td><span class="level level-L0">L0</span></td><td>S08</td><td>REF-05</td></tr><tr data-level="L0" data-stages="S06/S07"><td class="cap-id">CTX-05</td><td>Aggregated Tool Payload Budget</td><td>S06:L1 稳定决策记录 → S07:L2 聚合限流、外置和恢复重放</td><td><span class="level level-L0">L0</span></td><td>S06/S07</td><td>REF-01/AUTH-SRC-01</td></tr><tr data-level="L0" data-stages="S07"><td class="cap-id">CTX-06</td><td>Context Capacity / Usage</td><td>Model-aware 预算、实际/估算来源和分类对账</td><td><span class="level level-L0">L0</span></td><td>S07</td><td>REF-01/02/AUTH-SRC-01</td></tr><tr data-level="L0" data-stages="S06/S07"><td class="cap-id">CTX-07</td><td>Complete Protocol Round Eviction</td><td>只淘汰完整协议回合并保持 Call/Result 配对</td><td><span class="level level-L0">L0</span></td><td>S06/S07</td><td>REF-01/AUTH-SRC-01</td></tr><tr data-level="L0" data-stages="S07"><td class="cap-id">CTX-08</td><td>Old Tool Result Reduction</td><td>低价值旧结果、近期工作集和幂等</td><td><span class="level level-L0">L0</span></td><td>S07</td><td>REF-02/AUTH-SRC-01</td></tr><tr data-level="L0" data-stages="S07"><td class="cap-id">CTX-09</td><td>Full Conversation Summary</td><td>完整摘要、状态重注入和失败不提交</td><td><span class="level level-L0">L0</span></td><td>S07</td><td>REF-01/02/AUTH-SRC-01</td></tr><tr data-level="L0" data-stages="S07"><td class="cap-id">CTX-10</td><td>Progressive Reduction Orchestration</td><td>四级条件决策图与确定性降级</td><td><span class="level level-L0">L0</span></td><td>S07</td><td>REF-01/AUTH-SRC-01</td></tr><tr data-level="L0" data-stages="S07"><td class="cap-id">CTX-11</td><td>Thrashing Guard</td><td>连续失败熔断、低水位和成功重置</td><td><span class="level level-L0">L0</span></td><td>S07</td><td>REF-02/AUTH-SRC-01</td></tr><tr data-level="L0" data-stages="S07/S08"><td class="cap-id">CTX-12</td><td>Manual Compact + Instructions</td><td>S07 Core 手动触发/保留指令 → S08 /compact</td><td><span class="level level-L0">L0</span></td><td>S07/S08</td><td>REF-02/AUTH-SRC-01</td></tr><tr data-level="L0" data-stages="S07/S08"><td class="cap-id">CTX-13</td><td>Context Usage Report / /context</td><td>S07 Core 精确对账 → S08 CLI 展示</td><td><span class="level level-L0">L0</span></td><td>S07/S08</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S11"><td class="cap-id">CTX-14</td><td>Skill Lazy Loading</td><td>Metadata 先加载</td><td><span class="level level-L0">L0</span></td><td>S11</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S12"><td class="cap-id">CTX-15</td><td>Sub-Agent Isolation</td><td>独立窗口与摘要返回</td><td><span class="level level-L0">L0</span></td><td>S12</td><td>REF-02/03</td></tr><tr data-level="L0" data-stages="S06/S07/S14"><td class="cap-id">CTX-16</td><td>Cache-stable Context Projection</td><td>稳定前缀、Tool 顺序和 Projection 决策</td><td><span class="level level-L0">L0</span></td><td>S06/S07/S14</td><td>REF-01/AUTH-SRC-01</td></tr><tr data-level="L0" data-stages="S07"><td class="cap-id">CTX-17</td><td>Rolling Session Memory</td><td>覆盖边界、串行抽取和协议安全近期尾部</td><td><span class="level level-L0">L0</span></td><td>S07</td><td>AUTH-SRC-01</td></tr><tr data-level="L0" data-stages="S06/S07"><td class="cap-id">CTX-18</td><td>Persistent Transcript / Reducible Projection</td><td>S06:L1 持久化分离契约 → S07:L2 压缩感知投影</td><td><span class="level level-L0">L0</span></td><td>S06/S07</td><td>AUTH-SRC-01</td></tr><tr data-level="L0" data-stages="S02"><td class="cap-id">CFG-01</td><td>CLI Overrides</td><td>Picocli 参数</td><td><span class="level level-L0">L0</span></td><td>S02</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S02"><td class="cap-id">CFG-02</td><td>Environment</td><td>Provider/Runtime 环境变量</td><td><span class="level level-L0">L0</span></td><td>S02</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S08"><td class="cap-id">CFG-03</td><td>User Settings</td><td>~/.cc-java/</td><td><span class="level level-L0">L0</span></td><td>S08</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S08"><td class="cap-id">CFG-04</td><td>Project Settings</td><td>版本控制配置</td><td><span class="level level-L0">L0</span></td><td>S08</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S08"><td class="cap-id">CFG-05</td><td>Local Settings</td><td>Gitignored 本地覆盖</td><td><span class="level level-L0">L0</span></td><td>S08</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S08"><td class="cap-id">CFG-06</td><td>Session Overrides</td><td>Slash Command 临时设置</td><td><span class="level level-L0">L0</span></td><td>S08</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S13/S14"><td class="cap-id">CFG-07</td><td>Managed Policy</td><td>不可覆盖组织策略</td><td><span class="level level-L0">L0</span></td><td>S13/S14</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S08"><td class="cap-id">CFG-08</td><td>Merge Semantics</td><td>Scalar/Object/List 明确规则</td><td><span class="level level-L0">L0</span></td><td>S08</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S08"><td class="cap-id">CFG-09</td><td>Config Diagnostics</td><td>来源与最终值</td><td><span class="level level-L0">L0</span></td><td>S08</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">CFG-10</td><td>Migration</td><td>Schema Version 与升级</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">CFG-11</td><td>Feature Gates</td><td>实验能力开关</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-01</td></tr><tr data-level="L1" data-stages="S01"><td class="cap-id">SESSION-01</td><td>Session ID</td><td>Workspace-aware ID</td><td><span class="level level-L1">L1</span></td><td>S01</td><td>REF-06</td></tr><tr data-level="L1" data-stages="S01/S02"><td class="cap-id">SESSION-02</td><td>In-memory Session</td><td>当前对话连续性</td><td><span class="level level-L1">L1</span></td><td>S01/S02</td><td>REF-06</td></tr><tr data-level="L0" data-stages="S06"><td class="cap-id">SESSION-03</td><td>Append-only JSONL</td><td>版本化事件存储</td><td><span class="level level-L0">L0</span></td><td>S06</td><td>REF-06</td></tr><tr data-level="L0" data-stages="S06"><td class="cap-id">SESSION-04</td><td>Continue</td><td>最近 Session</td><td><span class="level level-L0">L0</span></td><td>S06</td><td>REF-06</td></tr><tr data-level="L0" data-stages="S06"><td class="cap-id">SESSION-05</td><td>Resume</td><td>选择 Session</td><td><span class="level level-L0">L0</span></td><td>S06</td><td>REF-06</td></tr><tr data-level="L0" data-stages="S06"><td class="cap-id">SESSION-06</td><td>Fork</td><td>新 ID 复制历史</td><td><span class="level level-L0">L0</span></td><td>S06</td><td>REF-06</td></tr><tr data-level="L0" data-stages="S06"><td class="cap-id">SESSION-07</td><td>Session Metadata</td><td>Model/Workspace/Config/Usage</td><td><span class="level level-L0">L0</span></td><td>S06</td><td>REF-06</td></tr><tr data-level="L0" data-stages="S06/S14"><td class="cap-id">SESSION-08</td><td>Concurrent Open Detection</td><td>锁与只读恢复</td><td><span class="level level-L0">L0</span></td><td>S06/S14</td><td>REF-06</td></tr><tr data-level="L0" data-stages="S06"><td class="cap-id">SESSION-09</td><td>Incomplete Tool Recovery</td><td>不自动重放副作用</td><td><span class="level level-L0">L0</span></td><td>S06</td><td>REF-06</td></tr><tr data-level="L0" data-stages="S06"><td class="cap-id">SESSION-10</td><td>File Checkpoint</td><td>写入前快照</td><td><span class="level level-L0">L0</span></td><td>S06</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S06"><td class="cap-id">SESSION-11</td><td>Rewind / Undo</td><td>恢复 Agent 文件修改</td><td><span class="level level-L0">L0</span></td><td>S06</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">SESSION-12</td><td>Export</td><td>稳定外部格式</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-06</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">SESSION-13</td><td>Retention / Clear</td><td>生命周期管理</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-06</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">SESSION-14</td><td>SQLite Adapter</td><td>大量 Session 索引</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-06</td></tr><tr data-level="L0" data-stages="S10"><td class="cap-id">MCP-01</td><td>STDIO Client</td><td>Spring AI 同步 MCP Client</td><td><span class="level level-L0">L0</span></td><td>S10</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S10"><td class="cap-id">MCP-02</td><td>Streamable HTTP</td><td>远程 Server</td><td><span class="level level-L0">L0</span></td><td>S10</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S10"><td class="cap-id">MCP-03</td><td>Multi Server</td><td>生命周期与隔离</td><td><span class="level level-L0">L0</span></td><td>S10</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S10"><td class="cap-id">MCP-04</td><td>Tool Mapping</td><td>MCP → Tool Registry</td><td><span class="level level-L0">L0</span></td><td>S10</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S10"><td class="cap-id">MCP-05</td><td>Permission Integration</td><td>同一 Pipeline</td><td><span class="level level-L0">L0</span></td><td>S10</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S10"><td class="cap-id">MCP-06</td><td>Tool Filtering</td><td>Allowlist / Denylist</td><td><span class="level level-L0">L0</span></td><td>S10</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S10"><td class="cap-id">MCP-07</td><td>Name Collision</td><td>Server 前缀</td><td><span class="level level-L0">L0</span></td><td>S10</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S10/S11"><td class="cap-id">MCP-08</td><td>Lazy Tool Loading</td><td>Tool Search</td><td><span class="level level-L0">L0</span></td><td>S10/S11</td><td>REF-02/03</td></tr><tr data-level="L0" data-stages="S10"><td class="cap-id">MCP-09</td><td>Resources / Prompts</td><td>Context Source</td><td><span class="level level-L0">L0</span></td><td>S10</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S10/S13"><td class="cap-id">MCP-10</td><td>Authentication</td><td>OAuth/API Key</td><td><span class="level level-L0">L0</span></td><td>S10/S13</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S10/S13"><td class="cap-id">MCP-11</td><td>Trust UX</td><td>Server 来源和风险提示</td><td><span class="level level-L0">L0</span></td><td>S10/S13</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S11"><td class="cap-id">SKILL-01</td><td>Skill Metadata</td><td>名称、描述、触发方式</td><td><span class="level level-L0">L0</span></td><td>S11</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S11"><td class="cap-id">SKILL-02</td><td>Markdown Workflow</td><td>可重用步骤与知识</td><td><span class="level level-L0">L0</span></td><td>S11</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S11"><td class="cap-id">SKILL-03</td><td>Explicit Invocation</td><td>/skill-name</td><td><span class="level level-L0">L0</span></td><td>S11</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S11"><td class="cap-id">SKILL-04</td><td>Model Invocation</td><td>描述匹配和安全控制</td><td><span class="level level-L0">L0</span></td><td>S11</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S11"><td class="cap-id">SKILL-05</td><td>Lazy Content</td><td>描述先加载、正文按需</td><td><span class="level level-L0">L0</span></td><td>S11</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S11"><td class="cap-id">SKILL-06</td><td>Bundled Resources</td><td>参考文档、模板、脚本</td><td><span class="level level-L0">L0</span></td><td>S11</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S11"><td class="cap-id">SKILL-07</td><td>Scoped Hooks</td><td>Skill 生命周期</td><td><span class="level level-L0">L0</span></td><td>S11</td><td>REF-03/07</td></tr><tr data-level="L0" data-stages="S11"><td class="cap-id">PLUGIN-01</td><td>Plugin Manifest</td><td>版本、命名空间、组件</td><td><span class="level level-L0">L0</span></td><td>S11</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S11"><td class="cap-id">PLUGIN-02</td><td>Bundle Skills/Hooks/MCP</td><td>扩展打包</td><td><span class="level level-L0">L0</span></td><td>S11</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S11"><td class="cap-id">PLUGIN-03</td><td>Tool Provider SPI</td><td>Java 扩展接口</td><td><span class="level level-L0">L0</span></td><td>S11</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S11/S14"><td class="cap-id">PLUGIN-04</td><td>Install / Uninstall</td><td>本地插件管理</td><td><span class="level level-L0">L0</span></td><td>S11/S14</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S13/S14"><td class="cap-id">PLUGIN-05</td><td>Trust / Signature</td><td>供应链控制</td><td><span class="level level-L0">L0</span></td><td>S13/S14</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S14/S15"><td class="cap-id">PLUGIN-06</td><td>Marketplace</td><td>发现和分发</td><td><span class="level level-L0">L0</span></td><td>S14/S15</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S12"><td class="cap-id">SUB-01</td><td>Agent Definition</td><td>Prompt/Model/Tools/Permission</td><td><span class="level level-L0">L0</span></td><td>S12</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S12"><td class="cap-id">SUB-02</td><td>Runtime Reuse</td><td>相同 AgentRuntime + Scope</td><td><span class="level level-L0">L0</span></td><td>S12</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S12"><td class="cap-id">SUB-03</td><td>Isolated Context</td><td>独立 Session 分支</td><td><span class="level level-L0">L0</span></td><td>S12</td><td>REF-02/03</td></tr><tr data-level="L0" data-stages="S12"><td class="cap-id">SUB-04</td><td>Parent/Child Task</td><td>委托与结果摘要</td><td><span class="level level-L0">L0</span></td><td>S12</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S12"><td class="cap-id">SUB-05</td><td>Tool-restricted Agent</td><td>Research/Plan 专用 Agent</td><td><span class="level level-L0">L0</span></td><td>S12</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S12"><td class="cap-id">SUB-06</td><td>Model/Budget Override</td><td>子 Agent 独立预算</td><td><span class="level level-L0">L0</span></td><td>S12</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S12"><td class="cap-id">SUB-07</td><td>Concurrent Agents</td><td>有界并行</td><td><span class="level level-L0">L0</span></td><td>S12</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S12"><td class="cap-id">SUB-08</td><td>Background Agent</td><td>任务状态与唤醒</td><td><span class="level level-L0">L0</span></td><td>S12</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S12"><td class="cap-id">SUB-09</td><td>Cancellation</td><td>父子传播</td><td><span class="level level-L0">L0</span></td><td>S12</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S12"><td class="cap-id">SUB-10</td><td>Git Worktree</td><td>写任务目录隔离</td><td><span class="level level-L0">L0</span></td><td>S12</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S14/S15"><td class="cap-id">SUB-11</td><td>Team Task Board</td><td>共享任务和消息</td><td><span class="level level-L0">L0</span></td><td>S14/S15</td><td>REF-03</td></tr><tr data-level="L1" data-stages="S01"><td class="cap-id">OBS-01</td><td>Agent Event</td><td>可重放控制流</td><td><span class="level level-L1">L1</span></td><td>S01</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S02/S14"><td class="cap-id">OBS-02</td><td>Turn/Tool Timing</td><td>Micrometer Metrics</td><td><span class="level level-L0">L0</span></td><td>S02/S14</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S02/S14"><td class="cap-id">OBS-03</td><td>Token / Cost</td><td>Provider Usage 统计</td><td><span class="level level-L0">L0</span></td><td>S02/S14</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S07/S14"><td class="cap-id">OBS-04</td><td>Stop / Recovery Analytics</td><td>失败原因分布</td><td><span class="level level-L0">L0</span></td><td>S07/S14</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S02/S14"><td class="cap-id">OBS-05</td><td>Privacy Controls</td><td>Prompt/Content 默认关闭</td><td><span class="level level-L0">L0</span></td><td>S02/S14</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">OBS-06</td><td>OpenTelemetry</td><td>可选 Trace Export</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S04/S14"><td class="cap-id">EVAL-01</td><td>Seed Tasks</td><td>Java Fixture 任务集</td><td><span class="level level-L0">L0</span></td><td>S04/S14</td><td>REF-01</td></tr><tr data-level="L1" data-stages="S01/S06"><td class="cap-id">EVAL-02</td><td>Behavior Replay</td><td>Fake Model 确定性回放</td><td><span class="level level-L1">L1</span></td><td>S01/S06</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">EVAL-03</td><td>Agent Success Metrics</td><td>完成率、成本、工具轨迹</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S13"><td class="cap-id">EVAL-04</td><td>Security Eval</td><td>越权与 Prompt Injection</td><td><span class="level level-L0">L0</span></td><td>S13</td><td>REF-01</td></tr><tr data-level="L0" data-stages="S04"><td class="cap-id">DIST-01</td><td>Runnable Jar</td><td>基础发行</td><td><span class="level level-L0">L0</span></td><td>S04</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">DIST-02</td><td>Windows/Linux Launcher</td><td>跨平台脚本/安装</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">DIST-03</td><td>Java SDK</td><td>Embeddable Runtime</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-03</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">DIST-04</td><td>Headless Protocol</td><td>CI/Automation</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">DIST-05</td><td>Daemon/API</td><td>多 Surface 引擎</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-02</td></tr><tr data-level="L0" data-stages="S14"><td class="cap-id">DIST-06</td><td>Version/Update</td><td>兼容和升级策略</td><td><span class="level level-L0">L0</span></td><td>S14</td><td>REF-02</td></tr></tbody>
+        </table>
+        <div class="empty" id="emptyState">没有符合当前筛选条件的 Capability。</div>
+      </div>
+    </section>
+
+    <section class="panel" id="blockers">
+      <div class="panel-head">
+        <div>
+          <h2>Stage Exit Blockers</h2>
+          <p class="panel-desc">这些项目全部关闭前，不允许宣称 S01 已退出或 S02 已可用。</p>
+        </div>
+      </div>
+      <ol class="blockers"><li>获得明确 Git Commit 授权，固化当前验证状态并在该 Commit 上复验，通过 G4/G6 后接受 S01。</li></ol>
+    </section>
+
+    <section class="panel" id="evidence">
+      <div class="panel-head">
+        <div>
+          <h2>最近变更与验证</h2>
+          <p class="panel-desc">诊断结果与正式 Stage 证据分开显示，避免把“测试跑过”误写成“Stage 已完成”。</p>
+        </div>
+      </div>
+      <dl class="evidence-grid">
+        <div class="evidence-item"><dt>Last change</dt><dd>修复 Windows Wrapper 普通 .m2 路径判断，使用 Maven 3.9.16 完成标准构建、Javadoc、23 个 Core 测试和 5 个正反例 Demo；Capability Level 未变化。</dd></div>
+        <div class="evidence-item"><dt>Evidence class</dt><dd><code>STANDARD_WORKTREE</code></dd></div>
+        <div class="evidence-item"><dt>Code commit</dt><dd><code>Base 27129342087af68d957f10c52ed807c64778fbad + worktree 04886d5d1ab9</code></dd></div>
+        <div class="evidence-item"><dt>Standard command</dt><dd><code>./mvnw.cmd clean verify；./mvnw.cmd -DskipTests javadoc:aggregate；./mvnw.cmd -pl cc-java-core -am test</code></dd></div>
+        <div class="evidence-item"><dt>Result</dt><dd>Maven 3.9.16 标准链通过；Core 23/23、聚焦 Demo 5/5。最终 G4 等待稳定 Commit 复验。</dd></div>
+        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix 93cbcaf71d04</code><br><code>state e54af980fbc5</code><br><code>code/build 04886d5d1ab9</code></dd></div>
+      </dl>
+    </section>
+
+    <footer>
+      此页面由 <code>java scripts/ProgressDashboard.java</code> 生成。
+      Capability 与路线以 <a href="feature-parity-matrix.md">feature-parity-matrix.md</a> 为权威，
+      Gate 与证据状态来自 <a href="progress-state.properties">progress-state.properties</a>。
+      请勿手工修改 HTML。
+    </footer>
+  </main>
+  <script>
+    const query = document.getElementById("capabilityQuery");
+    const level = document.getElementById("levelFilter");
+    const stage = document.getElementById("stageFilter");
+    const rows = [...document.querySelectorAll("#capabilityTable tbody tr")];
+    const visibleCount = document.getElementById("visibleCount");
+    const emptyState = document.getElementById("emptyState");
+
+    function applyFilters() {
+      const term = query.value.trim().toLocaleLowerCase("zh-CN");
+      let visible = 0;
+      for (const row of rows) {
+        const textMatches = !term || row.textContent.toLocaleLowerCase("zh-CN").includes(term);
+        const levelMatches = !level.value || row.dataset.level === level.value;
+        const stageMatches = !stage.value || row.dataset.stages.split("/").includes(stage.value);
+        const show = textMatches && levelMatches && stageMatches;
+        row.hidden = !show;
+        if (show) visible++;
+      }
+      visibleCount.textContent = visible;
+      emptyState.style.display = visible === 0 ? "block" : "none";
+    }
+
+    query.addEventListener("input", applyFilters);
+    level.addEventListener("change", applyFilters);
+    stage.addEventListener("change", applyFilters);
+  </script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # cc-java 产品需求文档
 
-> 文档状态：Draft v0.4
+> 文档状态：Draft v0.5
 >
 > 最后更新：2026-07-28
 >
@@ -13,14 +13,18 @@
 - v0.1 将项目过度绑定在自动 FixBug 场景上；
 - v0.2 修正为通用 Java Coding Agent Runtime 与 CLI；
 - v0.3 进一步明确：这是一个参考驱动的学习型 Java 重实现项目。
+- v0.4 引入公开行为基线与已授权源码快照的双基线，并统一 Stage 证据 Gate。
+- v0.5 明确跨 Stage 目标等级、前置依赖、CLI 归属和 S07 渐进式 Context 路线。
 
 最终定位：
 
-> `cc-java` 是一个从零实现的、Java 原生的通用 Coding Agent Runtime 与 CLI。
+> `cc-java` 是一个独立设计和实现的、Java 原生的通用 Coding Agent Runtime 与 CLI。
 
-项目先把成熟 Coding Agent 拆成完整能力地图，再按子系统用 Java 做行为等价重实现；每个阶段都对照公开参考能力、测试和差距。基础体系被真正理解之后，再进入独立创新。
+项目先把成熟 Coding Agent 拆成完整能力地图，再按子系统用 Java 做行为等价重实现；每个阶段
+都同时维护公开行为基线、已授权源码机制研究、独立 Java 设计、测试和差距。基础体系被真正
+理解并形成可重复证据之后，再进入独立创新。
 
-它不是“只做一个 MVP 就自由生长”，也不是逐行翻译泄露源码。它要在合法边界内完成：
+它不是“只做一个 MVP 就自由生长”，也不是逐行翻译任何参考源码。它要在授权和发布边界内完成：
 
 ```text
 建立参考基线
@@ -82,20 +86,22 @@ CLI 应当能够：
 - G-005：支持从简单内存上下文演进到可恢复会话、压缩和持久记忆。
 - G-006：保持模型、终端、工具和存储适配器可替换。
 - G-007：维护版本化参考基线和逐项 Capability Parity。
-- G-008：每个 Stage 都包含设计说明、代码、测试、Demo 和差距复盘。
+- G-008：每个 Stage 都包含来源记录、机制研究、设计说明、代码、测试、Demo 和差距复盘。
+- G-009：所有参考结论区分 `Documented / Observed / Inferred / Unknown`，所有能力
+  声明区分参考机制、Java 设计和已验证实现；授权源码结论不使用 `Documented`。
 
 ### 4.2 学习与开源目标
 
 - G-010：通过可运行代码掌握 Agent Loop、Tool Calling、Context Engineering 和 Harness Engineering。
 - G-011：保留架构决策、评测和演进记录，让项目能作为 Java Agent 学习材料。
 - G-012：提供一套能被其他 Java 项目嵌入的 Runtime 基础。
-- G-013：所有实现保持 clean-room，不复制受版权保护的商业产品源码。
+- G-013：在受控参考研究下保持独立重实现，不复制或逐行翻译受保护的源码表达。
 - G-014：关键模块必须由维护者能够独立解释，而不只是由 AI 生成。
 
 ## 5. 非目标
 
 - 不追求首版与 Claude Code、Codex 或其他成熟产品功能对等；
-- 不使用、改写或再发布泄露源码；
+- 不使用、改写或再发布泄露、未授权或超出授权范围的源码；
 - 不兼容某个商业产品的私有配置格式、内部事件格式或隐藏 API；
 - 不把 FixBug、测试或电商业务写进 Runtime Core；
 - 不在第一轮重实现中同时完成完整 TUI、桌面端、IDE 插件或云端执行；
@@ -182,7 +188,7 @@ Gather context
 
 | 阶段组 | Stage | 学习目标 |
 | --- | --- | --- |
-| 参考建模 | S00 | 完整 Harness 地图、术语、能力矩阵和 clean-room 规则 |
+| 参考建模 | S00 | Harness 地图、公开行为基线、授权快照、术语、能力矩阵和来源规则 |
 | 核心重实现 | S01-S04 | Agent Loop、Streaming CLI、Tools、Write/Command |
 | 可靠性重实现 | S05-S08 | Permission、Session、Checkpoint、Context、Compaction、Instructions、Settings |
 | 扩展重实现 | S09-S11 | Hooks、MCP、Skills、Plugins |
@@ -203,18 +209,25 @@ FixBug 可以在 S11 后实现为 Skill 或独立应用，也可以作为 S04 �
 - 实现单模型回合和多轮 Tool Calling；
 - 实现 Tool Execution Pipeline；
 - 实现最小 Permission Gate 和 Approval Port；
-- 实现 Agent Event、Cancellation、Limits 和 Stop Reason；
+- 实现 Agent Event、模型回合/Tool Call 数量限制和 Stop Reason；
+- 只保留 Cancellation 扩展缝隙，不宣称模型流或子进程取消已经可用；
 - 实现内存 Session 与追加式 Context；
 - 完成离线协议测试。
 
-### S02-S03：Model、Streaming CLI 与 Read Tools
+### S02：Model 与 Streaming CLI
 
 - 接入一个 Spring AI 模型 Provider；
 - 提供 Interactive 与 Print 两种入口；
-- 支持流式文本和执行状态展示；
+- 支持流式文本、Tool Call Chunk 聚合和执行状态展示；
+- 支持模型流取消、不完整流、输出长度 finish reason、有界停止/续接、限流和 Usage 转换；
+- 用显式启用的真实 Provider E2E 验证 Adapter，但普通 CI 仍只使用 Fake。
+
+### S03：Read Tools
+
 - 提供 `list_files`、`read_file`、`search_text`、`git_status`、`git_diff`；
 - 加载项目根 `AGENTS.md`；
-- 支持只读 Plan 模式；
+- 建立 Workspace Realpath、Symlink/Junction、敏感文件和大小边界；
+- 为 Tool Result 建立类型化上限、明确截断和可供后续 Context 使用的元数据；
 - 对真实公开仓库完成代码理解任务。
 
 ### S04：Controlled Coding
@@ -226,6 +239,8 @@ FixBug 可以在 S11 后实现为 Skill 或独立应用，也可以作为 S04 �
 - 设置进程超时、输出上限和取消传播；
 - 修改后展示 Git Diff；
 - Agent 可以运行构建或测试并形成最终总结。
+- 提供固定的安全 `PLAN` 行为：允许调查，拒绝写文件和有副作用命令；可配置规则和
+  Session Allow 仍属于 S05。
 
 S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后继续按矩阵学习可靠性和扩展能力。
 
@@ -248,8 +263,9 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
 - FR-AGENT-003：Runtime 负责完整 Tool Loop，Spring AI Adapter 不得自动执行工具。
 - FR-AGENT-004：同一模型回合的 Assistant Message 只能追加一次。
 - FR-AGENT-005：每个 Tool Result 必须与 Tool Call ID 一一对应。
-- FR-AGENT-006：支持最大模型轮次、工具次数、运行时长和输出大小。
-- FR-AGENT-007：取消信号必须传播到模型流和正在运行的工具。
+- FR-AGENT-006：S01 实现最大模型轮次和工具次数；运行时长、流式输出和进程输出限制
+  分别在 S02、S04 完成。
+- FR-AGENT-007：S02 将取消传播到模型流；S04 将取消传播到正在运行的工具和子进程树。
 - FR-AGENT-008：运行以明确 Stop Reason 结束，不能无限循环。
 
 ### 11.3 Model
@@ -273,10 +289,12 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
 
 ### 11.5 Permission
 
-- FR-PERM-001：第一轮至少支持 `DEFAULT` 和 `PLAN` 两种模式。
+- FR-PERM-001：S04 提供固定 `DEFAULT` 和安全 `PLAN` 行为；S05 再实现完整、可配置的
+  Permission Mode。
 - FR-PERM-002：`DEFAULT` 自动允许普通读取，修改和 Shell 默认询问。
 - FR-PERM-003：`PLAN` 禁止修改文件和执行有副作用的命令。
-- FR-PERM-004：审批至少支持允许一次、当前会话允许和拒绝。
+- FR-PERM-004：S04 审批至少支持允许一次和拒绝；当前会话允许、持久规则和优先级在
+  S05 完成。
 - FR-PERM-005：硬拒绝优先于模式、规则和用户会话允许。
 - FR-PERM-006：Print 模式遇到需要交互的操作时，若无预授权规则则拒绝。
 
@@ -284,9 +302,17 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
 
 - FR-CTX-001：S03 加载 Workspace 根目录中的 `AGENTS.md` 作为项目指令。
 - FR-CTX-002：项目指令只影响模型行为，不能扩大工具权限。
-- FR-CTX-003：工具输出具有大小上限和截断标记。
-- FR-CTX-004：Context Manager 维护当前会话消息；自动压缩在 S07 学习。
-- FR-CTX-005：上下文接近模型限制时应安全停止并给出原因，不能反复重试。
+- FR-CTX-003：S03-S04 的单个 Tool Result 具有类型化大小上限、明确截断或外置元数据。
+- FR-CTX-004：Canonical Transcript 保存规范历史，Model Context Projection 负责构造
+  模型视图；S07 学习自动压缩，不能通过修改规范历史假装节省 Context。
+- FR-CTX-005：S03-S04 接近模型限制时安全停止；S07 只允许一次有界
+  compact-and-retry，再次溢出必须返回明确 Stop Reason。
+- FR-CTX-006：任何淘汰和压缩都不得产生孤立 Tool Call 或 Tool Result。
+- FR-CTX-007：压缩失败、取消、空摘要和外置失败不得污染 Canonical Transcript。
+- FR-CTX-008：S07 提供带保留指令的手动 Compact Core 请求，S08 通过 `/compact`
+  暴露；手动路径与自动路径共享提交和失败不变量。
+- FR-CTX-009：Rolling Memory 不可用、边界无效或结果仍超阈值时，必须回退 Full
+  Summary，并按最终 Projection 重新计算 Usage。
 
 ### 11.7 Session 与事件
 
@@ -332,29 +358,52 @@ S04 完成必须满足：
 - `ALLOW / ASK / DENY` 决策和 deny 优先规则；
 - Tool 参数匹配、会话级批准和非交互模式策略；
 - 审批、执行、裁剪、脱敏和生命周期事件全部经过统一 Pipeline；
-- 用对抗性测试证明 Tool、MCP 和未来插件都不能绕过权限。
+- 用 Fake External Tool / Tool Provider 证明任何来源都不能绕过权限；S10 和 S11
+  再分别验证真实 MCP 与 Plugin Adapter。
 
 ### S06：Session 与 Checkpoint
 
 - JSONL Transcript 和版本化 Session Schema；
 - `--continue`、`--resume` 和 fork session；
+- 稳定 Message ID、完整 Protocol Round、Canonical Transcript 与投影决策记录；
 - 文件修改前 Checkpoint、Diff 和 Undo；
 - 崩溃后识别未完成的 Tool Call，不自动重放有副作用操作。
 
+S06 不承诺稳定外部 Export、Retention 或跨版本迁移；这些兼容性能力属于 S14。
+
 ### S07：Context Engineering
 
-- Context Usage 展示和预算计算；
-- 工具结果淘汰、完整 Turn 保留和自动压缩；
-- 压缩前后事件、摘要质量测试和防重复压缩；
-- 建立长会话回放集，比较压缩前后的任务完成度。
+- 明确分离 Canonical Transcript 与 Model Context Projection；
+- 实现 Model-aware Context Capacity、Usage 对账和软/硬阈值；
+- 按条件编排四层能力，而不是固定串行四次压缩：
+  1. 单批 Tool Payload 聚合预算、外置和稳定占位；
+  2. 旧 Tool Result 选择性清理、近期工作集和幂等；
+  3. Rolling Session Memory、覆盖边界和协议安全近期尾部；
+  4. Full Conversation Summary、状态重注入和一次有界 Overflow Recovery；
+- Rolling Memory 缺失、为空、过期、覆盖边界丢失或结果仍超阈值时，确定性回退
+  Full Summary；
+- 提供手动 Compact Core 请求和保留指令；手动与自动路径可以采用不同触发策略，
+  但共享协议、提交和失败不变量；
+- 只按完整 Protocol Round 淘汰，并保持 Tool Call/Result ID 配对；
+- 摘要失败、取消、空结果或压缩后仍超阈值时确定性降级，连续失败触发防抖；
+- 根据最终 Model Context Projection 重新计算真实 Usage；
+- 发布内部 Compaction Started/Completed/Failed 事件；外部可配置 Hook 属于 S09；
+- 建立长会话回放集，度量事实/约束保持率、任务完成率、Token 降幅和压缩次数。
+
+参考机制的逐项分类、采纳范围和证伪实验见
+[ADR-019](./adr/ADR-019-s07-progressive-context-reduction.md)。
 
 ### S08：Instructions、Settings 与 CLI 交互
 
 - 用户级、项目级和目录级项目指令；
 - 配置分层、优先级和规则持久化；
 - 模型切换和 Provider 配置；
-- Slash Command：`/help`、`/clear`、`/context`、`/model`、`/permissions`、`/resume`；
+- Slash Command：`/help`、`/clear`、`/compact`、`/context`、`/model`、
+  `/permissions`、`/resume`；
 - 更完整的 JLine 历史、多行输入和运行中 steering。
+
+S08 建立配置 Schema 和版本字段，但跨版本迁移兼容留在 S14。层级 Instructions 接入后，
+必须重新运行 S07 的摘要重注入和 Context Usage 对账回归测试。
 
 ## 14. S09-S11：扩展系统重实现
 
@@ -387,6 +436,9 @@ S04 完成必须满足：
 - Background Tool、取消传播和孤儿进程清理；
 - Git Worktree 隔离并发编码任务。
 
+S12 按 `RuntimeScope → 单 Subagent → 有界并发/后台 → Worktree` 四个内部检查点推进，
+不能在 Scope 隔离尚未验证时直接实现并发写任务。
+
 ### S13：Sandbox
 
 - 区分应用层 Permission 与 OS 级隔离；
@@ -402,8 +454,13 @@ S04 完成必须满足：
 - 可嵌入的 Java SDK、Daemon 或本地 API；
 - Headless/CI 安全配置；
 - OpenTelemetry、Token、费用和延迟统计；
-- 多模型路由、Fallback、Eval/Benchmark 和跨平台安装；
+- 第二个 Provider Adapter，用于验证 Provider-neutral Port；
+- 多模型路由、Fallback、限流/重试、Capability Detection、Eval/Benchmark 和跨平台安装；
+- Provider Cache Hint 与原生 Context Editing 只作为 Adapter 优化，并与通用 S07 路径对照；
 - 桌面端或 IDE 作为独立 Client，共享同一 Runtime。
+
+S14 按 `Eval/Observability → SDK/Headless → Distribution/Compatibility` 三个内部检查点
+推进。Eval 从 S01 起持续积累，S14 负责产品化、兼容和统一报告，而不是第一次引入评测。
 
 ### S15：Independent Innovation
 
@@ -417,10 +474,13 @@ S04 完成必须满足：
 
 ## 17. 非功能需求
 
-### 17.1 Clean-room 与可维护性
+### 17.1 来源控制、独立重实现与可维护性
 
-- NFR-001：实现不得复制泄露或非开放许可源码。
-- NFR-002：需求来自本项目文档；测试来自本项目验收任务。
+- NFR-001：实现不得复制、逐行翻译或再发布泄露、未授权或超出授权范围的源码表达。
+- NFR-002：已授权源码可以用于研究职责、状态机、不变量和验证方法；需求来自本项目
+  文档，测试来自独立验收任务，不以参考源码文本作为断言。
+- NFR-006：参考研究必须记录 Snapshot ID、完整性指纹、授权范围和
+  `Observed / Inferred / Unknown`。
 - NFR-003：核心 Runtime 不依赖 Spring AI、终端、文件系统或数据库类型。
 - NFR-004：内置、MCP 和插件工具不得拥有绕过 Pipeline 的执行入口。
 - NFR-005：不为尚未进入里程碑的能力创建复杂 DSL 或空模块。
@@ -465,7 +525,7 @@ S04 完成必须满足：
 ### 18.2 项目价值指标
 
 - 新用户可以根据 README 在 10 分钟内理解并启动 CLI；
-- 核心架构可以在不看商业源码的情况下被解释和调试；
+- 核心架构可以只根据本项目 PRD、技术设计和 ADR 被解释和调试；
 - 至少提供一个可复现公开 Demo；
 - 每个 Stage 有设计说明或 ADR、测试、演示和差距记录；
 - FixBug 等上层用例无需修改 Runtime Core 即可实现。
@@ -480,7 +540,7 @@ S04 完成必须满足：
 | Spring AI 自动执行工具 | 绕过本项目权限与事件 | Adapter 只返回原始 Tool Call |
 | 通用 Shell 带来副作用 | 数据或环境受损 | 精确展示、默认询问、超时、取消；S13 再做 OS Sandbox |
 | 上下文持续膨胀 | 成本和稳定性下降 | S03-S04 先限制并停止，S07 系统学习压缩 |
-| 参考受限源码 | 无法合法开源 | 只采用公开行为和通用架构思想，独立命名和实现 |
+| 参考源码越界使用 | 无法安全发布，也无法证明独立设计 | 仓库外只读研究、Snapshot 指纹、ADR 采纳 Gate、独立命名实现和禁止文本断言 |
 | “开源不商用”含义不清 | License 与目标冲突 | S00 明确是维护者不商业化，还是许可证禁止商业使用 |
 
 ## 20. 已确认与待确认决策
@@ -488,10 +548,13 @@ S04 完成必须满足：
 S01 已确认：
 
 1. 项目名和仓库名使用 `cc-java`；
-2. Java 21 作为基线，Maven Wrapper 固定 Maven 3.9.16；
+2. Java 21 作为基线，Maven Wrapper 固定 Maven 3.9.16；Windows 普通 `.m2` 目录启动
+   缺陷已修复并通过标准工作区验证，S01 仍需稳定 Commit 上的 G4/G6 复验；
 3. Maven GroupId 使用 `io.github.liumaishenjian`，Java 根包使用
    `io.github.liumaishenjian.ccjava`；
 4. S01 不接真实 Provider，Fake Model 只存在于测试源。
+5. 采用 `R2026.03` 公开行为基线与 `AUTH-SRC-2026-03-31-A` 授权源码快照双基线；
+   精确源码 Revision 保持 `Unknown`。
 
 后续 Stage 仍需确认：
 
@@ -510,5 +573,6 @@ S01 已确认：
 - **Tool Execution Pipeline**：工具从请求到校验、权限、审批、执行、裁剪和事件的统一路径。
 - **Interactive 模式**：用户在同一终端会话中持续对话和审批。
 - **Print 模式**：一次性、适合脚本的非交互运行。
-- **Clean-room**：基于公开需求和行为独立设计，不复制受限制实现的源码表达。
+- **受控参考研究**：在授权范围内研究机制，但不复制受限制表达，也不把参考源码作为依赖或测试 Oracle。
+- **独立重实现**：Java 契约、命名、实现和测试均能够由本项目需求与 ADR 独立解释。
 - **FixBug**：Runtime 的一个可能用例，不是核心架构。

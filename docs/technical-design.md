@@ -1,6 +1,6 @@
 # cc-java 技术设计文档
 
-> 文档状态：Proposed v0.4
+> 文档状态：Proposed v0.5
 >
 > 最后更新：2026-07-28
 >
@@ -14,9 +14,12 @@
 
 ## 1. 设计目标
 
-`cc-java` 的技术目标是从零实现一个 Java 原生、可嵌入、可测试的 Coding Agent Runtime，并首先通过终端 CLI 交付。
+`cc-java` 的技术目标是独立实现一个 Java 原生、可嵌入、可测试的 Coding Agent Runtime，
+并首先通过终端 CLI 交付。
 
-项目采用“参考建模 → Java 独立重实现 → 黑盒行为对照 → 差距复盘 → 独立创新”的学习路径。技术实现不是围绕一次性 MVP 自由生长，而是按 S00～S15 逐步理解和重建成熟 Coding Agent Harness 的公开能力。
+项目采用“公开行为基线 + 授权源码机制研究 → Java 独立重实现 → 行为对照 → 差距复盘
+→ 独立创新”的学习路径。技术实现不是围绕一次性 MVP 自由生长，而是按 S00～S15
+逐步理解和重建成熟 Coding Agent Harness 的可解释能力。
 
 核心架构必须能够支撑：
 
@@ -30,25 +33,32 @@ FixBug 不出现在 Runtime 架构中。它未来只能作为一组 Prompt、Ski
 
 S01～S04 会逐步形成第一个可运行的 Mini Coding Agent CLI。它只是验证 Runtime、Model、Tool 和终端边界的阶段检查点，不是功能终点，也不表示已达到参考产品对等。后续仍须按矩阵完成 Permission、Session、Context、Hooks、MCP、Skills、Sub-Agent、Sandbox 和 Production Harness。
 
-## 2. 参考方法与 clean-room 边界
+## 2. 参考方法与独立重实现边界
 
 设计输入来自：
 
 1. 本项目自己的产品需求和验收任务；
 2. Spring AI 官方公开 API；
 3. Claude Code 等成熟 CLI 的公开文档和可观察行为；
-4. Harness Engineering 的通用架构分析。
+4. Harness Engineering 的通用架构分析；
+5. 维护者明确授权、保存在仓库外的参考源码机制研究。
 
 设计不使用以下输入：
 
-- 泄露源码的具体实现；
-- 受限制源码中的函数体、类型名、注释、Prompt、错误文案和文件结构；
+- 泄露、未授权或超出授权范围源码的具体实现；
+- 参考源码中的函数体、私有类型名、注释、Prompt、错误文案、文件布局和实现常量；
 - 商业产品内部 Session、Hook 或配置格式；
 - 无法确认许可证的代码片段。
 
-本项目借鉴的是“显式 Agent Loop、统一 Tool Pipeline、纵深权限、上下文压力、可恢复会话和扩展层”等架构原则，而不是进行 Java 翻译。
+本项目借鉴的是“显式 Agent Loop、统一 Tool Pipeline、纵深权限、上下文压力、可恢复会话
+和扩展层”等职责、不变量和失败恢复，而不是进行 Java 翻译。公开资料结论必须标记为
+`Documented / Observed / Inferred / Unknown`，授权源码机制结论只使用后三类；只有
+本项目测试、Demo 或 Eval 通过后，才能声明 `Verified in cc-java`。
 
-详细映射见 [参考架构研究](./reference-architecture.md)。
+详细映射见 [参考架构研究](./reference-architecture.md)、
+[公开行为基线](./reference-baselines/R2026.03-public-behavior.md)、
+[授权参考源码基线](./reference-baselines/R2026.03-authorized-source.md) 和
+[ADR-018](./adr/ADR-018-authorized-reference-study.md)。
 
 ### 2.1 阶段权威与完成证据
 
@@ -61,12 +71,17 @@ S01～S04 会逐步形成第一个可运行的 Mini Coding Agent CLI。它只是
 
 本文负责解释这些能力在 Java 中如何分层、如何保持依赖方向以及如何实现安全边界。若本文中的阶段归属与矩阵冲突，应先以矩阵为准，再在同一变更中修正本文。
 
-每个 Stage 结束前必须同时交付：
+每个 Stage 结束前必须通过：
 
-1. 更新功能对照矩阵中的等级、行为测试和证据链接；
-2. 更新相关设计说明，并新增或修订 ADR；
-3. 提供与本 Stage 对应的离线测试和可运行 Demo；
-4. 提交差距报告，说明参考实现仍然更强之处、当前 Java 实现的限制和下一步能力。
+1. G0：来源、授权、版本/Revision、快照指纹和结论置信度；
+2. G1：Stage、Feature ID、当前等级、退出目标和可证伪行为；
+3. G2：机制研究、未知项、ADR、Java 边界和安全不变量；
+4. G3：最小独立 Java 实现和中文公共契约；
+5. G4：确定性测试、故障注入、行为对照和量化指标；
+6. G5：具有实际结果和负例的可复现 Demo；
+7. G6：矩阵、README、PRD、技术设计、证据和差距报告对账。
+
+字段和未通过条件见 [Stage 证据包模板](./templates/stage-evidence-package.md)。
 
 只完成代码、只跑通 Demo 或只更新矩阵，都不构成 Stage 完成。
 
@@ -107,7 +122,7 @@ S01～S04 依次完成 Loop、真实模型与 CLI、只读工具、写入与命�
 | 项目 | 建议 | 状态 |
 | --- | --- | --- |
 | Java | 21 | Accepted（S01） |
-| Maven | Wrapper 3.3.4 → Maven 3.9.16 | Accepted（S01） |
+| Maven | Wrapper 3.3.4 → Maven 3.9.16 | Version Accepted；Windows 启动缺陷已修复，Commit-scoped G4 待复验 |
 | GroupId / 根包 | `io.github.liumaishenjian` / `io.github.liumaishenjian.ccjava` | Accepted（S01） |
 | Test | JUnit 5.14.3 + AssertJ 3.27.7 | Accepted（S01） |
 | Spring Boot | 在 S02 按真实用途确认 | Deferred |
@@ -236,7 +251,7 @@ flowchart BT
 
 - `AgentRuntime` / `AgentLoop`；
 - `ModelGateway`；
-- `ContextManager`；
+- `ContextAssembler`（S01）/ `ContextPreparationService` 与可组合 Reducer（S07）；
 - `ToolRegistry`；
 - `ToolExecutionPipeline`；
 - `AgentTool`；
@@ -730,18 +745,92 @@ S03 只加载 Workspace 根 `AGENTS.md`。规则：
 - Search 结果带数量上限；
 - Shell 输出只把必要尾部或结构化摘要回传模型；
 - 所有截断都显式标记；
+- S03-S04 的 Tool Result 信封记录原始字节数、展示内容、截断/外置状态和稳定引用；
 - Runtime 事件可以展示更多输出，但 Context 不必保留全部。
 
-### 16.4 S03 的 Context 压力边界
+### 16.4 S03-S04 的 Context 压力边界
 
-S03 不实现自动压缩。它只：
+S03-S04 不实现自动压缩。它们只：
 
 - 统计或估计 Token；
-- 限制单结果和累计内容；
+- 限制单结果和累计内容，S04 为大命令输出保留外置元数据；
 - 接近阈值时发布 Warning；
 - 无法继续时以 `CONTEXT_LIMIT_REACHED` 停止。
 
-S07 再实现工具结果淘汰、摘要、渐进压缩、压缩防抖和 `/context`。
+### 16.5 S06 的持久化前置
+
+S06 在不执行压缩策略的前提下建立：
+
+- 稳定 Message ID；
+- 不可拆分的 `ProtocolRound`；
+- Canonical Transcript；
+- Tool Payload 外置/占位决策；
+- `CompactionBoundary` 和 Model Context Projection 元数据的版本化存储位置。
+
+这保证 S07 可以改变发送给模型的投影，而不破坏规范历史；resume 后必须生成相同投影。
+
+### 16.6 S07 渐进式 Context Reduction
+
+S07 不实现一个同时修改所有状态的巨型 `ContextManager`。Core 使用：
+
+```text
+ContextPreparationService
+├─ ToolPayloadReducer
+├─ StaleToolResultReducer
+├─ RollingMemoryReducer
+└─ ConversationSummaryReducer
+```
+
+关键领域和值对象：
+
+- `ContextCapacity`：窗口、输出保留和软/硬阈值；
+- `ContextUsageSnapshot`：实际或估算 Usage、分类占用和剩余容量；
+- `ProtocolRound`：不可拆分的 Tool 协议单元；
+- `ReductionRequest`：触发原因、保留指令、预算和取消信号；
+- `ReductionOutcome`：应用层级、前后 Usage、保留范围和失败原因；
+- `CompactionBoundary`：摘要覆盖位置和安全尾部；
+- `RecoveryDecision`：继续、压缩后重试或停止。
+
+正常路径是条件决策图，而不是固定串行执行四次压缩：
+
+```text
+Canonical Transcript
+→ 构造 Model Context Projection
+→ 单批 Tool Payload 限流/外置
+→ 旧 Tool Result 选择性清理
+→ 未到阈值则请求模型
+→ 到达阈值先尝试 Rolling Session Memory
+→ 不可用时执行 Full Conversation Summary
+```
+
+Rolling Memory 缺失、为空、过期、覆盖边界找不到或压缩后仍超阈值，都属于“不可用”，
+必须进入 Full Summary，不能提交半有效 Boundary。
+
+手动 Compact 使用显式 `ReductionRequest`。没有自定义保留指令时可以优先尝试已有
+Rolling Memory；不可用时回退 Full Summary。有自定义指令时，Summary 必须显式接收并
+重注入这些约束。手动与自动路径的触发顺序可以不同，但 Protocol Round、失败不提交、
+Usage 重算和有界重试不变量完全相同。S08 才通过 `/compact` 暴露终端命令。
+
+请求已经发生 Context Overflow 时，只允许一次 compact-and-retry；再次溢出必须返回明确
+Stop Reason，不得递归自调用。Provider 原生 Context Editing 属于 Model Adapter 优化，
+不能成为 Domain/Core 的必要条件。
+
+不变量：
+
+- Canonical Transcript 与 Model Context Projection 分离；
+- 淘汰边界是完整 Protocol Round，Tool Call/Result ID 始终成对；
+- 外置决策一旦进入 Transcript，resume 后必须稳定重放；
+- Rolling Memory 只在无悬空 Tool Call 的安全边界推进覆盖位置；
+- Summary 重新注入当前 Instructions、近期文件、计划和未完成任务状态；
+- Summary 空结果、Tool Call、失败或取消均不得提交 Boundary；
+- 连续压缩失败触发熔断，一次成功重置失败计数；
+- 压缩后重新计算实际 Model Context Usage，不能误用摘要请求自身的 Usage。
+
+S07 提供 `ContextUsageReport` Core API；S08 再通过 `/context` 命令展示。S07 只发布
+内部 Compaction Lifecycle Event，外部可配置 Compact Hook 留在 S09。
+
+上述参考结论的逐项分类、采纳范围和反例见
+[ADR-019](./adr/ADR-019-s07-progressive-context-reduction.md)。
 
 ## 17. Session
 
@@ -769,11 +858,13 @@ S07 再实现工具结果淘汰、摘要、渐进压缩、压缩防抖和 `/cont
 - continue；
 - resume；
 - fork；
-- export；
-- retention；
-- schema migration。
+- 未完成 Tool 和副作用检测；
+- File Checkpoint/Undo；
+- 基础 Schema Version。
 
 不兼容或解析商业产品内部 JSONL。
+
+稳定外部 Export、Retention 和跨版本迁移兼容属于 S14，不作为 S06 退出条件。
 
 ### 17.3 Checkpoint
 
@@ -1018,7 +1109,7 @@ S02 覆盖 REPL、Print、流式显示和基础取消；S04～S05 增加审批�
 
 | 旧里程碑 | 当前 Stage | 迁移说明 |
 | --- | --- | --- |
-| M0 | S00 | 参考架构、功能矩阵、术语、clean-room 和技术决策 |
+| M0 | S00 | 参考架构、双基线、功能矩阵、术语、来源边界和技术决策 |
 | M1 | S01～S05 | 拆分为 Agent Loop、Model + Streaming CLI、Read Tools、Write + Command、Permission Pipeline |
 | M2 | S06～S08 | 拆分为 Session + Checkpoint、Context Engineering、Instructions + Settings |
 | M3 | S09～S11 | 拆分为 Hooks、MCP、Skills + Plugins |
@@ -1031,36 +1122,45 @@ S02 覆盖 REPL、Print、流式显示和基础取消；S04～S05 增加审批�
 | Stage | 技术主题 | 主要架构增量 |
 | --- | --- | --- |
 | S00 | Harness 地图 | 参考基线、矩阵、边界、术语和 ADR |
-| S01 | Agent Loop | 五模块骨架、显式 Loop、Fake Model、Tool Pipeline 骨架、内存 Session |
+| S01 | Runtime Kernel（Agent Loop） | 五模块骨架、显式 Loop、Fake Model、Tool Pipeline 骨架、内存 Session |
 | S02 | Model + Streaming CLI | 一个 Spring AI Provider、REPL、Print、事件流和取消 |
 | S03 | Read Tools | WorkspaceGuard、读/搜/Git 工具、根 `AGENTS.md`、结果裁剪 |
 | S04 | Write + Command | Patch、Write、Shell、Approval UI、进程树控制和可运行编码闭环 |
 | S05 | Permission Pipeline | Effect、模式、规则、硬拒绝、Permission Lifecycle 和拒绝恢复 |
-| S06 | Session + Checkpoint | 版本化 JSONL、resume/fork、崩溃检测、文件快照与 undo |
-| S07 | Context Engineering | Token 预算、完整 Turn 淘汰、摘要、压缩、防抖和 `/context` |
-| S08 | Instructions + Settings | 用户/项目/目录指令、配置合并、模型切换和 `/doctor` |
+| S06 | Session + Checkpoint | 版本化 JSONL、稳定 ID/Protocol Round、resume/fork、崩溃检测、文件快照与 undo |
+| S07 | Context Engineering | Transcript/Projection 分离、四级减压、Rolling Memory、Full Summary、一次溢出恢复和 Usage API |
+| S08 | Instructions + Settings | 用户/项目/目录指令、配置合并、模型切换、`/compact`、`/context` 和 `/doctor` |
 | S09 | Hooks | 生命周期公开协议、matcher、阻断、超时、Command/HTTP Hook |
 | S10 | MCP | STDIO/远程 Transport、多 Server、Tool 映射、过滤、权限和信任 |
 | S11 | Skills + Plugins | 懒加载 Skill、资源、Scoped Hook、Plugin Manifest 和 Tool Provider SPI |
-| S12 | Sub-Agent + Worktree | Runtime Scope、独立 Context/权限/预算、委托、并发、取消和 Worktree |
+| S12 | Sub-Agent + Worktree | Runtime Scope → 单 Agent → 有界并发/后台 → Worktree |
 | S13 | Sandbox + Security | ExecutionBackend、文件/进程/网络隔离、秘密处理和攻击回归 |
-| S14 | Production Harness | Eval、OTel、稳定机器协议、Java SDK、Headless/Daemon、发行兼容 |
+| S14 | Production Harness | 第二 Provider/Cache/Context Editing、Eval/Observability → SDK/Headless → Distribution/Compatibility |
 | S15 | Independent Innovation | 基于对照数据验证 Java/Spring 的差异化能力 |
 
 S01 的离线 Fake Loop、S02 的真实模型 CLI、S03 的只读调查和 S04 的 Mini Coding Agent 都是递进检查点。任何一个检查点可运行，都不等于路线完成；能力等级、参考行为符合度和剩余差距始终以矩阵为准。
+
+S05-S08 必须分别稳定 `PermissionPolicy`、Session 分支/恢复、Context Projection 和
+Resolved Instructions/Settings 的可注入契约。S12 才把这些真实输入组合成
+`RuntimeScope`；不能等实现并发时再重写前述边界，也不能为了未来 Subagent 在早期创建
+没有当前用途的空抽象。
 
 ### 23.3 每个 Stage 的统一退出包
 
 每个 Stage 无例外地执行：
 
 ```text
-选定矩阵 Capability ID
-→ 写清参考行为和本项目验收行为
-→ 更新设计说明 / ADR
-→ 实现并运行离线测试与 Demo
-→ 更新矩阵等级和证据
-→ 提交版本差距报告
+G0 固定来源、授权、快照指纹和 Unknown
+→ G1 选定 Capability ID、当前等级、退出目标和可证伪行为
+→ G2 研究参考机制并通过 ADR 定义独立 Java 边界
+→ G3 完成当前 Stage 的最小实现
+→ G4 运行离线测试、故障注入、行为对照和度量
+→ G5 运行具有实际结果与负例的 Demo
+→ G6 更新矩阵、能力声明和差距报告
 ```
+
+统一字段见 [Stage 证据包模板](./templates/stage-evidence-package.md)。只完成代码、只分析
+源码或只写 Demo，都不能提升 Capability Level。
 
 FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独立 Application 出现；它们不得改变 Runtime Core 的阶段主线。
 
@@ -1075,7 +1175,7 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | Streaming | Agent Event + Model Observer | S02 |
 | Project Instructions | 根 `AGENTS.md` → 分层指令 | S03 → S08 |
 | Sessions | In-memory → versioned JSONL | S01～S02 → S06 |
-| Compaction | Context Manager strategy | S07 |
+| Compaction | Transcript/Projection 分离 + 可组合 Context Reducer | S03-S04 → S06 → S07-S08 |
 | Checkpoint | File snapshot adapter | S06 |
 | Hooks | Lifecycle-based extension | S09 |
 | Skills | Lazy workflow/context package | S11 |
@@ -1093,7 +1193,7 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | --- | --- | --- |
 | ADR-001 | Accepted | 产品是通用 Java Coding Agent Runtime + CLI |
 | ADR-002 | Accepted | FixBug 只作为上层场景，不进入 Core |
-| ADR-003 | Accepted | Clean-room 独立实现，不翻译受限源码 |
+| ADR-003 | Accepted（历史边界） | 初始阶段仅依据公开资料独立实现，不翻译受限源码 |
 | ADR-004 | Accepted | 核心拥有 User-Controlled Agent Loop |
 | ADR-005 | Accepted | 所有 Tool 进入统一 Execution Pipeline |
 | ADR-006 | Accepted | S01～S04 逐步形成能读、改、运行和验证的 Mini CLI；它是检查点而非终点 |
@@ -1108,6 +1208,8 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | ADR-015 | Accepted | S00～S15 的能力归属、完成度和差距以功能对照矩阵为权威 |
 | ADR-016 | Accepted | 每个 Stage 必须交付矩阵更新、设计说明/ADR、测试/Demo 和差距报告 |
 | [ADR-017](./adr/ADR-017-s01-runtime-kernel.md) | Accepted | S01 使用同步显式 Loop、原子 Tool 批次预算和测试源 Fake |
+| [ADR-018](./adr/ADR-018-authorized-reference-study.md) | Accepted | 双基线、受控授权源码研究、独立 Java 重实现和 G0-G6 证据 Gate |
+| [ADR-019](./adr/ADR-019-s07-progressive-context-reduction.md) | Accepted | S07 采纳渐进式条件减压、协议安全边界和有界恢复；实现仍未开始 |
 
 ## 26. 需求追踪
 
@@ -1121,7 +1223,7 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | FR-CTX-* | 16 |
 | FR-SESSION-* | 17 |
 | FR-EVENT-* | 18 |
-| NFR-001～005 | 2、3、6、11 |
+| NFR-001～006 | 2、3、6、11 |
 | NFR-010～015 | 13、14、15、21 |
 | NFR-020～024 | 9、15、22 |
 | NFR-030～032 | 18、21 |
@@ -1139,34 +1241,43 @@ Scripted Fake Model、Fake Tool 和 Fake Event Sink 只存在于测试源。
 1. [Runtime Kernel ADR](./adr/ADR-017-s01-runtime-kernel.md)；
 2. [离线 Agent Loop Demo](./demos/S01-agent-loop.md)；
 3. [S01 差距报告](./gap-reports/S01.md)；
-4. [功能对照矩阵](./feature-parity-matrix.md)中的 19 项 L1。
+4. [功能对照矩阵](./feature-parity-matrix.md)中的 19 项 L1；
+5. [授权参考源码基线](./reference-baselines/R2026.03-authorized-source.md)及
+   [ADR-018](./adr/ADR-018-authorized-reference-study.md)；
+6. [S01 标准验证证据](./evidence/S01-runtime-kernel-2026-07-28.md)中的 Maven 3.9.16
+   标准命令、23 个 Core 测试和 5 个正反例 Demo 场景。
+
+S01 代码早于授权源码研究完成；上述新增材料只用于验证方向和规划后续 Stage，不把
+S01 追溯性描述为源码翻译。Windows Wrapper 与执行验证缺口已经关闭，但被测改动尚未
+绑定稳定 Commit，因此 G4/G6 和 Stage Exit 继续保持 Open。
 
 ### 27.2 分 Stage 实现
 
-1. **S01 Agent Loop**：创建父 POM和五个模块，建立 domain 协议、显式 Agent Runtime、Pipeline 骨架、内存 Session、Permission/Approval Port 与 Scripted Fake Model，完成离线消息协议 Demo。
-2. **S02 Model + Streaming CLI**：完成 Spring AI 流式 Tool Call Spike，接入一个真实 Provider，装配 Picocli/JLine Interactive 与 Print，验证取消和非 TTY 降级。
-3. **S03 Read Tools**：实现 WorkspaceGuard、只读 Tool、根 `AGENTS.md` 和结果裁剪，在公开仓库完成代码解释 Demo 与越界测试。
-4. **S04 Write + Command**：实现 Patch、Write、Command、Approval UI、脏工作区保护、超时和进程树取消，在公开 Fixture 跑通“修改 → 测试失败 → 再修改 → 成功”。
-5. **S05 Permission Pipeline**：完成 Effect、Default/Plan/Accept Edits、allow/ask/deny、session approval、hard denial、Permission Lifecycle 和拒绝恢复。
-6. **S06 Session + Checkpoint**：实现版本化 JSONL、continue/resume/fork、未完成 Tool 检测、文件 Checkpoint 和 undo。
-7. **S07 Context Engineering**：实现 Token 预算、完整 Turn 淘汰、旧 Tool Output 清理、摘要、渐进压缩、防抖和长会话 Eval。
-8. **S08 Instructions + Settings**：实现用户/项目/本地/目录指令、配置合并、模型与权限设置、Slash Command、`/doctor` 和迁移策略。
+1. **S01 Runtime Kernel（Agent Loop）**：创建父 POM 和五个模块，建立 domain 协议、显式 Agent Runtime、Pipeline 骨架、内存 Session、Permission/Approval Port 与 Scripted Fake Model，完成离线消息协议 Demo；实际取消仍保持未实现。
+2. **S02 Model + Streaming CLI**：完成 Spring AI 流式 Tool Call Spike，接入一个真实 Provider，装配 Picocli/JLine Interactive 与 Print，验证 Chunk 聚合、模型流取消、不完整流、输出长度 finish reason 的有界停止/续接和非 TTY 降级。
+3. **S03 Read Tools**：实现 WorkspaceGuard、只读 Tool、根 `AGENTS.md`、类型化结果上限和截断元数据，在公开仓库完成代码解释 Demo 与越界测试。
+4. **S04 Write + Command**：实现 Patch、Write、Command、Approval UI、固定安全 PLAN、脏工作区保护、超时和进程树取消，在公开 Fixture 跑通“修改 → 测试失败 → 再修改 → 成功”。
+5. **S05 Permission Pipeline**：完成 Effect、可配置 Default/Plan/Accept Edits、allow/ask/deny、session approval、hard denial、Permission Lifecycle 和拒绝恢复，并用 Fake External Tool 验证统一入口。
+6. **S06 Session + Checkpoint**：实现版本化 JSONL、稳定 Message ID/Protocol Round、Canonical Transcript、投影决策记录、continue/resume/fork、未完成 Tool 检测、文件 Checkpoint 和 undo；稳定 Export 留在 S14。
+7. **S07 Context Engineering**：实现 Transcript/Projection 分离、Context Capacity/Usage、Tool Payload 限流、旧结果清理、Rolling Memory、Full Summary、手动 Compact Core 请求、一次有界 Overflow Recovery、防抖和长会话 Eval。
+8. **S08 Instructions + Settings**：实现用户/项目/本地/目录指令、配置合并、模型与权限设置、Slash Command、`/compact`、`/context`、`/doctor` 和基础 Schema Version；跨版本迁移留在 S14，并重跑 S07 重注入回归。
 9. **S09 Hooks**：公开稳定生命周期协议，实现 matcher、Pre/Post Tool、Session/Run/Compact、超时和阻断语义。
 10. **S10 MCP**：实现 STDIO 和一个远程 Transport、多 Server、Tool 前缀/过滤、统一 Permission、认证、信任 UX 和故障恢复。
 11. **S11 Skills + Plugins**：实现 Skill metadata/markdown/lazy load、显式与模型调用、资源、Scoped Hook、Plugin Manifest、命名空间和 Tool Provider SPI。
-12. **S12 Sub-Agent + Worktree**：复用 `AgentRuntime.run(request, scope)`，实现独立 Context/Tool/Permission/Budget、父子任务、有界并发、取消、摘要和 Worktree。
+12. **S12 Sub-Agent + Worktree**：按 RuntimeScope、单 Subagent、有界并发/后台、Worktree 四个检查点复用 `AgentRuntime`，验证独立 Context/Tool/Permission/Budget、父子取消和摘要。
 13. **S13 Sandbox + Security**：实现可插拔 `ExecutionBackend`、文件/进程/网络策略、秘密处理、攻击性 Fixture 和安全回归。
-14. **S14 Production Harness**：实现 Eval、OTel、稳定 JSON/JSONL、Java SDK、Headless/Daemon、多模型恢复、跨平台发行和兼容策略。
+14. **S14 Production Harness**：补第二个 Provider Adapter，并对照 Cache Hint/原生 Context Editing 与 S07 通用路径；按 Eval/Observability、SDK/Headless、Distribution/Compatibility 三个检查点产品化已有专项 Eval，实现 OTel、稳定 JSON/JSONL、Java SDK、Headless/Daemon、多模型恢复、跨平台发行和兼容策略。
 15. **S15 Independent Innovation**：只在矩阵前置条件满足且已有可重复 Eval 基线后，选择 Java/Spring 差异化能力并用数据验证。
 
 ### 27.3 每个 Stage 的完成动作
 
 上述每一步都必须以相同顺序收尾：
 
-1. 更新 [功能对照矩阵](./feature-parity-matrix.md) 的 Capability Level、行为测试和证据；
-2. 更新本文相关章节，并新增或修订 ADR；
-3. 运行本 Stage 的离线测试和可运行 Demo，记录真实结果；
-4. 按矩阵模板提交差距报告；
-5. 只有在剩余差距和跨 Stage 工作已说明后，才进入下一 Stage。
+1. 按 G0 登记参考行为基线、授权快照、结论置信度和 Unknown；
+2. 更新 [功能对照矩阵](./feature-parity-matrix.md) 的 Stage Target、Capability Level 和证据；
+3. 更新本文相关章节，并新增或修订 ADR；
+4. 运行本 Stage 的离线测试、故障注入、行为对照和可运行 Demo，记录真实结果；
+5. 按 [Stage 证据包模板](./templates/stage-evidence-package.md)提交差距报告；
+6. 只有标准工具链可复现，且剩余差距和跨 Stage 工作已说明后，才进入下一 Stage。
 
 在 S01 离线协议测试完成前不接真实模型；在 S03 安全测试完成前不在私有仓库运行；在 S04 检查点跑通后不得宣称参考能力对等；MCP、Sub-Agent、Sandbox 和 Production Harness 分别只能按 S10、S12、S13、S14 的矩阵范围进入实现。

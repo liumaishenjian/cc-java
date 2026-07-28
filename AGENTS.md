@@ -8,10 +8,15 @@
 
 1. [README.md](./README.md)
 2. [参考架构](./docs/reference-architecture.md)
-3. [功能对照矩阵](./docs/feature-parity-matrix.md)
-4. [产品需求文档](./docs/product-requirements.md)
-5. [技术设计文档](./docs/technical-design.md)
-6. 本文档
+3. [公开行为基线](./docs/reference-baselines/R2026.03-public-behavior.md)
+4. [授权参考源码基线](./docs/reference-baselines/R2026.03-authorized-source.md)
+5. [功能对照矩阵](./docs/feature-parity-matrix.md)
+6. [产品需求文档](./docs/product-requirements.md)
+7. [技术设计文档](./docs/technical-design.md)
+8. [ADR-018](./docs/adr/ADR-018-authorized-reference-study.md)、
+   [ADR-019](./docs/adr/ADR-019-s07-progressive-context-reduction.md)与
+   [Stage 证据包模板](./docs/templates/stage-evidence-package.md)
+9. 本文档
 
 参考架构定义长期学习目标；功能对照矩阵是当前差距和目标等级的权威记录；产品需求文档定义“做什么”；技术设计文档定义当前“如何实现”。不得通过实现细节悄悄改变产品行为，也不得让这些文档相互矛盾。
 
@@ -54,9 +59,15 @@
 1. 所属 Stage（`S01` 至 `S15`）；
 2. `docs/feature-parity-matrix.md` 中对应的一个或多个 Feature ID；
 3. 当前等级与目标等级（`L0` 至 `L4`）；
-4. 正在重现的公开行为或项目需求；
-5. 能够证明等级提升的测试、演示或度量；
-6. 完成后维护者应当能够解释的设计决策。
+4. 公开行为基线、授权快照 ID（未使用授权材料时写 `N/A - Not Used`），以及
+   `Documented / Observed / Inferred / Unknown`；
+5. 正在重现的可独立表达行为或项目需求；
+6. 能够证明等级提升的测试、演示或度量；
+7. 完成后维护者应当能够解释的设计决策。
+
+所有 Stage 使用 [Stage 证据包模板](./docs/templates/stage-evidence-package.md)中的
+G0-G6 Gate。授权源码研究和独立重实现边界由
+[ADR-018](./docs/adr/ADR-018-authorized-reference-study.md)定义。
 
 能力等级提升时，必须在同一个变更中更新功能对照矩阵。一个 Stage 只有同时具备以下材料才算完成：
 
@@ -68,15 +79,54 @@
 
 不得仅因为某个功能“看起来有趣”就加入实现。应优先关闭当前 Stage 的差距；如果确实进行独立创新，必须记录假设和评测方案。
 
-## 5. Clean-room 与来源规则
+### 4.1 项目进度看板强制更新
 
-以下规则不可妥协：
+[功能对照矩阵](./docs/feature-parity-matrix.md)始终是 Capability、等级和 Stage 路线的
+权威来源；[`docs/progress-state.properties`](./docs/progress-state.properties)只记录
+当前 Stage、G0-G6、阻塞项和最近验证；[`docs/progress.html`](./docs/progress.html)是由
+前两者生成并附带源码/构建摘要的只读展示，不是第三份事实来源。
+
+以下任一情况发生时，任务完成前必须更新并校验进度看板：
+
+- 修改任意生产或测试 Java 代码；
+- 修改父 POM、模块 POM、Maven Wrapper、构建配置或仓库脚本；
+- 修改 Capability Level、Stage 目标、Gate 状态、阻塞项、测试证据或能力声明；
+- 新增、删除、合并或重命名 Feature ID。
+
+强制流程：
+
+1. 如果能力、范围或证据发生变化，先更新功能矩阵和对应 ADR/PRD/技术设计/Demo/Gap；
+2. 无论 Capability Level 是否变化，都更新 `progress-state.properties` 的
+   `last.updated` 和 `last.change`；没有等级变化时必须明确写出；
+3. 代码输入或功能矩阵发生变化时，根据生成器报出的当前值更新
+   `inputs.code.digest` 或 `inputs.matrix.digest`；该确认表示维护者已经重新审视本次变更
+   对 Stage、Gate、证据和能力等级的影响，不能只机械复制摘要而跳过判断；
+4. Gate、阻塞项和 `evidence.*` 只能根据实际证据更新，不能因为代码已编写就提前标记通过；
+5. 在仓库根目录执行：
+
+   ```text
+   java scripts/ProgressDashboard.java
+   java scripts/ProgressDashboard.java --check
+   ```
+
+6. `docs/progress.html` 必须与相关代码和文档处于同一个变更中；
+7. `--check` 未通过时，不得宣称任务完成、不得提升 Capability Level、不得退出 Stage。
+
+禁止手工编辑 `docs/progress.html`。如果看板展示需要变化，应修改矩阵、状态文件或生成器。
+生成器会把 Java 源码、POM、Wrapper 和仓库脚本的摘要写入 HTML，因此这些文件发生变化
+却没有重新生成看板时，`--check` 会失败。
+仅修改与项目进度完全无关的纯排版/拼写且不接触代码时，可以不更新
+`progress-state.properties`，但只要输入文件发生变化仍必须重新生成并运行 `--check`。
+
+## 5. 来源控制与独立重实现规则
+
+除第 5.1 节中由维护者明确确认的已授权学习材料外，以下规则不可妥协：
 
 - 不复制或翻译泄露、反编译或其他受限制的源码；
 - 不复制内部 Prompt、注释、错误文案、私有类型名、文件布局或实现常量；
 - 不把受限制源码仓库用作依赖、子模块、测试 Fixture 或 Golden Output 来源；
 - 不在查看受限制源码后凭记忆还原其具体表达；
-- 只从公开文档、公开接口和独立设计的黑盒场景中提取行为需求；
+- 默认只从公开文档、公开接口和独立设计的黑盒场景中提取行为需求；
 - 使用能由本项目需求解释的独立命名和 Java 原生设计；
 - 记录重要的第三方启发来源和适用的许可证义务；
 - 不以产品名或商标暗示本项目与原产品存在官方关系。
@@ -84,6 +134,24 @@
 “仅用于学习”“不商用”以及在自己的 GitHub 账号中保存副本，都不会自动取得再发布权。如果来源不清楚，应停止使用该材料，只保留能够独立表达的行为需求。
 
 仓库许可证仍是开放决策。在维护者确认前，不得添加 `LICENSE` 文件，也不接受外部代码贡献。
+
+### 5.1 已授权参考源码的受控学习例外
+
+当维护者明确确认已经取得某份参考源码的合法学习授权时，可以在仓库外的隔离目录中只读研究该材料。该例外的目的，是理解并验证成熟系统已经采用的机制，避免在缺少参考和评测的情况下从头试错；它不授予复制、再发布或派生分发该源码的权利。
+
+使用已授权参考源码时必须同时满足：
+
+- 记录材料来源、快照日期或版本、可验证的完整性信息以及授权范围；无法确认准确 Revision 时必须明确标记；
+- 可以提炼子系统职责、状态转换、算法策略、边界条件、失败恢复和验证方法，但不得复制或逐行翻译函数体、内部 Prompt、注释、错误文案、私有类型名、文件布局或实现常量；
+- Java 侧必须使用能够由本项目需求解释的独立契约、命名、模块边界和实现，不以语言转换代替设计；
+- 参考源码不得进入本仓库、依赖、子模块、测试 Fixture、Golden Output、发布物或可再分发材料；
+- 测试和评测必须根据可解释的行为、不变量和独立场景编写，不得以参考源码文本或私有数据作为断言；
+- 学习记录只保存必要的机制抽象、差距和证据结论，不保存大段源码、完整 Prompt 或其他不必要的受保护表达；
+- 研究结论进入产品需求、技术设计或代码实现前，必须通过单独 ADR 明确采纳范围，并在同一变更中同步 PRD、技术设计、功能对照矩阵和相关能力声明；
+- 对外能力声明必须区分“从授权材料观察到的机制”“本项目的独立设计”和“已经通过测试的实现”；
+- 一旦授权范围、来源或再使用边界出现不确定性，应立即停止读取和使用该材料，等待维护者确认。
+
+该例外不会降低本文件其他安全、权限和发布规则，也不能用于绕过当前 Stage、Feature Matrix 或完成证据要求。
 
 ## 6. 核心架构不变量
 
@@ -306,4 +374,5 @@ public final class AgentRuntime {
 - 相关离线测试和 Stage 证据通过；
 - 重要模块、核心类、关键实体和公共契约具有必要且准确的中文 Javadoc；
 - 功能对照矩阵和能力声明准确；
+- 项目进度状态已更新，`java scripts/ProgressDashboard.java --check` 通过；
 - 剩余差距与风险被明确说明，而不是隐藏。

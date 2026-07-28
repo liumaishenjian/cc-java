@@ -3,7 +3,10 @@
 > 状态：Accepted
 > 日期：2026-07-28
 > Release：`0.1.0-SNAPSHOT`
-> Learning Stage：S01 — Agent Loop / Runtime Kernel
+> Learning Stage：S01 — Runtime Kernel（Agent Loop）
+>
+> Follow-up：后续 [ADR-018](./ADR-018-authorized-reference-study.md)扩展了参考研究来源与
+> 证据 Gate；本 ADR 仍准确记录 S01 当时依据公开需求独立设计的历史事实。
 
 ## 1. 背景
 
@@ -209,7 +212,23 @@ Scripted Fake Model、Fake Tool、Fake Permission、Fake Approval、确定性 ID
 Windows 仓库根目录执行：
 
 ```powershell
+.\mvnw.cmd clean verify
+.\mvnw.cmd -DskipTests javadoc:aggregate
 .\mvnw.cmd -pl cc-java-core -am test
 ```
 
-该命令验证 Domain 与 Core 的离线测试路径，不需要模型 API Key。具体场景、观察方法和事实边界见 [`docs/demos/S01-agent-loop.md`](../demos/S01-agent-loop.md)，当前差距见 [`docs/gap-reports/S01.md`](../gap-reports/S01.md)。
+2026-07-28 的标准工作区验证使用 Windows 10、Eclipse Temurin 21.0.11 和 Maven
+3.9.16：六个 Reactor 模块 `clean verify` 成功，聚合 Javadoc 成功，Core 23 个测试
+全部通过；包含预算拒绝负例的聚焦 Demo 5 个场景全部通过。
+
+Windows Wrapper 的原缺陷来自普通 `.m2` 目录的 `Target` 为 `$null`，脚本却直接索引
+`Target[0]`。本项目将链接目标规范化后为普通目录保留
+`<MAVEN_USER_HOME>/wrapper/dists` 回退。Apache Maven Wrapper 官方仓库的
+[#395](https://github.com/apache/maven-wrapper/issues/395)记录了同类问题。
+
+这些命令验证 Domain 与 Core 的离线测试路径，不需要模型 API Key。完整环境、工作区
+身份、测试报告哈希和 G4/G5 边界见
+[`S01 标准验证证据`](../evidence/S01-runtime-kernel-2026-07-28.md)，具体场景与观察方法见
+[`S01 Agent Loop Demo`](../demos/S01-agent-loop.md)，当前差距见
+[`S01 差距报告`](../gap-reports/S01.md)。在稳定 Commit 上复验前，G4/G6 和 S01 Stage
+Exit 仍保持 Open。
