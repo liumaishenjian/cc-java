@@ -1,13 +1,18 @@
-# ADR-019：S07 采纳渐进式 Context Reduction 机制
+# ADR-019（历史）：S07 采纳渐进式 Context Reduction 机制
 
-- Status: Accepted
+- Status: Superseded
+- Superseded By: [ADR-020](./ADR-020-quarantine-unverified-reference-source.md)
 - Date: 2026-07-28
 - Stage: S07 Context Engineering（实现尚未开始）
 - Capability IDs: `CTX-05`～`CTX-12`、`CTX-16`～`CTX-18`
 - Current → Exit Target: 当前均为 L0；按矩阵中的跨阶段检查点推进，S07 目标为 L2
 - Reference Behavior Baseline: `R2026.03`
-- Authorized Snapshot: `AUTH-SRC-2026-03-31-A`
+- Previous Snapshot Classification: `AUTH-SRC-2026-03-31-A`
 - Decision Scope: 采纳研究结论和验证路径，不提升任何 Capability Level
+
+> 本 ADR 的结论曾依赖当前无法核验来源与授权范围的材料，现仅作为决策历史保留，
+> 不再是 S07 的活动设计输入，也不得用于实现或测试。S07 启动时必须依据公开来源和
+> 独立场景重新研究、重新决策；具体隔离范围见 ADR-020。
 
 ## 背景
 
@@ -49,7 +54,7 @@ ADR”。它把参考机制转换为 `cc-java` 可独立解释的行为、不变
 | Memory 无效时必须确定性回退 Full Summary | `Inferred` | 用缺失、空、过期、边界丢失和仍超阈值五类反例验证 |
 
 详细来源结论和 Unknown 见
-[授权参考源码基线](../reference-baselines/R2026.03-authorized-source.md)。
+[当前隔离登记](../reference-baselines/R2026.03-unverified-source.md)。
 
 ## `cc-java` 的独立设计
 

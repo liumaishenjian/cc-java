@@ -22,16 +22,16 @@ Date:
 ## G0：来源与授权
 
 - 来源 URL、文档版本和访问日期；
-- 使用授权材料时：记录授权范围、快照日期、Revision、可复现指纹、仓库外隔离位置，
-  以及缺失的构建、测试、许可证或版本信息；
+- 使用经核验的授权材料时：记录可验证授权依据、授权范围、快照日期、Revision、
+  可复现指纹、仓库外隔离位置，以及缺失的构建、测试、许可证或版本信息；
 - 未使用授权材料时：Snapshot ID 写 `N/A - Not Used`，记录“不需要授权快照”的理由；
   不要求虚构授权范围、Revision 或指纹，但公开来源记录仍必须完整；
-- 公开资料结论标记 `Documented / Observed / Inferred / Unknown`；授权源码结论只使用
-  `Observed / Inferred / Unknown`。
+- 公开资料结论标记 `Documented / Observed / Inferred / Unknown`；
+- `UNVERIFIED` 或 `QUARANTINED` 材料不得填写成授权快照，也不得作为研究输入。
 
 未通过条件：
 
-- 来源或授权范围不清楚；
+- 活动来源或授权范围不清楚；
 - 无法区分事实与推断；
 - 需要把参考源码放入仓库、Fixture 或 Golden Output 才能继续。
 
@@ -60,8 +60,8 @@ Date:
 - 失败恢复、降级和防循环策略；
 - 验证方法及尚未确认的内容。
 
-使用授权源码研究结论时，必须单独建立“参考结论采纳 ADR”；Stage 设计 ADR 可以互链，
-但不能替代。采纳 ADR 或未使用授权材料时的 Stage ADR 必须说明：
+使用经核验授权材料的研究结论时，必须单独建立“参考结论采纳 ADR”；Stage 设计 ADR
+可以互链，但不能替代。采纳 ADR 或未使用授权材料时的 Stage ADR 必须说明：
 
 - 独立 Java 契约、命名和模块边界；
 - 安全、权限和副作用边界；
@@ -139,7 +139,7 @@ Demo 必须写明：
 | S04 | Patch 原子性、脏工作区、命令超时/取消、进程树清理和编码闭环 |
 | S05 | Permission 优先级属性测试、模式、Session Allow、硬拒绝和拒绝恢复 |
 | S06 | JSONL 往返、崩溃点注入、resume/fork、未完成副作用和 Checkpoint/Undo |
-| S07 | Protocol Round 不变量、四级减压、失败回退、防抖、事实保持率和压缩率 |
+| S07 | Tool 协议配对、渐进减压、失败回退、防抖、事实保持率和压缩率 |
 | S08 | 配置来源/合并、不得提权、层级指令和 `/doctor` 来源报告 |
 | S09 | Hook 顺序、Matcher、阻断/非阻断、超时和失败隔离 |
 | S10 | STDIO/远程 Stub、多 Server、权限、命名冲突、断连和认证失败 |

@@ -5,8 +5,9 @@
 > Release：`0.1.0-SNAPSHOT`
 > Learning Stage：S01 — Runtime Kernel（Agent Loop）
 >
-> Follow-up：后续 [ADR-018](./ADR-018-authorized-reference-study.md)扩展了参考研究来源与
-> 证据 Gate；本 ADR 仍准确记录 S01 当时依据公开需求独立设计的历史事实。
+> Follow-up：[ADR-020](./ADR-020-quarantine-unverified-reference-source.md)确认
+> S01 未使用当前隔离的未核验材料；本 ADR 准确记录 S01 依据公开需求和独立 Fake 场景
+> 设计的事实。
 
 ## 1. 背景
 

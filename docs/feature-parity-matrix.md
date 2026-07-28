@@ -6,7 +6,7 @@
 >
 > 最后更新：2026-07-28
 >
-> 当前代码状态：S01 Runtime Kernel 已 Accepted；19 项 L1，G0-G6 全部通过
+> 当前代码状态：S01 Runtime Kernel 已 Accepted；当前位于 S02 启动 Gate，尚未开始生产实现
 
 ## 1. 文档目的
 
@@ -34,17 +34,18 @@
 | REF-06 | [Claude Code 官方 Session](https://code.claude.com/docs/en/sessions) | 官方产品文档，候选公开行为 |
 | REF-07 | [Claude Code 官方 Hooks](https://code.claude.com/docs/en/hooks) | 官方产品文档，候选公开行为 |
 | REF-08 | [Spring AI Tool Calling](https://docs.spring.io/spring-ai/reference/api/tools.html) | 官方框架文档，只约束 Java Adapter |
-| AUTH-SRC-01 | [授权参考源码快照 `AUTH-SRC-2026-03-31-A`](./reference-baselines/R2026.03-authorized-source.md) | 授权机制研究，不是行为 Oracle |
+| QUARANTINE-01 | [未核验参考材料 `UNVERIFIED-SRC-2026-03-31-A`](./reference-baselines/R2026.03-unverified-source.md) | 仅作隔离审计；禁止作为需求、设计、测试或实现输入 |
 
 完整来源 Manifest 和可复现限制见
 [R2026.03 公开行为基线](./reference-baselines/R2026.03-public-behavior.md)。
 当前在线页面未归档、没有内容指纹；参考产品以后增加的功能不会自动进入本基线。
 需要升级基线时，新建 R 版本并记录新增、删除和行为变化。
 
-`R2026.03` 定义公开可验收行为；`AUTH-SRC-01` 用于解释职责、状态机、不变量、失败恢复和
-验证方法。源码研究结论必须标记 `Observed / Inferred / Unknown`，不能仅因为参考源码
-存在就提升 Capability Level。只有本项目测试、Demo 或 Eval 通过后，才能标记为
-`Verified in cc-java`。
+`R2026.03` 定义公开可验收行为。`QUARANTINE-01` 不是活动来源，只记录一组因来源、
+Revision、许可证和授权范围无法独立核验而停止使用的材料。项目只能根据公开来源、
+独立黑盒场景和本项目需求形成活动设计；只有本项目测试、Demo 或 Eval 通过后，才能标记
+为 `Verified in cc-java`。隔离决定见
+[ADR-020](./adr/ADR-020-quarantine-unverified-reference-source.md)。
 
 ## 3. 完成度等级
 
@@ -125,14 +126,14 @@
 
 | Stage | 主题 | 核心交付 |
 | --- | --- | --- |
-| S00 | Harness 地图 | 参考架构、双基线、矩阵、术语和来源边界 |
+| S00 | Harness 地图 | 参考架构、公开行为基线、来源隔离登记、矩阵、术语和边界 |
 | S01 | Runtime Kernel（Agent Loop） | Fake Model 驱动的显式循环 |
 | S02 | Model + Streaming CLI | 一个真实 Provider、REPL、事件流 |
 | S03 | Read Tools | 在真实仓库自主搜索和解释代码 |
 | S04 | Write + Command | 经审批修改代码、执行测试、根据结果继续 |
 | S05 | Permission Pipeline | 模式、规则、审批、生命周期和拒绝恢复 |
-| S06 | Session + Checkpoint | JSONL、稳定 ID/Protocol Round、resume/fork、崩溃检测、undo |
-| S07 | Context Engineering | Transcript/Projection、四级减压、Rolling Memory、Summary 和有界恢复 |
+| S06 | Session + Checkpoint | JSONL、resume/fork、崩溃检测和 undo |
+| S07 | Context Engineering | Token 预算、Turn 淘汰、摘要、压缩和防抖 |
 | S08 | Instructions + Settings | 用户/项目/目录指令、配置层级和 Context CLI |
 | S09 | Hooks | 可配置生命周期扩展与阻断 |
 | S10 | MCP | 外部 Server、Tool 过滤、权限统一 |
@@ -148,13 +149,13 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 
 | 指标 | R2026.03 当前值 |
 | --- | --- |
-| 纳入追踪的 Capability ID | 195 |
-| 当前阶段 | S01 Runtime Kernel（Accepted；S02 尚未启动） |
-| Stage Exit | Accepted：G0-G6 已在稳定 Commit 证据链上通过 |
-| 当前等级 | 19 项为 L1，176 项为 L0 |
-| 默认最终目标 | 195 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 3.25%（195 项等权、目标 L3） |
-| 下一步 | 建立 S02 启动 ADR、目标等级和可证伪 Spike，再进入 Model + Streaming CLI |
+| 纳入追踪的 Capability ID | 193 |
+| 当前阶段 | S02 Model + Streaming CLI（启动 Gate；生产实现尚未开始） |
+| Stage Exit | Open：G1 已固定范围；G0、G2-G6 尚未通过 |
+| 当前等级 | 19 项为 L1，174 项为 L0 |
+| 默认最终目标 | 193 项达到 L3，或存在明确 `Accepted Deviation` |
+| 当前能力覆盖 | 3.28%（193 项等权、目标 L3） |
+| 下一步 | 完成 S02 官方来源/版本核验和 Provider/Streaming/CLI Spike，再确认技术组合 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -163,6 +164,10 @@ S01 等级证据见 [Runtime Kernel ADR](./adr/ADR-017-s01-runtime-kernel.md)、
 [S01 标准验证证据](./evidence/S01-runtime-kernel-2026-07-28.md)、
 [S01 差距报告](./gap-reports/S01.md)。本阶段统一只记为 L1，不把离线 Fake
 回放宣传为真实任务可用的 L2。
+
+S02 的 23 项完整范围、19 项 L2 / 4 项 L1 退出目标及可证伪 Spike 见
+[ADR-021](./adr/ADR-021-s02-model-streaming-cli-scope.md)。该 ADR 只通过 G1，
+不表示 S02 代码已经开始。
 
 ### 5.2 Stage 退出目标与跨阶段路径
 
@@ -185,7 +190,7 @@ Stage 完成项。
 
 | Stage | 默认退出目标 | 说明 |
 | --- | --- | --- |
-| S00 | 文档 Gate | 双基线、来源边界、矩阵和术语可追踪 |
+| S00 | 文档 Gate | 公开行为基线、来源隔离、矩阵和术语可追踪 |
 | S01 | Required Feature 达到 L1 | 只证明离线协议学习骨架 |
 | S02-S13 | 单 Stage 条目或多 Stage 终点达到 L2 | 多 Stage 的非终点首阶段可按上方规则只达到 L1 |
 | S14 | 核心 Harness 达到 L3，其余 Required Feature 至少 L2 | 建立参考可比、兼容和生产证据 |
@@ -197,7 +202,7 @@ Stage 完成项。
 | --- | --- |
 | Cancellation / Limits | S01 保留契约缝隙 → S02 模型流取消 L2 → S04 Tool/进程树取消与输出/时间限制 L2 → S14 跨平台 L3 |
 | Permission | S01 Port/Fake L1 → S04 固定读允许、写/命令询问和安全 PLAN L2 → S05 完整规则/优先级/恢复 L2 → S10/S11/S13 外部来源与安全回归后 L3 |
-| Tool Result / Context | S03-S04 单工具硬上限和外置元数据 L2 → S06 决策持久化 L1 → S07 四级 Context Reduction L2 → S14 Provider Cache/Context Editing 对照后 L3 |
+| Tool Result / Context | S03-S04 单工具硬上限和外置元数据 L2 → S06 决策持久化 L1 → S07 公开来源驱动的 Context Reduction L2 → S14 Provider Cache/Context Editing 对照后 L3 |
 | Session | S01 内存 Session L1 → S06 JSONL/resume/fork/checkpoint L2 → S14 Export/Retention/迁移兼容 L3 |
 | Instructions | S03 根 `AGENTS.md` L2 → S08 分层/路径规则与来源诊断 L2 → S14 兼容与迁移 L3 |
 | Eval / Observability | S01 确定性回放 L1 → S04/S07/S12/S13 专项 Eval L2 → S14 统一指标、回放和报告 L3 |
@@ -247,7 +252,7 @@ Stage 完成项。
 | LOOP-08 | Deadline 与取消 | Cancellation 传播 | L0 | S02/S04 | REF-02 |
 | LOOP-09 | 模型错误重试 | 有界 Retry Policy | L0 | S02/S14 | REF-01 |
 | LOOP-10 | Model Output Length Recovery | S02 识别截断/不完整输出并有界停止或续接 → S14 L3 恢复策略 | L0 | S02/S14 | REF-01 |
-| LOOP-11 | Bounded Context Overflow Recovery | 同次 Overflow 最多压缩恢复一次，再失败明确终止 | L0 | S07 | REF-01/02/AUTH-SRC-01 |
+| LOOP-11 | Context 溢出恢复 | Compact / Stop / Retry | L0 | S07 | REF-01/02 |
 | LOOP-12 | Model Fallback | Provider-aware Fallback | L0 | S14 | REF-01 |
 | LOOP-13 | 用户拒绝后继续推理 | Denied Tool Result 回传模型 | L0 | S05 | REF-04 |
 | LOOP-14 | 崩溃和未完成 Tool | Session Recovery Gate | L0 | S06 | REF-06 |
@@ -264,7 +269,7 @@ Stage 完成项。
 | MODEL-06 | Usage / Finish Reason | 规范化 Capability | L0 | S02 | REF-08 |
 | MODEL-07 | 第二 Provider | S14 验证 Provider-neutral Port | L0 | S14 | REF-02 |
 | MODEL-08 | Model Switching | Session Command | L0 | S08 | REF-02 |
-| MODEL-09 | Provider Cache / Context Editing | Adapter 侧 Cache Hint 与原生编辑优化 | L0 | S14 | REF-01/AUTH-SRC-01 |
+| MODEL-09 | Prompt Cache | 稳定前缀和 Provider Hint | L0 | S07/S14 | REF-01 |
 | MODEL-10 | Rate Limit / Retry | Provider Error Policy | L0 | S14 | REF-01 |
 | MODEL-11 | Cost Budget | Token 与价格模型 | L0 | S14 | REF-01 |
 | MODEL-12 | Capability Detection | Tools/Streaming/Context/Reasoning | L0 | S14 | REF-02 |
@@ -284,7 +289,7 @@ Stage 完成项。
 | TOOL-09 | Write / Create | 新文件写入 | L0 | S04 | REF-02 |
 | TOOL-10 | Run Command | Shell、timeout、exit code | L0 | S04 | REF-02 |
 | TOOL-11 | Tool Output Streaming | stdout/stderr Event | L0 | S04 | REF-02 |
-| TOOL-12 | Single Tool Result Limit | S03-S04 类型化硬上限、截断/外置元数据 | L0 | S03/S04 | REF-01/AUTH-SRC-01 |
+| TOOL-12 | Result Truncation | 显式截断和摘要 | L0 | S03/S07 | REF-01 |
 | TOOL-13 | Structured Tool Error | 模型可纠正错误 | L1 | S01/S03 | REF-01 |
 | TOOL-14 | Tool Cancellation | Model/Process/File 取消 | L0 | S04 | REF-02 |
 | TOOL-15 | 并行安全工具 | Read-only 并行执行 | L0 | S12 | REF-01 |
@@ -353,20 +358,18 @@ Stage 完成项。
 | CTX-02 | Project Instructions | 根 AGENTS.md | L0 | S03 | REF-05 |
 | CTX-03 | Hierarchical Instructions | User/Project/Directory | L0 | S08 | REF-05 |
 | CTX-04 | Path-scoped Rules | 只在相关文件加载 | L0 | S08 | REF-05 |
-| CTX-05 | Aggregated Tool Payload Budget | S06:L1 稳定决策记录 → S07:L2 聚合限流、外置和恢复重放 | L0 | S06/S07 | REF-01/AUTH-SRC-01 |
-| CTX-06 | Context Capacity / Usage | Model-aware 预算、实际/估算来源和分类对账 | L0 | S07 | REF-01/02/AUTH-SRC-01 |
-| CTX-07 | Complete Protocol Round Eviction | 只淘汰完整协议回合并保持 Call/Result 配对 | L0 | S06/S07 | REF-01/AUTH-SRC-01 |
-| CTX-08 | Old Tool Result Reduction | 低价值旧结果、近期工作集和幂等 | L0 | S07 | REF-02/AUTH-SRC-01 |
-| CTX-09 | Full Conversation Summary | 完整摘要、状态重注入和失败不提交 | L0 | S07 | REF-01/02/AUTH-SRC-01 |
-| CTX-10 | Progressive Reduction Orchestration | 四级条件决策图与确定性降级 | L0 | S07 | REF-01/AUTH-SRC-01 |
-| CTX-11 | Thrashing Guard | 连续失败熔断、低水位和成功重置 | L0 | S07 | REF-02/AUTH-SRC-01 |
-| CTX-12 | Manual Compact + Instructions | S07 Core 手动触发/保留指令 → S08 `/compact` | L0 | S07/S08 | REF-02/AUTH-SRC-01 |
-| CTX-13 | Context Usage Report / `/context` | S07 Core 精确对账 → S08 CLI 展示 | L0 | S07/S08 | REF-02 |
+| CTX-05 | Tool Result Limits | 类型化裁剪 | L0 | S03/S04 | REF-01 |
+| CTX-06 | Token Budget | Model-aware 预算 | L0 | S07 | REF-01/02 |
+| CTX-07 | Complete Turn Eviction | 保持 Tool 协议成对 | L0 | S07 | REF-01 |
+| CTX-08 | Old Tool Output Clear | 优先释放低价值输出 | L0 | S07 | REF-02 |
+| CTX-09 | Conversation Summary | LLM 压缩 | L0 | S07 | REF-01/02 |
+| CTX-10 | Multi-level Compaction | 渐进压缩 | L0 | S07 | REF-01 |
+| CTX-11 | Thrashing Guard | 压缩失败防循环 | L0 | S07 | REF-02 |
+| CTX-12 | Compact Instructions | 用户控制保留内容 | L0 | S07/S08 | REF-02 |
+| CTX-13 | `/context` | Context 构成可视化 | L0 | S07 | REF-02 |
 | CTX-14 | Skill Lazy Loading | Metadata 先加载 | L0 | S11 | REF-03 |
 | CTX-15 | Sub-Agent Isolation | 独立窗口与摘要返回 | L0 | S12 | REF-02/03 |
-| CTX-16 | Cache-stable Context Projection | 稳定前缀、Tool 顺序和 Projection 决策 | L0 | S06/S07/S14 | REF-01/AUTH-SRC-01 |
-| CTX-17 | Rolling Session Memory | 覆盖边界、串行抽取和协议安全近期尾部 | L0 | S07 | AUTH-SRC-01 |
-| CTX-18 | Persistent Transcript / Reducible Projection | S06:L1 持久化分离契约 → S07:L2 压缩感知投影 | L0 | S06/S07 | AUTH-SRC-01 |
+| CTX-16 | Prompt Cache | 稳定前缀和 Tool 顺序 | L0 | S14 | REF-01 |
 
 ## 15. Settings / Configuration 对照
 
@@ -482,7 +485,7 @@ Stage 完成项。
 
 - 参考架构文档；
 - 功能对照矩阵；
-- 公开行为基线与授权源码快照；
+- 公开行为基线与未核验来源隔离登记；
 - 来源、授权、独立重实现和禁止复制规则；
 - Snapshot ID、指纹、`Documented / Observed / Inferred / Unknown`；
 - 术语统一。
@@ -580,8 +583,6 @@ Fake User
 完成条件：
 
 - JSONL Schema；
-- 稳定 Message ID 与完整 Protocol Round；
-- Canonical Transcript、投影决策和 Compaction Boundary 存储位置；
 - continue/resume/fork；
 - 未完成 Tool 检测；
 - File Checkpoint/Undo；
@@ -593,24 +594,18 @@ Fake User
 
 完成条件：
 
-- Canonical Transcript 与 Model Context Projection 分离；
-- Model-aware Capacity、Usage 和分类对账；
-- 单批 Tool Payload 限流、外置和 resume 稳定占位；
-- 完整 Protocol Round 淘汰且 Call/Result 孤立数为 0；
-- 旧 Tool Result 清理保持近期工作集且幂等；
-- Rolling Session Memory、覆盖边界和协议安全近期尾部；
-- Memory 缺失、为空、过期、边界丢失或压缩后仍超阈值时回退 Full Summary；
-- Full Conversation Summary、Instructions/文件/任务状态重注入；
-- 手动 Compact Core 路径和保留指令；其触发策略可不同于自动路径，但协议不变量相同；
-- 同次 Overflow 最多一次 compact-and-retry；
-- 摘要失败不提交、确定性降级和连续失败熔断；
-- 基于最终 Model Context Projection 重新计算真实 Usage；
-- 内部 Compaction Event 和 `ContextUsageReport` Core API；
-- 长会话事实/约束保持率、任务完成率、Token 降幅和最大压缩次数。
+- Token Budget；
+- 完整 Turn 淘汰并保持 Tool Call/Result 配对；
+- 旧 Tool Output 清理；
+- 摘要与压缩；
+- 同次 Overflow 有界恢复；
+- Thrashing Guard；
+- `/context`；
+- 长会话事实保持、任务完成度和 Token 降幅 Eval。
 
-“四层”是对渐进式决策图的 Java 能力归纳，不是固定串行执行四次压缩。
-参考结论的采纳范围与证伪方案见
-[ADR-019](./adr/ADR-019-s07-progressive-context-reduction.md)。
+S07 的具体 Reducer、记忆策略与阈值必须在该阶段依据公开来源和独立场景重新研究。
+历史 ADR-019 已被 [ADR-020](./adr/ADR-020-quarantine-unverified-reference-source.md)
+取代，不能作为活动实现输入。
 
 ### S08：Instructions + Settings
 
@@ -724,7 +719,7 @@ S07 的 Compaction Event 只是观察事件；可配置、可阻断的 Compact H
 
 每次开发前按以下顺序：
 
-1. G0：确认公开行为基线、授权快照、指纹、结论置信度和 Unknown；
+1. G0：确认公开行为基线、来源权利边界、版本/指纹、结论置信度和 Unknown；
 2. G1：找到当前 Stage，选择 Feature，写出 `Current → Exit Target` 和可证伪行为；
 3. G2：研究职责、状态机、不变量和失败恢复，通过 ADR 定义独立 Java 边界；
 4. G3：先写 Fake/Fixture，再完成当前 Stage 的最小实现；
@@ -741,7 +736,7 @@ S07 的 Compaction Event 只是观察事件；可配置、可阻断的 Compact H
 ```text
 Release:
 Reference Baseline:
-Authorized Snapshot ID:
+Authorized Snapshot ID: <ID | N/A - Not Used>
 Current Learning Stage:
 Stage Status:
 Commit / Environment:

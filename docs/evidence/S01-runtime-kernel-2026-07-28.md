@@ -4,11 +4,14 @@
 > Status：Accepted（G0-G6 Passed）
 > Release：`0.1.0-SNAPSHOT`
 > Reference Behavior Baseline：`R2026.03`
-> Authorized Snapshot ID：`AUTH-SRC-2026-03-31-A`
+> Authorized Snapshot ID：`N/A - Not Used`
 > Feature IDs：`BOOT-05`、`LOOP-01/02/03/05/06/07`、`MODEL-01/03`、
 > `TOOL-01/02/03/13`、`HOOK-01`、`CTX-01`、`SESSION-01/02`、`OBS-01`、`EVAL-02`
 > Current → Exit Target：19 项 `L1 → L1`（本次关闭 Stage Exit 证据，不提升 Capability Level）
 > Date：2026-07-28
+
+S01 的设计和代码在未核验材料被登记前已经完成。Verified Commit、测试与等级只依赖
+ADR-017、本项目需求、公开基线和独立 Fake；后续比较性阅读不是实现来源或测试 Oracle。
 
 ## 1. 被测代码身份
 
@@ -143,7 +146,8 @@ SHA-256 F77AE044C9A1A606D9E4553AAC675FEACB93ACABC6E0F2379C3DFC320C38A573
 
 ## 5. G6 对账状态
 
-- 19 项 Capability 保持 L1，能力覆盖仍为 3.25%，没有因测试通过虚增等级；
+- 19 项 Capability 保持 L1；活动矩阵纠正为 193 项后能力覆盖为 3.28%，没有因测试
+  通过虚增等级；
 - README、PRD、技术设计、ADR、矩阵、Demo、Gap Report 和进度看板在本轮变更中对账；
 - Windows Wrapper、标准命令和可核验 Demo 三个执行缺口已经关闭；
 - G4 的全部命令已在 Clean 的 Verified Commit 上复验，测试后工作区仍为 Clean；
@@ -153,5 +157,5 @@ SHA-256 F77AE044C9A1A606D9E4553AAC675FEACB93ACABC6E0F2379C3DFC320C38A573
 
 S01 已满足本阶段 L1 学习骨架的退出条件，没有剩余 Exit Blocker。退出对账提交只更新
 文档、证据状态和生成的进度页，不改变 Verified Commit 的 Java、POM、Wrapper 或仓库
-脚本输入。S02 尚未启动；下一变更必须先建立 S02 启动 ADR、Feature ID、目标等级、可证伪
-实验和 Provider/CLI 技术选择，再进入实现。
+脚本输入。S02 当前位于启动 Gate：ADR-021 已固定 Feature ID 和目标等级；生产实现前
+仍须完成官方来源/版本核验、Provider/Streaming/CLI Spike 与技术选择。

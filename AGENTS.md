@@ -9,12 +9,14 @@
 1. [README.md](./README.md)
 2. [参考架构](./docs/reference-architecture.md)
 3. [公开行为基线](./docs/reference-baselines/R2026.03-public-behavior.md)
-4. [授权参考源码基线](./docs/reference-baselines/R2026.03-authorized-source.md)
+4. [未核验参考材料隔离登记](./docs/reference-baselines/R2026.03-unverified-source.md)
 5. [功能对照矩阵](./docs/feature-parity-matrix.md)
 6. [产品需求文档](./docs/product-requirements.md)
 7. [技术设计文档](./docs/technical-design.md)
-8. [ADR-018](./docs/adr/ADR-018-authorized-reference-study.md)、
-   [ADR-019](./docs/adr/ADR-019-s07-progressive-context-reduction.md)与
+8. [ADR-020](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)、
+   [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)、
+   [ADR-018（历史）](./docs/adr/ADR-018-authorized-reference-study.md)、
+   [ADR-019（历史）](./docs/adr/ADR-019-s07-progressive-context-reduction.md)与
    [Stage 证据包模板](./docs/templates/stage-evidence-package.md)
 9. 本文档
 
@@ -23,15 +25,15 @@
 ## 2. 当前项目阶段
 
 仓库已经完成 **S01：Runtime Kernel**，G0-G6 与 Stage Exit 均为 Accepted；被测实现
-Commit 为 `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd`。当前处于 **S02 启动 Gate**，
-S02 尚未开始实现。
+Commit 为 `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd`。当前处于 **S02 启动 Gate**：
+ADR-021 已固定 23 项 Feature 和 G1 目标，生产实现尚未开始。
 
 当前允许并要求：
 
 - 保持 S01 的 Framework-free Domain、显式 Agent Runtime、Tool Pipeline、内存 Session
   与离线 Fake 测试回归继续通过；
-- 开始任何 S02 代码前，先建立 S02 启动 ADR，列出完整 Feature ID、`Current → Target`
-  等级、真实 Provider/流式 Tool Call Spike、CLI 契约、取消边界和可证伪实验；
+- S02 实现范围必须保持 ADR-021 的 23 项 Feature、`Current → Target` 等级、真实
+  Provider/流式 Tool Call Spike、CLI 契约、取消边界和可证伪实验；
 - 只有 Spike 证明真实用途后，才能确认 Spring Boot、Spring AI、Picocli 与 JLine 的
   准确版本和依赖；
 - 在 S02 启动 Gate 完成前，真实 Provider、流式 CLI、文件 Tool、Shell、完整权限策略
@@ -65,15 +67,15 @@ S02 尚未开始实现。
 1. 所属 Stage（`S01` 至 `S15`）；
 2. `docs/feature-parity-matrix.md` 中对应的一个或多个 Feature ID；
 3. 当前等级与目标等级（`L0` 至 `L4`）；
-4. 公开行为基线、授权快照 ID（未使用授权材料时写 `N/A - Not Used`），以及
+4. 公开行为基线、经核验参考材料 ID（未使用时写 `N/A - Not Used`），以及
    `Documented / Observed / Inferred / Unknown`；
 5. 正在重现的可独立表达行为或项目需求；
 6. 能够证明等级提升的测试、演示或度量；
 7. 完成后维护者应当能够解释的设计决策。
 
 所有 Stage 使用 [Stage 证据包模板](./docs/templates/stage-evidence-package.md)中的
-G0-G6 Gate。授权源码研究和独立重实现边界由
-[ADR-018](./docs/adr/ADR-018-authorized-reference-study.md)定义。
+G0-G6 Gate。当前来源隔离和独立重实现边界由
+[ADR-020](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)定义。
 
 能力等级提升时，必须在同一个变更中更新功能对照矩阵。一个 Stage 只有同时具备以下材料才算完成：
 
@@ -113,6 +115,7 @@ G0-G6 Gate。授权源码研究和独立重实现边界由
    ```text
    java scripts/ProgressDashboard.java
    java scripts/ProgressDashboard.java --check
+   java scripts/ProgressDashboard.java --self-test
    ```
 
 6. `docs/progress.html` 必须与相关代码和文档处于同一个变更中；
@@ -126,7 +129,7 @@ G0-G6 Gate。授权源码研究和独立重实现边界由
 
 ## 5. 来源控制与独立重实现规则
 
-除第 5.1 节中由维护者明确确认的已授权学习材料外，以下规则不可妥协：
+以下规则不可妥协：
 
 - 不复制或翻译泄露、反编译或其他受限制的源码；
 - 不复制内部 Prompt、注释、错误文案、私有类型名、文件布局或实现常量；
@@ -137,27 +140,23 @@ G0-G6 Gate。授权源码研究和独立重实现边界由
 - 记录重要的第三方启发来源和适用的许可证义务；
 - 不以产品名或商标暗示本项目与原产品存在官方关系。
 
-“仅用于学习”“不商用”以及在自己的 GitHub 账号中保存副本，都不会自动取得再发布权。如果来源不清楚，应停止使用该材料，只保留能够独立表达的行为需求。
+“仅用于学习”“不商用”以及在自己的 GitHub 账号中保存副本，都不会自动取得再发布权。如果来源不清楚，应停止使用该材料，只保留能够独立表达和验证的行为需求。
 
 仓库许可证仍是开放决策。在维护者确认前，不得添加 `LICENSE` 文件，也不接受外部代码贡献。
 
-### 5.1 已授权参考源码的受控学习例外
+### 5.1 未核验材料的隔离
 
-当维护者明确确认已经取得某份参考源码的合法学习授权时，可以在仓库外的隔离目录中只读研究该材料。该例外的目的，是理解并验证成熟系统已经采用的机制，避免在缺少参考和评测的情况下从头试错；它不授予复制、再发布或派生分发该源码的权利。
+`UNVERIFIED-SRC-2026-03-31-A` 当前为 `QUARANTINED`。其来源、Revision、许可证和
+授权范围不能被仓库内证据独立核验，因此：
 
-使用已授权参考源码时必须同时满足：
+- 不得读取、搜索、分析或继续使用；
+- 不得把历史研究结论写入活动 PRD、技术设计、矩阵、测试或代码；
+- 不得把它称为“已授权源码”或把维护者口头说明当作可复现证据；
+- S01 和当前 S02 的 `Authorized Snapshot ID` 写 `N/A - Not Used`；
+- 只有满足 ADR-020 的证据条件并由新 ADR 接受后，才可重新评估。
 
-- 记录材料来源、快照日期或版本、可验证的完整性信息以及授权范围；无法确认准确 Revision 时必须明确标记；
-- 可以提炼子系统职责、状态转换、算法策略、边界条件、失败恢复和验证方法，但不得复制或逐行翻译函数体、内部 Prompt、注释、错误文案、私有类型名、文件布局或实现常量；
-- Java 侧必须使用能够由本项目需求解释的独立契约、命名、模块边界和实现，不以语言转换代替设计；
-- 参考源码不得进入本仓库、依赖、子模块、测试 Fixture、Golden Output、发布物或可再分发材料；
-- 测试和评测必须根据可解释的行为、不变量和独立场景编写，不得以参考源码文本或私有数据作为断言；
-- 学习记录只保存必要的机制抽象、差距和证据结论，不保存大段源码、完整 Prompt 或其他不必要的受保护表达；
-- 研究结论进入产品需求、技术设计或代码实现前，必须通过单独 ADR 明确采纳范围，并在同一变更中同步 PRD、技术设计、功能对照矩阵和相关能力声明；
-- 对外能力声明必须区分“从授权材料观察到的机制”“本项目的独立设计”和“已经通过测试的实现”；
-- 一旦授权范围、来源或再使用边界出现不确定性，应立即停止读取和使用该材料，等待维护者确认。
-
-该例外不会降低本文件其他安全、权限和发布规则，也不能用于绕过当前 Stage、Feature Matrix 或完成证据要求。
+ADR-018、ADR-019 只保留为历史，不是活动设计依据。S07 到来时必须使用公开来源和独立
+场景重新研究 Context 方案。
 
 ## 6. 核心架构不变量
 
@@ -352,7 +351,9 @@ public final class AgentRuntime {
 
 ## 14. 依赖与版本策略
 
-暂定技术基线为 Java 21、Spring Boot 4.1.x、Spring AI 2.0.x、Picocli、JLine 和 JUnit 5。S01 开始时通过 ADR 确认准确版本。
+已确认的技术基线只有 Java 21、Maven 3.9.16、JUnit 5.14.3 和 AssertJ 3.27.7。
+Spring Boot、Spring AI、Picocli、JLine 与首个 Provider 的准确版本保持 Deferred，
+只能在 S02 完成官方来源核验和真实 Provider/Streaming/CLI Spike 后通过 ADR 确认。
 
 引入依赖时：
 

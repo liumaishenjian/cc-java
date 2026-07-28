@@ -3,8 +3,12 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -27,6 +31,7 @@ import java.util.stream.Stream;
  * <pre>
  * java scripts/ProgressDashboard.java
  * java scripts/ProgressDashboard.java --check
+ * java scripts/ProgressDashboard.java --self-test
  * </pre>
  *
  * <p>功能矩阵是 Capability 和 Stage 路线的权威来源；
@@ -47,6 +52,8 @@ public final class ProgressDashboard {
     private static final Pattern PERCENTAGE = Pattern.compile("(\\d+(?:\\.\\d+)?)%");
     private static final Pattern MARKDOWN_LINK =
             Pattern.compile("\\[([^]]+)]\\([^)]+\\)");
+    private static final Pattern FULL_COMMIT_SHA =
+            Pattern.compile("[0-9a-fA-F]{40}");
     private static final List<String> GATES =
             List.of("G0", "G1", "G2", "G3", "G4", "G5", "G6");
     private static final List<String> STAGE_IDS =
@@ -60,48 +67,75 @@ public final class ProgressDashboard {
     private static final Set<String> EXIT_VALUES =
             Set.of("OPEN", "ACCEPTED", "BLOCKED");
 
+    private enum RunMode {
+        GENERATE,
+        CHECK,
+        SELF_TEST,
+        HELP
+    }
+
     private ProgressDashboard() {
     }
 
     public static void main(String[] args) throws Exception {
-        boolean check = parseArguments(args);
+        RunMode mode = parseArguments(args);
+        if (mode == RunMode.HELP) {
+            printUsage();
+            return;
+        }
+        if (mode == RunMode.SELF_TEST) {
+            runSelfTests();
+            System.out.println("Progress dashboard self-tests passed.");
+            return;
+        }
+
         Path root = findRepositoryRoot(Path.of("").toAbsolutePath().normalize());
         Path matrixPath = root.resolve(MATRIX_PATH);
         Path statePath = root.resolve(STATE_PATH);
         Path outputPath = root.resolve(OUTPUT_PATH);
 
         String matrix = Files.readString(matrixPath, StandardCharsets.UTF_8);
+        String stateText = Files.readString(statePath, StandardCharsets.UTF_8);
         Properties state = loadProperties(statePath);
         String matrixDigest = shortSha256(normalizeLines(matrix));
+        String stateDigest = shortSha256(normalizeLines(stateText));
         String codeDigest = repositoryInputDigest(root);
         validateExpectedDigest(state, "inputs.matrix.digest", matrixDigest);
         validateExpectedDigest(state, "inputs.code.digest", codeDigest);
         DashboardData data = parse(matrix, state);
-        String html = render(data, matrix, statePath, root);
+        String html = render(data, matrixDigest, stateDigest, codeDigest);
 
-        if (check) {
+        if (mode == RunMode.CHECK) {
             verifyFresh(outputPath, html);
             System.out.println("Progress dashboard is up to date: " + outputPath);
             return;
         }
 
-        Files.writeString(outputPath, html, StandardCharsets.UTF_8);
+        writeAtomically(outputPath, html);
         System.out.println("Generated progress dashboard: " + outputPath);
     }
 
-    private static boolean parseArguments(String[] args) {
+    private static RunMode parseArguments(String[] args) {
         if (args.length == 0) {
-            return false;
+            return RunMode.GENERATE;
         }
         if (args.length == 1 && "--check".equals(args[0])) {
-            return true;
+            return RunMode.CHECK;
+        }
+        if (args.length == 1 && "--self-test".equals(args[0])) {
+            return RunMode.SELF_TEST;
         }
         if (args.length == 1 && ("--help".equals(args[0]) || "-h".equals(args[0]))) {
-            System.out.println("Usage: java scripts/ProgressDashboard.java [--check]");
-            System.exit(0);
+            return RunMode.HELP;
         }
         throw new IllegalArgumentException(
-                "Unknown arguments. Usage: java scripts/ProgressDashboard.java [--check]");
+                "Unknown arguments. Usage: java scripts/ProgressDashboard.java "
+                        + "[--check|--self-test]");
+    }
+
+    private static void printUsage() {
+        System.out.println(
+                "Usage: java scripts/ProgressDashboard.java [--check|--self-test]");
     }
 
     private static Path findRepositoryRoot(Path start) {
@@ -125,6 +159,7 @@ public final class ProgressDashboard {
     }
 
     private static DashboardData parse(String matrix, Properties state) {
+        validateSchemaVersion(state);
         List<String> lines = matrix.lines().toList();
         List<StageRow> stages = parseStages(lines);
         List<String> actualStageIds = stages.stream().map(StageRow::id).toList();
@@ -152,7 +187,9 @@ public final class ProgressDashboard {
                 .orElseThrow(() -> new IllegalStateException(
                         "Current Stage does not exist in matrix: " + currentStage));
         String matrixCurrentStage = readSnapshotValue(lines, "当前阶段");
-        if (!matrixCurrentStage.startsWith(currentStage)) {
+        Pattern currentStagePrefix = Pattern.compile(
+                "^" + Pattern.quote(currentStage) + "(?:$|\\s|[（(—:：])");
+        if (!currentStagePrefix.matcher(matrixCurrentStage).find()) {
             throw new IllegalStateException(
                     "progress-state current.stage="
                             + currentStage
@@ -193,11 +230,26 @@ public final class ProgressDashboard {
                     required(state, "gate." + gate + ".summary")));
         }
 
-        int blockerCount = Integer.parseInt(required(state, "blocker.count"));
+        int blockerCount = validatedBlockerCount(state);
         List<String> blockers = new ArrayList<>();
         for (int index = 1; index <= blockerCount; index++) {
             blockers.add(required(state, "blocker." + index));
         }
+
+        String lastUpdated = validatedIsoDate(required(state, "last.updated"));
+        String evidenceStage = required(state, "evidence.stage");
+        String evidenceCommit = required(state, "evidence.commit");
+        String evidenceClassification = required(state, "evidence.classification");
+        validateWorkflowState(
+                state,
+                currentStage,
+                currentStatus,
+                currentExit,
+                gates,
+                blockerCount,
+                evidenceStage,
+                evidenceCommit,
+                evidenceClassification);
 
         return new DashboardData(
                 current,
@@ -205,10 +257,11 @@ public final class ProgressDashboard {
                 currentExit,
                 required(state, "current.stage.summary"),
                 required(state, "current.next"),
-                required(state, "last.updated"),
+                lastUpdated,
                 required(state, "last.change"),
-                required(state, "evidence.commit"),
-                required(state, "evidence.classification"),
+                evidenceStage,
+                evidenceCommit,
+                evidenceClassification,
                 required(state, "evidence.summary"),
                 required(state, "evidence.command"),
                 stages,
@@ -219,6 +272,160 @@ public final class ProgressDashboard {
                 gates,
                 blockers,
                 state);
+    }
+
+    /**
+     * 校验状态文件的版本入口，避免新版生成器把未知字段语义当作当前契约解析。
+     *
+     * @param state 待校验的状态属性
+     */
+    private static void validateSchemaVersion(Properties state) {
+        String version = required(state, "schema.version");
+        if (!"1".equals(version)) {
+            throw new IllegalStateException(
+                    "Unsupported progress-state schema.version: " + version + "; expected 1");
+        }
+    }
+
+    /**
+     * 解析阻塞项数量，并在读取 blocker 明细前拒绝负数或非整数。
+     *
+     * @param state 待校验的状态属性
+     * @return 非负阻塞项数量
+     */
+    private static int validatedBlockerCount(Properties state) {
+        String value = required(state, "blocker.count");
+        final int count;
+        try {
+            count = Integer.parseInt(value);
+        } catch (NumberFormatException exception) {
+            throw new IllegalStateException(
+                    "Invalid blocker.count; expected a non-negative integer: " + value,
+                    exception);
+        }
+        if (count < 0) {
+            throw new IllegalStateException(
+                    "Invalid blocker.count; value must be non-negative: " + count);
+        }
+        return count;
+    }
+
+    /**
+     * 校验看板日期使用严格的 ISO 本地日期（{@code yyyy-MM-dd}）表达。
+     *
+     * @param value 状态文件中的日期文本
+     * @return 规范化后的 ISO 日期文本
+     */
+    private static String validatedIsoDate(String value) {
+        try {
+            LocalDate parsed = LocalDate.parse(value, DateTimeFormatter.ISO_LOCAL_DATE);
+            if (!parsed.toString().equals(value)) {
+                throw new IllegalStateException(
+                        "Invalid last.updated; expected ISO date yyyy-MM-dd: " + value);
+            }
+            return value;
+        } catch (DateTimeParseException exception) {
+            throw new IllegalStateException(
+                    "Invalid last.updated; expected ISO date yyyy-MM-dd: " + value,
+                    exception);
+        }
+    }
+
+    /**
+     * 校验 Stage 状态机及 Accepted 证据闭环。
+     *
+     * <p>Stage Status 与 Exit 是同一工作流状态的两个视角，允许的组合只有
+     * {@code PLANNED/OPEN}、{@code IN_PROGRESS/OPEN}、
+     * {@code BLOCKED/BLOCKED} 与 {@code ACCEPTED/ACCEPTED}。
+     * Accepted 还必须由全部 Gate、零阻塞项和提交级证据共同支撑，防止仅修改一个
+     * 属性就让看板错误宣称 Stage 已退出。</p>
+     *
+     * @param state 状态文件，用于核对当前 Stage 的路线状态
+     * @param currentStage 当前 Stage ID
+     * @param currentStatus 当前 Stage 状态
+     * @param currentExit 当前 Stage Exit
+     * @param gates G0-G6 状态
+     * @param blockerCount 阻塞项数量
+     * @param evidenceStage 最近证据所属 Stage
+     * @param evidenceCommit 最近证据提交
+     * @param evidenceClassification 最近证据分类
+     */
+    private static void validateWorkflowState(
+            Properties state,
+            String currentStage,
+            String currentStatus,
+            String currentExit,
+            List<GateRow> gates,
+            int blockerCount,
+            String evidenceStage,
+            String evidenceCommit,
+            String evidenceClassification) {
+        String expectedExit = switch (currentStatus) {
+            case "ACCEPTED" -> "ACCEPTED";
+            case "BLOCKED" -> "BLOCKED";
+            case "IN_PROGRESS", "PLANNED" -> "OPEN";
+            default -> throw new IllegalStateException(
+                    "Unreachable current Stage status: " + currentStatus);
+        };
+        if (!expectedExit.equals(currentExit)) {
+            throw new IllegalStateException(
+                    "Contradictory current Stage status/exit: "
+                            + currentStatus
+                            + "/"
+                            + currentExit);
+        }
+
+        String routeStatus = state.getProperty("stage." + currentStage + ".status");
+        if (routeStatus != null) {
+            String normalizedRouteStatus =
+                    validatedStageStatus(routeStatus, "stage." + currentStage + ".status");
+            if (!currentStatus.equals(normalizedRouteStatus)) {
+                throw new IllegalStateException(
+                        "Current Stage status conflicts with route status: "
+                                + currentStatus
+                                + " vs "
+                                + normalizedRouteStatus);
+            }
+        }
+        if ("BLOCKED".equals(currentStatus) && blockerCount == 0) {
+            throw new IllegalStateException(
+                    "A BLOCKED Stage must declare at least one blocker");
+        }
+        if (!"ACCEPTED".equals(currentExit)) {
+            return;
+        }
+
+        List<String> openGates = gates.stream()
+                .filter(gate -> !"PASSED".equals(gate.status()))
+                .map(GateRow::id)
+                .toList();
+        if (!openGates.isEmpty()) {
+            throw new IllegalStateException(
+                    "An ACCEPTED Stage requires G0-G6 PASSED; unresolved: " + openGates);
+        }
+        if (blockerCount != 0) {
+            throw new IllegalStateException(
+                    "An ACCEPTED Stage requires blocker.count=0; found " + blockerCount);
+        }
+        if (!"COMMIT_VERIFIED".equals(evidenceClassification)) {
+            throw new IllegalStateException(
+                    "An ACCEPTED Stage requires evidence.classification=COMMIT_VERIFIED");
+        }
+        if (!FULL_COMMIT_SHA.matcher(evidenceCommit).matches()) {
+            throw new IllegalStateException(
+                    "An ACCEPTED Stage requires evidence.commit to be a full 40-character SHA");
+        }
+        if (evidenceStage.isBlank()) {
+            throw new IllegalStateException(
+                    "An ACCEPTED Stage requires a non-empty evidence.stage");
+        }
+        if (!currentStage.equals(evidenceStage)) {
+            throw new IllegalStateException(
+                    "An ACCEPTED Stage requires evidence.stage to match current.stage: "
+                            + currentStage
+                            + " vs "
+                            + evidenceStage);
+        }
     }
 
     private static List<StageRow> parseStages(List<String> lines) {
@@ -475,19 +682,15 @@ public final class ProgressDashboard {
 
     private static String render(
             DashboardData data,
-            String matrix,
-            Path statePath,
-            Path repositoryRoot) throws IOException, NoSuchAlgorithmException {
+            String matrixDigest,
+            String stateDigest,
+            String codeDigest) {
         String stageRows = renderStageRows(data);
         String capabilityRows = renderCapabilityRows(data.capabilities());
         String gateRows = renderGateRows(data.gates());
         String blockerRows = renderBlockers(data.blockers());
         String levelOptions = renderLevelOptions(data.levels());
         String stageOptions = renderStageOptions(data.stages());
-        String matrixDigest = shortSha256(normalizeLines(matrix));
-        String stateDigest = shortSha256(
-                normalizeLines(Files.readString(statePath, StandardCharsets.UTF_8)));
-        String codeDigest = repositoryInputDigest(repositoryRoot);
 
         String template = """
                 <!doctype html>
@@ -742,14 +945,14 @@ public final class ProgressDashboard {
                         <p class="metric-note">{{CURRENT_STAGE_NAME}} · {{CURRENT_STATUS_LABEL}}</p>
                       </article>
                       <article class="metric">
-                        <p class="metric-label">Implemented Skeletons</p>
-                        <p class="metric-value">{{L1_COUNT}}</p>
-                        <p class="metric-note">L1 学习骨架；L0 仍有 {{L0_COUNT}} 项。</p>
+                        <p class="metric-label">Capabilities Above L0</p>
+                        <p class="metric-value">{{NON_L0_COUNT}}</p>
+                        <p class="metric-note">{{LEVEL_SUMMARY}}</p>
                       </article>
                       <article class="metric">
                         <p class="metric-label">Open Gates</p>
                         <p class="metric-value">{{OPEN_GATE_COUNT}}</p>
-                        <p class="metric-note">必须关闭 G4-G6 后才能进入下一 Stage。</p>
+                        <p class="metric-note">{{CURRENT_STAGE}} 只有 G0-G6 全部 PASSED 才能退出。</p>
                       </article>
                     </section>
 
@@ -771,7 +974,7 @@ public final class ProgressDashboard {
                     <section class="panel" id="roadmap">
                       <div class="panel-head">
                         <div>
-                          <h2>S00-S15 路线</h2>
+                          <h2>Stage 路线</h2>
                           <p class="panel-desc">Stage 状态来自当前状态文件；主题和交付物直接解析自功能矩阵。</p>
                         </div>
                       </div>
@@ -808,7 +1011,7 @@ public final class ProgressDashboard {
                       <div class="panel-head">
                         <div>
                           <h2>Stage Exit Blockers</h2>
-                          <p class="panel-desc">这些项目全部关闭前，不允许宣称 S01 已退出或 S02 已可用。</p>
+                          <p class="panel-desc">{{BLOCKER_DESCRIPTION}}</p>
                         </div>
                       </div>
                       <ol class="blockers">{{BLOCKER_ROWS}}</ol>
@@ -823,6 +1026,7 @@ public final class ProgressDashboard {
                       </div>
                       <dl class="evidence-grid">
                         <div class="evidence-item"><dt>Last change</dt><dd>{{LAST_CHANGE}}</dd></div>
+                        <div class="evidence-item"><dt>Evidence stage</dt><dd><code>{{EVIDENCE_STAGE}}</code></dd></div>
                         <div class="evidence-item"><dt>Evidence class</dt><dd><code>{{EVIDENCE_CLASS}}</code></dd></div>
                         <div class="evidence-item"><dt>Code commit</dt><dd><code>{{EVIDENCE_COMMIT}}</code></dd></div>
                         <div class="evidence-item"><dt>Standard command</dt><dd><code>{{EVIDENCE_COMMAND}}</code></dd></div>
@@ -881,8 +1085,10 @@ public final class ProgressDashboard {
         replacements.put("{{COVERAGE}}", String.format(Locale.ROOT, "%.2f", data.coverage()));
         replacements.put("{{CAPABILITY_COUNT}}", Integer.toString(data.capabilities().size()));
         replacements.put("{{CURRENT_STATUS_LABEL}}", html(statusLabel(data.currentStatus())));
-        replacements.put("{{L1_COUNT}}", Integer.toString(data.levels().get("L1")));
-        replacements.put("{{L0_COUNT}}", Integer.toString(data.levels().get("L0")));
+        replacements.put(
+                "{{NON_L0_COUNT}}",
+                Integer.toString(data.capabilities().size() - data.levels().get("L0")));
+        replacements.put("{{LEVEL_SUMMARY}}", html(renderLevelSummary(data.levels())));
         replacements.put("{{OPEN_GATE_COUNT}}", Long.toString(data.gates().stream()
                 .filter(gate -> !"PASSED".equals(gate.status()))
                 .count()));
@@ -893,7 +1099,11 @@ public final class ProgressDashboard {
         replacements.put("{{STAGE_OPTIONS}}", stageOptions);
         replacements.put("{{CAPABILITY_ROWS}}", capabilityRows);
         replacements.put("{{BLOCKER_ROWS}}", blockerRows);
+        replacements.put(
+                "{{BLOCKER_DESCRIPTION}}",
+                html(renderBlockerDescription(data)));
         replacements.put("{{LAST_CHANGE}}", html(data.lastChange()));
+        replacements.put("{{EVIDENCE_STAGE}}", html(data.evidenceStage()));
         replacements.put("{{EVIDENCE_CLASS}}", html(data.evidenceClassification()));
         replacements.put("{{EVIDENCE_COMMIT}}", html(data.evidenceCommit()));
         replacements.put("{{EVIDENCE_COMMAND}}", html(data.evidenceCommand()));
@@ -995,6 +1205,39 @@ public final class ProgressDashboard {
             rows.append("<li>").append(html(blocker)).append("</li>");
         }
         return rows.toString();
+    }
+
+    /**
+     * 从矩阵的实际等级分布生成摘要，不把“已实现”错误等同于某个固定等级。
+     *
+     * @param levels L0-L4 的实时计数
+     * @return 适合直接展示的等级分布文案
+     */
+    private static String renderLevelSummary(Map<String, Integer> levels) {
+        List<String> parts = new ArrayList<>();
+        for (Map.Entry<String, Integer> entry : levels.entrySet()) {
+            if (entry.getValue() > 0) {
+                parts.add(entry.getKey() + " " + entry.getValue());
+            }
+        }
+        return "当前等级分布：" + String.join(" · ", parts);
+    }
+
+    /**
+     * 根据当前 Stage 和实际阻塞项数量生成退出提示，避免跨 Stage 的硬编码文案过期。
+     *
+     * @param data 已校验的看板数据
+     * @return 当前 Stage 的阻塞项说明
+     */
+    private static String renderBlockerDescription(DashboardData data) {
+        if (data.blockers().isEmpty()) {
+            return "当前 " + data.currentStage().id() + " 未登记 Stage Exit 阻塞项。";
+        }
+        return "登记的 "
+                + data.blockers().size()
+                + " 项全部关闭前，当前 "
+                + data.currentStage().id()
+                + " 不能退出。";
     }
 
     private static String renderLevelOptions(Map<String, Integer> levels) {
@@ -1130,6 +1373,199 @@ public final class ProgressDashboard {
         return hex.substring(0, 12);
     }
 
+    /**
+     * 在目标文件所在目录先写临时文件，再以原子移动替换派生产物。
+     *
+     * <p>同目录临时文件保证移动不会跨文件系统；若底层文件系统不支持原子替换，
+     * 则退化为 {@link StandardCopyOption#REPLACE_EXISTING}。无论写入或移动在哪一步
+     * 失败，都会尽力清理临时文件，避免半成品被误认为有效看板。</p>
+     *
+     * @param outputPath 看板输出路径
+     * @param content 完整 HTML 内容
+     * @throws IOException 临时文件写入或最终替换失败
+     */
+    private static void writeAtomically(Path outputPath, String content) throws IOException {
+        Path absoluteOutput = outputPath.toAbsolutePath().normalize();
+        Path parent = absoluteOutput.getParent();
+        if (parent == null) {
+            throw new IllegalStateException(
+                    "Progress dashboard output must have a parent directory: " + outputPath);
+        }
+        Path temporary = Files.createTempFile(
+                parent,
+                absoluteOutput.getFileName().toString() + ".",
+                ".tmp");
+        try {
+            Files.writeString(temporary, content, StandardCharsets.UTF_8);
+            try {
+                Files.move(
+                        temporary,
+                        absoluteOutput,
+                        StandardCopyOption.ATOMIC_MOVE,
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException | UnsupportedOperationException atomicFailure) {
+                try {
+                    Files.move(
+                            temporary,
+                            absoluteOutput,
+                            StandardCopyOption.REPLACE_EXISTING);
+                } catch (IOException fallbackFailure) {
+                    fallbackFailure.addSuppressed(atomicFailure);
+                    throw fallbackFailure;
+                }
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    /**
+     * 运行不依赖仓库文件和第三方测试框架的确定性治理回归。
+     *
+     * <p>这些测试聚焦生成器自身最容易产生“假绿”的边界：Accepted 状态闭环、
+     * Schema 与阻塞项输入校验，以及从状态/矩阵动态生成文案。测试使用内存中的
+     * 最小矩阵，不会修改 {@code docs/progress.html}，因此可安全加入 CI。</p>
+     */
+    private static void runSelfTests() {
+        String matrix = selfTestMatrix();
+
+        Properties accepted = acceptedSelfTestState();
+        DashboardData acceptedData = parse(matrix, accepted);
+        assertCondition(
+                "S03".equals(acceptedData.currentStage().id()),
+                "valid Accepted state was not parsed");
+
+        Properties openGate = copyProperties(accepted);
+        openGate.setProperty("gate.G4.status", "OPEN");
+        assertRejected(
+                "Accepted with an open Gate",
+                () -> parse(matrix, openGate),
+                "requires G0-G6 PASSED");
+
+        Properties negativeBlocker = copyProperties(accepted);
+        negativeBlocker.setProperty("blocker.count", "-1");
+        assertRejected(
+                "negative blocker.count",
+                () -> parse(matrix, negativeBlocker),
+                "must be non-negative");
+
+        Properties badSchema = copyProperties(accepted);
+        badSchema.setProperty("schema.version", "2");
+        assertRejected(
+                "unsupported schema.version",
+                () -> parse(matrix, badSchema),
+                "expected 1");
+
+        Properties mismatchedEvidenceStage = copyProperties(accepted);
+        mismatchedEvidenceStage.setProperty("evidence.stage", "S01");
+        assertRejected(
+                "Accepted with evidence from another Stage",
+                () -> parse(matrix, mismatchedEvidenceStage),
+                "evidence.stage to match current.stage");
+
+        String html = render(acceptedData, "matrix-test", "state-test", "code-test");
+        assertCondition(
+                html.contains("当前 S03 未登记 Stage Exit 阻塞项。"),
+                "blocker wording was not derived from the current Stage");
+        assertCondition(
+                html.contains("当前等级分布：L0 1 · L2 1"),
+                "level wording was not derived from matrix counts");
+        assertCondition(
+                !html.contains("S01 已退出") && !html.contains("S02 已可用"),
+                "rendered HTML still contains a hard-coded Stage transition");
+    }
+
+    private static Properties acceptedSelfTestState() {
+        Properties state = new Properties();
+        state.setProperty("schema.version", "1");
+        state.setProperty("current.stage", "S03");
+        state.setProperty("current.stage.status", "ACCEPTED");
+        state.setProperty("current.stage.exit", "ACCEPTED");
+        state.setProperty("current.stage.summary", "自测用 Stage 摘要");
+        state.setProperty("current.next", "进入下一个可验证切片");
+        state.setProperty("last.updated", "2026-07-28");
+        state.setProperty("last.change", "验证治理状态机");
+        state.setProperty("evidence.stage", "S03");
+        state.setProperty(
+                "evidence.commit",
+                "0123456789abcdef0123456789abcdef01234567");
+        state.setProperty("evidence.classification", "COMMIT_VERIFIED");
+        state.setProperty("evidence.summary", "自测证据");
+        state.setProperty("evidence.command", "java scripts/ProgressDashboard.java --self-test");
+        state.setProperty("blocker.count", "0");
+        state.setProperty("stage.S03.status", "ACCEPTED");
+        for (String gate : GATES) {
+            state.setProperty("gate." + gate + ".status", "PASSED");
+            state.setProperty("gate." + gate + ".summary", gate + " self-test");
+        }
+        return state;
+    }
+
+    private static Properties copyProperties(Properties source) {
+        Properties copy = new Properties();
+        copy.putAll(source);
+        return copy;
+    }
+
+    private static String selfTestMatrix() {
+        StringBuilder matrix = new StringBuilder("""
+                | 指标 | 当前快照 |
+                | --- | --- |
+                | 当前阶段 | `S03` |
+                | 纳入追踪的 Capability ID | 2 |
+                | 当前等级 | 1 项为 L0，1 项为 L2 |
+                | 当前能力覆盖 | 33.33% |
+
+                | Stage | 主题 | 核心交付 |
+                | --- | --- | --- |
+                """);
+        for (String stage : STAGE_IDS) {
+            matrix.append("| ")
+                    .append(stage)
+                    .append(" | 主题 ")
+                    .append(stage)
+                    .append(" | 交付 ")
+                    .append(stage)
+                    .append(" |\n");
+        }
+        matrix.append("""
+
+                | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
+                | --- | --- | --- | --- | --- | --- |
+                | TEST-01 | 未实现能力 | 独立目标一 | L0 | S03 | 自测 |
+                | TEST-02 | 已验证能力 | 独立目标二 | L2 | S03 | 自测 |
+                """);
+        return matrix.toString();
+    }
+
+    private static void assertRejected(
+            String name,
+            Runnable action,
+            String expectedMessagePart) {
+        try {
+            action.run();
+        } catch (IllegalStateException exception) {
+            if (exception.getMessage() != null
+                    && exception.getMessage().contains(expectedMessagePart)) {
+                return;
+            }
+            throw new IllegalStateException(
+                    "Self-test "
+                            + name
+                            + " failed with unexpected message: "
+                            + exception.getMessage(),
+                    exception);
+        }
+        throw new IllegalStateException(
+                "Self-test " + name + " did not reject invalid input");
+    }
+
+    private static void assertCondition(boolean condition, String message) {
+        if (!condition) {
+            throw new IllegalStateException("Self-test failed: " + message);
+        }
+    }
+
     private static void verifyFresh(Path outputPath, String expected) throws IOException {
         if (!Files.isRegularFile(outputPath)) {
             throw new IllegalStateException(
@@ -1169,6 +1605,7 @@ public final class ProgressDashboard {
             String nextAction,
             String lastUpdated,
             String lastChange,
+            String evidenceStage,
             String evidenceCommit,
             String evidenceClassification,
             String evidenceSummary,

@@ -1,10 +1,10 @@
 # cc-java 产品需求文档
 
-> 文档状态：Draft v0.5
+> 文档状态：Draft v0.6
 >
 > 最后更新：2026-07-28
 >
-> 当前阶段：S01 Runtime Kernel 已 Accepted；S02 尚未启动
+> 当前阶段：S01 Runtime Kernel 已 Accepted；S02 处于启动 Gate，生产实现尚未开始
 >
 > 产品负责人：项目维护者
 
@@ -13,16 +13,18 @@
 - v0.1 将项目过度绑定在自动 FixBug 场景上；
 - v0.2 修正为通用 Java Coding Agent Runtime 与 CLI；
 - v0.3 进一步明确：这是一个参考驱动的学习型 Java 重实现项目。
-- v0.4 引入公开行为基线与已授权源码快照的双基线，并统一 Stage 证据 Gate。
+- v0.4 引入公开行为基线和统一 Stage 证据 Gate。
 - v0.5 明确跨 Stage 目标等级、前置依赖、CLI 归属和 S07 渐进式 Context 路线。
+- v0.6 隔离来源、Revision、许可证和授权范围不可核验的材料，撤销其活动设计结论；
+  同时固定 S02 的 23 项启动范围。
 
 最终定位：
 
 > `cc-java` 是一个独立设计和实现的、Java 原生的通用 Coding Agent Runtime 与 CLI。
 
 项目先把成熟 Coding Agent 拆成完整能力地图，再按子系统用 Java 做行为等价重实现；每个阶段
-都同时维护公开行为基线、已授权源码机制研究、独立 Java 设计、测试和差距。基础体系被真正
-理解并形成可重复证据之后，再进入独立创新。
+都维护公开行为基线、独立 Java 设计、测试和差距。基础体系被真正理解并形成可重复证据
+之后，再进入独立创新。
 
 它不是“只做一个 MVP 就自由生长”，也不是逐行翻译任何参考源码。它要在授权和发布边界内完成：
 
@@ -87,15 +89,15 @@ CLI 应当能够：
 - G-006：保持模型、终端、工具和存储适配器可替换。
 - G-007：维护版本化参考基线和逐项 Capability Parity。
 - G-008：每个 Stage 都包含来源记录、机制研究、设计说明、代码、测试、Demo 和差距复盘。
-- G-009：所有参考结论区分 `Documented / Observed / Inferred / Unknown`，所有能力
-  声明区分参考机制、Java 设计和已验证实现；授权源码结论不使用 `Documented`。
+- G-009：所有公开参考结论区分 `Documented / Observed / Inferred / Unknown`，所有能力
+  声明区分参考行为、Java 设计和已验证实现。
 
 ### 4.2 学习与开源目标
 
 - G-010：通过可运行代码掌握 Agent Loop、Tool Calling、Context Engineering 和 Harness Engineering。
 - G-011：保留架构决策、评测和演进记录，让项目能作为 Java Agent 学习材料。
 - G-012：提供一套能被其他 Java 项目嵌入的 Runtime 基础。
-- G-013：在受控参考研究下保持独立重实现，不复制或逐行翻译受保护的源码表达。
+- G-013：只使用可审计来源和独立行为场景进行重实现，不复制或逐行翻译受保护的源码表达。
 - G-014：关键模块必须由维护者能够独立解释，而不只是由 AI 生成。
 
 ## 5. 非目标
@@ -188,7 +190,7 @@ Gather context
 
 | 阶段组 | Stage | 学习目标 |
 | --- | --- | --- |
-| 参考建模 | S00 | Harness 地图、公开行为基线、授权快照、术语、能力矩阵和来源规则 |
+| 参考建模 | S00 | Harness 地图、公开行为基线、来源隔离、术语、能力矩阵和来源规则 |
 | 核心重实现 | S01-S04 | Agent Loop、Streaming CLI、Tools、Write/Command |
 | 可靠性重实现 | S05-S08 | Permission、Session、Checkpoint、Context、Compaction、Instructions、Settings |
 | 扩展重实现 | S09-S11 | Hooks、MCP、Skills、Plugins |
@@ -302,17 +304,9 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
 
 - FR-CTX-001：S03 加载 Workspace 根目录中的 `AGENTS.md` 作为项目指令。
 - FR-CTX-002：项目指令只影响模型行为，不能扩大工具权限。
-- FR-CTX-003：S03-S04 的单个 Tool Result 具有类型化大小上限、明确截断或外置元数据。
-- FR-CTX-004：Canonical Transcript 保存规范历史，Model Context Projection 负责构造
-  模型视图；S07 学习自动压缩，不能通过修改规范历史假装节省 Context。
-- FR-CTX-005：S03-S04 接近模型限制时安全停止；S07 只允许一次有界
-  compact-and-retry，再次溢出必须返回明确 Stop Reason。
-- FR-CTX-006：任何淘汰和压缩都不得产生孤立 Tool Call 或 Tool Result。
-- FR-CTX-007：压缩失败、取消、空摘要和外置失败不得污染 Canonical Transcript。
-- FR-CTX-008：S07 提供带保留指令的手动 Compact Core 请求，S08 通过 `/compact`
-  暴露；手动路径与自动路径共享提交和失败不变量。
-- FR-CTX-009：Rolling Memory 不可用、边界无效或结果仍超阈值时，必须回退 Full
-  Summary，并按最终 Projection 重新计算 Usage。
+- FR-CTX-003：工具输出具有类型化大小上限、明确的截断或外置标记。
+- FR-CTX-004：Context 维护当前会话消息；自动压缩策略在 S07 依据公开来源和独立实验学习。
+- FR-CTX-005：上下文接近模型限制时应安全停止或进行一次有界恢复，不能反复重试。
 
 ### 11.7 Session 与事件
 
@@ -365,7 +359,6 @@ S04 完成必须满足：
 
 - JSONL Transcript 和版本化 Session Schema；
 - `--continue`、`--resume` 和 fork session；
-- 稳定 Message ID、完整 Protocol Round、Canonical Transcript 与投影决策记录；
 - 文件修改前 Checkpoint、Diff 和 Undo；
 - 崩溃后识别未完成的 Tool Call，不自动重放有副作用操作。
 
@@ -373,25 +366,14 @@ S06 不承诺稳定外部 Export、Retention 或跨版本迁移；这些兼容�
 
 ### S07：Context Engineering
 
-- 明确分离 Canonical Transcript 与 Model Context Projection；
-- 实现 Model-aware Context Capacity、Usage 对账和软/硬阈值；
-- 按条件编排四层能力，而不是固定串行四次压缩：
-  1. 单批 Tool Payload 聚合预算、外置和稳定占位；
-  2. 旧 Tool Result 选择性清理、近期工作集和幂等；
-  3. Rolling Session Memory、覆盖边界和协议安全近期尾部；
-  4. Full Conversation Summary、状态重注入和一次有界 Overflow Recovery；
-- Rolling Memory 缺失、为空、过期、覆盖边界丢失或结果仍超阈值时，确定性回退
-  Full Summary；
-- 提供手动 Compact Core 请求和保留指令；手动与自动路径可以采用不同触发策略，
-  但共享协议、提交和失败不变量；
-- 只按完整 Protocol Round 淘汰，并保持 Tool Call/Result ID 配对；
-- 摘要失败、取消、空结果或压缩后仍超阈值时确定性降级，连续失败触发防抖；
-- 根据最终 Model Context Projection 重新计算真实 Usage；
-- 发布内部 Compaction Started/Completed/Failed 事件；外部可配置 Hook 属于 S09；
-- 建立长会话回放集，度量事实/约束保持率、任务完成率、Token 降幅和压缩次数。
+- Context Usage 展示和模型容量预算；
+- 工具结果淘汰、完整协议回合保留和自动摘要；
+- 压缩失败不污染规范历史，同一次溢出只允许一次有界恢复；
+- 压缩前后事件、摘要质量测试和防重复压缩；
+- 建立长会话回放集，比较压缩前后的事实保持、任务完成度和 Token 降幅。
 
-参考机制的逐项分类、采纳范围和证伪实验见
-[ADR-019](./adr/ADR-019-s07-progressive-context-reduction.md)。
+具体 Reducer、记忆机制、阈值和编排顺序不是当前已接受需求。S07 启动时必须只依据公开
+来源和独立实验重新决策；历史 ADR-019 已被 ADR-020 取代。
 
 ### S08：Instructions、Settings 与 CLI 交互
 
@@ -477,10 +459,10 @@ S14 按 `Eval/Observability → SDK/Headless → Distribution/Compatibility` 三
 ### 17.1 来源控制、独立重实现与可维护性
 
 - NFR-001：实现不得复制、逐行翻译或再发布泄露、未授权或超出授权范围的源码表达。
-- NFR-002：已授权源码可以用于研究职责、状态机、不变量和验证方法；需求来自本项目
-  文档，测试来自独立验收任务，不以参考源码文本作为断言。
-- NFR-006：参考研究必须记录 Snapshot ID、完整性指纹、授权范围和
-  `Observed / Inferred / Unknown`。
+- NFR-002：需求来自本项目文档、公开来源和独立场景；测试来自独立验收任务，不以
+  参考源码文本作为断言。
+- NFR-006：参考研究必须记录来源、版本/Revision、权利边界和
+  `Documented / Observed / Inferred / Unknown`；无法核验的材料必须隔离。
 - NFR-003：核心 Runtime 不依赖 Spring AI、终端、文件系统或数据库类型。
 - NFR-004：内置、MCP 和插件工具不得拥有绕过 Pipeline 的执行入口。
 - NFR-005：不为尚未进入里程碑的能力创建复杂 DSL 或空模块。
@@ -540,7 +522,7 @@ S14 按 `Eval/Observability → SDK/Headless → Distribution/Compatibility` 三
 | Spring AI 自动执行工具 | 绕过本项目权限与事件 | Adapter 只返回原始 Tool Call |
 | 通用 Shell 带来副作用 | 数据或环境受损 | 精确展示、默认询问、超时、取消；S13 再做 OS Sandbox |
 | 上下文持续膨胀 | 成本和稳定性下降 | S03-S04 先限制并停止，S07 系统学习压缩 |
-| 参考源码越界使用 | 无法安全发布，也无法证明独立设计 | 仓库外只读研究、Snapshot 指纹、ADR 采纳 Gate、独立命名实现和禁止文本断言 |
+| 参考材料来源或权利不可核验 | 无法安全发布，也无法证明独立设计 | 立即隔离；活动需求只使用公开来源、独立场景和可审计证据 |
 | “开源不商用”含义不清 | License 与目标冲突 | S00 明确是维护者不商业化，还是许可证禁止商业使用 |
 
 ## 20. 已确认与待确认决策
@@ -553,8 +535,8 @@ S01 已确认：
 3. Maven GroupId 使用 `io.github.liumaishenjian`，Java 根包使用
    `io.github.liumaishenjian.ccjava`；
 4. S01 不接真实 Provider，Fake Model 只存在于测试源。
-5. 采用 `R2026.03` 公开行为基线与 `AUTH-SRC-2026-03-31-A` 授权源码快照双基线；
-   精确源码 Revision 保持 `Unknown`。
+5. 采用 `R2026.03` 公开行为基线；`UNVERIFIED-SRC-2026-03-31-A` 仅作隔离审计，
+   不作为活动输入。
 
 后续 Stage 仍需确认：
 
@@ -573,6 +555,6 @@ S01 已确认：
 - **Tool Execution Pipeline**：工具从请求到校验、权限、审批、执行、裁剪和事件的统一路径。
 - **Interactive 模式**：用户在同一终端会话中持续对话和审批。
 - **Print 模式**：一次性、适合脚本的非交互运行。
-- **受控参考研究**：在授权范围内研究机制，但不复制受限制表达，也不把参考源码作为依赖或测试 Oracle。
+- **可审计参考研究**：使用来源、版本和权利边界可核验的材料研究行为或机制；未核验材料不进入活动设计。
 - **独立重实现**：Java 契约、命名、实现和测试均能够由本项目需求与 ADR 独立解释。
 - **FixBug**：Runtime 的一个可能用例，不是核心架构。

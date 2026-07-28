@@ -8,8 +8,8 @@
 
 ## 1. 研究目标
 
-本文档不是某份源码的翻译说明，而是把成熟 Coding Agent 的公开行为和已授权材料中可解释的
-机制拆解为可以学习、独立实现和验证的子系统。
+本文档不是某份源码的翻译说明，而是把成熟 Coding Agent 的公开行为和可审计研究问题
+拆解为可以学习、独立实现和验证的子系统。
 
 它解决三个问题：
 
@@ -31,27 +31,25 @@
 因此该 ID 表示第一轮能力范围，不表示所有网页都已冻结在 2026 年 3 月。第三方二手分析
 只作为 `Inferred` 研究问题，不能单独定义参考产品行为。
 
-项目同时登记仓库外的
-[授权参考源码快照 `AUTH-SRC-2026-03-31-A`](./reference-baselines/R2026.03-authorized-source.md)。
-该快照用于解释职责、状态机、不变量、失败恢复和验证方法，不替代公开行为基线，也不自动
-成为需求或正确性证明。
+项目曾登记一组仓库外材料，但现有证据无法核验其来源、Revision、许可证和授权范围。
+该材料已改记为
+[`UNVERIFIED-SRC-2026-03-31-A`](./reference-baselines/R2026.03-unverified-source.md)
+并隔离，不参与需求、设计、测试或实现。
 
 官方 Claude Code 仓库的 [LICENSE](https://github.com/anthropics/claude-code/blob/main/LICENSE.md)
 标明“All rights reserved”。该文件只能说明官方仓库所载材料的条款，不能证明第三方仓库
-或本地快照适用同一许可。授权学习也不会自动产生复制、再发布或派生分发权利。因此所有
+或本地材料适用同一许可。学习目的也不会自动产生复制、再发布或派生分发权利。因此所有
 Java 契约、命名、实现和测试仍须独立产生，不复制受限制源码表达。
 
-参考结论使用三种置信度：
+参考结论使用四种置信度：
 
 - `Documented`：在访问当日由官方文档直接说明，但未必经过黑盒观察；
 - `Observed`：当前材料或独立黑盒场景可以直接确认；
 - `Inferred`：根据状态和调用关系作出的解释，需要反例或实验验证；
 - `Unknown`：因快照缺失、不可运行或版本不明而不能确认。
 
-本文各子系统的“参考能力”列表是由公开资料和研究问题合成的目标目录，不表示每一项都已
-由授权快照验证。凡引用授权快照得出的具体机制结论，统一在
-[授权参考源码基线](./reference-baselines/R2026.03-authorized-source.md)中逐项标记；
-未标记的目录项不得被解释为 `Observed`。
+本文各子系统的“参考能力”列表是由公开资料和研究问题合成的目标目录。没有独立黑盒证据
+的项目不得解释为 `Observed`；未核验本地材料不能补足公开来源的缺口。
 
 ## 3. 学习方法
 
@@ -70,9 +68,8 @@ G0 来源、授权与快照
 
 ### Observe
 
-从公开文档、独立产品行为和已授权材料中记录输入、输出、状态和边界。公开资料结论必须
-标记 `Documented / Observed / Inferred / Unknown`，授权源码结论只使用后三类，不得
-用推测填补快照缺失。
+从公开文档和独立产品行为中记录输入、输出、状态和边界。结论必须标记
+`Documented / Observed / Inferred / Unknown`，不得用未核验材料或推测填补来源缺失。
 
 ### Explain
 
@@ -91,9 +88,9 @@ G0 来源、授权与快照
 
 用 Feature Matrix、行为测试、错误恢复测试和指标更新差距，而不是凭主观感觉判断“像不像”。
 
-完整字段和退出条件见 [Stage 证据包模板](./templates/stage-evidence-package.md)。授权源码研究
-结论进入产品、设计或代码前，必须先通过
-[ADR-018](./adr/ADR-018-authorized-reference-study.md)规定的采纳 Gate。
+完整字段和退出条件见 [Stage 证据包模板](./templates/stage-evidence-package.md)。
+来源隔离与重新启用条件由
+[ADR-020](./adr/ADR-020-quarantine-unverified-reference-source.md)规定。
 
 ## 4. 参考架构全景
 
@@ -411,27 +408,21 @@ Permission 决策失误或用户批准后，仍限制进程、文件和网络的
 
 ### Java 重实现目标
 
-- Canonical Transcript 与 Model Context Projection 明确分离；
-- 使用 `ContextPreparationService` 编排可组合 Reducer，不建立巨型可变 `ContextManager`；
-- S03-S04 先建立类型化 Tool Result 上限、截断和外置元数据；
-- S06 建立稳定消息 ID、完整 Protocol Round、Compaction Boundary 和投影决策持久化；
-- S07 把单批 Tool Payload 限流、旧 Tool Result 清理、Rolling Session Memory、
-  Full Summary 和一次有界 Overflow Recovery 编排为按条件选择的渐进式决策图；
-- Rolling Memory 缺失、过期、边界无效或结果仍超阈值时回退 Full Summary；
-- 手动 Compact 可以使用不同触发顺序和保留指令，但共享失败不提交和协议完整不变量；
-- 所有淘汰保持 Tool Call/Result 配对，失败不能污染 Canonical Transcript；
-- 根据最终 Model Context Projection 重新计算真实 Usage；
-- S07 提供手动 Compact Core 请求和可精确对账的 `ContextUsageReport`，S08 再提供
-  `/compact` 与 `/context` 命令；
-- Provider Context Editing 只作为 Adapter 优化，不进入 Domain/Core。
+- `ContextManager` 作为独立核心组件；
+- 从追加式消息和输出上限开始；
+- 再实现完整 Turn 淘汰；
+- 再实现摘要和压缩；
+- 所有压缩保持 Tool Call/Result 协议完整；
+- 提供 `/context` 解释 Token 占用。
+
+具体 Reducer、记忆机制、持久化投影和阈值必须在 S07 依据公开来源与独立实验重新决策；
+未核验材料和已被取代的 ADR-019 不构成活动设计依据。
 
 ### 学习问题
 
 - 为什么不能按任意消息数量截断？
 - 哪些内容必须跨压缩保留？
 - Tool Schema 数量为何也是 Context 成本？
-- 为什么恢复 Session 后必须重放相同的 Model Context Projection？
-- 为什么“多层压缩”是条件决策图，而不是固定串行四次调用？
 
 ## 14. 子系统十：Settings / Configuration
 

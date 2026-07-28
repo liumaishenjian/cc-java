@@ -2,18 +2,18 @@
 
 一个以成熟 Coding Agent 为参照、用 Java 独立重实现的学习型 Agent Runtime 与 CLI。
 
-> 当前状态：**S01 Runtime Kernel 已 Accepted，S02 尚未启动**。框架无关领域协议、
+> 当前状态：**S01 Runtime Kernel 已 Accepted，当前位于 S02 启动 Gate**。框架无关领域协议、
 > 显式 Agent Loop、Tool Pipeline 和内存 Session 已通过 Commit-scoped 离线验证；
-> 尚无真实模型和可交互 CLI。
+> S02 的 23 项范围已固定，但尚无真实模型和可交互 CLI，生产实现尚未开始。
 >
-> Current status: S01 accepted; S02 not started; no real model provider or interactive CLI yet.
+> Current status: S01 accepted; S02 is at its launch gate; no provider or interactive CLI yet.
 
 ## 项目目标
 
 这个项目不是先做一个功能有限的聊天 CLI，再凭感觉决定加什么；也不是逐行翻译某份受限制源码。它采用一条可持续验证的学习路径：
 
 ```text
-登记公开行为范围与授权源码快照
+登记公开行为范围与来源/权利边界
 → 区分 Documented、Observed、Inferred 与 Unknown
 → 拆解成熟系统的职责、状态和失败路径
 → 用 Java 独立重实现
@@ -42,8 +42,8 @@ Stage 证据为准。
 | L3 | 关键行为和异常路径可与参考基线比较 |
 | L4 | 在评测数据支持下形成 Java 生态差异化 |
 
-R2026.03 基线目前追踪 195 个 Capability ID。S01 只把 19 项推进到 L1，
-其余 176 项仍为 L0；这表示已经建立可测试学习骨架，不表示可以承担真实编码任务。
+R2026.03 基线目前追踪 193 个 Capability ID。S01 只把 19 项推进到 L1，
+其余 174 项仍为 L0；这表示已经建立可测试学习骨架，不表示可以承担真实编码任务。
 默认最终目标为 L3，任何不实现项都必须记录 `Accepted Deviation`。
 
 项目同时度量四件事：
@@ -53,9 +53,9 @@ R2026.03 基线目前追踪 195 个 Capability ID。S01 只把 19 项推进到 L
 3. **Reliability & Safety**：失败、拒绝、取消和越权是否可控；
 4. **Learning Evidence**：维护者能否解释设计，并提供 ADR、测试和演示证据。
 
-每个 Stage 统一通过 `来源/授权 → 范围/目标等级 → 机制研究/ADR → 独立实现
+每个 Stage 统一通过 `来源/权利边界 → 范围/目标等级 → 机制研究/ADR → 独立实现
 → 测试/Eval → Demo → 文档对账` 七道 Gate。参考源码负责提供成熟机制线索，
-本项目的测试和评测负责验证结果；两者不能相互替代。
+但只有来源与使用范围可核验时才能成为研究输入；本项目的测试和评测始终负责验证结果。
 
 因此，“下一个功能是什么”不由灵感决定：优先补齐当前 Stage 未达目标等级的矩阵项；完成 S01-S14、关键能力达到可对照的 L3 并建立评测后，才进入独立创新。
 
@@ -63,7 +63,7 @@ R2026.03 基线目前追踪 195 个 Capability ID。S01 只把 19 项推进到 L
 
 | 阶段 | 学习主题 | 主要结果 |
 | --- | --- | --- |
-| S00 | Harness 地图 | 参考架构、行为基线、授权快照、能力矩阵和来源边界 |
+| S00 | Harness 地图 | 参考架构、行为基线、来源隔离登记、能力矩阵和权利边界 |
 | S01-S04 | 核心 Coding Loop | Agent Loop、模型流、只读工具、受控修改与测试 |
 | S05-S08 | 可靠性 | 权限、Session、Checkpoint、Context、Instructions、Settings |
 | S09-S11 | 扩展机制 | Hooks、MCP、Skills、Plugins |
@@ -109,19 +109,21 @@ Spring AI 只位于模型和集成适配层。项目自己的 Runtime 掌握 Too
 
 1. [参考架构](./docs/reference-architecture.md)：成熟 Coding Agent 有哪些子系统，以及为什么存在；
 2. [公开行为基线](./docs/reference-baselines/R2026.03-public-behavior.md)：来源分类、版本限制和行为证据规则；
-3. [授权参考源码基线](./docs/reference-baselines/R2026.03-authorized-source.md)：快照身份、授权范围、已知缺失和研究地图；
+3. [未核验参考材料隔离登记](./docs/reference-baselines/R2026.03-unverified-source.md)：为什么该材料不能作为活动输入；
 4. [功能对照矩阵](./docs/feature-parity-matrix.md)：我们做到哪里、还差什么；
-5. [项目进度看板](./docs/progress.html)：当前 Stage、Gate、阻塞项和 195 项 Capability 的可视化；
+5. [项目进度看板](./docs/progress.html)：当前 Stage、Gate、阻塞项和 193 项 Capability 的可视化；
 6. [产品需求](./docs/product-requirements.md)：学习型产品边界和阶段验收；
 7. [技术设计](./docs/technical-design.md)：Java 架构、协议和实现约束；
-8. [ADR-018](./docs/adr/ADR-018-authorized-reference-study.md)：受控源码研究与独立重实现决策；
-9. [ADR-019](./docs/adr/ADR-019-s07-progressive-context-reduction.md)：S07 渐进式 Context Reduction 的采纳边界；
-10. [Stage 证据包模板](./docs/templates/stage-evidence-package.md)：每个阶段统一的 G0-G6 Gate；
-11. [S01 Runtime Kernel ADR](./docs/adr/ADR-017-s01-runtime-kernel.md)：首个代码阶段的关键取舍；
-12. [S01 离线 Demo](./docs/demos/S01-agent-loop.md)：如何复现 Fake Model 协议闭环；
-13. [S01 标准验证证据](./docs/evidence/S01-runtime-kernel-2026-07-28.md)：Wrapper、标准命令、报告与正反例实际结果；
-14. [S01 差距报告](./docs/gap-reports/S01.md)：已经学到什么，以及仍缺什么；
-15. [AGENTS.md](./AGENTS.md)：人类与 AI 贡献者必须遵循的规则。
+8. [ADR-020](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)：撤销不可核验的授权分类并隔离历史结论；
+9. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：S02 的 23 项范围、目标等级和 Spike；
+10. [ADR-018（历史）](./docs/adr/ADR-018-authorized-reference-study.md)与
+    [ADR-019（历史）](./docs/adr/ADR-019-s07-progressive-context-reduction.md)：已被 ADR-020 取代的决策记录；
+11. [Stage 证据包模板](./docs/templates/stage-evidence-package.md)：每个阶段统一的 G0-G6 Gate；
+12. [S01 Runtime Kernel ADR](./docs/adr/ADR-017-s01-runtime-kernel.md)：首个代码阶段的关键取舍；
+13. [S01 离线 Demo](./docs/demos/S01-agent-loop.md)：如何复现 Fake Model 协议闭环；
+14. [S01 标准验证证据](./docs/evidence/S01-runtime-kernel-2026-07-28.md)：Wrapper、标准命令、报告与正反例实际结果；
+15. [S01 差距报告](./docs/gap-reports/S01.md)：已经学到什么，以及仍缺什么；
+16. [AGENTS.md](./AGENTS.md)：人类与 AI 贡献者必须遵循的规则。
 
 ## 技术基线
 
@@ -170,8 +172,8 @@ Linux/macOS 使用 `./mvnw`。最后一条命令中的 Core 协议测试就是 S
 > 标准测试；包含预算拒绝负例的聚焦 Demo 也以 5/5 通过。完整证据见
 > [S01 标准验证证据](./docs/evidence/S01-runtime-kernel-2026-07-28.md)。
 > 相同命令已在 Commit `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd` 的 Clean
-> 工作区上复验；G0-G6 与 S01 Stage Exit 已通过。S02 尚未启动，下一变更先完成其
-> 启动 ADR、Feature/Level 目标和 Provider/CLI Spike 设计。
+> 工作区上复验；G0-G6 与 S01 Stage Exit 已通过。S02 当前仅通过启动范围 G1；
+> 下一步先完成官方来源/版本核验和 Provider/Streaming/CLI Spike。
 
 ### 更新项目进度看板
 
@@ -180,6 +182,7 @@ Linux/macOS 使用 `./mvnw`。最后一条命令中的 Core 协议测试就是 S
 ```powershell
 java scripts/ProgressDashboard.java
 java scripts/ProgressDashboard.java --check
+java scripts/ProgressDashboard.java --self-test
 ```
 
 第一条命令根据功能矩阵和 `docs/progress-state.properties` 生成
@@ -194,13 +197,14 @@ java scripts/ProgressDashboard.java --check
 
 ## 来源与独立重实现边界
 
-项目以公开文档和独立行为场景定义可验收需求；在维护者明确确认学习授权后，
-可以只读研究仓库外隔离保存的参考源码，用于理解职责、状态机、不变量、失败恢复和验证方法。
+项目只使用公开文档、可独立复现的行为场景和本项目需求定义可验收行为。此前登记为
+“已授权”的本地参考材料缺少可核验的来源、Revision、许可证和授权范围，现已改为
+`UNVERIFIED-SRC-2026-03-31-A` 并隔离，不再作为需求、设计、测试或代码输入。
 
-参考源码不会进入本仓库、依赖、子模块、Fixture、Golden Output 或发布物。禁止复制或
+参考材料不得进入本仓库、依赖、子模块、Fixture、Golden Output 或发布物。禁止复制或
 逐行翻译函数体、内部 Prompt、注释、错误文案、私有类型名、文件布局和实现常量。
-Java 侧必须使用本项目能够独立解释的契约、命名和实现。详细边界见
-[ADR-018](./docs/adr/ADR-018-authorized-reference-study.md)。
+Java 侧必须使用本项目能够独立解释的契约、命名和实现。当前规则见
+[ADR-020](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)。
 
 “用于学习”或“不商用”不会自动获得复制和再发布权限；来源或授权范围不清楚时停止使用。
 
