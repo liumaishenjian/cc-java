@@ -2,10 +2,14 @@ package io.github.liumaishenjian.ccjava.core;
 
 import io.github.liumaishenjian.ccjava.domain.AgentLimits;
 import io.github.liumaishenjian.ccjava.domain.AgentRunResult;
+import io.github.liumaishenjian.ccjava.domain.ModelTurn;
+import io.github.liumaishenjian.ccjava.domain.ModelUsage;
 import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
 import io.github.liumaishenjian.ccjava.domain.StopReason;
+import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * 保存单次 Agent Run 的显式、非全局状态。
@@ -21,14 +25,24 @@ final class AgentRunState {
     private final SessionId sessionId;
     private final RunId runId;
     private final AgentLimits limits;
+    private final Instant deadline;
     private int modelTurns;
+    private int completedModelTurns;
     private int toolCalls;
+    private ModelUsage accumulatedUsage = ModelUsage.ZERO;
+    private boolean allCompletedTurnsReportedUsage = true;
     private boolean finished;
 
-    AgentRunState(SessionId sessionId, RunId runId, AgentLimits limits) {
+    AgentRunState(
+            SessionId sessionId,
+            RunId runId,
+            AgentLimits limits,
+            Instant startedAt) {
         this.sessionId = Objects.requireNonNull(sessionId, "sessionId 不能为空");
         this.runId = Objects.requireNonNull(runId, "runId 不能为空");
         this.limits = Objects.requireNonNull(limits, "limits 不能为空");
+        this.deadline = Objects.requireNonNull(startedAt, "startedAt 不能为空")
+                .plus(limits.maxRunDuration());
     }
 
     boolean canRequestModelTurn() {
@@ -42,6 +56,31 @@ final class AgentRunState {
         }
         modelTurns++;
         return modelTurns;
+    }
+
+    void recordCompletedModelTurn(ModelTurn turn) {
+        ensureRunning();
+        Objects.requireNonNull(turn, "turn 不能为空");
+        completedModelTurns++;
+        if (turn.usage().isEmpty()) {
+            allCompletedTurnsReportedUsage = false;
+            return;
+        }
+        try {
+            accumulatedUsage = accumulatedUsage.plus(turn.usage().orElseThrow());
+        } catch (ArithmeticException exception) {
+            allCompletedTurnsReportedUsage = false;
+            throw exception;
+        }
+    }
+
+    boolean deadlineReached(Instant now) {
+        Objects.requireNonNull(now, "now 不能为空");
+        return !now.isBefore(deadline);
+    }
+
+    Instant deadline() {
+        return deadline;
     }
 
     boolean canAcceptToolBatch(int batchSize) {
@@ -67,7 +106,8 @@ final class AgentRunState {
                 runId,
                 finalText,
                 modelTurns,
-                toolCalls);
+                toolCalls,
+                completeUsage());
     }
 
     AgentRunResult stop(StopReason reason) {
@@ -77,7 +117,17 @@ final class AgentRunState {
                 runId,
                 reason,
                 modelTurns,
-                toolCalls);
+                toolCalls,
+                completeUsage());
+    }
+
+    private Optional<ModelUsage> completeUsage() {
+        if (modelTurns == 0
+                || completedModelTurns != modelTurns
+                || !allCompletedTurnsReportedUsage) {
+            return Optional.empty();
+        }
+        return Optional.of(accumulatedUsage);
     }
 
     private void markFinished() {

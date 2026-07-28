@@ -14,7 +14,7 @@ final class RecordingAgentEventSink implements AgentEventSink {
     private final List<AgentEventEnvelope> envelopes = new ArrayList<>();
 
     @Override
-    public void publish(AgentEventEnvelope envelope) {
+    public synchronized void publish(AgentEventEnvelope envelope) {
         envelopes.add(envelope);
     }
 
@@ -23,7 +23,7 @@ final class RecordingAgentEventSink implements AgentEventSink {
      *
      * @return 按真实发布顺序排列的事件信封
      */
-    List<AgentEventEnvelope> envelopes() {
+    synchronized List<AgentEventEnvelope> envelopes() {
         return List.copyOf(envelopes);
     }
 }

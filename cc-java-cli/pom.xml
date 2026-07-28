@@ -19,6 +19,11 @@
     <dependencies>
         <dependency>
             <groupId>io.github.liumaishenjian</groupId>
+            <artifactId>cc-java-domain</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.liumaishenjian</groupId>
             <artifactId>cc-java-core</artifactId>
             <version>${project.version}</version>
         </dependency>
@@ -31,6 +36,31 @@
             <groupId>io.github.liumaishenjian</groupId>
             <artifactId>cc-java-tools-local</artifactId>
             <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>info.picocli</groupId>
+            <artifactId>picocli</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jline</groupId>
+            <artifactId>jline</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jline</groupId>
+            <artifactId>jline-terminal-jna</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-nop</artifactId>
+            <scope>runtime</scope>
         </dependency>
     </dependencies>
 </project>

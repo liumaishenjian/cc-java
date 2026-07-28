@@ -6,7 +6,8 @@
 >
 > 最后更新：2026-07-28
 >
-> 当前代码状态：S01 Runtime Kernel 已 Accepted；当前位于 S02 启动 Gate，尚未开始生产实现
+> 当前代码状态：S01 Runtime Kernel 已 Accepted；S02 实现候选已完成，G0-G3
+> 已通过；G4-G6 等待维护者在最终 Commit 上验证
 
 ## 1. 文档目的
 
@@ -150,12 +151,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 193 |
-| 当前阶段 | S02 Model + Streaming CLI（启动 Gate；生产实现尚未开始） |
-| Stage Exit | Open：G1 已固定范围；G0、G2-G6 尚未通过 |
-| 当前等级 | 19 项为 L1，174 项为 L0 |
+| 当前阶段 | S02 Model + Streaming CLI（实现候选完成；G4-G6 待维护者验证） |
+| Stage Exit | Open：等待最终 Commit 回归、真实 TTY Demo 与生成看板退出对账 |
+| 当前等级 | 18 项为 L2，22 项为 L1，153 项为 L0 |
 | 默认最终目标 | 193 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 3.28%（193 项等权、目标 L3） |
-| 下一步 | 完成 S02 官方来源/版本核验和 Provider/Streaming/CLI Spike，再确认技术组合 |
+| 当前能力覆盖 | 10.02%（193 项等权、目标 L3） |
+| 下一步 | 维护者完成最终 Commit 回归与真实 TTY 多轮 Demo，再运行看板三项校验和 G6 对账 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -166,8 +167,12 @@ S01 等级证据见 [Runtime Kernel ADR](./adr/ADR-017-s01-runtime-kernel.md)、
 回放宣传为真实任务可用的 L2。
 
 S02 的 23 项完整范围、19 项 L2 / 4 项 L1 退出目标及可证伪 Spike 见
-[ADR-021](./adr/ADR-021-s02-model-streaming-cli-scope.md)。该 ADR 只通过 G1，
-不表示 S02 代码已经开始。
+[ADR-021](./adr/ADR-021-s02-model-streaming-cli-scope.md)；版本、Provider、Adapter
+和 CLI 决策见 [ADR-022](./adr/ADR-022-s02-provider-streaming-cli-decisions.md)。
+当前候选等级由 [S02 验证证据](./evidence/S02-model-streaming-cli-2026-07-28.md)、
+[Demo](./demos/S02-model-streaming-cli.md)和
+[差距报告](./gap-reports/S02.md)记录；`CLI-01` 在真实多轮 TTY 正例完成前保持 L1，
+其余目标仍需由维护者在最终 Commit 上复验。G4-G6 完成前 Stage Exit 保持 Open。
 
 ### 5.2 Stage 退出目标与跨阶段路径
 
@@ -200,12 +205,12 @@ Stage 完成项。
 
 | 能力族 | 目标路径 |
 | --- | --- |
-| Cancellation / Limits | S01 保留契约缝隙 → S02 模型流取消 L2 → S04 Tool/进程树取消与输出/时间限制 L2 → S14 跨平台 L3 |
+| Cancellation / Limits | S01 保留契约缝隙 → S02 模型流客户端取消与 Deadline L1 → S04 Tool/进程树取消与输出/时间限制 L2 → S14 跨平台 L3 |
 | Permission | S01 Port/Fake L1 → S04 固定读允许、写/命令询问和安全 PLAN L2 → S05 完整规则/优先级/恢复 L2 → S10/S11/S13 外部来源与安全回归后 L3 |
 | Tool Result / Context | S03-S04 单工具硬上限和外置元数据 L2 → S06 决策持久化 L1 → S07 公开来源驱动的 Context Reduction L2 → S14 Provider Cache/Context Editing 对照后 L3 |
-| Session | S01 内存 Session L1 → S06 JSONL/resume/fork/checkpoint L2 → S14 Export/Retention/迁移兼容 L3 |
+| Session | S01 内存 Session L1 → S02 Interactive 连续会话 L2 → S06 JSONL/resume/fork/checkpoint L2 → S14 Export/Retention/迁移兼容 L3 |
 | Instructions | S03 根 `AGENTS.md` L2 → S08 分层/路径规则与来源诊断 L2 → S14 兼容与迁移 L3 |
-| Eval / Observability | S01 确定性回放 L1 → S04/S07/S12/S13 专项 Eval L2 → S14 统一指标、回放和报告 L3 |
+| Eval / Observability | S01 确定性回放 L1 → S02 事件边界耗时、可信 Provider Usage 和默认不导出 L2 → S04/S07/S12/S13 专项 Eval L2 → S14 统一指标、回放和报告 L3 |
 
 完整 G0-G6 字段见 [Stage 证据包模板](./templates/stage-evidence-package.md)。
 
@@ -213,9 +218,9 @@ Stage 完成项。
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| BOOT-01 | CLI 启动并识别运行模式 | Picocli Interactive / Print | L0 | S02 | REF-02 |
+| BOOT-01 | CLI 启动并识别运行模式 | Picocli Interactive / Print | L2 | S02 | REF-02 |
 | BOOT-02 | 确定 Workspace 与 Git 状态 | `WorkspaceSnapshot` | L0 | S03 | REF-02 |
-| BOOT-03 | 加载模型、工具和权限 | `SessionBootstrapper` | L0 | S02/S05 | REF-01 |
+| BOOT-03 | 加载模型、工具和权限 | S02 CLI Composition Root → S05 完整 `SessionBootstrapper` | L1 | S02/S05 | REF-01 |
 | BOOT-04 | 加载项目指令 | `InstructionLoader` | L0 | S03/S08 | REF-05 |
 | BOOT-05 | 创建 Session 和初始 Context | `SessionStore` + `ContextAssembler` | L1 | S01 | REF-02 |
 | BOOT-06 | 启动诊断 | `/doctor` 与配置来源报告 | L0 | S08/S14 | REF-02 |
@@ -225,16 +230,16 @@ Stage 完成项。
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| CLI-01 | Interactive Session | JLine REPL | L0 | S02 | REF-02 |
-| CLI-02 | Print / Headless | Picocli `--print` | L0 | S02 | REF-02 |
-| CLI-03 | 流式 Assistant Text | `ModelTextDelta` 渲染 | L0 | S02 | REF-02 |
-| CLI-04 | Tool 进度与输出 | 有序 Agent Event 渲染 | L0 | S02/S03 | REF-02 |
+| CLI-01 | Interactive Session | JLine REPL | L1 | S02 | REF-02 |
+| CLI-02 | Print / Headless | Picocli `--print` | L2 | S02 | REF-02 |
+| CLI-03 | 流式 Assistant Text | `ModelTextDelta` 渲染 | L2 | S02 | REF-02 |
+| CLI-04 | Tool 进度与输出 | 有序 Agent Event 渲染 | L1 | S02/S03 | REF-02 |
 | CLI-05 | Permission Prompt | 终端 Approval UI | L0 | S04/S05 | REF-04 |
-| CLI-06 | Ctrl+C Cancel | 当前 Run/Tool 取消 | L0 | S02/S04 | REF-02 |
+| CLI-06 | Ctrl+C Cancel | 当前 Run/Tool 取消 | L1 | S02/S04 | REF-02 |
 | CLI-07 | Steering | S08 运行中排队用户补充消息 | L0 | S08 | REF-02 |
 | CLI-08 | Slash Commands | S08 提供 help/clear/compact/context/model/permissions/resume | L0 | S08 | REF-02 |
 | CLI-09 | 多行、历史、补全 | S08 完整 JLine 交互能力 | L0 | S08 | REF-02 |
-| CLI-10 | TTY / Non-TTY 降级 | 无 ANSI 输出与管道模式 | L0 | S02/S14 | REF-02 |
+| CLI-10 | TTY / Non-TTY 降级 | 无 ANSI 输出与管道模式 | L2 | S02/S14 | REF-02 |
 | CLI-11 | 机器输出协议 | 版本化 JSON/JSONL | L0 | S14 | REF-02 |
 | CLI-12 | 多 Surface 共用引擎 | CLI/SDK/API 共用 Runtime | L0 | S14 | REF-02 |
 
@@ -245,13 +250,13 @@ Stage 完成项。
 | LOOP-01 | 显式循环状态 | `AgentRunState` | L1 | S01 | REF-01 |
 | LOOP-02 | User → Model → Tool → Model | User-controlled Loop | L1 | S01 | REF-01/08 |
 | LOOP-03 | 单回合多个 Tool Call | 保持消息和 Call ID 协议 | L1 | S01 | REF-08 |
-| LOOP-04 | 流式 Model Turn | Delta + 聚合结果 | L0 | S02 | REF-02/08 |
+| LOOP-04 | 流式 Model Turn | Delta + 聚合结果 | L2 | S02 | REF-02/08 |
 | LOOP-05 | Tool Result 驱动下一回合 | Canonical Message History | L1 | S01 | REF-08 |
 | LOOP-06 | 多 Continue 原因 | 显式 Transition/Stop Reason | L1 | S01/S07 | REF-01 |
 | LOOP-07 | 最大回合和工具数 | `AgentLimits` | L1 | S01 | REF-01 |
-| LOOP-08 | Deadline 与取消 | Cancellation 传播 | L0 | S02/S04 | REF-02 |
-| LOOP-09 | 模型错误重试 | 有界 Retry Policy | L0 | S02/S14 | REF-01 |
-| LOOP-10 | Model Output Length Recovery | S02 识别截断/不完整输出并有界停止或续接 → S14 L3 恢复策略 | L0 | S02/S14 | REF-01 |
+| LOOP-08 | Deadline 与取消 | Cancellation 传播 | L1 | S02/S04 | REF-02 |
+| LOOP-09 | 模型错误重试 | 有界 Retry Policy | L2 | S02/S14 | REF-01 |
+| LOOP-10 | Model Output Length Recovery | S02 识别截断/不完整输出并有界停止或续接 → S14 L3 恢复策略 | L2 | S02/S14 | REF-01 |
 | LOOP-11 | Context 溢出恢复 | Compact / Stop / Retry | L0 | S07 | REF-01/02 |
 | LOOP-12 | Model Fallback | Provider-aware Fallback | L0 | S14 | REF-01 |
 | LOOP-13 | 用户拒绝后继续推理 | Denied Tool Result 回传模型 | L0 | S05 | REF-04 |
@@ -262,11 +267,11 @@ Stage 完成项。
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
 | MODEL-01 | Model Gateway | Provider-neutral Port | L1 | S01 | REF-08 |
-| MODEL-02 | 一个真实 Provider | Spring AI Adapter | L0 | S02 | REF-08 |
+| MODEL-02 | 一个真实 Provider | Spring AI Adapter | L2 | S02 | REF-08 |
 | MODEL-03 | Scripted Fake Model | 确定性测试 | L1 | S01 | REF-08 |
-| MODEL-04 | Text Streaming | Adapter 内消费 Flux | L0 | S02 | REF-08 |
-| MODEL-05 | Tool Call Streaming | Chunk 聚合 | L0 | S02 | REF-08 |
-| MODEL-06 | Usage / Finish Reason | 规范化 Capability | L0 | S02 | REF-08 |
+| MODEL-04 | Text Streaming | Adapter 内消费 Flux | L2 | S02 | REF-08 |
+| MODEL-05 | Tool Call Streaming | Chunk 聚合 | L2 | S02 | REF-08 |
+| MODEL-06 | Usage / Finish Reason | 规范化 Capability | L2 | S02 | REF-08 |
 | MODEL-07 | 第二 Provider | S14 验证 Provider-neutral Port | L0 | S14 | REF-02 |
 | MODEL-08 | Model Switching | Session Command | L0 | S08 | REF-02 |
 | MODEL-09 | Prompt Cache | 稳定前缀和 Provider Hint | L0 | S07/S14 | REF-01 |
@@ -354,7 +359,7 @@ Stage 完成项。
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| CTX-01 | System Context Assembly | 稳定策略 + Runtime Metadata | L1 | S01/S02 | REF-02 |
+| CTX-01 | System Context Assembly | 稳定策略 + Runtime Metadata | L2 | S01/S02 | REF-02 |
 | CTX-02 | Project Instructions | 根 AGENTS.md | L0 | S03 | REF-05 |
 | CTX-03 | Hierarchical Instructions | User/Project/Directory | L0 | S08 | REF-05 |
 | CTX-04 | Path-scoped Rules | 只在相关文件加载 | L0 | S08 | REF-05 |
@@ -375,8 +380,8 @@ Stage 完成项。
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| CFG-01 | CLI Overrides | Picocli 参数 | L0 | S02 | REF-02 |
-| CFG-02 | Environment | Provider/Runtime 环境变量 | L0 | S02 | REF-02 |
+| CFG-01 | CLI Overrides | Picocli 参数 | L2 | S02 | REF-02 |
+| CFG-02 | Environment | Provider/Runtime 环境变量 | L2 | S02 | REF-02 |
 | CFG-03 | User Settings | `~/.cc-java/` | L0 | S08 | REF-01 |
 | CFG-04 | Project Settings | 版本控制配置 | L0 | S08 | REF-01 |
 | CFG-05 | Local Settings | Gitignored 本地覆盖 | L0 | S08 | REF-01 |
@@ -392,7 +397,7 @@ Stage 完成项。
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
 | SESSION-01 | Session ID | Workspace-aware ID | L1 | S01 | REF-06 |
-| SESSION-02 | In-memory Session | 当前对话连续性 | L1 | S01/S02 | REF-06 |
+| SESSION-02 | In-memory Session | 当前对话连续性 | L2 | S01/S02 | REF-06 |
 | SESSION-03 | Append-only JSONL | 版本化事件存储 | L0 | S06 | REF-06 |
 | SESSION-04 | Continue | 最近 Session | L0 | S06 | REF-06 |
 | SESSION-05 | Resume | 选择 Session | L0 | S06 | REF-06 |
@@ -461,10 +466,10 @@ Stage 完成项。
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
 | OBS-01 | Agent Event | 可重放控制流 | L1 | S01 | REF-01 |
-| OBS-02 | Turn/Tool Timing | Micrometer Metrics | L0 | S02/S14 | REF-01 |
-| OBS-03 | Token / Cost | Provider Usage 统计 | L0 | S02/S14 | REF-01 |
+| OBS-02 | Turn/Tool Timing | S02 事件边界耗时 → S14 Micrometer/OTel | L2 | S02/S14 | REF-01 |
+| OBS-03 | Token / Cost | S02 可信 Provider Token Usage → S14 Cost/聚合 | L2 | S02/S14 | REF-01 |
 | OBS-04 | Stop / Recovery Analytics | 失败原因分布 | L0 | S07/S14 | REF-01 |
-| OBS-05 | Privacy Controls | Prompt/Content 默认关闭 | L0 | S02/S14 | REF-01 |
+| OBS-05 | Privacy Controls | S02 默认不导出 Prompt/Content/Secret → S14 可配置策略 | L2 | S02/S14 | REF-01 |
 | OBS-06 | OpenTelemetry | 可选 Trace Export | L0 | S14 | REF-01 |
 | EVAL-01 | Seed Tasks | Java Fixture 任务集 | L0 | S04/S14 | REF-01 |
 | EVAL-02 | Behavior Replay | Fake Model 确定性回放 | L1 | S01/S06 | REF-01 |
@@ -526,16 +531,21 @@ Fake User
 
 完成条件：
 
-- 一个 Spring AI Provider；
-- 自动 Tool Loop 关闭；
-- Picocli + JLine；
-- Model Text Delta；
-- Tool Call Chunk 聚合、不完整流和错误转换；
-- Interactive 与 Print；
-- 模型流 Cancel；
-- 输出达到模型长度上限时识别 finish reason，并有界停止或续接；
-- Usage 可用时准确记录、不可用时不伪造；
-- 非 TTY 降级。
+- Spring Boot 只作为 CLI Composition Root，Domain/Core 不依赖框架；
+- 一个真实 Spring AI Provider 通过直接 `StreamingChatModel` Adapter 接入，自动 Tool
+  Loop 关闭，Schema-only Callback 不执行 Tool；
+- Picocli Interactive / Print 契约、JLine 原生 TTY、多轮内存 Session、行编辑和
+  Non-TTY 拒绝路径均有可复现证据；
+- Model Text Delta、Tool Call Chunk 聚合、同回合多 Tool Call 顺序、不完整流、
+  畸形响应和 Provider 错误均转换为项目协议；
+- 模型重试、Deadline 与 Cancel 由 Core Runtime 有界控制；取消后不接收晚到事件；
+- 输出达到模型或本地安全上限时映射稳定 finish reason / StopReason，不猜测或无限续写；
+- Usage 可用时准确记录、不可用时不伪造；Turn/Tool Timing 成对且默认不导出
+  Prompt、Content 或 Secret；
+- 配置优先级固定为 CLI → Environment → Code Defaults，模型名称必须显式提供；
+- System Context 与 Runtime Metadata 采用稳定、可测试的框架无关组装，不提前持久化；
+- ADR、确定性 Fake 测试、opt-in 真实 Provider E2E、真实 CLI Demo、差距报告和
+  G0-G6 证据完成对账。
 
 学习输出：
 

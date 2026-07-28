@@ -2,11 +2,15 @@
 
 一个以成熟 Coding Agent 为参照、用 Java 独立重实现的学习型 Agent Runtime 与 CLI。
 
-> 当前状态：**S01 Runtime Kernel 已 Accepted，当前位于 S02 启动 Gate**。框架无关领域协议、
-> 显式 Agent Loop、Tool Pipeline 和内存 Session 已通过 Commit-scoped 离线验证；
-> S02 的 23 项范围已固定，但尚无真实模型和可交互 CLI，生产实现尚未开始。
+> 当前状态：**S01 Runtime Kernel 已 Accepted；S02 Model + Streaming CLI 是待维护者
+> 验证的实现候选，G4-G6 尚未退出**。框架无关 Domain/Core 继续拥有显式 Agent Loop；
+> 本轮已接入 Ollama/Spring AI 流、Interactive/Print CLI、取消、Deadline、Usage 和
+> 有界错误恢复。最后一次 `clean verify` 运行 95 项、94 项通过、1 项 Provider E2E
+> 默认跳过；随后修正了 JUnit BOM 构建输入，依用户要求没有继续复跑。真实 TTY、最终
+> 候选复验、功能矩阵和进度看板通过前，不提前宣称 S02 Stage Exit Accepted。
 >
-> Current status: S01 accepted; S02 is at its launch gate; no provider or interactive CLI yet.
+> Current status: S01 accepted; S02 is an implementation candidate awaiting maintainer
+> verification, with final G4 rerun, native-TTY G5 evidence, and G6 reconciliation still open.
 
 ## 项目目标
 
@@ -42,9 +46,10 @@ Stage 证据为准。
 | L3 | 关键行为和异常路径可与参考基线比较 |
 | L4 | 在评测数据支持下形成 Java 生态差异化 |
 
-R2026.03 基线目前追踪 193 个 Capability ID。S01 只把 19 项推进到 L1，
-其余 174 项仍为 L0；这表示已经建立可测试学习骨架，不表示可以承担真实编码任务。
-默认最终目标为 L3，任何不实现项都必须记录 `Accepted Deviation`。
+R2026.03 基线目前追踪 193 个 Capability ID。S01 已接受 19 项 L1；S02 的 23 项目标
+正在按实际证据写回矩阵。即使 S02 完成，项目仍没有 S03/S04 的仓库读取、修改和命令
+能力，不能承担真实编码任务。默认最终目标为 L3，任何不实现项都必须记录
+`Accepted Deviation`。
 
 项目同时度量四件事：
 
@@ -116,14 +121,18 @@ Spring AI 只位于模型和集成适配层。项目自己的 Runtime 掌握 Too
 7. [技术设计](./docs/technical-design.md)：Java 架构、协议和实现约束；
 8. [ADR-020](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)：撤销不可核验的授权分类并隔离历史结论；
 9. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：S02 的 23 项范围、目标等级和 Spike；
-10. [ADR-018（历史）](./docs/adr/ADR-018-authorized-reference-study.md)与
+10. [ADR-022](./docs/adr/ADR-022-s02-provider-streaming-cli-decisions.md)：S02 锁定的 Provider、依赖版本、流式与 CLI 边界；
+11. [ADR-018（历史）](./docs/adr/ADR-018-authorized-reference-study.md)与
     [ADR-019（历史）](./docs/adr/ADR-019-s07-progressive-context-reduction.md)：已被 ADR-020 取代的决策记录；
-11. [Stage 证据包模板](./docs/templates/stage-evidence-package.md)：每个阶段统一的 G0-G6 Gate；
-12. [S01 Runtime Kernel ADR](./docs/adr/ADR-017-s01-runtime-kernel.md)：首个代码阶段的关键取舍；
-13. [S01 离线 Demo](./docs/demos/S01-agent-loop.md)：如何复现 Fake Model 协议闭环；
-14. [S01 标准验证证据](./docs/evidence/S01-runtime-kernel-2026-07-28.md)：Wrapper、标准命令、报告与正反例实际结果；
-15. [S01 差距报告](./docs/gap-reports/S01.md)：已经学到什么，以及仍缺什么；
-16. [AGENTS.md](./AGENTS.md)：人类与 AI 贡献者必须遵循的规则。
+12. [Stage 证据包模板](./docs/templates/stage-evidence-package.md)：每个阶段统一的 G0-G6 Gate；
+13. [S01 Runtime Kernel ADR](./docs/adr/ADR-017-s01-runtime-kernel.md)：首个代码阶段的关键取舍；
+14. [S01 离线 Demo](./docs/demos/S01-agent-loop.md)：如何复现 Fake Model 协议闭环；
+15. [S01 标准验证证据](./docs/evidence/S01-runtime-kernel-2026-07-28.md)：Wrapper、标准命令、报告与正反例实际结果；
+16. [S01 差距报告](./docs/gap-reports/S01.md)：S01 已学到什么，以及当时仍缺什么；
+17. [S02 Demo](./docs/demos/S02-model-streaming-cli.md)：离线、opt-in Ollama 与真实 CLI 复现；
+18. [S02 验证证据](./docs/evidence/S02-model-streaming-cli-2026-07-28.md)：G0-G6、Spike、测试和真实进程结果；
+19. [S02 差距报告](./docs/gap-reports/S02.md)：S02 仍保留的 Unknown 和后续 Stage；
+20. [AGENTS.md](./AGENTS.md)：人类与 AI 贡献者必须遵循的规则。
 
 ## 技术基线
 
@@ -136,22 +145,40 @@ S01 已确认：
 - GroupId `io.github.liumaishenjian`；
 - Java 根包 `io.github.liumaishenjian.ccjava`。
 
-Spring Boot、Spring AI、Picocli、JLine 和首个模型 Provider 都延后到真正使用它们的
-S02 再确认，S01 不为了占位引入框架依赖。
+S02 依据官方版本核验和真实 Provider Spike 新确认：
 
-## S01 能做什么
+- Spring Boot 4.1.0；
+- Spring AI 2.0.0；
+- Picocli 4.7.7；
+- JLine 3.30.16；
+- Ollama 0.32.4 作为首个已验证 Provider 基线。
 
-当前代码已经能够在无网络、无 API Key 的测试中验证：
+Adapter 直接使用 `StreamingChatModel`，不使用 `ChatClient` 自动 Tool Loop；Spring AI
+内部重试关闭，由 Core 统一执行有界重试、Deadline 和取消。准确理由与 Unknown 见
+[ADR-022](./docs/adr/ADR-022-s02-provider-streaming-cli-decisions.md)。
 
-- User → Model → Tool → Model → Final 的显式循环；
+## S02 能做什么
+
+在保留 S01 全部协议回归的基础上，当前代码已经能够：
+
+- 用 Spring AI 2.0.0 连接本地 Ollama，并把文本 Delta 流式发布给终端；
+- 聚合跨 Chunk 的一个或多个 Tool Call，保留 Call ID、顺序和下一回合 Result；
+- 直接由 Core 控制 Agent Loop；Spring AI 不执行 Agent Tool；
+- 使用 Picocli/JLine 提供 Interactive 与 `--print`，在 non-TTY 环境确定性降级；
+- 传播模型流取消和 Run Deadline，只在没有可见 Delta 时做有界重试；
+- 以逐项背压、8 MiB UTF-8 / 128 calls 本地上限和结构化错误拒绝异常模型流；
+- 规范化 Usage、Finish Reason 与模型失败；缺失统计不伪造；
+- 对 `LENGTH` 做有界停止，并通过 stdout/stderr、终端控制序列清洗和稳定退出码报告；
 - 同一模型回合多个 Tool Call 的顺序和 Call ID 对应关系；
 - 未知 Tool、无效参数和 Tool 异常的结构化结果回传；
 - 模型回合与 Tool Call 上限，以及 Tool 批次的原子预算预检；
 - 同一内存 Session 中多个 Run 的连续消息历史；
 - Session/Run/Model/Permission/Tool 的有序事件和唯一 Run 终态。
 
-当前明确不能连接真实模型、读取或修改仓库、执行命令、显示交互终端、跨进程恢复会话，
-也不具备完整权限策略、取消、超时或 OS Sandbox。
+当前仍不能读取或修改仓库、执行命令、跨进程恢复会话，也不具备完整权限策略、
+Context 压缩、稳定机器协议或 OS Sandbox。真实 Windows Terminal 的人工体验、服务端
+取消是否立即停止计算、真实限流和第二 Provider 仍为 `Unknown`；Provider SDK 在
+Adapter 收到单个巨大对象前的分配也不受本地 retained cap 保护。
 
 ## 构建与离线 Demo
 
@@ -167,13 +194,26 @@ java -version
 Linux/macOS 使用 `./mvnw`。最后一条命令中的 Core 协议测试就是 S01 Demo；
 它只使用测试源中的 Scripted Fake Model 和 Fake Tool。
 
+S02 的普通离线回归仍不连接 Provider：
+
+```powershell
+.\mvnw.cmd clean verify
+```
+
+2026-07-28 最后一次完整结果为 95 项运行：94 项通过、0 失败、0 错误，1 个真实
+Provider E2E 默认跳过。该运行早于最后的 JUnit BOM 构建输入修正；依用户要求没有继续
+复跑，因此它是候选证据，不是最终 Commit-scoped 复验。
+如何显式启用本地 Ollama E2E、运行真实 Print Main，并复现 `LENGTH`/non-TTY 负例，见
+[S02 Demo](./docs/demos/S02-model-streaming-cli.md)。
+
 > 2026-07-28 已修复 Windows `mvnw.cmd` 在普通 `.m2` 目录上的启动缺陷，并用
 > Wrapper 固定的 Maven 3.9.16 完成 `clean verify`、聚合 Javadoc 和 Core 23/23
 > 标准测试；包含预算拒绝负例的聚焦 Demo 也以 5/5 通过。完整证据见
 > [S01 标准验证证据](./docs/evidence/S01-runtime-kernel-2026-07-28.md)。
 > 相同命令已在 Commit `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd` 的 Clean
-> 工作区上复验；G0-G6 与 S01 Stage Exit 已通过。S02 当前仅通过启动范围 G1；
-> 下一步先完成官方来源/版本核验和 Provider/Streaming/CLI Spike。
+> 工作区上复验；G0-G6 与 S01 Stage Exit 已通过。S02 的实现候选已有真实 Provider
+> opt-in E2E 和独立 Spike 证据；维护者仍需在最终候选上复跑标准构建、用真实 Windows
+> Terminal 关闭 G5，再完成矩阵与生成看板的 G6 对账。
 
 ### 更新项目进度看板
 

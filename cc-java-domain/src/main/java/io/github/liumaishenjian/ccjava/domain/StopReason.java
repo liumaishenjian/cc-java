@@ -3,10 +3,10 @@ package io.github.liumaishenjian.ccjava.domain;
 /**
  * Agent Run 的稳定终止原因。
  *
- * <p>该枚举保留后续 Stage 所需的协议值，但 S01 只主动产生
- * {@link #COMPLETED}、{@link #MODEL_ERROR}、{@link #INVALID_MODEL_RESPONSE}、
- * {@link #TURN_LIMIT_REACHED}、{@link #TOOL_LIMIT_REACHED} 和
- * {@link #INTERNAL_ERROR}。</p>
+ * <p>该枚举保留后续 Stage 所需的协议值。S02 在 S01 已有终态之外，
+ * 开始主动产生 {@link #USER_CANCELLED}、{@link #TIME_LIMIT_REACHED} 和
+ * {@link #MODEL_OUTPUT_LIMIT_REACHED}；尚未进入对应 Stage 的值不能被宣传为
+ * 已实现能力。</p>
  *
  * @since 0.1.0
  */
@@ -23,6 +23,9 @@ public enum StopReason {
 
     /** 模型既未返回文本，也未返回有效 Tool Call。 */
     INVALID_MODEL_RESPONSE,
+
+    /** Provider 报告长度终止，或 Adapter 达到本地响应安全上限。 */
+    MODEL_OUTPUT_LIMIT_REACHED,
 
     /** 已达到模型回合上限。 */
     TURN_LIMIT_REACHED,

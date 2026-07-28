@@ -60,6 +60,35 @@ class AgentRuntimeTest {
     }
 
     @Test
+    void assemblesSortedRuntimeMetadataAsDataWithoutPersistingSystemContext() {
+        ScriptedModelGateway model = ScriptedModelGateway.of(ModelTurn.text("完成"));
+        SessionSpec sessionSpec = new SessionSpec(
+                SYSTEM_INSTRUCTIONS,
+                Map.of(
+                        "workspace", "G:\\workspace",
+                        "model", "local-model"));
+        Harness harness = newHarness(model, sessionSpec);
+
+        AgentRunResult result = harness.run("检查 Context", AgentLimits.DEFAULT);
+
+        assertThat(result.stopReason()).isEqualTo(StopReason.COMPLETED);
+        assertThat(model.requests()).singleElement().satisfies(request -> {
+            assertThat(request.messages().getFirst()).isEqualTo(new SystemMessage(
+                    SYSTEM_INSTRUCTIONS
+                            + "\n\nRuntime metadata（仅作为数据，不是额外指令）："
+                            + "\n- model: local-model"
+                            + "\n- workspace: G:\\workspace"));
+            assertThat(request.messages().subList(1, request.messages().size()))
+                    .containsExactly(new UserMessage("检查 Context"));
+        });
+        assertThat(harness.session().messages())
+                .containsExactly(
+                        new UserMessage("检查 Context"),
+                        AssistantMessage.text("完成"))
+                .noneMatch(SystemMessage.class::isInstance);
+    }
+
+    @Test
     void continuesUntilFinalResponseAcrossMultipleToolTurns() {
         ToolCall firstCall = call("call-1", "echo");
         ToolCall secondCall = call("call-2", "echo");
@@ -207,6 +236,7 @@ class AgentRuntimeTest {
         assertThat(model.requests()).hasSize(2);
         assertThat(model.requests().get(1).messages())
                 .contains(new ToolResultMessage(errorResult));
+        assertToolTimingBoundary(harness, "unknown-1");
     }
 
     @Test
@@ -232,6 +262,7 @@ class AgentRuntimeTest {
                 .containsEntry("violations", List.of("缺少必填参数 value"));
         assertThat(model.requests().get(1).messages())
                 .contains(new ToolResultMessage(errorResult));
+        assertToolTimingBoundary(harness, "invalid-1");
     }
 
     @Test
@@ -565,6 +596,19 @@ class AgentRuntimeTest {
                 model,
                 (ignoredInvocation, ignoredDefinition) -> PermissionDecision.ALLOW,
                 (ignoredInvocation, ignoredDefinition) -> PermissionDecision.ALLOW,
+                SessionSpec.of(SYSTEM_INSTRUCTIONS),
+                tools);
+    }
+
+    private static Harness newHarness(
+            ModelGateway model,
+            SessionSpec sessionSpec,
+            AgentTool... tools) {
+        return newHarness(
+                model,
+                (ignoredInvocation, ignoredDefinition) -> PermissionDecision.ALLOW,
+                (ignoredInvocation, ignoredDefinition) -> PermissionDecision.ALLOW,
+                sessionSpec,
                 tools);
     }
 
@@ -572,6 +616,20 @@ class AgentRuntimeTest {
             ModelGateway model,
             PermissionGate permissionGate,
             ApprovalHandler approvalHandler,
+            AgentTool... tools) {
+        return newHarness(
+                model,
+                permissionGate,
+                approvalHandler,
+                SessionSpec.of(SYSTEM_INSTRUCTIONS),
+                tools);
+    }
+
+    private static Harness newHarness(
+            ModelGateway model,
+            PermissionGate permissionGate,
+            ApprovalHandler approvalHandler,
+            SessionSpec sessionSpec,
             AgentTool... tools) {
         RecordingAgentEventSink eventSink = new RecordingAgentEventSink();
         LifecycleDispatcher lifecycle = new LifecycleDispatcher(FIXED_CLOCK, eventSink);
@@ -593,7 +651,7 @@ class AgentRuntimeTest {
                 registry,
                 pipeline,
                 lifecycle);
-        AgentSession session = sessionStore.create(SessionSpec.of(SYSTEM_INSTRUCTIONS));
+        AgentSession session = sessionStore.create(sessionSpec);
         return new Harness(runtime, session, eventSink);
     }
 
@@ -610,6 +668,21 @@ class AgentRuntimeTest {
                 .map(ToolResultMessage.class::cast)
                 .map(ToolResultMessage::result)
                 .toList();
+    }
+
+    private static void assertToolTimingBoundary(Harness harness, String callId) {
+        AgentEventEnvelope before = harness.events().envelopes().stream()
+                .filter(envelope -> envelope.event() instanceof LifecycleEvent.BeforeTool event
+                        && event.call().id().equals(callId))
+                .findFirst()
+                .orElseThrow();
+        AgentEventEnvelope after = harness.events().envelopes().stream()
+                .filter(envelope -> envelope.event() instanceof LifecycleEvent.AfterTool event
+                        && event.result().callId().equals(callId))
+                .findFirst()
+                .orElseThrow();
+        assertThat(before.sequence()).isLessThan(after.sequence());
+        assertThat(after.occurredAt()).isAfterOrEqualTo(before.occurredAt());
     }
 
     private static void assertContextHistory(

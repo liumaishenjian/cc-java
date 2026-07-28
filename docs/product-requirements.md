@@ -1,10 +1,12 @@
 # cc-java 产品需求文档
 
-> 文档状态：Draft v0.6
+> 文档状态：Draft v0.7
 >
 > 最后更新：2026-07-28
 >
-> 当前阶段：S01 Runtime Kernel 已 Accepted；S02 处于启动 Gate，生产实现尚未开始
+> 当前阶段：S01 Runtime Kernel 已 Accepted；S02 是待维护者验证的实现候选。最后一次
+> 完整构建早于最终 JUnit BOM 修正；G5 仍等待真实 Windows Terminal 正例，G6 仍等待
+> 功能矩阵与进度看板对账
 >
 > 产品负责人：项目维护者
 
@@ -17,6 +19,9 @@
 - v0.5 明确跨 Stage 目标等级、前置依赖、CLI 归属和 S07 渐进式 Context 路线。
 - v0.6 隔离来源、Revision、许可证和授权范围不可核验的材料，撤销其活动设计结论；
   同时固定 S02 的 23 项启动范围。
+- v0.7 依据公开官方文档和真实 Provider Spike 锁定 S02 依赖与 Ollama 边界；实现
+  Streaming Model、Interactive/Print、取消、Deadline、Usage 与有界恢复，并记录
+  真实 TTY、服务端取消、限流和第二 Provider 的 Unknown。
 
 最终定位：
 
@@ -218,11 +223,20 @@ FixBug 可以在 S11 后实现为 Skill 或独立应用，也可以作为 S04 �
 
 ### S02：Model 与 Streaming CLI
 
-- 接入一个 Spring AI 模型 Provider；
-- 提供 Interactive 与 Print 两种入口；
-- 支持流式文本、Tool Call Chunk 聚合和执行状态展示；
-- 支持模型流取消、不完整流、输出长度 finish reason、有界停止/续接、限流和 Usage 转换；
-- 用显式启用的真实 Provider E2E 验证 Adapter，但普通 CI 仍只使用 Fake。
+S02 已按以下产品边界形成实现候选：
+
+- 以 Spring AI 2.0.0 接入 Ollama 0.32.4 首 Provider；
+- 提供 Picocli Interactive 与 Print 两种入口，JLine 负责交互终端；
+- 支持流式文本、Tool Call Chunk 聚合和有序执行状态展示；
+- 支持模型流取消、Deadline、不完整流、输出长度 Finish Reason、有界停止、限流错误
+  映射和可选 Usage 转换；
+- 用显式启用的真实 Provider E2E 验证 Adapter，普通 CI 仍只使用 Fake；
+- Spring AI 不执行 Agent Tool，Runtime 继续拥有完整 Tool Loop。
+
+S02 的服务端取消终止、真实限流和第二 Provider 保持 `Unknown`；真实 Windows Terminal
+人工正例是 ADR-021 的 G5 退出条件，完成前 G5 保持 `OPEN`。维护者还须在包含最终
+JUnit BOM 修正的候选上复跑标准构建。这些未知或待验证项不得从离线 Fixture、non-TTY
+PTY 或单一模型结果外推。
 
 ### S03：Read Tools
 
@@ -527,7 +541,7 @@ S14 按 `Eval/Observability → SDK/Headless → Distribution/Compatibility` 三
 
 ## 20. 已确认与待确认决策
 
-S01 已确认：
+S01-S02 已确认：
 
 1. 项目名和仓库名使用 `cc-java`；
 2. Java 21 作为基线，Maven Wrapper 固定 Maven 3.9.16；Windows 普通 `.m2` 目录启动
@@ -537,16 +551,24 @@ S01 已确认：
 4. S01 不接真实 Provider，Fake Model 只存在于测试源。
 5. 采用 `R2026.03` 公开行为基线；`UNVERIFIED-SRC-2026-03-31-A` 仅作隔离审计，
    不作为活动输入。
+6. S02 使用 Spring Boot 4.1.0、Spring AI 2.0.0、Picocli 4.7.7 和 JLine 3.30.16；
+7. 首个真实 Provider 是本地 Ollama 0.32.4；模型名必须显式配置，不假定本机 Tag；
+8. Adapter 直接使用 `StreamingChatModel`，不使用 `ChatClient` 自动 Tool Loop；
+9. Spring AI 内部重试为 0，Core 统一拥有有界重试、Deadline、取消和 Stop Reason；
+10. Print 强制无 ANSI并分离 stdout/stderr；non-TTY 未指定 `--print` 时不进入伪交互。
 
 后续 Stage 仍需确认：
 
-1. S02 的首个模型 Provider；
-2. Picocli + JLine 是否作为 CLI 技术组合；
-3. `run_command` 在 Windows 和 Linux 的默认 Shell；
-4. S04 是否允许“当前会话始终允许”Shell，或只允许单次批准；
-5. “开源不商用”的准确含义：
+1. S14 的第二模型 Provider及跨 Provider 恢复策略；
+2. `run_command` 在 Windows 和 Linux 的默认 Shell；
+3. S04 是否允许“当前会话始终允许”Shell，或只允许单次批准；
+4. “开源不商用”的准确含义：
    - 维护者自己不计划商业化，但采用 Apache-2.0/MIT；或
    - 许可证禁止商业使用，此时属于 source-available，而非 OSI Open Source。
+
+S02 的版本和边界由
+[ADR-022](./adr/ADR-022-s02-provider-streaming-cli-decisions.md)固定；测试与真实命令见
+[S02 验证证据](./evidence/S02-model-streaming-cli-2026-07-28.md)。
 
 ## 21. 术语
 

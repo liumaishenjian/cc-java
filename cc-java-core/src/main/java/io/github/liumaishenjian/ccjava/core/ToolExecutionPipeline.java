@@ -16,10 +16,11 @@ import java.util.Objects;
 /**
  * 统一执行模型提出的每一次 Tool Call。
  *
- * <p>S01 的确定性顺序为：解析 Tool → 参数校验 → Before 事件 → Permission
+ * <p>确定性顺序为：Before 事件 → 解析 Tool → 参数校验 → Permission
  * → 可选 Approval → 同步执行 → 规范化 Result → After 事件。未知 Tool、
- * 参数错误和执行异常都转换为带原始 Call ID 的结构化失败结果，使模型可以
- * 在下一回合纠正。输出裁剪、脱敏、超时和取消在后续 Stage 加入同一管线。</p>
+ * 参数错误和执行异常都转换为带原始 Call ID 的结构化失败结果，并保证每个
+ * 已进入 Pipeline 的调用都有可计算耗时的 Before/After 边界，使模型可以在
+ * 下一回合纠正。输出裁剪、脱敏、超时和取消在后续 Stage 加入同一管线。</p>
  *
  * @since 0.1.0
  */
@@ -69,6 +70,7 @@ public final class ToolExecutionPipeline {
         Objects.requireNonNull(runId, "runId 不能为空");
         Objects.requireNonNull(call, "call 不能为空");
         ToolInvocation invocation = new ToolInvocation(session.id(), runId, ordinal, call);
+        lifecycle.dispatch(session, runId, new LifecycleEvent.BeforeTool(ordinal, call));
 
         AgentTool tool = registry.find(call.name()).orElse(null);
         if (tool == null) {
@@ -109,7 +111,6 @@ public final class ToolExecutionPipeline {
                             new JsonObject(details))));
         }
 
-        lifecycle.dispatch(session, runId, new LifecycleEvent.BeforeTool(ordinal, call));
         ToolDefinition definition = tool.definition();
         lifecycle.dispatch(
                 session,

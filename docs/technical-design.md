@@ -1,14 +1,16 @@
 # cc-java 技术设计文档
 
-> 文档状态：Proposed v0.6
+> 文档状态：Proposed v0.7
 >
-> 最后更新：2026-07-28
+> 最后更新：2026-07-29
 >
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
-> 当前学习阶段：S01 Runtime Kernel 已 Accepted；S02 处于启动 Gate
+> 当前学习阶段：S01 Runtime Kernel 已 Accepted；S02 是待维护者验证的实现候选，
+> G4-G6 尚未退出
 >
-> 当前实现状态：离线 Agent Loop 已实现；真实模型和 CLI 尚未开始
+> 当前实现状态：显式 Agent Loop、Ollama/Spring AI Streaming Adapter、
+> Picocli/JLine CLI、取消、Deadline、Usage 与有界恢复已实现
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 
@@ -124,19 +126,24 @@ S01～S04 依次完成 Loop、真实模型与 CLI、只读工具、写入与命�
 | Maven | Wrapper 3.3.4 → Maven 3.9.16 | Accepted；Windows 启动缺陷已修复并通过 Commit-scoped G4 |
 | GroupId / 根包 | `io.github.liumaishenjian` / `io.github.liumaishenjian.ccjava` | Accepted（S01） |
 | Test | JUnit 5.14.3 + AssertJ 3.27.7 | Accepted（S01） |
-| Spring Boot | 在 S02 按真实用途确认 | Deferred |
-| Spring AI | 在 S02 按 Provider Spike 确认 | Deferred |
-| CLI Parser | Picocli 候选 | Proposed（S02） |
-| Interactive Terminal | JLine 候选 | Proposed（S02） |
-| 首个 Provider | 单一 Spring AI Model Starter | Open（S02） |
+| Spring Boot | 4.1.0 | Accepted（S02 Composition Root） |
+| Spring AI | 2.0.0 | Accepted（S02 Adapter） |
+| CLI Parser | Picocli 4.7.7 | Accepted（S02） |
+| Interactive Terminal | JLine 3.30.16 | Accepted（S02） |
+| 首个 Provider | Ollama 0.32.4 已验证 | Accepted（S02） |
 
-S01 不引入 Spring Boot、Spring AI、Picocli 或 JLine。框架准确版本必须在 S02
-通过真实 Provider 与流式 Tool Call Spike 决定，不能仅为占位锁定依赖。
+这些版本由 S02 的真实 Provider 与流式 Tool Call Spike 决定，不是占位依赖。
+Boot 只存在于 CLI Composition Root；Spring AI/Reactor 只存在于模型 Adapter；
+Picocli/JLine 不进入 Domain/Core。详细依据见
+[ADR-022](./adr/ADR-022-s02-provider-streaming-cli-decisions.md)。
 
 参考：
 
-- [Spring AI Getting Started](https://docs.spring.io/spring-ai/reference/getting-started.html)
+- [Spring Boot 4.1.0](https://spring.io/blog/2026/06/10/spring-boot-4/)
+- [Spring AI 2.0.0 GA](https://spring.io/blog/2026/06/12/spring-ai-2-0-0-GA-available-now/)
+- [Spring AI Chat Model API](https://docs.spring.io/spring-ai/reference/api/chatmodel.html)
 - [Spring AI Tool Calling](https://docs.spring.io/spring-ai/reference/api/tools.html)
+- [Spring AI Ollama Chat](https://docs.spring.io/spring-ai/reference/api/chat/ollama-chat.html)
 - [Spring Boot System Requirements](https://docs.spring.io/spring-boot/system-requirements.html)
 
 ## 5. 逻辑分层
@@ -448,6 +455,12 @@ S02 提供终端流式体验，但核心不依赖 Reactor。
 
 Tool Call 可能跨多个流式 Chunk，必须聚合后才能进入 Pipeline。
 
+S02 的 Adapter 使用容量 2 的队列和逐项 `request(1)`，不让 Provider Chunk 在堆内
+无界排队。单回合文本、Finish Reason、Tool ID/名称/参数共享 8 MiB UTF-8 retained cap，
+并限制最多 128 个不同 Tool Call。超限在当前 Delta 发布前取消并映射
+`MODEL_OUTPUT_LIMIT_REACHED`；同一 Chunk 重复 ID、冲突 Finish Reason 和无效 Usage
+进入结构化模型错误。
+
 ### 9.5 Stop Reason
 
 以下 Stop Reason 随 S01～S07 按矩阵逐步启用；领域协议先保持可扩展，不能把尚未实现的状态宣传为当前能力：
@@ -470,33 +483,41 @@ Tool Call 可能跨多个流式 Chunk，必须聚合后才能进入 Pipeline。
 
 ## 10. Spring AI 适配
 
-候选 Spring AI 公开文档描述了 Framework-Controlled、Advisor-Controlled 和
-User-Controlled Tool Execution；准确 API 与版本必须由 S02 Spike 复验。本项目的架构
-要求选择 User-Controlled。
+Spring AI 2.0.0 公开文档描述了模型与 Tool Calling 边界。S02 的真实 Spike 选择直接
+使用 `OllamaChatModel` 的 `StreamingChatModel` 路径，并保持 User-Controlled Tool
+Execution。
 
-本节对应 S02。S01 只使用 Scripted Fake `ModelGateway`，在离线协议测试完成前不接真实 Provider。
+S01 的 Scripted Fake `ModelGateway` 继续作为普通 CI 的确定性基线；S02 在
+`cc-java-model-spring-ai` 增加显式启用的 Ollama E2E，不把真实 Provider 变成普通构建
+前提。
 
-实现要求：
+已实现边界：
 
-- 如果使用 `ChatClient`，必须用所选版本官方支持的方式禁用自动 Tool Loop；
-- 准确配置类型、方法名和全局/请求级作用域只能在 Spike 后写入 G2 ADR，当前文档不把
-  某个候选 API 名称当作已确认契约；
+- 不使用 `ChatClient`，不安装自动 Tool Loop Advisor；
+- `SchemaOnlyToolCallback` 只提供 Tool Schema，其执行入口是失败哨兵；
 - Adapter 只返回 Tool Call；
 - Tool 执行由核心 Pipeline 完成；
 - 不配置全局高风险 `defaultTools`；
-- Tool Schema 按当前 Run 权限和模式提供。
+- Tool Schema 按当前 Run 提供，并在后续完整 Permission 到来后继续收窄；
+- Spring AI/Ollama Adapter 内部重试为 0；
+- Core 统一拥有 `0..3` 有界重试、Deadline、取消和终态；
+- 已发布可见 Delta 后不重试，避免重复文本；
+- Usage 或 cost 缺失时保留缺省，不伪造成 0。
 
-开始正式实现前必须完成一个独立 Spike，验证：
+独立 Spike 已验证：
 
-1. 文本流可以被观察；
-2. Tool Call Chunks 可以无损聚合；
-3. 多 Tool Call 的 ID 和顺序保持；
-4. Tool Result 可以正确进入下一轮模型消息；
-5. 自动工具执行确实关闭；
-6. 取消能中断模型请求；
-7. Usage 缺失时正常降级。
+1. 18 个非空文本 Delta；
+2. Tool Call Chunks 可聚合；
+3. 同一回合两个 Tool Call 的 ID 不同，顺序保持；
+4. Tool Result 正确进入下一轮模型消息；
+5. 自动执行哨兵计数为 0；
+6. 客户端约 1.25 秒完成取消，且没有 late signal；
+7. Usage 为 input 443/output 64，缺失 Usage 的 Fixture 正常降级；
+8. 小输出预算返回 `LENGTH`；
+9. Ollama 原生协议对照保留相同的 ID 数量、顺序和 Usage。
 
-Adapter 选择 `ChatClient` 还是直接 `ChatModel` 不改变核心端口。优先使用能保留 Spring AI Observability 且不会接管 Tool Loop 的方案。
+上述数字只描述固定 Spike 环境，不是性能承诺。服务端是否立即停止计算、真实限流、
+第二 Provider 和未来 Ollama 版本仍为 `Unknown`。准确决策与被否决方案见 ADR-022。
 
 ## 11. Tool Execution Pipeline
 
@@ -858,7 +879,7 @@ CLI 只根据事件渲染，不通过轮询访问 Runtime 私有状态。
 
 ### 19.1 Picocli
 
-负责：
+S02 使用 Picocli 4.7.7，负责：
 
 - 参数和帮助；
 - Interactive / Print；
@@ -868,7 +889,7 @@ CLI 只根据事件渲染，不通过轮询访问 Runtime 私有状态。
 
 ### 19.2 JLine
 
-S02 负责：
+S02 使用 JLine 3.30.16，负责：
 
 - 行编辑和历史；
 - `Ctrl+C`；
@@ -877,6 +898,10 @@ S02 负责：
 - 基础多行或粘贴处理。
 
 全屏 React/Ink 式 TUI 不进入 S02。终端输出优先可读和可测试，其他 Surface 在 S14 以后通过同一 Runtime 演进。
+
+JLine Terminal 只在 Interactive 路径创建。stdin/stdout 不是交互终端时，CLI 不等待
+输入，也不假装支持 REPL，而是要求显式使用 `--print`。自动化 PTY 在本轮被正确判断为
+non-TTY；真实 Windows Terminal 的人工体验仍为 `Unknown`。
 
 ### 19.3 渲染
 
@@ -891,15 +916,35 @@ S02 负责：
 
 S02 不承诺稳定机器 JSONL 输出；版本化机器协议进入 S14。测试通过 Fake Renderer 验证事件语义，而不是断言 ANSI 全文。
 
+Print 关闭 Renderer 自有 ANSI：stdout 只承载 Assistant 文本，模型状态、警告与错误
+写入 stderr。Renderer 同时清洗所有不可信字段中的 ESC/CSI/OSC/DCS/C0/C1；Assistant
+保留规范化 LF/Tab，状态字段保持单行。真实进程验证得到 64 token Print exit 0、
+32 token `LENGTH` exit 5、non-TTY 无 `--print` exit 3。
+
 ## 20. 配置与秘密
 
 ### 20.1 S02 起步配置
 
-- CLI 参数配置 Workspace、Mode 和模型名；
+- CLI 参数配置 Workspace、Mode、模型名、Ollama Base URL、输出 Token、Deadline 和
+  Retry；
 - Provider API Key 来自环境变量或外部秘密存储；
 - API Key 不允许通过普通 CLI 参数传入；
 - 日志和异常统一脱敏；
 - 不创建项目级 Provider 密钥文件。
+
+优先级固定为 `CLI → Environment → Code Defaults`。S02 环境变量为：
+
+- `CC_JAVA_MODEL`；
+- `CC_JAVA_OLLAMA_BASE_URL`；
+- `CC_JAVA_WORKSPACE`；
+- `CC_JAVA_MAX_OUTPUT_TOKENS`；
+- `CC_JAVA_TIMEOUT_SECONDS`；
+- `CC_JAVA_MAX_RETRIES`；
+- `CC_JAVA_OLLAMA_API_KEY`（当前 Ollama 路径不要求，仅保留 Secret presence 契约）。
+
+模型名没有代码默认值，必须显式配置。Base URL 只接受不含凭证、Query 与 Fragment 的
+HTTP(S) 根地址。Ollama 当前不要求 API Key；Secret 状态只记录是否存在，不把值复制进
+配置、日志或事件。
 
 ### 20.2 S08 分层配置
 
@@ -1035,6 +1080,11 @@ S02 覆盖 REPL、Print、流式显示和基础取消；S04～S05 增加审批�
 
 普通 CI 使用 Fake Model。真实模型 E2E 通过显式 Profile 启用，不断言固定自然语言。
 
+S02 于 2026-07-28 的最后一次完整离线验证为 95 项运行：94 项通过、0 失败、0 错误，
+另有 1 个 Ollama E2E 默认跳过；显式指定本地模型后 E2E 1/1 通过。该完整运行早于
+最后的 JUnit BOM 构建输入修正，依用户要求没有继续复跑。测试与命令见
+[S02 验证证据](./evidence/S02-model-streaming-cli-2026-07-28.md)。
+
 ## 23. S00～S15 演进路线
 
 ### 23.1 旧里程碑到 Stage 的迁移
@@ -1133,9 +1183,9 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | ADR-006 | Accepted | S01～S04 逐步形成能读、改、运行和验证的 Mini CLI；它是检查点而非终点 |
 | ADR-007 | Accepted | 同步控制流 + 流式事件，不把 Reactor 泄漏到 Core |
 | ADR-008 | Accepted | S01 创建五个 Maven 模块，后续按 Stage 渐进扩展而不提前创建空模块 |
-| ADR-009 | Accepted / Deferred | Java 21 已确认；Boot 与 Spring AI 准确版本延后到 S02 |
-| ADR-010 | Proposed（S02） | Picocli + JLine |
-| ADR-011 | Open | 首个模型 Provider |
+| ADR-009 | Superseded in part | Java 21 保持 Accepted；Boot/Spring AI 的 Deferred 部分由 ADR-022 决定 |
+| ADR-010 | Superseded | Picocli + JLine 的候选决策由 ADR-022 接受并锁定版本 |
+| ADR-011 | Superseded | 首个 Provider 由 ADR-022 选择 Ollama |
 | ADR-012 | Open | Windows/Linux 默认 Shell |
 | ADR-013 | Accepted | `io.github.liumaishenjian` / `io.github.liumaishenjian.ccjava` |
 | ADR-014 | Open | 开源或 Noncommercial source-available License |
@@ -1146,6 +1196,7 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | [ADR-019](./adr/ADR-019-s07-progressive-context-reduction.md) | Superseded | 历史 S07 研究结论；不得作为实现输入 |
 | [ADR-020](./adr/ADR-020-quarantine-unverified-reference-source.md) | Accepted | 隔离未核验材料，活动设计只使用可审计来源 |
 | [ADR-021](./adr/ADR-021-s02-model-streaming-cli-scope.md) | Accepted | 固定 S02 的 23 项范围、目标等级和可证伪 Spike |
+| [ADR-022](./adr/ADR-022-s02-provider-streaming-cli-decisions.md) | Accepted | 锁定 S02 依赖版本、Ollama、直接 StreamingChatModel、重试所有权与 CLI 边界 |
 
 ## 26. 需求追踪
 
@@ -1184,9 +1235,34 @@ Scripted Fake Model、Fake Tool 和 Fake Event Sink 只存在于测试源。
 S01 未使用任何授权或未核验参考源码；设计和代码由 ADR-017、本项目需求、公开基线及
 独立 Fake 场景解释。Windows Wrapper 与执行验证缺口已经关闭，并在 Commit
 `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd` 上通过 G4/G6；S01 Stage Exit 已
-Accepted。S02 当前只完成 ADR-021 的 G1 范围，生产实现尚未开始。
+Accepted。S02 已形成实现候选；当前等待维护者在最终候选上复跑标准构建、用真实
+Windows Terminal 正例关闭 G5，再执行功能矩阵与进度看板的 G6 最终对账。
 
-### 27.2 分 Stage 实现
+### 27.2 待维护者验证并完成 G5/G6 的 S02
+
+S02 在不改变五模块依赖方向的前提下完成：
+
+1. Spring AI 2.0.0/Ollama 0.32.4 Streaming Adapter；
+2. Provider-neutral Delta、Usage、Finish Reason、取消、Deadline 与有界 Retry；
+3. Picocli 4.7.7/JLine 3.30.16 Interactive 和 Print；
+4. Boot 4.1.0 Composition Root、配置来源、Secret 边界、non-TTY 和退出码；
+5. 最后一次完整运行 94 项通过、1 项 opt-in Provider E2E 默认跳过；另有重复通过的
+   opt-in Provider E2E 和真实 Main 正反例。
+
+本阶段证据：
+
+1. [S02 技术决策 ADR](./adr/ADR-022-s02-provider-streaming-cli-decisions.md)；
+2. [S02 Demo](./demos/S02-model-streaming-cli.md)；
+3. [S02 差距报告](./gap-reports/S02.md)；
+4. [S02 验证证据](./evidence/S02-model-streaming-cli-2026-07-28.md)。
+
+S02 没有使用授权或未核验参考源码；隔离材料 ID 仍为 `N/A - Not Used`。服务端取消、
+真实限流和第二 Provider 保持 `Unknown`；最终 JUnit BOM 修正后的标准复跑和真实
+Windows Terminal 正例仍待维护者完成。只有这些验证实际通过，且最终集成变更把 23 项
+实际等级写回功能矩阵、更新状态与输入 Digest、重新生成看板并通过 `--check` /
+`--self-test` 后，才能把 S02 Stage Exit 标记为 Accepted。
+
+### 27.3 分 Stage 实现
 
 1. **S01 Runtime Kernel（Agent Loop）**：创建父 POM 和五个模块，建立 domain 协议、显式 Agent Runtime、Pipeline 骨架、内存 Session、Permission/Approval Port 与 Scripted Fake Model，完成离线消息协议 Demo；实际取消仍保持未实现。
 2. **S02 Model + Streaming CLI**：完成 Spring AI 流式 Tool Call Spike，接入一个真实 Provider，装配 Picocli/JLine Interactive 与 Print，验证 Chunk 聚合、模型流取消、不完整流、输出长度 finish reason 的有界停止/续接和非 TTY 降级。
@@ -1204,7 +1280,7 @@ Accepted。S02 当前只完成 ADR-021 的 G1 范围，生产实现尚未开始�
 14. **S14 Production Harness**：补第二个 Provider Adapter，并对照 Cache Hint/原生 Context Editing 与 S07 通用路径；按 Eval/Observability、SDK/Headless、Distribution/Compatibility 三个检查点产品化已有专项 Eval，实现 OTel、稳定 JSON/JSONL、Java SDK、Headless/Daemon、多模型恢复、跨平台发行和兼容策略。
 15. **S15 Independent Innovation**：只在矩阵前置条件满足且已有可重复 Eval 基线后，选择 Java/Spring 差异化能力并用数据验证。
 
-### 27.3 每个 Stage 的完成动作
+### 27.4 每个 Stage 的完成动作
 
 上述每一步都必须以相同顺序收尾：
 
