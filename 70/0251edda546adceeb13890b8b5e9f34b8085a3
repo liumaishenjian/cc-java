@@ -1,0 +1,95 @@
+docs/progress.html
+  s_371b145dc5ecd9::t_8e98fe96699bad 226,231,259,266,276,322,333,337-339
+  s_371b145dc5ecd9::t_7f571c33b3c61f 243-244,254-255,302,309
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/runtime/HeadlessRuntimeSession.java
+  s_371b145dc5ecd9::t_ddea340be6ba2e 11-12,58,134,138,144-145,240-247
+  s_371b145dc5ecd9::t_3fc40214f1f9fb 139-143
+  s_371b145dc5ecd9::t_e1f54f2db53374 248-249
+cc-java-core/src/test/java/io/github/liumaishenjian/ccjava/core/RunTelemetryCollectorTest.java
+  s_371b145dc5ecd9::t_2ff1f863b7e8cb 1-157
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/stdio/StdioProtocolProcessTest.java
+  s_371b145dc5ecd9::t_e649fb72b9376b 86-145
+docs/technical-design.md
+  s_371b145dc5ecd9::t_caf365204c8348 1233
+  s_371b145dc5ecd9::t_cd75d62f9c24c5 927-944,1232
+  s_371b145dc5ecd9::t_d5c818534cedbb 1231
+docs/gap-reports/S02.md
+  s_371b145dc5ecd9::t_caf365204c8348 1-43
+README.md
+  s_371b145dc5ecd9::t_ac3555b5d185e1 9
+  s_371b145dc5ecd9::t_caf365204c8348 13-14,135-143
+  s_371b145dc5ecd9::t_cd75d62f9c24c5 10,134
+  s_371b145dc5ecd9::t_d5c818534cedbb 133
+docs/adr/ADR-030-s02-privacy-safe-run-telemetry.md
+  s_371b145dc5ecd9::t_0547d1111a39e3 1-47
+docs/adr/ADR-029-s02-continuous-session.md
+  s_371b145dc5ecd9::t_fc37ff4432fceb 27
+  s_371b145dc5ecd9::t_e649fb72b9376b 1-26,28-37
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/stdio/RuntimeStdioCommandHandler.java
+  s_371b145dc5ecd9::t_ddea340be6ba2e 4-6,18,224-225,235-277
+  s_371b145dc5ecd9::t_fb81140826eafd 7,76-84
+  s_371b145dc5ecd9::t_454d0a12cd288a 85-86
+  s_371b145dc5ecd9::t_3814d836b90329 278-279
+docs/evidence/S02-continuous-session-2026-07-29.md
+  s_371b145dc5ecd9::t_d5c818534cedbb 1-54
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/RunTelemetry.java
+  s_371b145dc5ecd9::t_f8305f3f373cc9 1-63
+docs/evidence/S02-model-stream-resilience-2026-07-29.md
+  s_371b145dc5ecd9::t_caf365204c8348 69-74
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/stdio/StdioProtocolCodec.java
+  s_371b145dc5ecd9::t_ddea340be6ba2e 9,127-133
+  s_371b145dc5ecd9::t_a75e3cce54db38 134-135
+AGENTS.md
+  s_371b145dc5ecd9::t_d5c818534cedbb 22
+  s_371b145dc5ecd9::t_cd75d62f9c24c5 23
+  s_371b145dc5ecd9::t_caf365204c8348 24,40-42
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/ToolCallTelemetry.java
+  s_371b145dc5ecd9::t_f8305f3f373cc9 1-33
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/RunTelemetryCollector.java
+  s_371b145dc5ecd9::t_f8305f3f373cc9 1-35,42-234
+  s_371b145dc5ecd9::t_0a948d29c4a933 36-41
+docs/adr/ADR-031-s02-provider-multi-tool-deviation.md
+  s_371b145dc5ecd9::t_caf365204c8348 1-44
+cc-java-tui/test/state.test.ts
+  s_371b145dc5ecd9::t_e649fb72b9376b 50-105
+docs/evidence/S02-windows-terminal-lifecycle-2026-07-29.md
+  s_371b145dc5ecd9::t_caf365204c8348 83-102
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/stdio/RuntimeStdioCommandHandlerTest.java
+  s_371b145dc5ecd9::t_fb81140826eafd 1-97
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/ModelTurnTelemetry.java
+  s_371b145dc5ecd9::t_f8305f3f373cc9 1-54
+docs/evidence/S02-privacy-safe-run-telemetry-2026-07-29.md
+  s_371b145dc5ecd9::t_cd75d62f9c24c5 1-30,43-57
+  s_371b145dc5ecd9::t_6e7eb242c46c39 31-42
+docs/progress-state.properties
+  s_371b145dc5ecd9::t_a83e9b8dcb8444 5
+  s_371b145dc5ecd9::t_2f7d60d48ad0c0 9-10,13,18-19,25-26,33-36,41
+  s_371b145dc5ecd9::t_6b08b44f226cca 4
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/runtime/HeadlessRuntimeSessionTest.java
+  s_371b145dc5ecd9::t_a5a69c36b6f96f 8-9,15,17-18,24,128-150
+  s_371b145dc5ecd9::t_e649fb72b9376b 12,14,21,95-117,119,121-123,125-127
+  s_371b145dc5ecd9::t_fc37ff4432fceb 20,118,124
+  s_371b145dc5ecd9::t_e42d08a562dee6 120
+docs/feature-parity-matrix.md
+  s_371b145dc5ecd9::t_caf365204c8348 156-157,161,187-188
+  s_371b145dc5ecd9::t_cd75d62f9c24c5 158,160,185-186,482-483,485
+  s_371b145dc5ecd9::t_d5c818534cedbb 183-184,246,413
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/TokenUsageTotals.java
+  s_371b145dc5ecd9::t_f8305f3f373cc9 1-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "700251edda546adceeb13890b8b5e9f34b8085a3",
+  "prompts": {},
+  "sessions": {
+    "s_371b145dc5ecd9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa772-84c7-7680-9e8a-026c8e1161ea",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "yliu27 <yliu27@leqee.com>"
+    }
+  }
+}
