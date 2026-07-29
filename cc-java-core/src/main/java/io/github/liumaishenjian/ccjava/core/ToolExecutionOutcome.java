@@ -1,6 +1,7 @@
 package io.github.liumaishenjian.ccjava.core;
 
 import io.github.liumaishenjian.ccjava.domain.ToolError;
+import io.github.liumaishenjian.ccjava.domain.ToolResultMetadata;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -14,12 +15,14 @@ import java.util.Optional;
  * @param successful 执行是否成功
  * @param content    成功时的输出正文
  * @param error      失败时的结构化错误
+ * @param metadata   Tool 语义裁剪和 continuation 元数据
  * @since 0.1.0
  */
 public record ToolExecutionOutcome(
         boolean successful,
         String content,
-        Optional<ToolError> error) {
+        Optional<ToolError> error,
+        ToolResultMetadata metadata) {
 
     /**
      * 校验并创建 Tool 业务结果。
@@ -27,12 +30,17 @@ public record ToolExecutionOutcome(
      * @param successful 执行是否成功
      * @param content    成功时的输出正文
      * @param error      失败时的结构化错误
-     * @throws NullPointerException     {@code content} 或 {@code error} 为空时抛出
+     * @param metadata   Tool 语义裁剪和 continuation 元数据
+     * @throws NullPointerException     {@code content}、{@code error} 或 {@code metadata} 为空时抛出
      * @throws IllegalArgumentException 成功状态与错误是否存在不一致时抛出
      */
     public ToolExecutionOutcome {
         content = Objects.requireNonNull(content, "content 不能为空");
         error = Objects.requireNonNull(error, "error 不能为空");
+        metadata = Objects.requireNonNull(metadata, "metadata 不能为空");
+        if (metadata.returnedCharacters() != content.codePointCount(0, content.length())) {
+            throw new IllegalArgumentException("metadata 返回字符数必须与 content 一致");
+        }
         if (successful && error.isPresent()) {
             throw new IllegalArgumentException("成功 Outcome 不能携带 error");
         }
@@ -51,7 +59,23 @@ public record ToolExecutionOutcome(
         return new ToolExecutionOutcome(
                 true,
                 Objects.requireNonNull(content, "content 不能为空"),
-                Optional.empty());
+                Optional.empty(),
+                ToolResultMetadata.complete(content));
+    }
+
+    /**
+     * 创建携带语义裁剪 metadata 的成功业务结果。
+     *
+     * @param content Tool 输出正文
+     * @param metadata Tool 产生的有界结果信息
+     * @return 成功 Outcome
+     */
+    public static ToolExecutionOutcome success(String content, ToolResultMetadata metadata) {
+        return new ToolExecutionOutcome(
+                true,
+                Objects.requireNonNull(content, "content 不能为空"),
+                Optional.empty(),
+                Objects.requireNonNull(metadata, "metadata 不能为空"));
     }
 
     /**
@@ -64,6 +88,7 @@ public record ToolExecutionOutcome(
         return new ToolExecutionOutcome(
                 false,
                 "",
-                Optional.of(Objects.requireNonNull(error, "error 不能为空")));
+                Optional.of(Objects.requireNonNull(error, "error 不能为空")),
+                ToolResultMetadata.complete(""));
     }
 }

@@ -8,12 +8,14 @@
 > React/Ink TUI”；真实 OpenAI-compatible Provider、文本流、原始 Tool Call、
 > Core 取消、连续 Headless Session、TUI 非 TTY、Picocli Java `--print`、
 > CLI Override、墙钟超时和隐私安全的 Run/Turn/Tool Telemetry 链路已跑通。
-> S02 仍在进行中；跨 Chunk 多 Tool、429 有界重试、不完整流与长度终态已有本机
-> OpenAI-compatible Contract 证据，真实中转模型同回合只返回一个 Tool Call，
-> Windows 活动 Run 取消与进程负例已关闭；当前 Provider 的同回合多 Tool 限制已登记为
-> 明确偏差。S02 已在实现 Commit `700251e` 上通过 G0-G6；下一步是 S03 Read Tools 启动 Gate。
+> 跨 Chunk 多 Tool、429 有界重试、不完整流与长度终态已有本机 OpenAI-compatible
+> Contract 证据；真实中转模型同回合只返回一个 Tool Call，该限制已登记为明确偏差。
+> S02 已在实现 Commit `700251e` 上通过 G0-G6。S03 已按
+> [ADR-032](./docs/adr/ADR-032-s03-read-tools-security-contract.md)实现五个只读 Tool、
+> WorkspaceGuard、结果硬上限、根 `AGENTS.md` 与安全 Tool 进度，并通过离线 E2E 和真实
+> Windows Junction 专项验证；当前为 Exit Candidate，待最终 Commit-scoped 复验后退出。
 >
-> Current status: S01 and S02 accepted; S03 Read Tools is next.
+> Current status: S01 and S02 accepted; S03 Read Tools is an exit candidate.
 
 ## 项目目标
 
@@ -133,7 +135,8 @@ Spring AI 只位于模型和集成适配层，React/Ink 只位于终端前端。
 14. [ADR-029](./docs/adr/ADR-029-s02-continuous-session.md)：连续 Headless Session 与跨 Run 规范历史；
 15. [ADR-030](./docs/adr/ADR-030-s02-privacy-safe-run-telemetry.md)：事件边界耗时、可信 Usage 与默认最小化观测；
 16. [ADR-031](./docs/adr/ADR-031-s02-provider-multi-tool-deviation.md)：当前 Provider 同回合多 Tool 偏差；
-17. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：仍有效的 Provider 与 Streaming 目标；
+17. [ADR-032](./docs/adr/ADR-032-s03-read-tools-security-contract.md)：S03 只读 Tool、WorkspaceGuard、结果上限与安全契约；
+18. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：仍有效的 Provider 与 Streaming 目标；
 18. [ADR-020（历史）](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)：此前暂停研究的审计记录；
 19. [Stage 证据包模板](./docs/templates/stage-evidence-package.md)：每个阶段统一的 G0-G6 Gate；
 20. [S01 Runtime Kernel ADR](./docs/adr/ADR-017-s01-runtime-kernel.md)：首个代码阶段的关键取舍；
@@ -173,7 +176,7 @@ S01 Accepted Commit 明确不能连接真实模型、读取或修改仓库、执
 
 S02 工作区已把 React/Ink TUI 的内部 stdio v0 接到真实 Java `AgentRuntime` 和
 OpenAI-compatible Provider；测试专用 Fake 仍用于离线协议、乱序与取消回归。
-当前不包含文件 Tool、Shell、完整权限策略或持久化。复现方法见
+当前已经包含 S03 只读文件/Git Tool，但仍不包含写文件、Patch、通用 Shell、完整权限策略或持久化。复现方法见
 [S02 TUI Spike Demo](./docs/demos/S02-tui-spike.md)和
 [S02 Java Print Demo](./docs/demos/S02-java-print.md)。
 

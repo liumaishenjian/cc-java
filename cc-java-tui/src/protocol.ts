@@ -6,6 +6,9 @@ const EVENT_TYPES = new Set([
   'initialized',
   'run.started',
   'model.text.delta',
+  'tool.started',
+  'tool.completed',
+  'tool.failed',
   'run.completed',
   'run.failed',
   'run.cancelled',
@@ -16,6 +19,9 @@ export type EventType =
   | 'initialized'
   | 'run.started'
   | 'model.text.delta'
+  | 'tool.started'
+  | 'tool.completed'
+  | 'tool.failed'
   | 'run.completed'
   | 'run.failed'
   | 'run.cancelled'
@@ -115,6 +121,9 @@ function validateEventShape(
   if (
     (type === 'run.started'
       || type === 'model.text.delta'
+      || type === 'tool.started'
+      || type === 'tool.completed'
+      || type === 'tool.failed'
       || type === 'run.completed'
       || type === 'run.failed'
       || type === 'run.cancelled')
@@ -124,6 +133,15 @@ function validateEventShape(
   }
   if (type === 'model.text.delta' && typeof payload.text !== 'string') {
     throw new ProtocolViolation('model.text.delta 缺少文本');
+  }
+  if (
+    (type === 'tool.started' || type === 'tool.completed' || type === 'tool.failed')
+    && (!Number.isSafeInteger(payload.ordinal)
+      || (payload.ordinal as number) < 1
+      || typeof payload.toolName !== 'string'
+      || payload.toolName.trim().length === 0)
+  ) {
+    throw new ProtocolViolation(`${type} 缺少安全 Tool 摘要`);
   }
 }
 

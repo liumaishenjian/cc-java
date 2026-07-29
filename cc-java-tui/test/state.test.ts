@@ -22,12 +22,30 @@ describe('reduceTuiState', () => {
       event: event('model.text.delta', 3, {text: '你好'}, 'req-run', 'session-1', 'run-1'),
     });
 
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('tool.started', 4, {ordinal: 1, toolName: 'read_file'}, 'req-run', 'session-1', 'run-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('tool.completed', 5, {
+        ordinal: 1,
+        toolName: 'read_file',
+        status: 'success',
+        returnedCharacters: 42,
+        truncated: true,
+      }, 'req-run', 'session-1', 'run-1'),
+    });
+
     expect(state.phase).toBe('running');
     expect(state.runs[0]?.text).toBe('你好');
+    expect(state.runs[0]?.tools).toEqual([
+      expect.objectContaining({name: 'read_file', status: 'success', truncated: true}),
+    ]);
 
     state = reduceTuiState(state, {
       type: 'event.received',
-      event: event('run.completed', 4, {}, 'req-run', 'session-1', 'run-1'),
+      event: event('run.completed', 6, {}, 'req-run', 'session-1', 'run-1'),
     });
     expect(state.phase).toBe('ready');
     expect(state.runs[0]?.status).toBe('completed');

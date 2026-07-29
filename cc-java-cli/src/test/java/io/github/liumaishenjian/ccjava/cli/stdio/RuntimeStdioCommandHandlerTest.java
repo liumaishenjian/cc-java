@@ -7,6 +7,8 @@ import io.github.liumaishenjian.ccjava.domain.ModelFinishReason;
 import io.github.liumaishenjian.ccjava.domain.ModelTurn;
 import io.github.liumaishenjian.ccjava.domain.ModelTurnMetadata;
 import io.github.liumaishenjian.ccjava.domain.ModelUsage;
+import io.github.liumaishenjian.ccjava.domain.ToolCall;
+import io.github.liumaishenjian.ccjava.domain.JsonObject;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -71,6 +73,47 @@ class RuntimeStdioCommandHandlerTest {
             assertThat(terminal.payload().get("finalText").stringValue())
                     .isEqualTo("COMPLETION_SENTINEL");
         }
+    }
+
+    @Test
+    void projectsToolLifecycleWithoutArgumentsContentOrAbsolutePaths() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        java.util.concurrent.atomic.AtomicInteger turns = new java.util.concurrent.atomic.AtomicInteger();
+
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            if (turns.incrementAndGet() == 1) {
+                return new ModelTurn(
+                        AssistantMessage.tools(List.of(new ToolCall(
+                                "call-1", "read_file",
+                                new JsonObject(java.util.Map.of("path", "MISSING_SECRET_PATH"))))),
+                        ModelTurnMetadata.unknown());
+            }
+            return ModelTurn.text("done");
+        })) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"run.start\","
+                    + "\"requestId\":\"run\",\"sessionId\":\"%s\",\"sequence\":2,"
+                    + "\"payload\":{\"prompt\":\"PROMPT_SECRET\"}}").formatted(sessionId)), emitter);
+            awaitTerminal(events);
+        }
+
+        CapturedEvent started = events.stream()
+                .filter(event -> event.type().equals("tool.started"))
+                .findFirst().orElseThrow();
+        CapturedEvent failed = events.stream()
+                .filter(event -> event.type().equals("tool.failed"))
+                .findFirst().orElseThrow();
+        assertThat(started.payload().toString())
+                .contains("read_file", "ordinal")
+                .doesNotContain("MISSING_SECRET_PATH", "PROMPT_SECRET", "arguments", "content");
+        assertThat(failed.payload().toString())
+                .contains("sensitive_path", "returnedCharacters")
+                .doesNotContain("MISSING_SECRET_PATH", "PROMPT_SECRET", "arguments", "content");
     }
 
     private CapturedEvent awaitTerminal(List<CapturedEvent> events)

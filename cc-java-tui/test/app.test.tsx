@@ -25,6 +25,7 @@ describe('AgentView', () => {
         prompt: '解释中文宽字符',
         runId: 'run-1',
         text: '你好，coding agent。',
+        tools: [],
         status: 'completed',
       }],
     };
@@ -47,12 +48,21 @@ describe('AgentView', () => {
         prompt: '继续',
         runId: 'run-2',
         text: '流式',
+        tools: [{
+          ordinal: 1,
+          name: 'read_file',
+          status: 'started',
+          returnedCharacters: undefined,
+          truncated: false,
+          errorCode: undefined,
+        }],
         status: 'running',
       }],
     };
     const view = render(<AgentView state={state} input="" columns={80} />);
 
     expect(view.lastFrame()).toContain('模型输出中');
+    expect(view.lastFrame()).toContain('read_file: started');
     expect(view.lastFrame()).toContain('[running]');
   });
 
@@ -85,6 +95,7 @@ describe('AgentView', () => {
         prompt: '保留上下文',
         runId: 'run-resize',
         text: '已有回答',
+        tools: [],
         status: 'completed',
       }],
     };

@@ -1,12 +1,11 @@
 # cc-java 产品需求文档
 
-> 文档状态：Draft v0.7
+> 文档状态：Draft v0.8
 >
-> 最后更新：2026-07-29
+> 最后更新：2026-07-30
 >
-> 当前阶段：S01 Runtime Kernel 已 Accepted；S02 真实 Provider/Runtime/TUI、
-> Java Print、CLI Override、墙钟限制和模型流健壮性已通过，但 24 项退出目标和
-> Windows 负例仍未全部关闭
+> 当前阶段：S01 Runtime Kernel 与 S02 Model + Streaming CLI 已 Accepted；S03 Read
+> Tools 已完成独立实现与专项离线验证，当前为 Exit Candidate，待最终对账与 Commit-scoped 复验
 >
 > 产品负责人：项目维护者
 

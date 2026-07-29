@@ -4,12 +4,10 @@
 >
 > 参考版本：R2026.03
 >
-> 最后更新：2026-07-29
+> 最后更新：2026-07-30
 >
-> 当前代码状态：S01 Runtime Kernel 已 Accepted；S02 真实 Provider、
-> Runtime/stdio/TUI、Picocli Java Print、CLI Override、墙钟限制、模型流健壮性与
-> Windows 直接子进程生命周期已通过，
-> Stage 尚未退出
+> 当前代码状态：S01 Runtime Kernel 与 S02 Model + Streaming CLI 已 Accepted；S03
+> Read Tools 已完成实现和专项离线验证，处于 Exit Candidate，待最终对账与 Commit-scoped 复验
 
 ## 1. 文档目的
 
@@ -153,12 +151,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 193 |
-| 当前阶段 | S02 Model + Streaming CLI（Accepted on `700251e`） |
-| Stage Exit | Accepted：G0-G6 已通过 |
-| 当前等级 | 19 项为 L2，22 项为 L1，152 项为 L0 |
+| 当前阶段 | S03 Read Tools（`IN_PROGRESS`） |
+| Stage Exit | Exit Candidate：G0-G5 已通过，G6 与 Commit-scoped 复验待关闭 |
+| 当前等级 | 29 项为 L2，25 项为 L1，139 项为 L0 |
 | 默认最终目标 | 193 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 10.36%（193 项等权、目标 L3） |
-| 下一步 | 建立 S03 Read Tools 启动 Gate，先验证 WorkspaceGuard 与只读 Tool 边界 |
+| 当前能力覆盖 | 14.34%（193 项等权、目标 L3） |
+| 下一步 | 完成 S03 文档/看板对账、真实 Provider opt-in Demo 与 Commit-scoped 复验 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -232,9 +230,9 @@ Stage 完成项。
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
 | BOOT-01 | CLI 启动并识别运行模式 | Picocli Headless + React/Ink Interactive | L2 | S02 | REF-02/AUTH-01 |
-| BOOT-02 | 确定 Workspace 与 Git 状态 | `WorkspaceSnapshot` | L0 | S03 | REF-02 |
+| BOOT-02 | 确定 Workspace 与 Git 状态 | `WorkspaceSnapshot` | L2 | S03 | REF-02 |
 | BOOT-03 | 加载模型、工具和权限 | `SessionBootstrapper` | L1 | S02/S05 | REF-01 |
-| BOOT-04 | 加载项目指令 | `InstructionLoader` | L0 | S03/S08 | REF-05 |
+| BOOT-04 | 加载项目指令 | `InstructionLoader` | L1 | S03/S08 | REF-05 |
 | BOOT-05 | 创建 Session 和初始 Context | `SessionStore` + `ContextAssembler` | L1 | S01 | REF-02 |
 | BOOT-06 | 启动诊断 | `/doctor` 与配置来源报告 | L0 | S08/S14 | REF-02 |
 | BOOT-07 | 延迟加载高成本能力 | Lazy Tool/Skill/MCP Metadata | L0 | S07/S10/S11 | REF-01/03 |
@@ -246,7 +244,7 @@ Stage 完成项。
 | CLI-01 | Interactive Session | React/Ink TUI + Java Application Session | L2 | S02 | REF-02/AUTH-01 |
 | CLI-02 | Print / Headless | Picocli `--print` | L2 | S02 | REF-02 |
 | CLI-03 | 流式 Assistant Text | stdio Event → Ink 组件渲染 | L2 | S02 | REF-02/AUTH-01 |
-| CLI-04 | Tool 进度与输出 | 有序 Agent Event 渲染 | L1 | S02/S03 | REF-02 |
+| CLI-04 | Tool 进度与输出 | 有序 Agent Event 渲染 | L2 | S02/S03 | REF-02 |
 | CLI-05 | Permission Prompt | 终端 Approval UI | L0 | S04/S05 | REF-04 |
 | CLI-06 | Ctrl+C Cancel | 当前 Run/Tool 取消 | L1 | S02/S04 | REF-02 |
 | CLI-07 | Steering | S08 运行中排队用户补充消息 | L0 | S08 | REF-02 |
@@ -299,16 +297,16 @@ Stage 完成项。
 | TOOL-01 | Tool Definition + Schema | Framework-free Contract | L1 | S01 | REF-08 |
 | TOOL-02 | Tool Registry | Source-aware Registry | L1 | S01 | REF-01 |
 | TOOL-03 | 统一执行 Pipeline | Validate → Permit → Execute → Normalize | L1 | S01/S05 | REF-01/07 |
-| TOOL-04 | List / Glob | Workspace 文件枚举 | L0 | S03 | REF-02 |
-| TOOL-05 | Grep / Search | 文本和行号搜索 | L0 | S03 | REF-02 |
-| TOOL-06 | Read File | 分段、行号、大小限制 | L0 | S03 | REF-02 |
-| TOOL-07 | Git Status / Diff | 脏工作区和证据 | L0 | S03/S04 | REF-02 |
+| TOOL-04 | List / Glob | Workspace 文件枚举 | L2 | S03 | REF-02 |
+| TOOL-05 | Grep / Search | 文本和行号搜索 | L2 | S03 | REF-02 |
+| TOOL-06 | Read File | 分段、行号、大小限制 | L2 | S03 | REF-02 |
+| TOOL-07 | Git Status / Diff | 脏工作区和证据 | L2 | S03/S04 | REF-02 |
 | TOOL-08 | Apply Patch / Edit | 原子文本修改 | L0 | S04 | REF-02 |
 | TOOL-09 | Write / Create | 新文件写入 | L0 | S04 | REF-02 |
 | TOOL-10 | Run Command | Shell、timeout、exit code | L0 | S04 | REF-02 |
 | TOOL-11 | Tool Output Streaming | stdout/stderr Event | L0 | S04 | REF-02 |
-| TOOL-12 | Result Truncation | 显式截断和摘要 | L0 | S03/S07 | REF-01 |
-| TOOL-13 | Structured Tool Error | 模型可纠正错误 | L1 | S01/S03 | REF-01 |
+| TOOL-12 | Result Truncation | 显式截断和摘要 | L2 | S03/S07 | REF-01 |
+| TOOL-13 | Structured Tool Error | 模型可纠正错误 | L2 | S01/S03 | REF-01 |
 | TOOL-14 | Tool Cancellation | Model/Process/File 取消 | L0 | S04 | REF-02 |
 | TOOL-15 | 并行安全工具 | Read-only 并行执行 | L0 | S12 | REF-01 |
 | TOOL-16 | Tool Search / Lazy Schema | 大工具集按需加载 | L0 | S10/S11 | REF-02/03 |
@@ -355,16 +353,16 @@ Stage 完成项。
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| SEC-01 | Workspace Realpath | 路径与新文件父目录校验 | L0 | S03/S04 | REF-02 |
-| SEC-02 | Symlink / Junction | 跨平台逃逸测试 | L0 | S03/S13 | REF-02 |
-| SEC-03 | Sensitive Files | 默认拒绝和配置 | L0 | S03/S13 | REF-04 |
+| SEC-01 | Workspace Realpath | 路径与新文件父目录校验 | L1 | S03/S04 | REF-02 |
+| SEC-02 | Symlink / Junction | 跨平台逃逸测试 | L1 | S03/S13 | REF-02 |
+| SEC-03 | Sensitive Files | 默认拒绝和配置 | L1 | S03/S13 | REF-04 |
 | SEC-04 | Process Tree Control | timeout/cancel/cleanup | L0 | S04/S13 | REF-02 |
 | SEC-05 | Environment Filtering | 最小环境变量 | L0 | S04/S13 | REF-01 |
 | SEC-06 | File Sandbox | Workspace 级 OS 隔离 | L0 | S13 | REF-01 |
 | SEC-07 | Network Sandbox | Domain/Port Policy | L0 | S13 | REF-01 |
 | SEC-08 | Container Backend | 隔离执行环境 | L0 | S13 | REF-01 |
 | SEC-09 | Prompt Injection Defense | 不可信仓库测试 | L0 | S05/S13 | REF-02 |
-| SEC-10 | Secret Redaction | Event/Log/Tool Result | L0 | S03/S14 | REF-01 |
+| SEC-10 | Secret Redaction | Event/Log/Tool Result | L1 | S03/S14 | REF-01 |
 | SEC-11 | Plugin Supply Chain | 签名、信任和隔离 | L0 | S11/S13 | REF-03 |
 | SEC-12 | Security Regression Suite | 攻击性 Fixture | L0 | S13 | REF-01 |
 
@@ -373,10 +371,10 @@ Stage 完成项。
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
 | CTX-01 | System Context Assembly | 稳定策略 + Runtime Metadata | L2 | S01/S02 | REF-02 |
-| CTX-02 | Project Instructions | 根 AGENTS.md | L0 | S03 | REF-05 |
+| CTX-02 | Project Instructions | 根 AGENTS.md | L2 | S03 | REF-05 |
 | CTX-03 | Hierarchical Instructions | User/Project/Directory | L0 | S08 | REF-05 |
 | CTX-04 | Path-scoped Rules | 只在相关文件加载 | L0 | S08 | REF-05 |
-| CTX-05 | Tool Result Limits | 类型化裁剪 | L0 | S03/S04 | REF-01 |
+| CTX-05 | Tool Result Limits | 类型化裁剪 | L2 | S03/S04 | REF-01 |
 | CTX-06 | Token Budget | Model-aware 预算 | L0 | S07 | REF-01/02 |
 | CTX-07 | Complete Turn Eviction | 保持 Tool 协议成对 | L0 | S07 | REF-01 |
 | CTX-08 | Old Tool Output Clear | 优先释放低价值输出 | L0 | S07 | REF-02 |

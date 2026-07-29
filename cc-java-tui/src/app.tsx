@@ -21,10 +21,10 @@ export interface AgentClient {
 export const MAX_INPUT_CHARS = 8_192;
 
 /**
- * S02 最小 React/Ink 终端 Surface。
+ * S03 最小 React/Ink 终端 Surface。
  *
  * 组件只把键盘动作转换成命令并渲染 Reducer 投影；Java Headless 始终拥有 Session、
- * Run、取消与终态。S04 以前本组件不会执行 Tool 或展示审批。
+ * Run、Tool 与终态。当前只展示脱敏 Tool 摘要，不执行 Tool；审批仍属于 S04。
  */
 export function AgentTui({client}: AgentTuiProps) {
   const [state, dispatch] = useReducer(reduceTuiState, initialTuiState);
@@ -138,11 +138,18 @@ export interface AgentViewProps {
 export function AgentView({state, input, columns}: AgentViewProps) {
   return (
     <Box flexDirection="column" width={Math.max(20, columns)}>
-      <Text bold color="cyan">cc-java S02 terminal spike</Text>
+      <Text bold color="cyan">cc-java S03 read tools</Text>
       <Text dimColor>状态：{state.phase}　Ctrl+C：取消 Run；再次按下强制退出</Text>
       {state.runs.map(run => (
         <Box key={run.requestId} flexDirection="column" marginTop={1}>
           <Text color="green">&gt; {run.prompt}</Text>
+          {run.tools.map(tool => (
+            <Text key={tool.ordinal} dimColor>
+              [tool {tool.ordinal}] {tool.name}: {tool.status}
+              {tool.truncated ? ' (truncated)' : ''}
+              {tool.errorCode === undefined ? '' : ` (${tool.errorCode})`}
+            </Text>
+          ))}
           <Text>{run.text}</Text>
           <Text dimColor>[{run.status}]</Text>
         </Box>

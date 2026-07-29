@@ -16,14 +16,20 @@ import java.util.Objects;
 /**
  * 统一执行模型提出的每一次 Tool Call。
  *
- * <p>S01 的确定性顺序为：解析 Tool → 参数校验 → Before 事件 → Permission
- * → 可选 Approval → 同步执行 → 规范化 Result → After 事件。未知 Tool、
+ * <p>确定性顺序为：解析 Tool → 参数校验 → Before 事件 → Permission
+ * → 可选 Approval → 同步执行 → 规范化/最终裁剪 Result → After 事件。未知 Tool、
  * 参数错误和执行异常都转换为带原始 Call ID 的结构化失败结果，使模型可以
- * 在下一回合纠正。输出裁剪、脱敏、超时和取消在后续 Stage 加入同一管线。</p>
+ * 在下一回合纠正。S03 在这里强制最终字符 ceiling，确保 Tool、事件、Session History
+ * 和下一模型回合看不到裁剪前旁路结果；超时和取消仍由后续 Stage 加入同一管线。</p>
  *
  * @since 0.1.0
  */
 public final class ToolExecutionPipeline {
+
+    /** 无论 Tool Definition 如何声明，Pipeline 都不会向 Context 放入更多字符。 */
+    public static final int ABSOLUTE_MAX_OUTPUT_CHARACTERS = 64_000;
+
+    private static final String TRUNCATION_MARKER = "\n[truncated: pipeline character limit]";
 
     private final ToolRegistry registry;
     private final PermissionGate permissionGate;
@@ -166,7 +172,7 @@ public final class ToolExecutionPipeline {
                     tool.execute(invocation),
                     "Tool execute 返回 null");
             ToolResult result = outcome.successful()
-                    ? ToolResult.success(call.id(), call.name(), outcome.content())
+                    ? normalizeSuccess(call, definition, outcome)
                     : ToolResult.failure(call.id(), call.name(), outcome.error().orElseThrow());
             return finish(session, runId, ordinal, result);
         } catch (Exception exception) {
@@ -181,6 +187,46 @@ public final class ToolExecutionPipeline {
                                     ToolErrorCode.EXECUTION_FAILED,
                                     "Tool 执行失败")));
         }
+    }
+
+    private ToolResult normalizeSuccess(
+            ToolCall call,
+            ToolDefinition definition,
+            ToolExecutionOutcome outcome) {
+        int limit = Math.min(
+                definition.maxOutputCharacters(),
+                ABSOLUTE_MAX_OUTPUT_CHARACTERS);
+        String original = outcome.content();
+        int originalCharacters = original.codePointCount(0, original.length());
+        if (originalCharacters <= limit) {
+            return ToolResult.success(
+                    call.id(),
+                    call.name(),
+                    original,
+                    outcome.metadata().normalize(original, false, originalCharacters));
+        }
+
+        int markerCharacters = TRUNCATION_MARKER.codePointCount(0, TRUNCATION_MARKER.length());
+        String normalized;
+        if (limit <= markerCharacters) {
+            normalized = prefixByCodePoints(TRUNCATION_MARKER, limit);
+        } else {
+            normalized = prefixByCodePoints(original, limit - markerCharacters)
+                    + TRUNCATION_MARKER;
+        }
+        return ToolResult.success(
+                call.id(),
+                call.name(),
+                normalized,
+                outcome.metadata().normalize(normalized, true, originalCharacters));
+    }
+
+    private static String prefixByCodePoints(String value, int codePoints) {
+        if (codePoints == 0) {
+            return "";
+        }
+        int end = value.offsetByCodePoints(0, codePoints);
+        return value.substring(0, end);
     }
 
     private ToolResult finish(

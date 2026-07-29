@@ -1,16 +1,17 @@
 # cc-java 技术设计文档
 
-> 文档状态：Proposed v0.7
+> 文档状态：Proposed v0.8
 >
-> 最后更新：2026-07-29
+> 最后更新：2026-07-30
 >
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
-> 当前学习阶段：S01 Runtime Kernel 已 Accepted；S02 实现中
+> 当前学习阶段：S01 Runtime Kernel 与 S02 Model + Streaming CLI 已 Accepted；S03
+> Read Tools `EXIT_CANDIDATE`
 >
-> 当前实现状态：真实 Provider、Spring AI Adapter、Core 流式/取消与
-> React/Ink → stdio → Runtime、Java `--print`、CLI Override 与 Deadline 链路已通过；
-> 模型流健壮性已实现；Windows TTY/进程负例和尚未确认的真实多 Tool 兼容性仍未关闭
+> 当前实现状态：S02 真实 Provider、Java Headless、stdio v0、React/Ink、Java Print、
+> 连续 Session、Deadline、取消与隐私安全 Telemetry 已通过；S03 五个只读 Tool、
+> WorkspaceGuard、类型化结果、根 `AGENTS.md` 与安全进度 Surface 已实现并通过专项离线验证
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 
@@ -62,8 +63,9 @@ S01～S04 会逐步形成第一个可运行的 Mini Coding Agent CLI。它只是
 [公开行为基线](./reference-baselines/R2026.03-public-behavior.md)、
 [授权参考源码登记](./reference-baselines/R2026.03-authorized-source.md)、
 [ADR-022](./adr/ADR-022-reactivate-authorized-reference-study.md)和
-[ADR-023](./adr/ADR-023-s02-java-headless-ink-tui.md)和
-[ADR-024](./adr/ADR-024-s02-openai-compatible-first-provider.md)。
+[ADR-023](./adr/ADR-023-s02-java-headless-ink-tui.md)、
+[ADR-024](./adr/ADR-024-s02-openai-compatible-first-provider.md)和
+[ADR-032](./adr/ADR-032-s03-read-tools-security-contract.md)。
 
 ### 2.1 阶段权威与完成证据
 
@@ -1231,6 +1233,7 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | [ADR-029](./adr/ADR-029-s02-continuous-session.md) | Accepted | S02 固定同一 Headless Session 的跨 Run 规范历史与双 Run stdio 证据 |
 | [ADR-030](./adr/ADR-030-s02-privacy-safe-run-telemetry.md) | Accepted | S02 固定事件边界耗时、可信 Usage 完整覆盖语义与默认最小化观测出口 |
 | [ADR-031](./adr/ADR-031-s02-provider-multi-tool-deviation.md) | Accepted | 当前 Provider 同回合多 Tool 是生成能力偏差；Adapter 继续保留完整协议 |
+| [ADR-032](./adr/ADR-032-s03-read-tools-security-contract.md) | Accepted | S03 固定五个只读 Tool、WorkspaceGuard、敏感路径、结果硬上限、根 `AGENTS.md` 与安全事件投影 |
 
 ## 26. 需求追踪
 

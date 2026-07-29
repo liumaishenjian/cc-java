@@ -3,11 +3,21 @@ import type {ProtocolEvent} from './protocol.js';
 export type RunStatus = 'running' | 'completed' | 'cancelled' | 'failed';
 export type ClientPhase = 'connecting' | 'ready' | 'running' | 'closing' | 'closed' | 'failed';
 
+export interface ToolView {
+  readonly ordinal: number;
+  readonly name: string;
+  readonly status: 'started' | 'success' | 'failed' | 'denied';
+  readonly returnedCharacters: number | undefined;
+  readonly truncated: boolean;
+  readonly errorCode: string | undefined;
+}
+
 export interface RunView {
   readonly requestId: string;
   readonly prompt: string;
   readonly runId: string | undefined;
   readonly text: string;
+  readonly tools: readonly ToolView[];
   readonly status: RunStatus;
 }
 
@@ -57,6 +67,7 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
             prompt: action.prompt,
             runId: undefined,
             text: '',
+            tools: [],
             status: 'running',
           },
         ],
@@ -91,6 +102,17 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
         ...run,
         text: run.text + String(event.payload.text),
       }));
+    case 'tool.started':
+      return updateCurrentRun(state, event, run => ({
+        ...run,
+        tools: upsertStartedTool(run.tools, event),
+      }));
+    case 'tool.completed':
+    case 'tool.failed':
+      return updateCurrentRun(state, event, run => ({
+        ...run,
+        tools: upsertFinishedTool(run.tools, event),
+      }));
     case 'run.completed':
       return finishRun(state, event, 'completed');
     case 'run.cancelled':
@@ -103,6 +125,46 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
         notice: safeProtocolMessage(event.payload),
       };
   }
+}
+
+function upsertStartedTool(
+  tools: readonly ToolView[],
+  event: ProtocolEvent,
+): readonly ToolView[] {
+  const ordinal = Number(event.payload.ordinal);
+  const item: ToolView = {
+    ordinal,
+    name: String(event.payload.toolName),
+    status: 'started',
+    returnedCharacters: undefined,
+    truncated: false,
+    errorCode: undefined,
+  };
+  return [...tools.filter(tool => tool.ordinal !== ordinal), item]
+    .sort((left, right) => left.ordinal - right.ordinal);
+}
+
+function upsertFinishedTool(
+  tools: readonly ToolView[],
+  event: ProtocolEvent,
+): readonly ToolView[] {
+  const ordinal = Number(event.payload.ordinal);
+  const rawStatus = String(event.payload.status);
+  const status: ToolView['status'] = rawStatus === 'success'
+    ? 'success'
+    : rawStatus === 'denied' ? 'denied' : 'failed';
+  const item: ToolView = {
+    ordinal,
+    name: String(event.payload.toolName),
+    status,
+    returnedCharacters: Number.isSafeInteger(event.payload.returnedCharacters)
+      ? Number(event.payload.returnedCharacters) : undefined,
+    truncated: event.payload.truncated === true,
+    errorCode: typeof event.payload.errorCode === 'string'
+      ? event.payload.errorCode : undefined,
+  };
+  return [...tools.filter(tool => tool.ordinal !== ordinal), item]
+    .sort((left, right) => left.ordinal - right.ordinal);
 }
 
 function finishRun(

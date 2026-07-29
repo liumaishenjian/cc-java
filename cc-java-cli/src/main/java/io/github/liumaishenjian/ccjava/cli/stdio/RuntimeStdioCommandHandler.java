@@ -29,7 +29,8 @@ import java.time.Duration;
  * 把 stdio v0 命令适配到真实 {@link HeadlessRuntimeSession}。
  *
  * <p>该类型只管理单连接的 Session/Run 状态和事件映射。模型循环、规范消息历史、
- * Tool Pipeline、取消与终态仍由 Core 拥有；当前 S02 尚未注册本地文件或 Shell Tool。</p>
+ * Tool Pipeline、取消与终态仍由 Core 拥有；S03 只把 Core Lifecycle 投影为不含参数、正文、
+ * 绝对路径和原始异常的 Tool 进度事件。</p>
  *
  * @since 0.1.0
  */
@@ -205,6 +206,26 @@ public final class RuntimeStdioCommandHandler
             ObjectNode payload = codec.objectNode();
             payload.put("promptChars", run.promptChars);
             emit(run, "run.started", payload);
+        } else if (envelope.event() instanceof LifecycleEvent.BeforeTool before) {
+            ObjectNode payload = codec.objectNode();
+            payload.put("ordinal", before.ordinal());
+            payload.put("toolName", before.call().name());
+            payload.put("status", "started");
+            emit(run, "tool.started", payload);
+        } else if (envelope.event() instanceof LifecycleEvent.AfterTool after) {
+            ObjectNode payload = codec.objectNode();
+            payload.put("ordinal", after.ordinal());
+            payload.put("toolName", after.result().toolName());
+            payload.put("status", after.result().status().name().toLowerCase());
+            payload.put("returnedCharacters", after.result().metadata().returnedCharacters());
+            payload.put("truncated", after.result().metadata().truncated());
+            payload.put("filteredItems", after.result().metadata().filteredItems());
+            after.result().error().ifPresent(error -> payload.put(
+                    "errorCode", error.code().name().toLowerCase()));
+            String type = after.result().status()
+                    == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS
+                            ? "tool.completed" : "tool.failed";
+            emit(run, type, payload);
         } else if (envelope.event() instanceof ModelTextDelta delta) {
             ObjectNode payload = codec.objectNode();
             payload.put("text", delta.text());

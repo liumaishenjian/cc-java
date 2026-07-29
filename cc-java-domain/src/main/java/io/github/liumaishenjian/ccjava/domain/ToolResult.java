@@ -14,6 +14,7 @@ import java.util.Optional;
  * @param status   规范化状态
  * @param content  可反馈给模型的文本；没有正文时为空字符串
  * @param error    失败或拒绝时的结构化错误
+ * @param metadata 输出边界、裁剪和 continuation 元数据
  * @since 0.1.0
  */
 public record ToolResult(
@@ -21,7 +22,8 @@ public record ToolResult(
         String toolName,
         ToolResultStatus status,
         String content,
-        Optional<ToolError> error) {
+        Optional<ToolError> error,
+        ToolResultMetadata metadata) {
 
     /**
      * 校验调用关联和状态不变量后创建 Tool Result。
@@ -31,6 +33,7 @@ public record ToolResult(
      * @param status 规范化结果状态
      * @param content 可反馈给模型的文本
      * @param error 失败或拒绝时的结构化错误
+     * @param metadata 输出边界、裁剪和 continuation 元数据
      * @throws NullPointerException 必填引用或 Optional 容器为空时
      * @throws IllegalArgumentException 标识为空白，或状态与错误信息不一致时
      */
@@ -40,6 +43,10 @@ public record ToolResult(
         status = Objects.requireNonNull(status, "status 不能为空");
         content = Objects.requireNonNull(content, "content 不能为空");
         error = Objects.requireNonNull(error, "error 不能为空");
+        metadata = Objects.requireNonNull(metadata, "metadata 不能为空");
+        if (metadata.returnedCharacters() != content.codePointCount(0, content.length())) {
+            throw new IllegalArgumentException("metadata 返回字符数必须与 content 一致");
+        }
         if (status == ToolResultStatus.SUCCESS && error.isPresent()) {
             throw new IllegalArgumentException("成功结果不能携带 error");
         }
@@ -62,7 +69,31 @@ public record ToolResult(
                 toolName,
                 ToolResultStatus.SUCCESS,
                 Objects.requireNonNull(content, "content 不能为空"),
-                Optional.empty());
+                Optional.empty(),
+                ToolResultMetadata.complete(content));
+    }
+
+    /**
+     * 创建携带语义裁剪 metadata 的成功结果。
+     *
+     * @param callId 原始 Call ID
+     * @param toolName Tool 名称
+     * @param content 输出正文
+     * @param metadata Tool 已产生的语义裁剪信息
+     * @return 成功结果
+     */
+    public static ToolResult success(
+            String callId,
+            String toolName,
+            String content,
+            ToolResultMetadata metadata) {
+        return new ToolResult(
+                callId,
+                toolName,
+                ToolResultStatus.SUCCESS,
+                Objects.requireNonNull(content, "content 不能为空"),
+                Optional.empty(),
+                Objects.requireNonNull(metadata, "metadata 不能为空"));
     }
 
     /**
@@ -79,7 +110,8 @@ public record ToolResult(
                 toolName,
                 ToolResultStatus.FAILURE,
                 "",
-                Optional.of(Objects.requireNonNull(error, "error 不能为空")));
+                Optional.of(Objects.requireNonNull(error, "error 不能为空")),
+                ToolResultMetadata.complete(""));
     }
 
     /**
@@ -96,7 +128,8 @@ public record ToolResult(
                 toolName,
                 ToolResultStatus.DENIED,
                 "",
-                Optional.of(ToolError.of(ToolErrorCode.PERMISSION_DENIED, message)));
+                Optional.of(ToolError.of(ToolErrorCode.PERMISSION_DENIED, message)),
+                ToolResultMetadata.complete(""));
     }
 
     private static String requireText(String value, String fieldName) {
