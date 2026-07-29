@@ -1,0 +1,51 @@
+cc-java-tui/test/stdio-client.test.ts
+  s_371b145dc5ecd9::t_d77e59b1703a1f 79-81
+docs/technical-design.md
+  s_371b145dc5ecd9::t_4542b4393bfa58 938-941
+scripts/RunS02TuiSpike.ps1
+  s_371b145dc5ecd9::t_b862a1c77a47dc 26-32,35-51,53-58,62-66
+cc-java-tui/src/stdio-client.ts
+  s_371b145dc5ecd9::t_b862a1c77a47dc 78,281-287
+  s_371b145dc5ecd9::t_a95cbb4edd3098 288-289
+docs/evidence/S02-windows-terminal-lifecycle-2026-07-29.md
+  s_371b145dc5ecd9::t_4542b4393bfa58 21-23,37,46-47,60-62
+  s_371b145dc5ecd9::t_389c3d6b777757 63
+docs/progress.html
+  s_371b145dc5ecd9::t_fcd671fd59cb15 226,276,333,337-339
+docs/demos/S02-tui-spike.md
+  s_371b145dc5ecd9::t_4542b4393bfa58 32-33,56
+docs/progress-state.properties
+  s_371b145dc5ecd9::t_bf9122aaf2e926 5
+  s_371b145dc5ecd9::t_4542b4393bfa58 13,18-19,34
+cc-java-tui/src/app.tsx
+  s_371b145dc5ecd9::t_455fa92ee197e6 32,68-70,100,104,110-112,116-118
+  s_371b145dc5ecd9::t_b862a1c77a47dc 67,93,97-99,120-124,153,171-177
+  s_371b145dc5ecd9::t_df38ca29de44e8 178-179
+cc-java-tui/test/print-session.test.ts
+  s_371b145dc5ecd9::t_b862a1c77a47dc 86,88-93,100-111
+cc-java-tui/test/app.test.tsx
+  s_371b145dc5ecd9::t_d77e59b1703a1f 111,137,154
+  s_371b145dc5ecd9::t_e3041a1cbbaa90 125
+  s_371b145dc5ecd9::t_b862a1c77a47dc 4,7,12-13,106-110,112-124,126-132,134-136,138-153,155-189
+cc-java-tui/src/print-session.ts
+  s_371b145dc5ecd9::t_b862a1c77a47dc 16,18,20-31,33-41,50,53,56-60,64-65,67,69-71,73-79
+  s_371b145dc5ecd9::t_d77e59b1703a1f 19,32,68
+docs/adr/ADR-028-s02-windows-terminal-lifecycle.md
+  s_371b145dc5ecd9::t_4542b4393bfa58 69-71,77-83,94-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "886568103f5e79cd92ea9091cecd37be60d7953e",
+  "prompts": {},
+  "sessions": {
+    "s_371b145dc5ecd9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa772-84c7-7680-9e8a-026c8e1161ea",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "yliu27 <yliu27@leqee.com>"
+    }
+  }
+}
