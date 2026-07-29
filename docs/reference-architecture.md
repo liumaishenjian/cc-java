@@ -2,7 +2,7 @@
 
 > 文档状态：Research Baseline R2026.03
 >
-> 最后更新：2026-07-28
+> 最后更新：2026-07-29
 >
 > 用途：定义 `cc-java` 学习和 Java 重实现时的参考目标
 
@@ -31,10 +31,10 @@
 因此该 ID 表示第一轮能力范围，不表示所有网页都已冻结在 2026 年 3 月。第三方二手分析
 只作为 `Inferred` 研究问题，不能单独定义参考产品行为。
 
-项目曾登记一组仓库外材料，但现有证据无法核验其来源、Revision、许可证和授权范围。
-该材料已改记为
-[`UNVERIFIED-SRC-2026-03-31-A`](./reference-baselines/R2026.03-unverified-source.md)
-并隔离，不参与需求、设计、测试或实现。
+项目维护者已明确确认仓库外快照
+[`AUTH-SRC-2026-07-29-A`](./reference-baselines/R2026.03-authorized-source.md)
+获得学习授权。它只用于受控机制研究；准确 Revision、许可证、权利人和公开再使用权
+仍为 `Unknown`，不得把学习授权扩展成复制或分发授权。
 
 官方 Claude Code 仓库的 [LICENSE](https://github.com/anthropics/claude-code/blob/main/LICENSE.md)
 标明“All rights reserved”。该文件只能说明官方仓库所载材料的条款，不能证明第三方仓库
@@ -49,7 +49,8 @@ Java 契约、命名、实现和测试仍须独立产生，不复制受限制源
 - `Unknown`：因快照缺失、不可运行或版本不明而不能确认。
 
 本文各子系统的“参考能力”列表是由公开资料和研究问题合成的目标目录。没有独立黑盒证据
-的项目不得解释为 `Observed`；未核验本地材料不能补足公开来源的缺口。
+的项目不得解释为公开产品 `Observed`；授权源码的 `Observed` 只表示该快照内可直接确认
+的机制，不能补足公开行为证据。
 
 ## 3. 学习方法
 
@@ -68,8 +69,8 @@ G0 来源、授权与快照
 
 ### Observe
 
-从公开文档和独立产品行为中记录输入、输出、状态和边界。结论必须标记
-`Documented / Observed / Inferred / Unknown`，不得用未核验材料或推测填补来源缺失。
+从公开文档、独立产品行为和受控授权源码研究中记录输入、输出、状态和边界。结论必须
+标记 `Documented / Observed / Inferred / Unknown`，并区分公开行为与快照机制。
 
 ### Explain
 
@@ -82,15 +83,16 @@ G0 来源、授权与快照
 
 ### Reimplement
 
-根据 `cc-java` 自己的接口和测试，用 Java 独立实现行为。
+根据 `cc-java` 自己的接口和测试，用 Java 独立实现 Runtime；终端 Surface 可以采用
+更适合交互的技术，但不能拥有 Agent 决策。
 
 ### Compare
 
 用 Feature Matrix、行为测试、错误恢复测试和指标更新差距，而不是凭主观感觉判断“像不像”。
 
 完整字段和退出条件见 [Stage 证据包模板](./templates/stage-evidence-package.md)。
-来源隔离与重新启用条件由
-[ADR-020](./adr/ADR-020-quarantine-unverified-reference-source.md)规定。
+授权研究与停止条件由
+[ADR-022](./adr/ADR-022-reactivate-authorized-reference-study.md)规定。
 
 ## 4. 参考架构全景
 
@@ -150,7 +152,7 @@ Agent Loop 的代码可以很短；成熟度主要来自围绕循环建立的控
 - 收集 OS、Shell、终端和模型能力；
 - 并行或延迟加载不影响正确性的启动信息。
 
-### Java 重实现目标
+### 本项目重实现目标
 
 - Composition Root 只存在于 CLI/App；
 - `SessionBootstrapper` 生成不可变 Runtime Scope；
@@ -182,11 +184,12 @@ Agent Loop 的代码可以很短；成熟度主要来自围绕循环建立的控
 
 ### Java 重实现目标
 
-- Picocli 负责进程入口；
-- JLine 负责 REPL；
-- Terminal 只消费 Agent Event；
-- Runtime 不依赖 ANSI 或 JLine；
-- 后续 SDK、API 和桌面端复用同一事件协议。
+- Picocli 只负责 Java Headless 进程入口与 `--print` / `--stdio` 参数；
+- React/Ink 负责交互输入和终端渲染；
+- Terminal 只发送命令并消费 Agent Event；
+- Runtime 不依赖 ANSI、Ink、Node 或任何终端框架；
+- S02 使用无稳定性承诺的内部 stdio v0；S14 再形成稳定外部协议；
+- 后续 SDK、API 和桌面端复用同一 Runtime 语义，而不是绑定 TUI 状态。
 
 ### 学习问题
 

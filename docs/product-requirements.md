@@ -1,8 +1,8 @@
 # cc-java 产品需求文档
 
-> 文档状态：Draft v0.6
+> 文档状态：Draft v0.7
 >
-> 最后更新：2026-07-28
+> 最后更新：2026-07-29
 >
 > 当前阶段：S01 Runtime Kernel 已 Accepted；S02 处于启动 Gate，生产实现尚未开始
 >
@@ -17,21 +17,24 @@
 - v0.5 明确跨 Stage 目标等级、前置依赖、CLI 归属和 S07 渐进式 Context 路线。
 - v0.6 隔离来源、Revision、许可证和授权范围不可核验的材料，撤销其活动设计结论；
   同时固定 S02 的 23 项启动范围。
+- v0.7 根据维护者授权确认恢复受控源码学习，并将 S02 调整为 Java Headless Runtime、
+  内部 stdio v0 与 React/Ink TUI 的 24 项范围。
 
 最终定位：
 
-> `cc-java` 是一个独立设计和实现的、Java 原生的通用 Coding Agent Runtime 与 CLI。
+> `cc-java` 是一个以 Java 独立实现 Agent Runtime、用成熟终端前端技术提供 CLI 的
+> 通用 Coding Agent 学习项目。
 
-项目先把成熟 Coding Agent 拆成完整能力地图，再按子系统用 Java 做行为等价重实现；每个阶段
-都维护公开行为基线、独立 Java 设计、测试和差距。基础体系被真正理解并形成可重复证据
-之后，再进入独立创新。
+项目先把成熟 Coding Agent 拆成完整能力地图，再按子系统独立重实现：Agent 语义、控制流、
+工具和安全边界由 Java 承担；交互 Surface 可以使用更适合终端 UI 的技术。每个阶段都维护
+公开行为基线、本项目设计、测试和差距，形成可重复证据后再进入独立创新。
 
 它不是“只做一个 MVP 就自由生长”，也不是逐行翻译任何参考源码。它要在授权和发布边界内完成：
 
 ```text
 建立参考基线
 → 理解架构问题
-→ Java 独立重实现
+→ Java Runtime 与独立 Surface 重实现
 → 行为对照
 → 补齐差距
 → 基于证据创新
@@ -97,7 +100,8 @@ CLI 应当能够：
 - G-010：通过可运行代码掌握 Agent Loop、Tool Calling、Context Engineering 和 Harness Engineering。
 - G-011：保留架构决策、评测和演进记录，让项目能作为 Java Agent 学习材料。
 - G-012：提供一套能被其他 Java 项目嵌入的 Runtime 基础。
-- G-013：只使用可审计来源和独立行为场景进行重实现，不复制或逐行翻译受保护的源码表达。
+- G-013：只使用已登记的公开来源、授权研究输入和独立行为场景进行重实现，不复制或逐行
+  翻译受保护的源码表达。
 - G-014：关键模块必须由维护者能够独立解释，而不只是由 AI 生成。
 
 ## 5. 非目标
@@ -106,7 +110,8 @@ CLI 应当能够：
 - 不使用、改写或再发布泄露、未授权或超出授权范围的源码；
 - 不兼容某个商业产品的私有配置格式、内部事件格式或隐藏 API；
 - 不把 FixBug、测试或电商业务写进 Runtime Core；
-- 不在第一轮重实现中同时完成完整 TUI、桌面端、IDE 插件或云端执行；
+- 不在第一轮重实现中同时完成生产级全功能 TUI、桌面端、IDE 插件或云端执行；S02 只完成
+  支撑流式会话的最小 React/Ink TUI；
 - 不跳过基础子系统直接堆叠多 Agent、插件市场或企业策略中心；
 - 不承诺模型生成的修改一定正确；
 - 不把 Spring AI 当作产品架构本身。
@@ -190,7 +195,7 @@ Gather context
 
 | 阶段组 | Stage | 学习目标 |
 | --- | --- | --- |
-| 参考建模 | S00 | Harness 地图、公开行为基线、来源隔离、术语、能力矩阵和来源规则 |
+| 参考建模 | S00 | Harness 地图、公开行为基线、授权研究、术语、能力矩阵和来源规则 |
 | 核心重实现 | S01-S04 | Agent Loop、Streaming CLI、Tools、Write/Command |
 | 可靠性重实现 | S05-S08 | Permission、Session、Checkpoint、Context、Compaction、Instructions、Settings |
 | 扩展重实现 | S09-S11 | Hooks、MCP、Skills、Plugins |
@@ -203,7 +208,7 @@ FixBug 可以在 S11 后实现为 Skill 或独立应用，也可以作为 S04 �
 
 ## 10. 第一轮 Java 重实现：S01-S04
 
-第一轮不是项目终点，只是把 Agent Harness 的最小骨架变成一个可以观察和实验的运行系统。它分为三个学习增量。
+第一轮不是项目终点，只是把 Agent Harness 的最小骨架变成一个可以观察和实验的运行系统。它分为四个学习增量。
 
 ### S01：Runtime Kernel
 
@@ -219,9 +224,12 @@ FixBug 可以在 S11 后实现为 Skill 或独立应用，也可以作为 S04 �
 ### S02：Model 与 Streaming CLI
 
 - 接入一个 Spring AI 模型 Provider；
-- 提供 Interactive 与 Print 两种入口；
+- Java Headless Composition Root 提供 `--print` 和实验性 `--stdio`；
+- React/Ink TUI 拉起 Java 子进程并提供 Interactive Session；
+- 内部 UTF-8 NDJSON v0 只承诺 S02 本地进程通信，不是稳定公共 API；
 - 支持流式文本、Tool Call Chunk 聚合和执行状态展示；
 - 支持模型流取消、不完整流、输出长度 finish reason、有界停止/续接、限流和 Usage 转换；
+- Windows 验证 `Ctrl+C`、TTY/非 TTY、中文宽字符、粘贴、Resize 和无孤儿进程；
 - 用显式启用的真实 Provider E2E 验证 Adapter，但普通 CI 仍只使用 Fake。
 
 ### S03：Read Tools
@@ -372,8 +380,8 @@ S06 不承诺稳定外部 Export、Retention 或跨版本迁移；这些兼容�
 - 压缩前后事件、摘要质量测试和防重复压缩；
 - 建立长会话回放集，比较压缩前后的事实保持、任务完成度和 Token 降幅。
 
-具体 Reducer、记忆机制、阈值和编排顺序不是当前已接受需求。S07 启动时必须只依据公开
-来源和独立实验重新决策；历史 ADR-019 已被 ADR-020 取代。
+具体 Reducer、记忆机制、阈值和编排顺序不是当前已接受需求。S07 启动时必须依据公开
+来源、授权机制研究和独立实验重新决策；授权恢复不会自动恢复历史 ADR-019 的具体结论。
 
 ### S08：Instructions、Settings 与 CLI 交互
 
@@ -382,7 +390,7 @@ S06 不承诺稳定外部 Export、Retention 或跨版本迁移；这些兼容�
 - 模型切换和 Provider 配置；
 - Slash Command：`/help`、`/clear`、`/compact`、`/context`、`/model`、
   `/permissions`、`/resume`；
-- 更完整的 JLine 历史、多行输入和运行中 steering。
+- 更完整的 React/Ink 历史、多行输入、补全和运行中 steering。
 
 S08 建立配置 Schema 和版本字段，但跨版本迁移兼容留在 S14。层级 Instructions 接入后，
 必须重新运行 S07 的摘要重注入和 Context Usage 对账回归测试。
@@ -459,11 +467,11 @@ S14 按 `Eval/Observability → SDK/Headless → Distribution/Compatibility` 三
 ### 17.1 来源控制、独立重实现与可维护性
 
 - NFR-001：实现不得复制、逐行翻译或再发布泄露、未授权或超出授权范围的源码表达。
-- NFR-002：需求来自本项目文档、公开来源和独立场景；测试来自独立验收任务，不以
+- NFR-002：需求来自本项目文档、公开来源、受控授权机制研究和独立场景；测试来自独立验收任务，不以
   参考源码文本作为断言。
 - NFR-006：参考研究必须记录来源、版本/Revision、权利边界和
   `Documented / Observed / Inferred / Unknown`；无法核验的材料必须隔离。
-- NFR-003：核心 Runtime 不依赖 Spring AI、终端、文件系统或数据库类型。
+- NFR-003：核心 Runtime 不依赖 Spring AI、React、Ink、Node、终端、文件系统或数据库类型。
 - NFR-004：内置、MCP 和插件工具不得拥有绕过 Pipeline 的执行入口。
 - NFR-005：不为尚未进入里程碑的能力创建复杂 DSL 或空模块。
 
@@ -522,7 +530,8 @@ S14 按 `Eval/Observability → SDK/Headless → Distribution/Compatibility` 三
 | Spring AI 自动执行工具 | 绕过本项目权限与事件 | Adapter 只返回原始 Tool Call |
 | 通用 Shell 带来副作用 | 数据或环境受损 | 精确展示、默认询问、超时、取消；S13 再做 OS Sandbox |
 | 上下文持续膨胀 | 成本和稳定性下降 | S03-S04 先限制并停止，S07 系统学习压缩 |
-| 参考材料来源或权利不可核验 | 无法安全发布，也无法证明独立设计 | 立即隔离；活动需求只使用公开来源、独立场景和可审计证据 |
+| 参考材料授权范围或身份出现疑问 | 可能越过学习与发布边界 | 立即停止对应研究；保留指纹和 Unknown，等待维护者重新确认 |
+| 双运行时和跨进程协议失控 | 调试、取消和发行成本上升 | S02 只做内部 v0、Fake 跨进程测试和原生 Windows 进程清理；稳定性留到 S14 |
 | “开源不商用”含义不清 | License 与目标冲突 | S00 明确是维护者不商业化，还是许可证禁止商业使用 |
 
 ## 20. 已确认与待确认决策
@@ -535,13 +544,15 @@ S01 已确认：
 3. Maven GroupId 使用 `io.github.liumaishenjian`，Java 根包使用
    `io.github.liumaishenjian.ccjava`；
 4. S01 不接真实 Provider，Fake Model 只存在于测试源。
-5. 采用 `R2026.03` 公开行为基线；`UNVERIFIED-SRC-2026-03-31-A` 仅作隔离审计，
-   不作为活动输入。
+5. 采用 `R2026.03` 公开行为基线；维护者确认 `AUTH-SRC-2026-07-29-A` 只读学习授权，
+   精确 Revision、License 和再发布权继续保持 `Unknown`。
+6. S02 的 UI 路线采用 Java Headless + 内部 stdio v0 + React/Ink；`CLI-11` 在 S02
+   只达到 L1，稳定公共 JSON/JSONL 仍属于 S14。
 
 后续 Stage 仍需确认：
 
 1. S02 的首个模型 Provider；
-2. Picocli + JLine 是否作为 CLI 技术组合；
+2. Spring AI、Picocli、React、Ink 的准确版本，以及最小协议 Schema/大小上限；
 3. `run_command` 在 Windows 和 Linux 的默认 Shell；
 4. S04 是否允许“当前会话始终允许”Shell，或只允许单次批准；
 5. “开源不商用”的准确含义：

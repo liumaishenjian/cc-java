@@ -1,17 +1,16 @@
 # ADR-018（历史）：受控研究已授权参考源码，并保持 Java 独立重实现
 
 - Status: Superseded
-- Superseded By: [ADR-020](./ADR-020-quarantine-unverified-reference-source.md)
+- Superseded By: [ADR-022](./ADR-022-reactivate-authorized-reference-study.md)
 - Date: 2026-07-28
 - Decision Owners: 项目维护者
 - Scope: S00-S15 学习方法与证据链
 - Capability IDs: 全部；本 ADR 不直接提升任何 Capability Level
 - Previous Snapshot Classification: `AUTH-SRC-2026-03-31-A`
 
-> 本 ADR 保留用于解释 2026-07-28 的历史决策，不再授权读取或使用对应材料。
-> 仓库未取得可独立核验的授权证据，原快照已降级为
-> `UNVERIFIED-SRC-2026-03-31-A` 并隔离。任何活动需求、设计、测试和实现均不得继续
-> 使用下文的授权研究例外；当前规则以 ADR-020 为准。
+> 本 ADR 保留用于解释受控研究方法。2026-07-28 的隔离曾暂时取代它；维护者于
+> 2026-07-29 再次明确确认学习授权后，ADR-022 以新 Snapshot ID 恢复了更严格的
+> 仓库外只读研究。当前授权对象和边界只以 ADR-022 为准。
 
 ## 背景
 
@@ -25,7 +24,7 @@
 2026-07-28，项目维护者明确确认已取得本地参考源码的学习授权。本地材料位于仓库外的
 隔离目录，不进入 `cc-java` 的 Git 历史、依赖、测试 Fixture、Golden Output 或发布物。
 快照的可复现身份、已知缺失和使用边界记录在
-[当前隔离登记](../reference-baselines/R2026.03-unverified-source.md)。
+[当前授权登记](../reference-baselines/R2026.03-authorized-source.md)。
 
 ## 决策
 

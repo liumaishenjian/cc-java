@@ -9,14 +9,15 @@
 1. [README.md](./README.md)
 2. [参考架构](./docs/reference-architecture.md)
 3. [公开行为基线](./docs/reference-baselines/R2026.03-public-behavior.md)
-4. [未核验参考材料隔离登记](./docs/reference-baselines/R2026.03-unverified-source.md)
+4. [授权参考源码基线](./docs/reference-baselines/R2026.03-authorized-source.md)
 5. [功能对照矩阵](./docs/feature-parity-matrix.md)
 6. [产品需求文档](./docs/product-requirements.md)
 7. [技术设计文档](./docs/technical-design.md)
-8. [ADR-020](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)、
+8. [ADR-022](./docs/adr/ADR-022-reactivate-authorized-reference-study.md)、
+   [ADR-023](./docs/adr/ADR-023-s02-java-headless-ink-tui.md)、
    [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)、
-   [ADR-018（历史）](./docs/adr/ADR-018-authorized-reference-study.md)、
-   [ADR-019（历史）](./docs/adr/ADR-019-s07-progressive-context-reduction.md)与
+   [ADR-018](./docs/adr/ADR-018-authorized-reference-study.md)、
+   [ADR-019](./docs/adr/ADR-019-s07-progressive-context-reduction.md)与
    [Stage 证据包模板](./docs/templates/stage-evidence-package.md)
 9. 本文档
 
@@ -26,16 +27,19 @@
 
 仓库已经完成 **S01：Runtime Kernel**，G0-G6 与 Stage Exit 均为 Accepted；被测实现
 Commit 为 `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd`。当前处于 **S02 启动 Gate**：
-ADR-021 已固定 23 项 Feature 和 G1 目标，生产实现尚未开始。
+ADR-023 已把 S02 固定为 24 项 Feature、Java Headless Runtime、实验性 stdio v0 与
+React/Ink TUI；生产实现尚未开始。
 
 当前允许并要求：
 
 - 保持 S01 的 Framework-free Domain、显式 Agent Runtime、Tool Pipeline、内存 Session
   与离线 Fake 测试回归继续通过；
-- S02 实现范围必须保持 ADR-021 的 23 项 Feature、`Current → Target` 等级、真实
+- S02 实现范围必须保持 ADR-021 与 ADR-023 的 24 项 Feature、`Current → Target` 等级、真实
   Provider/流式 Tool Call Spike、CLI 契约、取消边界和可证伪实验；
-- 只有 Spike 证明真实用途后，才能确认 Spring Boot、Spring AI、Picocli 与 JLine 的
+- 只有 Spike 证明真实用途后，才能确认 Spring Boot、Spring AI、Picocli、React 与 Ink 的
   准确版本和依赖；
+- S02 先验证 Java Fake stdio 和最小 React/Ink；不得整包合并候选分支
+  `10c7873`，不得继续扩展其中的 JLine Renderer；
 - 在 S02 启动 Gate 完成前，真实 Provider、流式 CLI、文件 Tool、Shell、完整权限策略
   和持久化能力继续保持未实现状态；
 - S02 的代码、测试、Demo、证据和看板更新必须作为新的独立变更开展。
@@ -67,15 +71,15 @@ ADR-021 已固定 23 项 Feature 和 G1 目标，生产实现尚未开始。
 1. 所属 Stage（`S01` 至 `S15`）；
 2. `docs/feature-parity-matrix.md` 中对应的一个或多个 Feature ID；
 3. 当前等级与目标等级（`L0` 至 `L4`）；
-4. 公开行为基线、经核验参考材料 ID（未使用时写 `N/A - Not Used`），以及
+4. 公开行为基线、授权参考快照 ID（未使用时写 `N/A - Not Used`），以及
    `Documented / Observed / Inferred / Unknown`；
 5. 正在重现的可独立表达行为或项目需求；
 6. 能够证明等级提升的测试、演示或度量；
 7. 完成后维护者应当能够解释的设计决策。
 
 所有 Stage 使用 [Stage 证据包模板](./docs/templates/stage-evidence-package.md)中的
-G0-G6 Gate。当前来源隔离和独立重实现边界由
-[ADR-020](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)定义。
+G0-G6 Gate。当前授权研究和独立重实现边界由
+[ADR-022](./docs/adr/ADR-022-reactivate-authorized-reference-study.md)定义。
 
 能力等级提升时，必须在同一个变更中更新功能对照矩阵。一个 Stage 只有同时具备以下材料才算完成：
 
@@ -96,7 +100,7 @@ G0-G6 Gate。当前来源隔离和独立重实现边界由
 
 以下任一情况发生时，任务完成前必须更新并校验进度看板：
 
-- 修改任意生产或测试 Java 代码；
+- 修改任意生产或测试 Java/TypeScript 代码；
 - 修改父 POM、模块 POM、Maven Wrapper、构建配置或仓库脚本；
 - 修改 Capability Level、Stage 目标、Gate 状态、阻塞项、测试证据或能力声明；
 - 新增、删除、合并或重命名 Feature ID。
@@ -124,19 +128,21 @@ G0-G6 Gate。当前来源隔离和独立重实现边界由
 禁止手工编辑 `docs/progress.html`。如果看板展示需要变化，应修改矩阵、状态文件或生成器。
 生成器会把 Java 源码、POM、Wrapper 和仓库脚本的摘要写入 HTML，因此这些文件发生变化
 却没有重新生成看板时，`--check` 会失败。
+首次加入 `cc-java-tui` 代码的变更必须同时扩展生成器，使 TypeScript、`package.json`
+和 lockfile 进入代码摘要；在此之前不得声称看板能检测 TUI 代码漂移。
 仅修改与项目进度完全无关的纯排版/拼写且不接触代码时，可以不更新
 `progress-state.properties`，但只要输入文件发生变化仍必须重新生成并运行 `--check`。
 
 ## 5. 来源控制与独立重实现规则
 
-以下规则不可妥协：
+除第 5.1 节中由维护者明确确认的已授权学习材料外，以下规则不可妥协：
 
 - 不复制或翻译泄露、反编译或其他受限制的源码；
 - 不复制内部 Prompt、注释、错误文案、私有类型名、文件布局或实现常量；
 - 不把受限制源码仓库用作依赖、子模块、测试 Fixture 或 Golden Output 来源；
 - 不在查看受限制源码后凭记忆还原其具体表达；
 - 默认只从公开文档、公开接口和独立设计的黑盒场景中提取行为需求；
-- 使用能由本项目需求解释的独立命名和 Java 原生设计；
+- 使用能由本项目需求解释的独立命名、Java Runtime 设计和独立 UI 契约；
 - 记录重要的第三方启发来源和适用的许可证义务；
 - 不以产品名或商标暗示本项目与原产品存在官方关系。
 
@@ -144,19 +150,24 @@ G0-G6 Gate。当前来源隔离和独立重实现边界由
 
 仓库许可证仍是开放决策。在维护者确认前，不得添加 `LICENSE` 文件，也不接受外部代码贡献。
 
-### 5.1 未核验材料的隔离
+### 5.1 已授权参考源码的受控学习例外
 
-`UNVERIFIED-SRC-2026-03-31-A` 当前为 `QUARANTINED`。其来源、Revision、许可证和
-授权范围不能被仓库内证据独立核验，因此：
+`AUTH-SRC-2026-07-29-A` 已由维护者明确确认为合法学习材料，可在仓库外隔离目录只读
+研究。准确 Revision、许可证、权利人和再发布权仍为 `Unknown`，不得把学习授权扩大
+解释为复制或分发授权。
 
-- 不得读取、搜索、分析或继续使用；
-- 不得把历史研究结论写入活动 PRD、技术设计、矩阵、测试或代码；
-- 不得把它称为“已授权源码”或把维护者口头说明当作可复现证据；
-- S01 和当前 S02 的 `Authorized Snapshot ID` 写 `N/A - Not Used`；
-- 只有满足 ADR-020 的证据条件并由新 ADR 接受后，才可重新评估。
+使用该快照时必须：
 
-ADR-018、ADR-019 只保留为历史，不是活动设计依据。S07 到来时必须使用公开来源和独立
-场景重新研究 Context 方案。
+- 只提炼子系统职责、状态转换、算法策略、边界条件、失败恢复和验证方法；
+- 不复制或逐行翻译函数体、Prompt、注释、错误文案、私有类型名、文件布局或常量；
+- 使用本项目可独立解释的 Java 契约、UI 协议、命名、模块边界和测试；
+- 不把参考字节放入仓库、依赖、子模块、Fixture、Golden Output 或发布物；
+- 在研究结论进入 PRD、技术设计或代码前，通过单独 ADR 说明采纳范围和可证伪验证；
+- 对外区分参考机制、本项目设计和已经测试的实现；
+- 授权范围或材料身份出现不确定性时立即停止使用。
+
+完整快照、未知项和停止条件见
+[授权参考源码基线](./docs/reference-baselines/R2026.03-authorized-source.md)与 ADR-022。
 
 ## 6. 核心架构不变量
 
@@ -167,7 +178,7 @@ ADR-018、ADR-019 只保留为历史，不是活动设计依据。S07 到来时�
 - Pipeline 负责参数校验、生命周期事件、权限、审批、执行、截断、脱敏和结果转换。
 - Tool Call ID 与对应的 Tool Result ID 必须准确匹配并保持协议顺序。
 - CLI、未来桌面端和 SDK 只消费事件，不承载 Agent 决策。
-- Core 和 Domain 类型不得依赖 Spring AI、Reactor、Picocli、JLine、文件系统或持久化框架类型。
+- Core 和 Domain 类型不得依赖 Spring AI、Reactor、Picocli、Ink、Node、文件系统或持久化框架类型。
 - Permission 规则不能被描述成 OS Sandbox。
 - README 中的能力声明必须与真实代码和矩阵等级一致。
 
@@ -180,7 +191,9 @@ cc-java-core
     ↑           ↑
 cc-java-model-spring-ai   cc-java-tools-local
              \             /
-                 cc-java-cli
+           cc-java-cli (Java headless)
+                    ↑
+          cc-java-tui (React/Ink)
 ```
 
 模块规则：
@@ -189,7 +202,8 @@ cc-java-model-spring-ai   cc-java-tools-local
 - `cc-java-core` 负责 Runtime、Agent Loop、端口、Context、限制、生命周期和权限管线；
 - `cc-java-model-spring-ai` 只负责项目协议与 Spring AI 之间的转换；
 - `cc-java-tools-local` 实现项目 Tool 契约和本地执行安全；
-- `cc-java-cli` 是 Composition Root 和终端适配器；
+- `cc-java-cli` 是 Java Headless Composition Root，提供 `--print` 和实验性 `--stdio`；
+- `cc-java-tui` 是非 Maven 的 React/Ink 终端适配器，只通过命令/事件协议使用 Runtime；
 - 只有当前 Stage 确实需要时才创建新模块。
 
 ## 7. Stage 纪律
@@ -351,8 +365,9 @@ public final class AgentRuntime {
 
 ## 14. 依赖与版本策略
 
-已确认的技术基线只有 Java 21、Maven 3.9.16、JUnit 5.14.3 和 AssertJ 3.27.7。
-Spring Boot、Spring AI、Picocli、JLine 与首个 Provider 的准确版本保持 Deferred，
+已确认的技术基线只有 Java 21、Maven 3.9.16、JUnit 5.14.3、AssertJ 3.27.7，以及
+本机 Spike 基线 Node.js 22。Spring Boot、Spring AI、Picocli、React、Ink 与首个
+Provider 的准确版本保持 Deferred，
 只能在 S02 完成官方来源核验和真实 Provider/Streaming/CLI Spike 后通过 ADR 确认。
 
 引入依赖时：
@@ -361,6 +376,7 @@ Spring Boot、Spring AI、Picocli、JLine 与首个 Provider 的准确版本保�
 - 单独导入 Spring AI BOM；
 - 使用 Maven Wrapper；
 - 优先选择 Maven Central 中的稳定版本；
+- TUI 依赖优先使用 npm Registry 中的官方稳定包，并提交 lockfile；
 - 从一个真实模型 Provider 和一个 Fake Gateway 开始；
 - 在变更说明中解释每一个非测试依赖的用途。
 

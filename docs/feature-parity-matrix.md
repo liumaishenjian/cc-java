@@ -4,7 +4,7 @@
 >
 > 参考版本：R2026.03
 >
-> 最后更新：2026-07-28
+> 最后更新：2026-07-29
 >
 > 当前代码状态：S01 Runtime Kernel 已 Accepted；当前位于 S02 启动 Gate，尚未开始生产实现
 
@@ -34,18 +34,18 @@
 | REF-06 | [Claude Code 官方 Session](https://code.claude.com/docs/en/sessions) | 官方产品文档，候选公开行为 |
 | REF-07 | [Claude Code 官方 Hooks](https://code.claude.com/docs/en/hooks) | 官方产品文档，候选公开行为 |
 | REF-08 | [Spring AI Tool Calling](https://docs.spring.io/spring-ai/reference/api/tools.html) | 官方框架文档，只约束 Java Adapter |
-| QUARANTINE-01 | [未核验参考材料 `UNVERIFIED-SRC-2026-03-31-A`](./reference-baselines/R2026.03-unverified-source.md) | 仅作隔离审计；禁止作为需求、设计、测试或实现输入 |
+| AUTH-01 | [已授权参考源码 `AUTH-SRC-2026-07-29-A`](./reference-baselines/R2026.03-authorized-source.md) | 仓库外只读机制研究；禁止复制、翻译、依赖或再发布；Revision/License 仍为 `Unknown` |
+| QUARANTINE-01 | [历史隔离记录 `UNVERIFIED-SRC-2026-03-31-A`](./reference-baselines/R2026.03-unverified-source.md) | 已被 AUTH-01 与 ADR-022 取代，仅用于审计此前为何暂停 |
 
 完整来源 Manifest 和可复现限制见
 [R2026.03 公开行为基线](./reference-baselines/R2026.03-public-behavior.md)。
 当前在线页面未归档、没有内容指纹；参考产品以后增加的功能不会自动进入本基线。
 需要升级基线时，新建 R 版本并记录新增、删除和行为变化。
 
-`R2026.03` 定义公开可验收行为。`QUARANTINE-01` 不是活动来源，只记录一组因来源、
-Revision、许可证和授权范围无法独立核验而停止使用的材料。项目只能根据公开来源、
-独立黑盒场景和本项目需求形成活动设计；只有本项目测试、Demo 或 Eval 通过后，才能标记
-为 `Verified in cc-java`。隔离决定见
-[ADR-020](./adr/ADR-020-quarantine-unverified-reference-source.md)。
+`R2026.03` 定义公开可验收行为。`AUTH-01` 只帮助解释成熟机制，不自动定义需求或证明
+实现正确；项目仍必须根据公开行为、独立场景和本项目需求形成可验收设计。只有本项目
+测试、Demo 或 Eval 通过后，才能标记为 `Verified in cc-java`。受控研究决定见
+[ADR-022](./adr/ADR-022-reactivate-authorized-reference-study.md)。
 
 ## 3. 完成度等级
 
@@ -126,9 +126,9 @@ Revision、许可证和授权范围无法独立核验而停止使用的材料。
 
 | Stage | 主题 | 核心交付 |
 | --- | --- | --- |
-| S00 | Harness 地图 | 参考架构、公开行为基线、来源隔离登记、矩阵、术语和边界 |
+| S00 | Harness 地图 | 参考架构、公开行为基线、授权研究登记、矩阵、术语和边界 |
 | S01 | Runtime Kernel（Agent Loop） | Fake Model 驱动的显式循环 |
-| S02 | Model + Streaming CLI | 一个真实 Provider、REPL、事件流 |
+| S02 | Model + Streaming CLI | 一个真实 Provider、Java Headless、实验性 stdio、React/Ink TUI 与事件流 |
 | S03 | Read Tools | 在真实仓库自主搜索和解释代码 |
 | S04 | Write + Command | 经审批修改代码、执行测试、根据结果继续 |
 | S05 | Permission Pipeline | 模式、规则、审批、生命周期和拒绝恢复 |
@@ -155,7 +155,7 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 当前等级 | 19 项为 L1，174 项为 L0 |
 | 默认最终目标 | 193 项达到 L3，或存在明确 `Accepted Deviation` |
 | 当前能力覆盖 | 3.28%（193 项等权、目标 L3） |
-| 下一步 | 完成 S02 官方来源/版本核验和 Provider/Streaming/CLI Spike，再确认技术组合 |
+| 下一步 | 完成 Java Fake stdio、最小 React/Ink 与真实 Provider/Streaming Spike，再固定协议和依赖版本 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -165,8 +165,9 @@ S01 等级证据见 [Runtime Kernel ADR](./adr/ADR-017-s01-runtime-kernel.md)、
 [S01 差距报告](./gap-reports/S01.md)。本阶段统一只记为 L1，不把离线 Fake
 回放宣传为真实任务可用的 L2。
 
-S02 的 23 项完整范围、19 项 L2 / 4 项 L1 退出目标及可证伪 Spike 见
-[ADR-021](./adr/ADR-021-s02-model-streaming-cli-scope.md)。该 ADR 只通过 G1，
+S02 的 24 项完整范围、19 项 L2 / 5 项 L1 退出目标及可证伪 Spike 见
+[ADR-021](./adr/ADR-021-s02-model-streaming-cli-scope.md)与
+[ADR-023](./adr/ADR-023-s02-java-headless-ink-tui.md)。CLI 路线的重新决策只通过 G1，
 不表示 S02 代码已经开始。
 
 ### 5.2 Stage 退出目标与跨阶段路径
@@ -190,7 +191,7 @@ Stage 完成项。
 
 | Stage | 默认退出目标 | 说明 |
 | --- | --- | --- |
-| S00 | 文档 Gate | 公开行为基线、来源隔离、矩阵和术语可追踪 |
+| S00 | 文档 Gate | 公开行为基线、授权研究边界、矩阵和术语可追踪 |
 | S01 | Required Feature 达到 L1 | 只证明离线协议学习骨架 |
 | S02-S13 | 单 Stage 条目或多 Stage 终点达到 L2 | 多 Stage 的非终点首阶段可按上方规则只达到 L1 |
 | S14 | 核心 Harness 达到 L3，其余 Required Feature 至少 L2 | 建立参考可比、兼容和生产证据 |
@@ -213,7 +214,7 @@ Stage 完成项。
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| BOOT-01 | CLI 启动并识别运行模式 | Picocli Interactive / Print | L0 | S02 | REF-02 |
+| BOOT-01 | CLI 启动并识别运行模式 | Picocli Headless + React/Ink Interactive | L0 | S02 | REF-02/AUTH-01 |
 | BOOT-02 | 确定 Workspace 与 Git 状态 | `WorkspaceSnapshot` | L0 | S03 | REF-02 |
 | BOOT-03 | 加载模型、工具和权限 | `SessionBootstrapper` | L0 | S02/S05 | REF-01 |
 | BOOT-04 | 加载项目指令 | `InstructionLoader` | L0 | S03/S08 | REF-05 |
@@ -225,17 +226,17 @@ Stage 完成项。
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| CLI-01 | Interactive Session | JLine REPL | L0 | S02 | REF-02 |
+| CLI-01 | Interactive Session | React/Ink TUI + Java Application Session | L0 | S02 | REF-02/AUTH-01 |
 | CLI-02 | Print / Headless | Picocli `--print` | L0 | S02 | REF-02 |
-| CLI-03 | 流式 Assistant Text | `ModelTextDelta` 渲染 | L0 | S02 | REF-02 |
+| CLI-03 | 流式 Assistant Text | stdio Event → Ink 组件渲染 | L0 | S02 | REF-02/AUTH-01 |
 | CLI-04 | Tool 进度与输出 | 有序 Agent Event 渲染 | L0 | S02/S03 | REF-02 |
 | CLI-05 | Permission Prompt | 终端 Approval UI | L0 | S04/S05 | REF-04 |
 | CLI-06 | Ctrl+C Cancel | 当前 Run/Tool 取消 | L0 | S02/S04 | REF-02 |
 | CLI-07 | Steering | S08 运行中排队用户补充消息 | L0 | S08 | REF-02 |
 | CLI-08 | Slash Commands | S08 提供 help/clear/compact/context/model/permissions/resume | L0 | S08 | REF-02 |
-| CLI-09 | 多行、历史、补全 | S08 完整 JLine 交互能力 | L0 | S08 | REF-02 |
+| CLI-09 | 多行、历史、补全 | S08 完整 React/Ink 输入能力 | L0 | S08 | REF-02 |
 | CLI-10 | TTY / Non-TTY 降级 | 无 ANSI 输出与管道模式 | L0 | S02/S14 | REF-02 |
-| CLI-11 | 机器输出协议 | 版本化 JSON/JSONL | L0 | S14 | REF-02 |
+| CLI-11 | 机器输出协议 | S02 内部 stdio v0 L1 → S14 稳定 JSON/JSONL L3 | L0 | S02/S14 | REF-02 |
 | CLI-12 | 多 Surface 共用引擎 | CLI/SDK/API 共用 Runtime | L0 | S14 | REF-02 |
 
 ## 8. Agent Loop 对照
@@ -485,7 +486,7 @@ Stage 完成项。
 
 - 参考架构文档；
 - 功能对照矩阵；
-- 公开行为基线与未核验来源隔离登记；
+- 公开行为基线、授权参考快照登记与历史隔离审计；
 - 来源、授权、独立重实现和禁止复制规则；
 - Snapshot ID、指纹、`Documented / Observed / Inferred / Unknown`；
 - 术语统一。
@@ -528,10 +529,12 @@ Fake User
 
 - 一个 Spring AI Provider；
 - 自动 Tool Loop 关闭；
-- Picocli + JLine；
+- Picocli Java Headless `--print` / `--stdio`；
+- 内部 UTF-8 NDJSON v0 的顺序、唯一终态、取消和 stdout 纯净边界；
+- React/Ink TUI；
 - Model Text Delta；
 - Tool Call Chunk 聚合、不完整流和错误转换；
-- Interactive 与 Print；
+- React/Ink Interactive 与 Java Print；
 - 模型流 Cancel；
 - 输出达到模型长度上限时识别 finish reason，并有界停止或续接；
 - Usage 可用时准确记录、不可用时不伪造；
@@ -603,9 +606,8 @@ Fake User
 - `/context`；
 - 长会话事实保持、任务完成度和 Token 降幅 Eval。
 
-S07 的具体 Reducer、记忆策略与阈值必须在该阶段依据公开来源和独立场景重新研究。
-历史 ADR-019 已被 [ADR-020](./adr/ADR-020-quarantine-unverified-reference-source.md)
-取代，不能作为活动实现输入。
+S07 的具体 Reducer、记忆策略与阈值必须在该阶段依据公开来源、授权机制研究和独立场景
+重新验证。授权恢复不自动恢复历史 ADR-019 的具体结论，仍需新的采纳 ADR。
 
 ### S08：Instructions + Settings
 

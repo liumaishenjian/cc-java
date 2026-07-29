@@ -1,14 +1,14 @@
 # cc-java 技术设计文档
 
-> 文档状态：Proposed v0.6
+> 文档状态：Proposed v0.7
 >
-> 最后更新：2026-07-28
+> 最后更新：2026-07-29
 >
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
 > 当前学习阶段：S01 Runtime Kernel 已 Accepted；S02 处于启动 Gate
 >
-> 当前实现状态：离线 Agent Loop 已实现；真实模型和 CLI 尚未开始
+> 当前实现状态：离线 Agent Loop 已实现；Headless/stdio/React/Ink 方案已决定，生产实现尚未开始
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 
@@ -17,7 +17,8 @@
 `cc-java` 的技术目标是独立实现一个 Java 原生、可嵌入、可测试的 Coding Agent Runtime，
 并首先通过终端 CLI 交付。
 
-项目采用“公开行为基线 + 独立研究问题 → Java 独立重实现 → 行为对照 → 差距复盘
+项目采用“公开行为基线 + 授权机制研究 + 独立研究问题 → Java Runtime 与独立 Surface
+重实现 → 行为对照 → 差距复盘
 → 独立创新”的学习路径。技术实现不是围绕一次性 MVP 自由生长，而是按 S00～S15
 逐步理解和重建成熟 Coding Agent Harness 的可解释能力。
 
@@ -40,7 +41,8 @@ S01～S04 会逐步形成第一个可运行的 Mini Coding Agent CLI。它只是
 1. 本项目自己的产品需求和验收任务；
 2. Spring AI 官方公开 API；
 3. Claude Code 等成熟 CLI 的公开文档和可观察行为；
-4. Harness Engineering 的通用架构分析，但只作为 `Inferred` 研究问题。
+4. Harness Engineering 的通用架构分析，但只作为 `Inferred` 研究问题；
+5. `AUTH-SRC-2026-07-29-A` 的仓库外受控机制研究。
 
 设计不使用以下输入：
 
@@ -56,8 +58,9 @@ S01～S04 会逐步形成第一个可运行的 Mini Coding Agent CLI。它只是
 
 详细映射见 [参考架构研究](./reference-architecture.md)、
 [公开行为基线](./reference-baselines/R2026.03-public-behavior.md)、
-[未核验材料隔离登记](./reference-baselines/R2026.03-unverified-source.md) 和
-[ADR-020](./adr/ADR-020-quarantine-unverified-reference-source.md)。
+[授权参考源码登记](./reference-baselines/R2026.03-authorized-source.md)、
+[ADR-022](./adr/ADR-022-reactivate-authorized-reference-study.md)和
+[ADR-023](./adr/ADR-023-s02-java-headless-ink-tui.md)。
 
 ### 2.1 阶段权威与完成证据
 
@@ -68,14 +71,14 @@ S01～S04 会逐步形成第一个可运行的 Mini Coding Agent CLI。它只是
 - L0～L4 完成度及行为对照状态；
 - 当前差距和下一项学习能力。
 
-本文负责解释这些能力在 Java 中如何分层、如何保持依赖方向以及如何实现安全边界。若本文中的阶段归属与矩阵冲突，应先以矩阵为准，再在同一变更中修正本文。
+本文负责解释 Java Runtime 与各 Surface 如何分层、如何保持依赖方向以及如何实现安全边界。若本文中的阶段归属与矩阵冲突，应先以矩阵为准，再在同一变更中修正本文。
 
 每个 Stage 结束前必须通过：
 
 1. G0：来源、权利边界、版本/Revision、必要指纹和结论置信度；
 2. G1：Stage、Feature ID、当前等级、退出目标和可证伪行为；
-3. G2：机制研究、未知项、ADR、Java 边界和安全不变量；
-4. G3：最小独立 Java 实现和中文公共契约；
+3. G2：机制研究、未知项、ADR、Runtime/Surface 边界和安全不变量；
+4. G3：最小独立实现、Java 中文公共契约和 UI 可测试契约；
 5. G4：确定性测试、故障注入、行为对照和量化指标；
 6. G5：具有实际结果和负例的可复现 Demo；
 7. G6：矩阵、README、PRD、技术设计、证据和差距报告对账。
@@ -126,26 +129,32 @@ S01～S04 依次完成 Loop、真实模型与 CLI、只读工具、写入与命�
 | Test | JUnit 5.14.3 + AssertJ 3.27.7 | Accepted（S01） |
 | Spring Boot | 在 S02 按真实用途确认 | Deferred |
 | Spring AI | 在 S02 按 Provider Spike 确认 | Deferred |
-| CLI Parser | Picocli 候选 | Proposed（S02） |
-| Interactive Terminal | JLine 候选 | Proposed（S02） |
+| CLI Parser | Picocli，只用于 Java Headless 参数 | Accepted Direction；准确版本 Deferred（S02） |
+| Node.js | 22（本机 Spike 基线） | Accepted for S02 Spike |
+| Interactive Terminal | React + 官方 Ink | Accepted Direction；准确版本 Deferred（S02） |
+| Internal Transport | UTF-8 NDJSON stdio v0 | Accepted Direction；Schema/上限 Deferred（S02） |
 | 首个 Provider | 单一 Spring AI Model Starter | Open（S02） |
 
-S01 不引入 Spring Boot、Spring AI、Picocli 或 JLine。框架准确版本必须在 S02
-通过真实 Provider 与流式 Tool Call Spike 决定，不能仅为占位锁定依赖。
+S01 不引入 Spring Boot、Spring AI、Picocli、React 或 Ink。准确版本必须在 S02
+通过真实 Provider、Java Fake stdio 与 React/Ink Spike 决定，不能仅为占位锁定依赖。
 
 参考：
 
 - [Spring AI Getting Started](https://docs.spring.io/spring-ai/reference/getting-started.html)
 - [Spring AI Tool Calling](https://docs.spring.io/spring-ai/reference/api/tools.html)
 - [Spring Boot System Requirements](https://docs.spring.io/spring-boot/system-requirements.html)
+- [Ink](https://github.com/vadimdemedes/ink)
+- [Gemini CLI 架构](https://github.com/google-gemini/gemini-cli/blob/main/GEMINI.md)
+- [OpenCode CLI/TUI](https://github.com/anomalyco/opencode/tree/dev/packages/opencode/src/cli)
+- [Codex Rust 架构](https://github.com/openai/codex/blob/main/codex-rs/README.md)
 
 ## 5. 逻辑分层
 
 ```mermaid
 flowchart TB
     subgraph Interface["Interface"]
-        REPL["Interactive REPL"]
-        PRINT["Print / Headless"]
+        REPL["React/Ink TUI"]
+        PRINT["Java Print / Headless"]
         FUTURE["Future SDK / Desktop / API"]
     end
 
@@ -184,7 +193,9 @@ flowchart TB
         SANDBOX["Sandbox Backend (S13)"]
     end
 
-    Interface --> Application
+    REPL -->|"internal stdio v0"| BOOT
+    PRINT --> BOOT
+    FUTURE --> Application
     Application --> Runtime
     Runtime --> Control
     Runtime --> MODEL_PORT
@@ -194,7 +205,7 @@ flowchart TB
     SESSION_SERVICE --> STORE
 ```
 
-## 6. S01 起步的 Maven 模块
+## 6. S01 Maven 模块与 S02 终端包
 
 S01 只创建五个模块，后续 Stage 在这组稳定边界上渐进实现能力。S06 以后只有在矩阵明确需要新的基础设施 Adapter 时才增加模块，不为未来能力提前创建空壳。
 
@@ -210,6 +221,9 @@ S01 只有 `cc-java-domain` 和 `cc-java-core` 包含 Runtime 实现；
 `model-spring-ai`、`tools-local` 和 `cli` 目前只固定模块依赖方向与包边界，
 不包含 Spring AI、文件 Tool 或终端实现，也不因此提升对应矩阵能力。
 
+S02 计划新增顶层 `cc-java-tui` npm 包。它不是 Maven 模块，只能通过 Java
+`cc-java-cli --stdio` 的实验性协议访问 Runtime。
+
 依赖方向：
 
 ```mermaid
@@ -222,6 +236,7 @@ flowchart BT
     CLI["cc-java-cli"] --> CORE
     CLI --> MODEL
     CLI --> TOOLS
+    TUI["cc-java-tui"] -->|"stdio commands/events"| CLI
 ```
 
 ### 6.1 `cc-java-domain`
@@ -239,7 +254,7 @@ flowchart BT
 
 约束：
 
-- 不依赖 Spring、Reactor、文件系统、终端或 JSON SDK 类型；
+- 不依赖 Spring、Reactor、文件系统、终端、Node、Ink 或 JSON SDK 类型；
 - 类型不可变；
 - 不复制 Spring AI 消息对象；
 - 不包含 FixBug、BugCase 或电商业务概念。
@@ -269,7 +284,7 @@ flowchart BT
 - 启动进程；
 - 从终端读取输入；
 - 打印 ANSI；
-- 写 JSONL 文件。
+- 编码或写出 stdio JSONL；协议编码属于 Headless Adapter。
 
 ### 6.3 `cc-java-model-spring-ai`
 
@@ -299,17 +314,27 @@ flowchart BT
 
 ### 6.5 `cc-java-cli`
 
-作为 Composition Root：
+作为 Java Headless Composition Root：
 
-- S02 的 Picocli 参数和 JLine REPL；
+- S02 的 Picocli `--print` / `--stdio` 参数；
 - Spring Boot 启动和 Bean 装配；
 - Workspace 与 Provider 配置；
-- S04～S05 的 Approval Handler 终端实现；
-- Agent Event 终端渲染；
-- `Ctrl+C` 和进程退出码；
-- Interactive / Print 模式。
+- Agent Event 到 NDJSON 的串行映射；
+- stdin 命令读取、结构化错误和进程退出码；
+- Print 模式。
 
-CLI 不做模型决策、权限判断或 Tool Call 消息拼接。
+Java Headless 不做模型决策、权限判断或 Tool Call 消息拼接；stdout 在 `--stdio`
+模式下只能包含协议事件，脱敏诊断只能写 stderr。
+
+### 6.6 `cc-java-tui`
+
+作为 React/Ink 终端适配器：
+
+- 拉起并监控 Java 子进程；
+- 发送 `initialize`、`run.start`、`run.cancel`、`shutdown`；
+- 以纯 Reducer 消费 Agent Event，并由组件渲染文本、状态、错误和后续审批；
+- 处理 TTY 输入、`Ctrl+C`、Resize、粘贴与非 TTY 降级；
+- 不直接执行 Tool，不读取 Session 私有状态，不决定 Run 是否完成。
 
 ## 7. 核心运行模型
 
@@ -762,16 +787,15 @@ S07 再研究工具结果淘汰、完整协议回合保留、摘要、渐进压�
 `/context`。具体 Reducer、记忆机制、持久化投影、阈值与编排顺序不是当前已接受设计；
 必须在 S07 启动时依据公开来源、独立场景和长会话 Eval 重新形成 ADR。
 
-历史 ADR-019 已被
-[ADR-020](./adr/ADR-020-quarantine-unverified-reference-source.md)取代，不得作为
-活动实现输入。
+授权研究已由 ADR-022 恢复，但历史 ADR-019 的具体 S07 结论不会自动生效。S07 必须
+结合公开来源、授权机制研究、独立场景和长会话 Eval 重新形成采纳 ADR。
 
 ## 17. Session
 
 ### 17.1 S01～S05 内存 Session
 
 - S01 创建 Session ID 和 Run ID，并保存消息与核心事件；
-- S02 由 CLI 在同一进程内维持连续对话；
+- S02 由一个持续存活的 Java Headless 进程维持连续对话，React/Ink TUI 是其 Client；
 - S04～S05 将权限 Session Allow 加入内存 Session；
 - 进程退出后不恢复；
 - `SessionStore` Port 仍在 core 中，以内存实现验证边界。
@@ -854,42 +878,43 @@ CLI 只根据事件渲染，不通过轮询访问 Runtime 私有状态。
 
 不提前兼容其他产品的全部 Hook Event。
 
-## 19. CLI 与终端
+## 19. CLI、内部协议与终端
 
-### 19.1 Picocli
+### 19.1 Java Headless
 
-负责：
+Picocli 只负责参数、帮助、Workspace、Model、Mode、退出码和后续 resume/fork
+子命令。`--print` 直接运行一次任务；`--stdio` 启动一个不读取终端、不输出 ANSI 的
+长驻 Application Session。
 
-- 参数和帮助；
-- Interactive / Print；
-- Workspace、Model、Mode；
-- Exit Code；
-- 后续 resume/fork 子命令。
+### 19.2 S02 内部 stdio v0
 
-### 19.2 JLine
+Node stdin/stdout 保留给终端。TUI 拉起 Java 子进程后：
 
-S02 负责：
+```text
+Node → Java stdin:  UTF-8 NDJSON Command
+Java → Node stdout: UTF-8 NDJSON Event
+Java → Node stderr: 脱敏诊断
+```
 
-- 行编辑和历史；
-- `Ctrl+C`；
-- ANSI 能力检测；
-- `/exit`；
-- 基础多行或粘贴处理。
+最小 Command 为 `initialize`、`run.start`、`run.cancel`、`shutdown`；最小 Event 为
+`initialized`、`run.started`、`model.text.delta`、三个互斥 Run 终态和
+`protocol.error`。Envelope、序列、唯一终态、有界队列、慢消费者和版本规则以 ADR-023
+为准，精确 Schema 由 Spike 固定。
 
-全屏 React/Ink 式 TUI 不进入 S02。终端输出优先可读和可测试，其他 Surface 在 S14 以后通过同一 Runtime 演进。
+这实现 `CLI-11` 的 S02 L1 内部边界，不是稳定外部 API；稳定 JSON/JSONL、SDK、
+Daemon 和兼容承诺仍在 S14。
 
-### 19.3 渲染
+### 19.3 React/Ink TUI
 
-人类模式区分：
+S02 只实现流式会话所需的最小 TUI：
 
-- Assistant Text；
-- Tool 状态；
-- Tool Output；
-- Approval Prompt；
-- Warning / Error；
-- Final Summary。
+- 输入单条任务并连续进行 Session；
+- 流式 Assistant Text、状态、Warning、Error 和 Final Summary；
+- 活动 Run 第一次 `Ctrl+C` 发送取消；超时或第二次中断才终止 Java 子进程；
+- TTY/非 TTY、中文宽字符、粘贴和 Resize 的原生 Windows 验证。
 
-S02 不承诺稳定机器 JSONL 输出；版本化机器协议进入 S14。测试通过 Fake Renderer 验证事件语义，而不是断言 ANSI 全文。
+S04～S05 再加入 Tool/Approval 展示，S08 再完成多行、历史、补全和 Slash Command。
+UI 由纯 Reducer 驱动，不断言整屏 ANSI Golden Output。
 
 ## 20. 配置与秘密
 
@@ -1010,18 +1035,17 @@ S03 先覆盖读取边界；S04 增加写入、Shell 和脏工作区；S13 将�
 - 进程树取消；
 - Windows/Linux Shell 差异。
 
-### 22.3 CLI 测试
+### 22.3 CLI 与协议测试
 
-S02 覆盖 REPL、Print、流式显示和基础取消；S04～S05 增加审批；S06～S08 增加 Session 与 Slash Command；S14 再验证稳定机器协议。
+S02 覆盖 Java Headless、内部 stdio、React/Ink、Print、流式显示和基础取消；
+S04～S05 增加审批；S06～S08 增加 Session 与 Slash Command；S14 再验证稳定机器协议。
 
-- Fake Terminal 输入；
-- Approval 选择；
-- `Ctrl+C`；
-- Interactive 多轮；
-- Print 遇到 ASK；
-- Exit Code；
-- 无 ANSI 环境；
-- API Key 缺失诊断。
+- Java Codec、状态机、序列、唯一终态、畸形/超限输入和 EOF；
+- TUI Reducer、组件、Interactive 多轮和无 ANSI 环境；
+- `Ctrl+C`、取消超时、Java 崩溃、TUI 崩溃和无孤儿进程；
+- stdout 协议纯净、持续排空 stderr、慢消费者和有界队列；
+- 中文/宽字符、粘贴、Resize 和 Windows 原生终端；
+- Print 遇到 ASK、Exit Code 和 API Key 缺失诊断。
 
 ### 22.4 端到端
 
@@ -1043,7 +1067,7 @@ S02 覆盖 REPL、Print、流式显示和基础取消；S04～S05 增加审批�
 
 | 旧里程碑 | 当前 Stage | 迁移说明 |
 | --- | --- | --- |
-| M0 | S00 | 参考架构、公开行为基线、来源隔离、功能矩阵、术语和技术决策 |
+| M0 | S00 | 参考架构、公开行为基线、授权研究、功能矩阵、术语和技术决策 |
 | M1 | S01～S05 | 拆分为 Agent Loop、Model + Streaming CLI、Read Tools、Write + Command、Permission Pipeline |
 | M2 | S06～S08 | 拆分为 Session + Checkpoint、Context Engineering、Instructions + Settings |
 | M3 | S09～S11 | 拆分为 Hooks、MCP、Skills + Plugins |
@@ -1057,7 +1081,7 @@ S02 覆盖 REPL、Print、流式显示和基础取消；S04～S05 增加审批�
 | --- | --- | --- |
 | S00 | Harness 地图 | 参考基线、矩阵、边界、术语和 ADR |
 | S01 | Runtime Kernel（Agent Loop） | 五模块骨架、显式 Loop、Fake Model、Tool Pipeline 骨架、内存 Session |
-| S02 | Model + Streaming CLI | 一个 Spring AI Provider、REPL、Print、事件流和取消 |
+| S02 | Model + Streaming CLI | 一个 Spring AI Provider、Java Headless、内部 stdio v0、React/Ink TUI、事件流和取消 |
 | S03 | Read Tools | WorkspaceGuard、读/搜/Git 工具、根 `AGENTS.md`、结果裁剪 |
 | S04 | Write + Command | Patch、Write、Shell、Approval UI、进程树控制和可运行编码闭环 |
 | S05 | Permission Pipeline | Effect、模式、规则、硬拒绝、Permission Lifecycle 和拒绝恢复 |
@@ -1134,7 +1158,7 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | ADR-007 | Accepted | 同步控制流 + 流式事件，不把 Reactor 泄漏到 Core |
 | ADR-008 | Accepted | S01 创建五个 Maven 模块，后续按 Stage 渐进扩展而不提前创建空模块 |
 | ADR-009 | Accepted / Deferred | Java 21 已确认；Boot 与 Spring AI 准确版本延后到 S02 |
-| ADR-010 | Proposed（S02） | Picocli + JLine |
+| ADR-010 | Superseded | 原 Picocli + JLine 候选被 ADR-023 取代 |
 | ADR-011 | Open | 首个模型 Provider |
 | ADR-012 | Open | Windows/Linux 默认 Shell |
 | ADR-013 | Accepted | `io.github.liumaishenjian` / `io.github.liumaishenjian.ccjava` |
@@ -1142,10 +1166,12 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | ADR-015 | Accepted | S00～S15 的能力归属、完成度和差距以功能对照矩阵为权威 |
 | ADR-016 | Accepted | 每个 Stage 必须交付矩阵更新、设计说明/ADR、测试/Demo 和差距报告 |
 | [ADR-017](./adr/ADR-017-s01-runtime-kernel.md) | Accepted | S01 使用同步显式 Loop、原子 Tool 批次预算和测试源 Fake |
-| [ADR-018](./adr/ADR-018-authorized-reference-study.md) | Superseded | 历史授权研究例外；不再是活动规则 |
-| [ADR-019](./adr/ADR-019-s07-progressive-context-reduction.md) | Superseded | 历史 S07 研究结论；不得作为实现输入 |
-| [ADR-020](./adr/ADR-020-quarantine-unverified-reference-source.md) | Accepted | 隔离未核验材料，活动设计只使用可审计来源 |
-| [ADR-021](./adr/ADR-021-s02-model-streaming-cli-scope.md) | Accepted | 固定 S02 的 23 项范围、目标等级和可证伪 Spike |
+| [ADR-018](./adr/ADR-018-authorized-reference-study.md) | Superseded | 历史方法；当前授权以 ADR-022 的快照和边界为准 |
+| [ADR-019](./adr/ADR-019-s07-progressive-context-reduction.md) | Superseded | 历史 S07 研究结论；需要重新采纳 |
+| [ADR-020](./adr/ADR-020-quarantine-unverified-reference-source.md) | Superseded | 记录 2026-07-28 的历史隔离 |
+| [ADR-021](./adr/ADR-021-s02-model-streaming-cli-scope.md) | Accepted | Provider/Streaming 目标有效；CLI 部分被 ADR-023 取代 |
+| [ADR-022](./adr/ADR-022-reactivate-authorized-reference-study.md) | Accepted | 按维护者授权确认恢复仓库外受控机制研究 |
+| [ADR-023](./adr/ADR-023-s02-java-headless-ink-tui.md) | Accepted | S02 采用 Java Headless + 内部 stdio v0 + React/Ink |
 
 ## 26. 需求追踪
 
@@ -1184,12 +1210,12 @@ Scripted Fake Model、Fake Tool 和 Fake Event Sink 只存在于测试源。
 S01 未使用任何授权或未核验参考源码；设计和代码由 ADR-017、本项目需求、公开基线及
 独立 Fake 场景解释。Windows Wrapper 与执行验证缺口已经关闭，并在 Commit
 `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd` 上通过 G4/G6；S01 Stage Exit 已
-Accepted。S02 当前只完成 ADR-021 的 G1 范围，生产实现尚未开始。
+Accepted。S02 当前只完成 ADR-021/ADR-023 重新对账后的 G1 范围，生产实现尚未开始。
 
 ### 27.2 分 Stage 实现
 
 1. **S01 Runtime Kernel（Agent Loop）**：创建父 POM 和五个模块，建立 domain 协议、显式 Agent Runtime、Pipeline 骨架、内存 Session、Permission/Approval Port 与 Scripted Fake Model，完成离线消息协议 Demo；实际取消仍保持未实现。
-2. **S02 Model + Streaming CLI**：完成 Spring AI 流式 Tool Call Spike，接入一个真实 Provider，装配 Picocli/JLine Interactive 与 Print，验证 Chunk 聚合、模型流取消、不完整流、输出长度 finish reason 的有界停止/续接和非 TTY 降级。
+2. **S02 Model + Streaming CLI**：先完成 Java Fake stdio 与最小 React/Ink Spike，再完成 Spring AI 流式 Tool Call Spike并接入一个真实 Provider；Java Picocli 提供 `--print`/`--stdio`，TUI 提供 Interactive，验证协议序列与唯一终态、Chunk 聚合、模型流取消、不完整流、输出长度 finish reason、有界停止/续接、非 TTY 降级和 Windows 无孤儿进程。
 3. **S03 Read Tools**：实现 WorkspaceGuard、只读 Tool、根 `AGENTS.md`、类型化结果上限和截断元数据，在公开仓库完成代码解释 Demo 与越界测试。
 4. **S04 Write + Command**：实现 Patch、Write、Command、Approval UI、固定安全 PLAN、脏工作区保护、超时和进程树取消，在公开 Fixture 跑通“修改 → 测试失败 → 再修改 → 成功”。
 5. **S05 Permission Pipeline**：完成 Effect、可配置 Default/Plan/Accept Edits、allow/ask/deny、session approval、hard denial、Permission Lifecycle 和拒绝恢复，并用 Fake External Tool 验证统一入口。

@@ -1,33 +1,37 @@
 # ADR-021：S02 Model + Streaming CLI 启动范围与可证伪 Spike
 
 - Status: Accepted
+- Partially Superseded By: [ADR-023](./ADR-023-s02-java-headless-ink-tui.md)
 - Date: 2026-07-28
 - Stage: S02 Model + Streaming CLI（仅完成启动范围，生产实现尚未开始）
 - Reference Behavior Baseline: `R2026.03`
-- Authorized Snapshot ID: `N/A - Not Used`
-- Capability IDs: 23 项，见下表
+- Authorized Snapshot ID: `N/A - Not Used`（本 ADR 当时未使用；后续 CLI 决策使用 `AUTH-SRC-2026-07-29-A`）
+- Capability IDs: 原 23 项；当前 S02 以 ADR-023 调整后的 24 项为准
 - Decision Scope: 固定 G1 范围、退出目标和 Spike；不选择具体 Provider 或依赖版本
 
 ## 背景
+
+> 当前解释：本 ADR 的 Provider、流式模型和 19 项 L2 / 4 项原有 L1 目标继续有效；
+> JLine UI、23 项总数以及“不在 S02 建立 JSONL 边界”的决定已由 ADR-023 取代。
 
 S01 已经用框架无关 Domain 和同步控制流证明 Agent Loop、Tool 协议与内存 Session
 骨架。S02 的任务不是把 Spring AI 自动循环包进 CLI，而是验证真实模型的流式协议能够
 适配到现有 `ModelGateway`，同时让 Runtime 继续拥有 Tool Loop、取消、预算和终止状态。
 
-在选择 Spring Boot、Spring AI、Picocli、JLine 和 Provider 的准确版本前，需要先固定
+在选择 Spring Boot、Spring AI、Picocli、终端 UI 和 Provider 的准确版本前，需要先固定
 完整 Stage 范围，并用最小 Spike 证伪关键假设。否则依赖选择会先于真实协议证据。
 
 ## 决策
 
-S02 恰好追踪矩阵中 Stage 列包含 `S02` 的 23 项能力。`CTX-01` 与 `SESSION-02`
-已经由 S01 达到 L1，其余 21 项为 L0；S02 退出目标如下。
+经 ADR-023 调整后，S02 追踪矩阵中 Stage 列包含 `S02` 的 24 项能力。`CTX-01` 与
+`SESSION-02` 已经由 S01 达到 L1，其余 22 项为 L0；S02 退出目标如下。
 
 ### S02 目标为 L2 的 19 项
 
 | Feature ID | L0 → Target | S02 必须证明的行为 |
 | --- | --- | --- |
 | `BOOT-01` | L0 → L2 | CLI 可确定进入 Interactive 或 Print |
-| `CLI-01` | L0 → L2 | 同一进程内可连续执行交互 Session |
+| `CLI-01` | L0 → L2 | TUI 连接持续 Java Headless 进程并连续执行交互 Session |
 | `CLI-02` | L0 → L2 | Print 模式确定性完成并返回退出码 |
 | `CLI-03` | L0 → L2 | Assistant Text Delta 按序渲染 |
 | `CLI-10` | L0 → L2 | TTY 有能力检测，非 TTY 无 ANSI 且可管道化 |
@@ -46,7 +50,7 @@ S02 恰好追踪矩阵中 Stage 列包含 `S02` 的 23 项能力。`CTX-01` 与 
 | `OBS-03` | L0 → L2 | Token/Cost 只在 Provider 返回可信 Usage 时记录 |
 | `OBS-05` | L0 → L2 | Prompt、Completion 和 Secret 默认不导出 |
 
-### S02 目标为 L1 的 4 项
+### S02 目标为 L1 的 5 项
 
 这些能力还要在后续 Stage 完成副作用或更完整的边界，因此 S02 只建立真实契约和局部路径。
 
@@ -55,13 +59,14 @@ S02 恰好追踪矩阵中 Stage 列包含 `S02` 的 23 项能力。`CTX-01` 与 
 | `BOOT-03` | L0 → L1 | 组装 Model、当前 Tool Definition 与最小 Permission Port | S05 完整权限装配 |
 | `CLI-04` | L0 → L1 | 渲染模型和 Runtime 事件；尚无真实文件/命令输出 | S03 真实 Tool 进度 |
 | `CLI-06` | L0 → L1 | `Ctrl+C` 取消当前模型流并保持 Session 可用 | S04 Tool/进程树取消 |
+| `CLI-11` | L0 → L1 | 内部 stdio v0 建立版本、序列、唯一终态和取消边界 | S14 稳定公共协议 |
 | `LOOP-08` | L0 → L1 | Deadline/取消传播到模型请求 | S04 Tool/进程树传播 |
 
 ## G0：实现前必须补齐的公开来源
 
 本 ADR 不使用任何隔离或未核验源码。正式实现前必须：
 
-1. 记录 Spring Boot、Spring AI、候选 Provider、Picocli 和 JLine 官方文档的访问日期；
+1. 记录 Spring Boot、Spring AI、候选 Provider、Picocli、Node 与 Ink 官方文档的访问日期；
 2. 确认候选版本存在于 Maven Central，记录 BOM/Starter 的准确坐标；
 3. 记录 Spring AI 在该版本下关闭自动 Tool Loop 的官方方式；
 4. 明确 Provider 对 Tool Call Streaming、Usage、Finish Reason 和 Cancellation 的实际支持；
@@ -89,7 +94,7 @@ Spike 使用仓库外密钥、最小独立模块或临时分支，不进入 Doma
 
 1. `Ctrl+C` 能中断当前模型订阅且不直接退出 Session；
 2. Cancel 之后不再发布属于旧 Run 的文本或终态；
-3. TTY 下可使用交互编辑，非 TTY 下不输出 ANSI 或等待输入；
+3. React/Ink TUI 在 TTY 下可交互，Java Print/stdio 的非 TTY 路径不输出 ANSI 或等待输入；
 4. Print 模式遇到需要交互的路径时确定性失败并返回稳定退出码。
 
 ### 失败判定
@@ -106,7 +111,8 @@ Spike 使用仓库外密钥、最小独立模块或临时分支，不进入 Doma
 ## 架构边界
 
 - `cc-java-model-spring-ai` 是 Spring AI 与项目协议的唯一模型适配边界；
-- `cc-java-cli` 是 Composition Root、参数解析和终端渲染边界；
+- `cc-java-cli` 是 Java Headless Composition Root 与参数解析边界；
+- `cc-java-tui` 是 React/Ink 终端渲染边界，通过实验性 stdio v0 消费事件；
 - `cc-java-core` 保持同步顺序控制，使用项目事件/Observer 接收增量；
 - Spring AI Adapter 不注册可自动执行的高风险 Tool；
 - CLI 只消费事件，不读取或修改 Runtime 私有状态；
@@ -116,9 +122,9 @@ Spike 使用仓库外密钥、最小独立模块或临时分支，不进入 Doma
 
 - 不实现文件读写、Shell、完整 Permission Policy 或 OS Sandbox；
 - 不实现持久化 Session、Context 压缩、MCP、Skill 或 Sub-Agent；
-- 不提供稳定 JSONL 机器协议或第二 Provider；
+- 不提供稳定公共 JSONL 机器协议或第二 Provider；S02 只实现 ADR-023 的内部 v0；
 - 不把一次 Provider E2E 结果当作 L3 参考行为对照；
-- 不在 Spike 前预先锁定 Spring Boot、Spring AI、Picocli 或 JLine 版本。
+- 不在 Spike 前预先锁定 Spring Boot、Spring AI、Picocli、React 或 Ink 版本。
 
 ## Gate 与后续
 
@@ -126,6 +132,6 @@ Spike 使用仓库外密钥、最小独立模块或临时分支，不进入 Doma
 - G2 在 Spike 后记录 Provider/框架/CLI 技术选择及被否决方案；
 - G3-G4 必须先用 Fake Stream/Terminal 覆盖确定性路径，再显式运行真实 Provider E2E；
 - G5 必须包含 TTY/Print 正例和取消或不完整流负例；
-- G6 只有在 23 项目标、矩阵、README、PRD、技术设计、证据和差距报告对账后通过。
+- G6 只有在 ADR-023 调整后的 24 项目标、矩阵、README、PRD、技术设计、证据和差距报告对账后通过。
 
 本 ADR 不提升 Capability Level，也不表示 S02 生产代码已经开始。

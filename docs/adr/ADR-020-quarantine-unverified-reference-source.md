@@ -1,6 +1,7 @@
 # ADR-020：隔离未核验参考材料，恢复可审计的公开来源链
 
-- Status: Accepted
+- Status: Superseded
+- Superseded By: [ADR-022](./ADR-022-reactivate-authorized-reference-study.md)
 - Date: 2026-07-28
 - Decision Owners: 项目维护者
 - Scope: S00-S15 的来源、研究与实现边界
@@ -9,6 +10,10 @@
 - Supersedes: ADR-018 的授权研究例外、ADR-019 的参考结论采纳决定
 
 ## 背景
+
+> 历史状态说明：本 ADR 记录 2026-07-28 为什么暂停使用该材料。2026-07-29，维护者
+> 再次明确确认已取得学习授权，ADR-022 因而恢复了仓库外只读、非复制的受控研究。
+> 本 ADR 不再定义当前活动规则。
 
 仓库曾把一组位于仓库外的本地字节登记为 `AUTH-SRC-2026-03-31-A`，并仅依据一次
 对话中的维护者说明将其视为“已授权学习材料”。现有证据不能独立核验：

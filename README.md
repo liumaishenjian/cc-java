@@ -4,7 +4,8 @@
 
 > 当前状态：**S01 Runtime Kernel 已 Accepted，当前位于 S02 启动 Gate**。框架无关领域协议、
 > 显式 Agent Loop、Tool Pipeline 和内存 Session 已通过 Commit-scoped 离线验证；
-> S02 的 23 项范围已固定，但尚无真实模型和可交互 CLI，生产实现尚未开始。
+> S02 已重新固定为 24 项范围，并选定“Java Headless Runtime + 实验性 stdio v0 +
+> React/Ink TUI”；真实模型、协议和可交互 CLI 仍未实现，生产实现尚未开始。
 >
 > Current status: S01 accepted; S02 is at its launch gate; no provider or interactive CLI yet.
 
@@ -16,7 +17,7 @@
 登记公开行为范围与来源/权利边界
 → 区分 Documented、Observed、Inferred 与 Unknown
 → 拆解成熟系统的职责、状态和失败路径
-→ 用 Java 独立重实现
+→ 用 Java 独立重实现 Runtime，并为终端选择成熟 UI 技术
 → 用场景、测试和指标对照差距
 → 补齐参考能力
 → 在理解之后形成自己的创新
@@ -63,7 +64,7 @@ R2026.03 基线目前追踪 193 个 Capability ID。S01 只把 19 项推进到 L
 
 | 阶段 | 学习主题 | 主要结果 |
 | --- | --- | --- |
-| S00 | Harness 地图 | 参考架构、行为基线、来源隔离登记、能力矩阵和权利边界 |
+| S00 | Harness 地图 | 参考架构、行为基线、授权研究登记、能力矩阵和权利边界 |
 | S01-S04 | 核心 Coding Loop | Agent Loop、模型流、只读工具、受控修改与测试 |
 | S05-S08 | 可靠性 | 权限、Session、Checkpoint、Context、Instructions、Settings |
 | S09-S11 | 扩展机制 | Hooks、MCP、Skills、Plugins |
@@ -90,7 +91,9 @@ S01-S04 会得到第一个可运行的纵向闭环：
 
 ```mermaid
 flowchart TB
-    UI["CLI / Print / future SDK"] --> APP["Application & Session"]
+    TUI["React/Ink TUI"] -->|"experimental stdio v0"| HOST["Java Headless CLI"]
+    PRINT["Print / future SDK"] --> HOST
+    HOST --> APP["Application & Session"]
     APP --> LOOP["Agent Runtime Kernel"]
     LOOP --> MODEL["Model Gateway"]
     LOOP --> PIPE["Tool Execution Pipeline"]
@@ -101,7 +104,8 @@ flowchart TB
     PIPE --> EXEC["Filesystem / Process / Git / Sandbox"]
 ```
 
-Spring AI 只位于模型和集成适配层。项目自己的 Runtime 掌握 Tool Call、权限、生命周期、限制和终止状态，不能把核心循环交给框架黑盒自动执行。
+Spring AI 只位于模型和集成适配层，React/Ink 只位于终端前端。项目自己的 Java Runtime
+掌握 Tool Call、权限、生命周期、限制和终止状态，不能把核心循环交给框架或 UI 黑盒执行。
 
 ## 文档导航
 
@@ -109,21 +113,21 @@ Spring AI 只位于模型和集成适配层。项目自己的 Runtime 掌握 Too
 
 1. [参考架构](./docs/reference-architecture.md)：成熟 Coding Agent 有哪些子系统，以及为什么存在；
 2. [公开行为基线](./docs/reference-baselines/R2026.03-public-behavior.md)：来源分类、版本限制和行为证据规则；
-3. [未核验参考材料隔离登记](./docs/reference-baselines/R2026.03-unverified-source.md)：为什么该材料不能作为活动输入；
+3. [授权参考源码基线](./docs/reference-baselines/R2026.03-authorized-source.md)：允许学习的快照、未知项和非复制边界；
 4. [功能对照矩阵](./docs/feature-parity-matrix.md)：我们做到哪里、还差什么；
 5. [项目进度看板](./docs/progress.html)：当前 Stage、Gate、阻塞项和 193 项 Capability 的可视化；
 6. [产品需求](./docs/product-requirements.md)：学习型产品边界和阶段验收；
 7. [技术设计](./docs/technical-design.md)：Java 架构、协议和实现约束；
-8. [ADR-020](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)：撤销不可核验的授权分类并隔离历史结论；
-9. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：S02 的 23 项范围、目标等级和 Spike；
-10. [ADR-018（历史）](./docs/adr/ADR-018-authorized-reference-study.md)与
-    [ADR-019（历史）](./docs/adr/ADR-019-s07-progressive-context-reduction.md)：已被 ADR-020 取代的决策记录；
-11. [Stage 证据包模板](./docs/templates/stage-evidence-package.md)：每个阶段统一的 G0-G6 Gate；
-12. [S01 Runtime Kernel ADR](./docs/adr/ADR-017-s01-runtime-kernel.md)：首个代码阶段的关键取舍；
-13. [S01 离线 Demo](./docs/demos/S01-agent-loop.md)：如何复现 Fake Model 协议闭环；
-14. [S01 标准验证证据](./docs/evidence/S01-runtime-kernel-2026-07-28.md)：Wrapper、标准命令、报告与正反例实际结果；
-15. [S01 差距报告](./docs/gap-reports/S01.md)：已经学到什么，以及仍缺什么；
-16. [AGENTS.md](./AGENTS.md)：人类与 AI 贡献者必须遵循的规则。
+8. [ADR-022](./docs/adr/ADR-022-reactivate-authorized-reference-study.md)：维护者授权确认后的受控研究规则；
+9. [ADR-023](./docs/adr/ADR-023-s02-java-headless-ink-tui.md)：S02 的 Headless/Ink 路线、协议和验证；
+10. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：仍有效的 Provider 与 Streaming 目标；
+11. [ADR-020（历史）](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)：此前暂停研究的审计记录；
+12. [Stage 证据包模板](./docs/templates/stage-evidence-package.md)：每个阶段统一的 G0-G6 Gate；
+13. [S01 Runtime Kernel ADR](./docs/adr/ADR-017-s01-runtime-kernel.md)：首个代码阶段的关键取舍；
+14. [S01 离线 Demo](./docs/demos/S01-agent-loop.md)：如何复现 Fake Model 协议闭环；
+15. [S01 标准验证证据](./docs/evidence/S01-runtime-kernel-2026-07-28.md)：Wrapper、标准命令、报告与正反例实际结果；
+16. [S01 差距报告](./docs/gap-reports/S01.md)：已经学到什么，以及仍缺什么；
+17. [AGENTS.md](./AGENTS.md)：人类与 AI 贡献者必须遵循的规则。
 
 ## 技术基线
 
@@ -136,8 +140,8 @@ S01 已确认：
 - GroupId `io.github.liumaishenjian`；
 - Java 根包 `io.github.liumaishenjian.ccjava`。
 
-Spring Boot、Spring AI、Picocli、JLine 和首个模型 Provider 都延后到真正使用它们的
-S02 再确认，S01 不为了占位引入框架依赖。
+本机具备 Node.js 22，可用于 S02 TUI Spike。Spring Boot、Spring AI、Picocli、
+React、Ink 和首个模型 Provider 的准确版本都延后到对应 Spike 后确认。
 
 ## S01 能做什么
 
@@ -197,14 +201,14 @@ java scripts/ProgressDashboard.java --self-test
 
 ## 来源与独立重实现边界
 
-项目只使用公开文档、可独立复现的行为场景和本项目需求定义可验收行为。此前登记为
-“已授权”的本地参考材料缺少可核验的来源、Revision、许可证和授权范围，现已改为
-`UNVERIFIED-SRC-2026-03-31-A` 并隔离，不再作为需求、设计、测试或代码输入。
+项目使用公开文档、可独立复现的行为场景和本项目需求定义可验收行为。维护者已明确
+确认 `AUTH-SRC-2026-07-29-A` 获得学习授权，因此可以在仓库外只读研究成熟机制；
+准确 Revision、许可证、权利人和再发布权仍保持 `Unknown`。
 
 参考材料不得进入本仓库、依赖、子模块、Fixture、Golden Output 或发布物。禁止复制或
 逐行翻译函数体、内部 Prompt、注释、错误文案、私有类型名、文件布局和实现常量。
-Java 侧必须使用本项目能够独立解释的契约、命名和实现。当前规则见
-[ADR-020](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)。
+Java Runtime 和终端前端都必须使用本项目能够独立解释的契约、命名和实现。当前规则见
+[ADR-022](./docs/adr/ADR-022-reactivate-authorized-reference-study.md)。
 
 “用于学习”或“不商用”不会自动获得复制和再发布权限；来源或授权范围不清楚时停止使用。
 
