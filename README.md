@@ -6,10 +6,12 @@
 > 显式 Agent Loop、Tool Pipeline 和内存 Session 已通过 Commit-scoped 离线验证；
 > S02 已重新固定为 24 项范围，并选定“Java Headless Runtime + 实验性 stdio v0 +
 > React/Ink TUI”；真实 OpenAI-compatible Provider、文本流、原始 Tool Call、
-> Core 取消、TUI 非 TTY、Picocli Java `--print`、CLI Override 与墙钟超时链路已跑通。
+> Core 取消、连续 Headless Session、TUI 非 TTY、Picocli Java `--print`、
+> CLI Override、墙钟超时和隐私安全的 Run/Turn/Tool Telemetry 链路已跑通。
 > S02 仍在进行中；跨 Chunk 多 Tool、429 有界重试、不完整流与长度终态已有本机
 > OpenAI-compatible Contract 证据，真实中转模型同回合只返回一个 Tool Call，
-> Windows 完整交互与进程负例尚未关闭。
+> Windows 活动 Run 取消与进程负例已关闭；当前 Provider 的同回合多 Tool 限制已登记为
+> 明确偏差。S02 等待 Commit-scoped G6 退出复验。
 >
 > Current status: S01 accepted; S02 has a real provider-backed headless/TUI path but is not complete.
 
@@ -128,14 +130,17 @@ Spring AI 只位于模型和集成适配层，React/Ink 只位于终端前端。
 11. [ADR-026](./docs/adr/ADR-026-s02-cli-overrides-run-deadline.md)：Workspace/Model/Timeout Override 与 Core Deadline；
 12. [ADR-027](./docs/adr/ADR-027-s02-model-stream-resilience.md)：多 Tool、重试、不完整流和长度终态；
 13. [ADR-028](./docs/adr/ADR-028-s02-windows-terminal-lifecycle.md)：两阶段中断、退出等待、Paste 与 Resize；
-14. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：仍有效的 Provider 与 Streaming 目标；
-15. [ADR-020（历史）](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)：此前暂停研究的审计记录；
-16. [Stage 证据包模板](./docs/templates/stage-evidence-package.md)：每个阶段统一的 G0-G6 Gate；
-17. [S01 Runtime Kernel ADR](./docs/adr/ADR-017-s01-runtime-kernel.md)：首个代码阶段的关键取舍；
-18. [S01 离线 Demo](./docs/demos/S01-agent-loop.md)：如何复现 Fake Model 协议闭环；
-19. [S01 标准验证证据](./docs/evidence/S01-runtime-kernel-2026-07-28.md)：Wrapper、标准命令、报告与正反例实际结果；
-20. [S01 差距报告](./docs/gap-reports/S01.md)：已经学到什么，以及仍缺什么；
-21. [AGENTS.md](./AGENTS.md)：人类与 AI 贡献者必须遵循的规则。
+14. [ADR-029](./docs/adr/ADR-029-s02-continuous-session.md)：连续 Headless Session 与跨 Run 规范历史；
+15. [ADR-030](./docs/adr/ADR-030-s02-privacy-safe-run-telemetry.md)：事件边界耗时、可信 Usage 与默认最小化观测；
+16. [ADR-031](./docs/adr/ADR-031-s02-provider-multi-tool-deviation.md)：当前 Provider 同回合多 Tool 偏差；
+17. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：仍有效的 Provider 与 Streaming 目标；
+18. [ADR-020（历史）](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)：此前暂停研究的审计记录；
+19. [Stage 证据包模板](./docs/templates/stage-evidence-package.md)：每个阶段统一的 G0-G6 Gate；
+20. [S01 Runtime Kernel ADR](./docs/adr/ADR-017-s01-runtime-kernel.md)：首个代码阶段的关键取舍；
+21. [S01 离线 Demo](./docs/demos/S01-agent-loop.md)：如何复现 Fake Model 协议闭环；
+22. [S01 标准验证证据](./docs/evidence/S01-runtime-kernel-2026-07-28.md)：Wrapper、标准命令、报告与正反例实际结果；
+23. [S01 差距报告](./docs/gap-reports/S01.md)：已经学到什么，以及仍缺什么；
+24. [AGENTS.md](./AGENTS.md)：人类与 AI 贡献者必须遵循的规则。
 
 ## 技术基线
 

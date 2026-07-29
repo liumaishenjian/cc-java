@@ -47,6 +47,62 @@ describe('reduceTuiState', () => {
     expect(state.notice).toBe('Java 协议错误：INVALID_INPUT');
     expect(state.notice).not.toContain('秘密');
   });
+
+  it('同一 Session 连续保留两个已完成 Run', () => {
+    let state = reduceTuiState(initialTuiState, {
+      type: 'event.received',
+      event: event('initialized', 1, {protocolVersion: 0}, 'init', 'session-1'),
+    });
+    for (const [index, prompt] of ['first', 'second'].entries()) {
+      const requestId = `req-${index + 1}`;
+      const runId = `run-${index + 1}`;
+      state = reduceTuiState(state, {
+        type: 'run.submitted',
+        requestId,
+        prompt,
+      });
+      state = reduceTuiState(state, {
+        type: 'event.received',
+        event: event(
+          'run.started',
+          2 + index * 3,
+          {},
+          requestId,
+          'session-1',
+          runId,
+        ),
+      });
+      state = reduceTuiState(state, {
+        type: 'event.received',
+        event: event(
+          'model.text.delta',
+          3 + index * 3,
+          {text: `answer-${index + 1}`},
+          requestId,
+          'session-1',
+          runId,
+        ),
+      });
+      state = reduceTuiState(state, {
+        type: 'event.received',
+        event: event(
+          'run.completed',
+          4 + index * 3,
+          {},
+          requestId,
+          'session-1',
+          runId,
+        ),
+      });
+    }
+
+    expect(state.sessionId).toBe('session-1');
+    expect(state.phase).toBe('ready');
+    expect(state.runs).toEqual([
+      expect.objectContaining({prompt: 'first', text: 'answer-1', status: 'completed'}),
+      expect.objectContaining({prompt: 'second', text: 'answer-2', status: 'completed'}),
+    ]);
+  });
 });
 
 function event(

@@ -66,6 +66,12 @@ Fixture 只监听 `127.0.0.1` 临时端口，使用固定假 Key，不读取本�
 - 不放宽测试断言，也不把两轮各一个 Tool Call 冒充同回合两个调用；
 - 该 opt-in 场景由 `ccjava.real-provider-multi-tool=true` 单独启用。
 
+2026-07-29 本轮再次运行该 opt-in 命令，结果仍只包含
+`record_first_probe`，缺少 `record_second_probe`。本机 SSE Contract 与 Adapter
+双 Tool 测试继续通过，因此按
+[ADR-031](../adr/ADR-031-s02-provider-multi-tool-deviation.md)登记为当前
+Provider/模型生成能力偏差。
+
 真实配置、Base URL、API Key、响应文本和底层响应体均未写入证据。
 
 ## 等级结论

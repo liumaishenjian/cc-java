@@ -83,6 +83,66 @@ class StdioProtocolProcessTest {
         assertThat(descendants).noneMatch(ProcessHandle::isAlive);
     }
 
+    @Test
+    void realJavaProcessCompletesTwoRunsInOneSession() throws Exception {
+        Process process = startFixtureProcess();
+        List<ProcessHandle> descendants = new ArrayList<>();
+        String firstRunId;
+        String secondRunId;
+        try (BufferedWriter input = new BufferedWriter(new OutputStreamWriter(
+                     process.getOutputStream(),
+                     StandardCharsets.UTF_8));
+             BufferedReader output = new BufferedReader(new InputStreamReader(
+                     process.getInputStream(),
+                     StandardCharsets.UTF_8))) {
+            JsonMapper mapper = JsonMapper.builder().build();
+
+            send(input,
+                    "{\"version\":0,\"type\":\"initialize\","
+                            + "\"requestId\":\"multi-1\",\"sequence\":1,\"payload\":{}}");
+            JsonNode initialized = readEvent(process, output, mapper);
+            String sessionId = initialized.get("sessionId").stringValue();
+
+            send(input,
+                    ("{\"version\":0,\"type\":\"run.start\","
+                            + "\"requestId\":\"multi-2\",\"sessionId\":\"%s\","
+                            + "\"sequence\":2,\"payload\":{\"prompt\":\"first\"}}")
+                            .formatted(sessionId));
+            JsonNode firstTerminal = readUntilTerminal(process, output, mapper);
+            assertThat(firstTerminal.get("type").stringValue()).isEqualTo("run.completed");
+            assertThat(firstTerminal.get("sessionId").stringValue()).isEqualTo(sessionId);
+            firstRunId = firstTerminal.get("runId").stringValue();
+
+            send(input,
+                    ("{\"version\":0,\"type\":\"run.start\","
+                            + "\"requestId\":\"multi-3\",\"sessionId\":\"%s\","
+                            + "\"sequence\":3,\"payload\":{\"prompt\":\"second\"}}")
+                            .formatted(sessionId));
+            JsonNode secondTerminal = readUntilTerminal(process, output, mapper);
+            assertThat(secondTerminal.get("type").stringValue()).isEqualTo("run.completed");
+            assertThat(secondTerminal.get("sessionId").stringValue()).isEqualTo(sessionId);
+            secondRunId = secondTerminal.get("runId").stringValue();
+
+            descendants.addAll(process.toHandle().descendants().toList());
+            send(input,
+                    ("{\"version\":0,\"type\":\"shutdown\","
+                            + "\"requestId\":\"multi-4\",\"sessionId\":\"%s\","
+                            + "\"sequence\":4,\"payload\":{}}")
+                            .formatted(sessionId));
+        } finally {
+            if (!process.waitFor(PROCESS_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
+                process.destroyForcibly();
+                process.waitFor();
+            }
+        }
+
+        assertThat(firstRunId).isNotEqualTo(secondRunId);
+        assertThat(process.exitValue()).isZero();
+        assertThat(new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8))
+                .isBlank();
+        assertThat(descendants).noneMatch(ProcessHandle::isAlive);
+    }
+
     private Process startFixtureProcess() throws IOException {
         Path javaHome = Path.of(System.getProperty("java.home"));
         Path javaExecutable = javaHome.resolve("bin").resolve(

@@ -1,6 +1,10 @@
 package io.github.liumaishenjian.ccjava.cli.stdio;
 
 import io.github.liumaishenjian.ccjava.core.AgentEventSink;
+import io.github.liumaishenjian.ccjava.core.ModelTurnTelemetry;
+import io.github.liumaishenjian.ccjava.core.RunTelemetry;
+import io.github.liumaishenjian.ccjava.core.ToolCallTelemetry;
+import io.github.liumaishenjian.ccjava.core.ModelGateway;
 import io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeSession;
 import io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeOptions;
 import io.github.liumaishenjian.ccjava.domain.AgentEventEnvelope;
@@ -11,6 +15,7 @@ import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.model.springai.config.OpenAiCompatibleSettings;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.ArrayNode;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -66,6 +71,17 @@ public final class RuntimeStdioCommandHandler
                 Objects.requireNonNull(settings, "settings 不能为空"),
                 this,
                 new HeadlessRuntimeOptions(workspace, settings.model(), timeout));
+    }
+
+    /**
+     * 使用 Fake Model 装配真实 Runtime/stdio Adapter，供确定性契约测试使用。
+     *
+     * @param model 不访问网络的模型端口
+     */
+    RuntimeStdioCommandHandler(ModelGateway model) {
+        application = new HeadlessRuntimeSession(
+                Objects.requireNonNull(model, "model 不能为空"),
+                this);
     }
 
     @Override
@@ -205,6 +221,8 @@ public final class RuntimeStdioCommandHandler
         payload.put("modelTurns", result.modelTurns());
         payload.put("toolCalls", result.toolCalls());
         result.finalText().ifPresent(value -> payload.put("finalText", value));
+        application.telemetry(result.runId())
+                .ifPresent(value -> payload.set("telemetry", telemetryPayload(value)));
         String type = switch (result.stopReason()) {
             case COMPLETED -> "run.completed";
             case USER_CANCELLED -> "run.cancelled";
@@ -212,6 +230,51 @@ public final class RuntimeStdioCommandHandler
         };
         emit(run, type, payload);
         finish(run);
+    }
+
+    private ObjectNode telemetryPayload(RunTelemetry telemetry) {
+        ObjectNode payload = codec.objectNode();
+        payload.put("elapsedMillis", telemetry.elapsed().toMillis());
+        payload.put("usageReportedTurns", telemetry.usageReportedTurns());
+        payload.put("usageMissingTurns", telemetry.usageMissingTurns());
+
+        ArrayNode modelTurns = codec.arrayNode();
+        for (ModelTurnTelemetry turn : telemetry.modelTurns()) {
+            ObjectNode item = codec.objectNode();
+            item.put("turn", turn.turnNumber());
+            item.put("elapsedMillis", turn.elapsed().toMillis());
+            item.put("completed", turn.completed());
+            turn.finishReason().ifPresent(
+                    reason -> item.put("finishReason", reason.name().toLowerCase()));
+            turn.usage().ifPresent(usage -> {
+                ObjectNode usageNode = codec.objectNode();
+                usageNode.put("inputTokens", usage.inputTokens());
+                usageNode.put("outputTokens", usage.outputTokens());
+                usageNode.put("totalTokens", usage.totalTokens());
+                item.set("usage", usageNode);
+            });
+            modelTurns.add(item);
+        }
+        payload.set("modelTurns", modelTurns);
+
+        ArrayNode toolCalls = codec.arrayNode();
+        for (ToolCallTelemetry call : telemetry.toolCalls()) {
+            ObjectNode item = codec.objectNode();
+            item.put("ordinal", call.ordinal());
+            item.put("elapsedMillis", call.elapsed().toMillis());
+            item.put("completed", call.completed());
+            toolCalls.add(item);
+        }
+        payload.set("toolCalls", toolCalls);
+
+        telemetry.totalUsage().ifPresent(usage -> {
+            ObjectNode usageNode = codec.objectNode();
+            usageNode.put("inputTokens", usage.inputTokens());
+            usageNode.put("outputTokens", usage.outputTokens());
+            usageNode.put("totalTokens", usage.totalTokens());
+            payload.set("totalUsage", usageNode);
+        });
+        return payload;
     }
 
     private void emitUnexpectedFailure(ActiveRun run) {

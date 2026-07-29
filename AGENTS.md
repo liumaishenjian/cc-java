@@ -19,6 +19,9 @@
    [ADR-026](./docs/adr/ADR-026-s02-cli-overrides-run-deadline.md)、
    [ADR-027](./docs/adr/ADR-027-s02-model-stream-resilience.md)、
    [ADR-028](./docs/adr/ADR-028-s02-windows-terminal-lifecycle.md)、
+   [ADR-029](./docs/adr/ADR-029-s02-continuous-session.md)、
+   [ADR-030](./docs/adr/ADR-030-s02-privacy-safe-run-telemetry.md)、
+   [ADR-031](./docs/adr/ADR-031-s02-provider-multi-tool-deviation.md)、
    [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)、
    [ADR-018](./docs/adr/ADR-018-authorized-reference-study.md)、
    [ADR-019](./docs/adr/ADR-019-s07-progressive-context-reduction.md)与
@@ -34,7 +37,9 @@ Commit 为 `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd`。当前处于 **S02 实�
 ADR-023 已把 S02 固定为 24 项 Feature、Java Headless Runtime、实验性 stdio v0 与
 React/Ink TUI；真实 Provider、Runtime/stdio/TUI、Java `--print`、类型化 CLI Override、
 Runtime 墙钟限制、ADR-027 模型流健壮性与 ADR-028 Windows 直接子进程生命周期已在
-工作区验证；真实 Provider 同回合多 Tool 兼容性和真实 TTY 活动取消复核尚未关闭。
+工作区验证；ADR-029 连续 Headless Session、ADR-030 隐私安全 Telemetry 与真实 TTY
+活动取消也已在工作区验证；ADR-031 已把当前 Provider 同回合只生成一个 Tool Call
+登记为明确偏差。G0-G5 已通过，G6 等待 Commit-scoped 退出复验。
 
 当前允许并要求：
 

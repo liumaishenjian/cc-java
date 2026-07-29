@@ -924,7 +924,24 @@ Java → Node stderr: 脱敏诊断
 这实现 `CLI-11` 的 S02 L1 内部边界，不是稳定外部 API；稳定 JSON/JSONL、SDK、
 Daemon 和兼容承诺仍在 S14。
 
-### 19.3 React/Ink TUI
+### 19.3 S02 隐私安全 Telemetry
+
+`RunTelemetryCollector` 作为 Core 的只读 `AgentEventSink`，从 `RunStarted/RunFinished`、
+`ModelTurnStarted/ModelTurnCompleted` 与 `BeforeTool/AfterTool` 的事件时间边界计算耗时。
+它不进入 Agent 决策，也不引入 Micrometer、OpenTelemetry 或 Provider SDK 类型。
+
+每个完成 Model Turn 只接受 `ModelTurnMetadata.usage()` 中 Provider 明确返回的计数。
+只有全部完成回合都存在 Usage 时才发布 `totalUsage`；部分缺失时只发布
+`usageReportedTurns/usageMissingTurns`，不补零、不按字符估算。S02 不维护价格表，
+Cost 计算仍属于 S14 `MODEL-11`。
+
+stdio 终态中的 `telemetry` 只含 ID 之外的序号、毫秒耗时、完成标记、Finish Reason
+和 Token 计数。该投影从类型上排除 Prompt、Completion、Tool 名称/参数/结果、
+Provider Endpoint 和 API Key。`model.text.delta` 与 `finalText` 是面向当前 TUI 的
+显式产品响应通道，不作为观测出口。精确边界见
+[ADR-030](./adr/ADR-030-s02-privacy-safe-run-telemetry.md)。
+
+### 19.4 React/Ink TUI
 
 S02 只实现流式会话所需的最小 TUI：
 
@@ -1211,6 +1228,9 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | [ADR-026](./adr/ADR-026-s02-cli-overrides-run-deadline.md) | Accepted | S02 固定类型化 CLI Override、Runtime Metadata 和墙钟 Deadline |
 | [ADR-027](./adr/ADR-027-s02-model-stream-resilience.md) | Accepted | S02 固定多 Tool 聚合、有界重试、不完整流和长度明确停止 |
 | [ADR-028](./adr/ADR-028-s02-windows-terminal-lifecycle.md) | Accepted | S02 固定两阶段中断、退出等待、Paste 上限和 Resize 状态边界 |
+| [ADR-029](./adr/ADR-029-s02-continuous-session.md) | Accepted | S02 固定同一 Headless Session 的跨 Run 规范历史与双 Run stdio 证据 |
+| [ADR-030](./adr/ADR-030-s02-privacy-safe-run-telemetry.md) | Accepted | S02 固定事件边界耗时、可信 Usage 完整覆盖语义与默认最小化观测出口 |
+| [ADR-031](./adr/ADR-031-s02-provider-multi-tool-deviation.md) | Accepted | 当前 Provider 同回合多 Tool 是生成能力偏差；Adapter 继续保留完整协议 |
 
 ## 26. 需求追踪
 

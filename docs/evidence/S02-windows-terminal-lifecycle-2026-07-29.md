@@ -80,3 +80,23 @@ connecting → ready → closing
 - 真实 TTY 连续多轮、活动取消和第二次中断仍需维护者在原生终端复核；
 - 当前真实 Provider 同一回合只生成一个 Tool Call，仍需兼容性确认或明确偏差；
 - S04 才负责 Tool 子进程树和 Shell 取消；S14 才建立跨平台 PTY 自动化矩阵。
+
+## 2026-07-29 活动 Run 原生 TTY 复验
+
+在 Windows ConPTY 中启动真实 React/Ink TUI，等待 `ready` 后提交一个长输出请求，
+在状态变为 `running` 且尚未出现文本时发送第一次 `Ctrl+C`：
+
+```text
+running → ready
+[cancelled]
+```
+
+Session 保持可用。随后在空闲状态再次发送 `Ctrl+C`：
+
+```text
+ready → closing
+process exit code = 0
+```
+
+退出后 `jps -lv` 不存在 `CcJavaCliMain`。这关闭了 S02 的真实 TTY 活动模型取消复核；
+S04 的 Tool/命令进程树取消仍按计划延期。

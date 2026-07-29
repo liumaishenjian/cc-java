@@ -6,6 +6,7 @@ import tools.jackson.core.StreamReadFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 /**
@@ -121,6 +122,15 @@ public final class StdioProtocolCodec {
      */
     public ObjectNode objectNode() {
         return mapper.createObjectNode();
+    }
+
+    /**
+     * 创建供 Adapter 组装事件数据的空 Array。
+     *
+     * @return 新 ArrayNode
+     */
+    public ArrayNode arrayNode() {
+        return mapper.createArrayNode();
     }
 
     private int requiredInt(JsonNode root, String field)

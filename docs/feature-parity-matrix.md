@@ -153,12 +153,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 193 |
-| 当前阶段 | S02 Model + Streaming CLI（模型流健壮性与 Windows 进程生命周期已通过） |
-| Stage Exit | Open：G1-G3 已通过；G0、G4-G6 尚未通过 |
-| 当前等级 | 14 项为 L2，26 项为 L1，153 项为 L0 |
+| 当前阶段 | S02 Model + Streaming CLI（24 项目标已在工作区验证） |
+| Stage Exit | Open：G0-G5 已通过；G6 等待 Commit-scoped 退出复验 |
+| 当前等级 | 19 项为 L2，22 项为 L1，152 项为 L0 |
 | 默认最终目标 | 193 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 9.33%（193 项等权、目标 L3） |
-| 下一步 | 复核真实 TTY 连续多轮/活动取消，并确认真实 Provider 同回合多 Tool 兼容性 |
+| 当前能力覆盖 | 10.36%（193 项等权、目标 L3） |
+| 下一步 | 获得授权后创建 S02 退出 Commit，在该 Commit 上复验并关闭 G6 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -180,6 +180,12 @@ Runtime Deadline 见 [ADR-026](./adr/ADR-026-s02-cli-overrides-run-deadline.md)�
 Resize 与直接子进程退出边界见
 [ADR-028](./adr/ADR-028-s02-windows-terminal-lifecycle.md)；本轮不改变 Capability
 Level，原因见对应证据。
+连续 Java Headless Session、跨 Run 规范历史和双 Run stdio 证据见
+[ADR-029](./adr/ADR-029-s02-continuous-session.md)。
+Run/Turn/Tool 事件边界耗时、Provider Usage 完整覆盖语义与默认最小化观测出口见
+[ADR-030](./adr/ADR-030-s02-privacy-safe-run-telemetry.md)。
+真实 Provider 同回合只生成第一个 Tool Call 的边界与重新验证条件见
+[ADR-031](./adr/ADR-031-s02-provider-multi-tool-deviation.md)。
 
 ### 5.2 Stage 退出目标与跨阶段路径
 
@@ -237,7 +243,7 @@ Stage 完成项。
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| CLI-01 | Interactive Session | React/Ink TUI + Java Application Session | L1 | S02 | REF-02/AUTH-01 |
+| CLI-01 | Interactive Session | React/Ink TUI + Java Application Session | L2 | S02 | REF-02/AUTH-01 |
 | CLI-02 | Print / Headless | Picocli `--print` | L2 | S02 | REF-02 |
 | CLI-03 | 流式 Assistant Text | stdio Event → Ink 组件渲染 | L2 | S02 | REF-02/AUTH-01 |
 | CLI-04 | Tool 进度与输出 | 有序 Agent Event 渲染 | L1 | S02/S03 | REF-02 |
@@ -404,7 +410,7 @@ Stage 完成项。
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
 | SESSION-01 | Session ID | Workspace-aware ID | L1 | S01 | REF-06 |
-| SESSION-02 | In-memory Session | 当前对话连续性 | L1 | S01/S02 | REF-06 |
+| SESSION-02 | In-memory Session | 当前对话连续性 | L2 | S01/S02 | REF-06/AUTH-01 |
 | SESSION-03 | Append-only JSONL | 版本化事件存储 | L0 | S06 | REF-06 |
 | SESSION-04 | Continue | 最近 Session | L0 | S06 | REF-06 |
 | SESSION-05 | Resume | 选择 Session | L0 | S06 | REF-06 |
@@ -473,10 +479,10 @@ Stage 完成项。
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
 | OBS-01 | Agent Event | 可重放控制流 | L1 | S01 | REF-01 |
-| OBS-02 | Turn/Tool Timing | Micrometer Metrics | L0 | S02/S14 | REF-01 |
-| OBS-03 | Token / Cost | Provider Usage 统计 | L1 | S02/S14 | REF-01 |
+| OBS-02 | Turn/Tool Timing | S02 事件边界采集 L2 → S14 Metrics Backend L3 | L2 | S02/S14 | REF-01/AUTH-01 |
+| OBS-03 | Token / Cost | S02 可信 Provider Usage L2 → S14 Cost 治理 L3 | L2 | S02/S14 | REF-01/AUTH-01 |
 | OBS-04 | Stop / Recovery Analytics | 失败原因分布 | L0 | S07/S14 | REF-01 |
-| OBS-05 | Privacy Controls | Prompt/Content 默认关闭 | L1 | S02/S14 | REF-01 |
+| OBS-05 | Privacy Controls | S02 最小化 Telemetry L2 → S14 Export Policy L3 | L2 | S02/S14 | REF-01/AUTH-01 |
 | OBS-06 | OpenTelemetry | 可选 Trace Export | L0 | S14 | REF-01 |
 | EVAL-01 | Seed Tasks | Java Fixture 任务集 | L0 | S04/S14 | REF-01 |
 | EVAL-02 | Behavior Replay | Fake Model 确定性回放 | L1 | S01/S06 | REF-01 |

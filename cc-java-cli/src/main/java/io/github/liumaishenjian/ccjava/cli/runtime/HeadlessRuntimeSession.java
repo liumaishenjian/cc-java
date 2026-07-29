@@ -8,6 +8,8 @@ import io.github.liumaishenjian.ccjava.core.LifecycleDispatcher;
 import io.github.liumaishenjian.ccjava.core.ModelGateway;
 import io.github.liumaishenjian.ccjava.core.ModelRetryPolicy;
 import io.github.liumaishenjian.ccjava.core.RetryingModelGateway;
+import io.github.liumaishenjian.ccjava.core.RunTelemetry;
+import io.github.liumaishenjian.ccjava.core.RunTelemetryCollector;
 import io.github.liumaishenjian.ccjava.core.ToolExecutionPipeline;
 import io.github.liumaishenjian.ccjava.core.ToolRegistry;
 import io.github.liumaishenjian.ccjava.core.UuidAgentIdGenerator;
@@ -53,6 +55,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private final InMemorySessionStore sessions;
     private final AgentRuntime runtime;
     private final HeadlessRuntimeOptions options;
+    private final RunTelemetryCollector telemetry;
     private final AtomicReference<RunId> activeRunId = new AtomicReference<>();
     private io.github.liumaishenjian.ccjava.core.AgentSession session;
 
@@ -128,10 +131,18 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         Objects.requireNonNull(model, "model 不能为空");
         AgentEventSink downstream = Objects.requireNonNull(eventSink, "eventSink 不能为空");
         this.options = Objects.requireNonNull(options, "options 不能为空");
+        telemetry = new RunTelemetryCollector();
         UuidAgentIdGenerator ids = new UuidAgentIdGenerator();
         LifecycleDispatcher lifecycle = new LifecycleDispatcher(
                 Clock.systemUTC(),
-                envelope -> publish(envelope, downstream));
+                envelope -> {
+                    try {
+                        telemetry.publish(envelope);
+                    } catch (RuntimeException ignored) {
+                        // Telemetry 是旁路观察者，失败不能吞掉 Surface 所需的权威终态。
+                    }
+                    publish(envelope, downstream);
+                });
         sessions = new InMemorySessionStore(ids, lifecycle);
         ToolRegistry tools = ToolRegistry.empty();
         ToolExecutionPipeline pipeline = new ToolExecutionPipeline(
@@ -224,6 +235,16 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     public SessionId sessionId() {
         requireOpen();
         return session.id();
+    }
+
+    /**
+     * 返回已结束 Run 的隐私安全观测快照。
+     *
+     * @param runId 目标 Run
+     * @return Run 尚未结束或没有规范终态时为空
+     */
+    public java.util.Optional<RunTelemetry> telemetry(RunId runId) {
+        return telemetry.find(runId);
     }
 
     private void publish(AgentEventEnvelope envelope, AgentEventSink downstream) {
