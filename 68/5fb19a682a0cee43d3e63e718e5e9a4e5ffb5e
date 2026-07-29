@@ -1,0 +1,52 @@
+docs/product-requirements.md
+  s_371b145dc5ecd9::t_f65dbd4c892b9d 383-384,393
+  s_371b145dc5ecd9::t_614be26d4b474b 3,5,20-21,25-26,28-30,37,103-104,113-114,198,211,227-229,232,470,474,533-534,547-550,555
+docs/feature-parity-matrix.md
+  s_371b145dc5ecd9::t_bc5ad9973c90a2 7,37-38,45-48,129,131,158,168-170,217,229,231,237,239,532-534,537,609-610
+  s_371b145dc5ecd9::t_f65dbd4c892b9d 194,489
+docs/reference-architecture.md
+  s_371b145dc5ecd9::t_5cdd2267277dfe 5,34-37,52-53,72-73,86-87,94-95,155,187-192
+docs/adr/ADR-022-reactivate-authorized-reference-study.md
+  s_371b145dc5ecd9::t_4100c75e2763be 1-54
+docs/progress-state.properties
+  s_371b145dc5ecd9::t_cc1900e78280da 9-10,12-13,26,28,30,34,36,38,41-42
+  s_371b145dc5ecd9::t_591cb64168ad81 4
+docs/adr/ADR-018-authorized-reference-study.md
+  s_371b145dc5ecd9::t_015a2a7b6cb2ed 4,11-13,27
+docs/adr/ADR-023-s02-java-headless-ink-tui.md
+  s_371b145dc5ecd9::t_4100c75e2763be 1-25,41-169
+  s_371b145dc5ecd9::t_9c86b3bb2be72b 26-40
+docs/adr/ADR-021-s02-model-streaming-cli-scope.md
+  s_371b145dc5ecd9::t_f65dbd4c892b9d 26-27,34,53,62
+  s_371b145dc5ecd9::t_4100c75e2763be 4,8-9,14-16,21,69,97,114-115,125,127,135
+docs/adr/ADR-020-quarantine-unverified-reference-source.md
+  s_371b145dc5ecd9::t_4100c75e2763be 3-4,14-17
+docs/technical-design.md
+  s_371b145dc5ecd9::t_74e5d5aa053fed 3,5,11,20-21,44-45,61-63,74,80-81,132-135,138-139,146-149,156-157,196-198,208,224-226,239,257,287,317,319,322-329,331-337,790-791,798,881,883,885-887,889,891,893-897,899-902,904-905,907,909,911-914,916-917,1038,1040-1041,1043-1048,1070,1084,1161,1169-1174,1213,1218
+AGENTS.md
+  s_371b145dc5ecd9::t_756124826b81b9 12,16-17,19-20,30-31,37,39,41-42,74,81-82,103,131-132,138,145,153,155-157,159,161-170,181,194-196,205-206,368-370,379
+docs/reference-baselines/R2026.03-public-behavior.md
+  s_371b145dc5ecd9::t_9c86b3bb2be72b 17,21,56,69,92-93
+docs/reference-baselines/R2026.03-authorized-source.md
+  s_371b145dc5ecd9::t_4100c75e2763be 1-68
+docs/reference-baselines/R2026.03-unverified-source.md
+  s_371b145dc5ecd9::t_4100c75e2763be 5,12-18,22,26,41,51-52,54,56-57
+README.md
+  s_371b145dc5ecd9::t_859ced7c3d8a82 7-8,20,67,94-96,107-108,116,121-130,143-144,204-206,210-211
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "685fb19a682a0cee43d3e63e718e5e9a4e5ffb5e",
+  "prompts": {},
+  "sessions": {
+    "s_371b145dc5ecd9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa772-84c7-7680-9e8a-026c8e1161ea",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "yliu27 <yliu27@leqee.com>"
+    }
+  }
+}
