@@ -1,0 +1,431 @@
+docs/adr/ADR-028-s02-windows-terminal-lifecycle.md
+  s_371b145dc5ecd9::t_f771522392049d 1-90
+cc-java-tui/README.md
+  s_371b145dc5ecd9::t_b06d0b4d72074f 1-7
+docs/technical-design.md
+  s_371b145dc5ecd9::t_91ba36a8c53619 12,898-908,1209
+  s_371b145dc5ecd9::t_c82a452659e79f 950-955,958-959
+  s_371b145dc5ecd9::t_b40307d31a9a65 1250
+  s_371b145dc5ecd9::t_0d759c324f9c13 65-66,1207
+  s_371b145dc5ecd9::t_26313437298d8a 936-941,1211
+  s_371b145dc5ecd9::t_547d4fb39a0193 9,11,501-503,509-510,516,1251-1252
+  s_371b145dc5ecd9::t_bc953c613c9f04 13,517,519-523,525-527,1210
+  s_371b145dc5ecd9::t_7a9a6d917a3c83 133-134,137-139,141
+  s_371b145dc5ecd9::t_f6b69b2129d3bf 135,142,892-897,1208
+cc-java-cli/pom.xml
+  s_371b145dc5ecd9::t_fd5d8b5a0f95bb 39-42
+  s_371b145dc5ecd9::t_93270c40973104 36-37
+  s_371b145dc5ecd9::t_a53b36d651372a 35,38,43-48
+cc-java-tui/test/protocol.test.ts
+  s_371b145dc5ecd9::t_fe1141971cf986 1-40
+cc-java-model-spring-ai/src/main/java/io/github/liumaishenjian/ccjava/model/springai/OpenAiCompatibleModelFactory.java
+  s_371b145dc5ecd9::t_10f6e0ab839f82 23-28
+  s_371b145dc5ecd9::t_7e30f112bc04b6 1-22,29-63
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/stdio/RuntimeStdioCommandHandler.java
+  s_371b145dc5ecd9::t_b17c110f2dbea8 1-3,6-19,22-23,25-37,39-47,69-97,99-105,107-141,143-155,157-163,165-175,177-208,211-232,234-254,256-276,278-296,298-306,309-334
+  s_371b145dc5ecd9::t_061d1a681ffc81 209-210
+  s_371b145dc5ecd9::t_8ac70781c8e2ac 5,20-21,48-64,67-68
+  s_371b145dc5ecd9::t_f4e0349f2c37f1 4,38,65-66,98,106,142,156,164,176,233,255,277,297,307-308
+  s_371b145dc5ecd9::t_75985a76682599 24
+.gitignore
+  s_371b145dc5ecd9::t_01d66513741165 12
+  s_371b145dc5ecd9::t_b06d0b4d72074f 18-21
+docs/evidence/S02-stdio-spike-2026-07-29.md
+  s_371b145dc5ecd9::t_adb1d569d9b796 1-68
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/runtime/HeadlessRuntimeSessionTest.java
+  s_371b145dc5ecd9::t_24b8b245e34008 8,10,13-15,53-83
+  s_371b145dc5ecd9::t_867bdaa42f22ea 1-7,9,11-12,16-52,84-85
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/ModelTurnMetadata.java
+  s_371b145dc5ecd9::t_b4c4d31df62459 1-41
+cc-java-model-spring-ai/src/test/java/io/github/liumaishenjian/ccjava/model/springai/OpenAiProviderSpikeTest.java
+  s_371b145dc5ecd9::t_1fa9445bdee4d7 92,94-106
+  s_371b145dc5ecd9::t_3186538641aa8f 93,107-154
+  s_371b145dc5ecd9::t_42dececa882545 1-91,155-172
+cc-java-tui/test/app.test.tsx
+  s_371b145dc5ecd9::t_7c00d584055450 55-64,67-68,70
+  s_371b145dc5ecd9::t_fe1141971cf986 1-2,10-16,19-39,41-53,102
+  s_371b145dc5ecd9::t_a1d5f5c0fc0848 17-18,40
+  s_371b145dc5ecd9::t_4671296d0427d0 54,65-66,101
+  s_371b145dc5ecd9::t_77acf467b4b7af 3-9,69,71-100
+cc-java-core/src/test/java/io/github/liumaishenjian/ccjava/core/CancellationSourceTest.java
+  s_371b145dc5ecd9::t_9edde6002d98f4 1-51
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/CliModeRunner.java
+  s_371b145dc5ecd9::t_f573498c4c900e 1-16,18-19,21-24,26-27,29
+  s_371b145dc5ecd9::t_7461028e8acf6f 17,20,25,28
+scripts/ProgressDashboard.java
+  s_371b145dc5ecd9::t_5c98aa82575096 1367,1372-1381,1520,1526,1540-1545
+  s_371b145dc5ecd9::t_1ce47246881f45 1342-1347,1368,1382-1397
+  s_371b145dc5ecd9::t_92d86ae207601d 1510-1519,1521-1525,1527-1539,1546-1566
+cc-java-model-spring-ai/src/main/java/io/github/liumaishenjian/ccjava/model/springai/config/OpenAiCompatibleSettings.java
+  s_371b145dc5ecd9::t_64eea60817d84b 71-85
+  s_371b145dc5ecd9::t_01d66513741165 1-70,86-139
+docs/evidence/S02-provider-connectivity-smoke-2026-07-29.md
+  s_371b145dc5ecd9::t_325747ec87c437 1-36
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/PrintEventSink.java
+  s_371b145dc5ecd9::t_f573498c4c900e 1-55
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/AgentLimits.java
+  s_371b145dc5ecd9::t_f72a726bb6d677 3-5,7,10-11,15,18-21,24-35,42-44,47,54-55
+  s_371b145dc5ecd9::t_615eb5e872c883 56
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/stdio/BoundedUtf8LineReader.java
+  s_371b145dc5ecd9::t_fda24a9e79315f 1-87
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/RetryingModelGateway.java
+  s_371b145dc5ecd9::t_34fa0e99b8ecde 1-138
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/ModelGatewayException.java
+  s_371b145dc5ecd9::t_34fa0e99b8ecde 6-8,15-16,23,33-54,56-81
+  s_371b145dc5ecd9::t_521d7306addccf 14
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/AgentRuntime.java
+  s_371b145dc5ecd9::t_5b9e0b057df091 25,101-104,110,114,118,143,150,152-153,176,178-179,188-189
+  s_371b145dc5ecd9::t_e9abf76024bb45 9,23-24,49,98,105-108,117,119,127-142,149,154,171-175,180,237-245,254-256,314
+  s_371b145dc5ecd9::t_9b8b3b1351f8d4 144,190,257,259-280,289-290,309-313,315-324
+  s_371b145dc5ecd9::t_e748e39e6fac00 246-253
+  s_371b145dc5ecd9::t_07fe043c63b05e 7,177,181-185,199-201,281-288
+  s_371b145dc5ecd9::t_a5c0adcb1afc1c 145
+  s_371b145dc5ecd9::t_f2cfcdfbe7f110 258
+cc-java-model-spring-ai/src/main/java/io/github/liumaishenjian/ccjava/model/springai/config/ProviderSettingsLoader.java
+  s_371b145dc5ecd9::t_15b131f06b2522 28,30,32,34,41-46
+  s_371b145dc5ecd9::t_01d66513741165 1-27,29,31,33,35-40,47-113
+cc-java-tui/test/print-session.test.ts
+  s_371b145dc5ecd9::t_fb9c9223f525c7 60-84
+  s_371b145dc5ecd9::t_4b343b6487265c 85-97
+  s_371b145dc5ecd9::t_fe1141971cf986 1-28,98
+  s_371b145dc5ecd9::t_4d8cc3a325c160 29-59
+cc-java-model-spring-ai/src/test/java/io/github/liumaishenjian/ccjava/model/springai/OpenAiCompatibleModelFactoryTest.java
+  s_371b145dc5ecd9::t_9edde6002d98f4 1-29
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/CliExitCode.java
+  s_371b145dc5ecd9::t_f573498c4c900e 1-21
+docs/evidence/S02-tui-spike-2026-07-29.md
+  s_371b145dc5ecd9::t_e83de84ec98f20 1-99
+cc-java-model-spring-ai/pom.xml
+  s_371b145dc5ecd9::t_b4c4d31df62459 30-37
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/DefaultCliModeRunnerTest.java
+  s_371b145dc5ecd9::t_810cb81d15866a 22,44-51,55-58
+  s_371b145dc5ecd9::t_06c1224610f604 1-21,23-43,52-54,59-83
+docs/evidence/S02-windows-terminal-lifecycle-2026-07-29.md
+  s_371b145dc5ecd9::t_26313437298d8a 1-73
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/stdio/QueuedStdioEventEmitter.java
+  s_371b145dc5ecd9::t_b25d7dbf618f88 7-8,11,32-35,43,91,108,181-210,225-229
+  s_371b145dc5ecd9::t_82c0dd7417a818 1-6,9-10,12-31,36-42,44,46-90,92-107,109-180,211-224,230-231
+  s_371b145dc5ecd9::t_0cec52411d0edc 45
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/CliDurationConverter.java
+  s_371b145dc5ecd9::t_7461028e8acf6f 1-52
+cc-java-model-spring-ai/src/main/java/io/github/liumaishenjian/ccjava/model/springai/SpringAiModelGateway.java
+  s_371b145dc5ecd9::t_41077e14780350 3-5,33-37,74,80,83-84,86,107,109-112,114-118,123-125,149-153,173,175-179,182-183,185-191,238-272
+  s_371b145dc5ecd9::t_6d3198cdd453e3 154-161
+  s_371b145dc5ecd9::t_7e30f112bc04b6 1-2,6-32,38-73,75-79,81-82,85,87-106,108,113,119-122,126-148,162-172,174,192-237,273-291
+  s_371b145dc5ecd9::t_b8f2a42ed69b87 180-181,184
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/ModelFinishReason.java
+  s_371b145dc5ecd9::t_b4c4d31df62459 1-24
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/stdio/StdioProtocolCodecTest.java
+  s_371b145dc5ecd9::t_25c0bac0dd503e 75-76
+  s_371b145dc5ecd9::t_a8eaa7dca4a628 1-74,77-87
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/CancellationSource.java
+  s_371b145dc5ecd9::t_10f6e0ab839f82 22-27
+  s_371b145dc5ecd9::t_b4c4d31df62459 1-21,28-73
+cc-java-model-spring-ai/src/main/java/io/github/liumaishenjian/ccjava/model/springai/package-info.java
+  s_371b145dc5ecd9::t_7e30f112bc04b6 8-9
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/StreamingModelGateway.java
+  s_371b145dc5ecd9::t_b4c4d31df62459 1-34
+cc-java-model-spring-ai/src/test/java/io/github/liumaishenjian/ccjava/model/springai/OpenAiStreamingContractTest.java
+  s_371b145dc5ecd9::t_b8f2a42ed69b87 121,125-129
+  s_371b145dc5ecd9::t_3bdf6dc7330402 1-5,9-22,24,26,28-74,157-165,221-256,276-277
+  s_371b145dc5ecd9::t_79542d174e1b15 6-8,23,25,27,75-120,122-124,130-134,166-193,206-208,213-220,257-275
+  s_371b145dc5ecd9::t_224def4653ad30 135-156,194-205,209-212
+cc-java-tui/src/state.ts
+  s_371b145dc5ecd9::t_b06d0b4d72074f 1-8,10-15,18,20-30,33,35-57,59-146
+  s_371b145dc5ecd9::t_a1d5f5c0fc0848 9,16-17,19,31-32,34,58
+scripts/RunS02TuiSpike.ps1
+  s_371b145dc5ecd9::t_5ae5fd7971ac68 3-11,65-84
+  s_371b145dc5ecd9::t_060178e12cb4cb 12-15,25,28-30,32,34-35,39-55
+  s_371b145dc5ecd9::t_1b560311c0d1f2 27,63-64
+  s_371b145dc5ecd9::t_1ce47246881f45 90,93-95,101
+  s_371b145dc5ecd9::t_86fa879fec9abf 86-88
+  s_371b145dc5ecd9::t_11a7ac7ffb74bf 31,33,36-38,56,100
+  s_371b145dc5ecd9::t_f7e84f267d8126 91
+  s_371b145dc5ecd9::t_904738972457b7 1-2,16-20,22-24,26,57-62,85,89,92,96-99,102-106
+  s_371b145dc5ecd9::t_06a883d4db485d 21
+docs/evidence/S02-model-stream-resilience-2026-07-29.md
+  s_371b145dc5ecd9::t_bfa310f141bd7d 1-79
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/runtime/package-info.java
+  s_371b145dc5ecd9::t_fd5d8b5a0f95bb 1-10
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/CcJavaCommandTest.java
+  s_371b145dc5ecd9::t_867bdaa42f22ea 1-6,9-19,22-35,91-140,142-149,151,153-156,159-163
+  s_371b145dc5ecd9::t_5113d05e697d63 7-8,20-21,36-90,141,150,152,157-158
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/AgentRunResult.java
+  s_371b145dc5ecd9::t_07fe043c63b05e 55-56,122-123
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/ModelTextDelta.java
+  s_371b145dc5ecd9::t_b4c4d31df62459 1-28
+cc-java-tui/tsconfig.json
+  s_371b145dc5ecd9::t_fe1141971cf986 13
+  s_371b145dc5ecd9::t_b06d0b4d72074f 1-12,14-25
+cc-java-tui/vitest.config.ts
+  s_371b145dc5ecd9::t_5cecd9492aa9a4 1-6,8-9
+  s_371b145dc5ecd9::t_0a8abd702ec27c 7
+cc-java-tui/src/print-session.ts
+  s_371b145dc5ecd9::t_07fe043c63b05e 50-56
+  s_371b145dc5ecd9::t_b06d0b4d72074f 1-13,15-26,33-43,57
+  s_371b145dc5ecd9::t_67ee341a2bfbc0 14,27-32,44-49
+cc-java-model-spring-ai/src/main/java/io/github/liumaishenjian/ccjava/model/springai/SpringAiPromptMapper.java
+  s_371b145dc5ecd9::t_7e30f112bc04b6 1-112
+docs/product-requirements.md
+  s_371b145dc5ecd9::t_b23e63f4240861 557
+  s_371b145dc5ecd9::t_c82a452659e79f 558-559
+  s_371b145dc5ecd9::t_787db3d79cadad 565-566
+  s_371b145dc5ecd9::t_160e00682f27e0 7-9,236-237
+  s_371b145dc5ecd9::t_91ba36a8c53619 161
+  s_371b145dc5ecd9::t_09ac75ba1bfda5 229-230,563-564
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/stdio/StdioProtocolFixtureMain.java
+  s_371b145dc5ecd9::t_a8eaa7dca4a628 1-34
+cc-java-tui/test/state.test.ts
+  s_371b145dc5ecd9::t_fe1141971cf986 1-69
+pom.xml
+  s_371b145dc5ecd9::t_b4c4d31df62459 35,69-75
+  s_371b145dc5ecd9::t_93270c40973104 33,85
+  s_371b145dc5ecd9::t_1f80ba0a85df1b 34,48,63-68
+  s_371b145dc5ecd9::t_44692c68a10ffc 36,47,49-54,62,76-84,86-93,99
+  s_371b145dc5ecd9::t_fd5d8b5a0f95bb 37,94-98
+cc-java-tui/src/app.tsx
+  s_371b145dc5ecd9::t_77acf467b4b7af 1,21-22,32,38-44,48,52,67,73-79,81-83,127,148-153,163-175,177
+  s_371b145dc5ecd9::t_b06d0b4d72074f 2-3,5-6,8-9,23-31,33-37,45-47,49-51,53-66,68-72,80,84-102,104-106,108-109,113,124-126,128-142,178
+  s_371b145dc5ecd9::t_fe1141971cf986 4,7,10-20,110-112,114-123
+  s_371b145dc5ecd9::t_7c00d584055450 103,107,143-147,154-162,176
+cc-java-model-spring-ai/src/main/java/io/github/liumaishenjian/ccjava/model/springai/config/package-info.java
+  s_371b145dc5ecd9::t_01d66513741165 1-10
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/ModelRetryPolicy.java
+  s_371b145dc5ecd9::t_34fa0e99b8ecde 1-56
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/stdio/BoundedUtf8LineReaderTest.java
+  s_371b145dc5ecd9::t_a8eaa7dca4a628 1-46
+docs/adr/ADR-021-s02-model-streaming-cli-scope.md
+  s_371b145dc5ecd9::t_6966334c54acb3 10,24-27,73,76-77
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/PrintEventSinkTest.java
+  s_371b145dc5ecd9::t_867bdaa42f22ea 1-66
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/runtime/HeadlessRuntimeOptions.java
+  s_371b145dc5ecd9::t_64eea60817d84b 1-43
+docs/evidence/S02-java-print-2026-07-29.md
+  s_371b145dc5ecd9::t_ec819813479f58 40-42
+  s_371b145dc5ecd9::t_4b26f70cdfa6eb 51-53
+  s_371b145dc5ecd9::t_571593a4bb2a6c 43-44
+  s_371b145dc5ecd9::t_6108d8ce77d3e8 1-39,45-50
+cc-java-domain/src/test/java/io/github/liumaishenjian/ccjava/domain/AgentLimitsTest.java
+  s_371b145dc5ecd9::t_24b8b245e34008 1-23
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/stdio/QueuedStdioEventEmitterTest.java
+  s_371b145dc5ecd9::t_25c0bac0dd503e 55-56
+  s_371b145dc5ecd9::t_038da1b483b18e 69,73
+  s_371b145dc5ecd9::t_46495ecf41012a 1-54,57-68,70-72,74-95,139-172
+  s_371b145dc5ecd9::t_b25d7dbf618f88 96-138
+docs/adr/ADR-025-s02-picocli-java-print.md
+  s_371b145dc5ecd9::t_571593a4bb2a6c 31-32
+  s_371b145dc5ecd9::t_4b26f70cdfa6eb 45-47
+  s_371b145dc5ecd9::t_6108d8ce77d3e8 1-30,33-44,48-52
+docs/progress.html
+  s_371b145dc5ecd9::t_abc4d649bfef17 250,289
+  s_371b145dc5ecd9::t_6d435eaeb04d89 319
+  s_371b145dc5ecd9::t_a5865782b6793f 259,334-336
+  s_371b145dc5ecd9::t_5a1b87a39c2b00 333
+  s_371b145dc5ecd9::t_5600f560635ae2 337-339
+docs/adr/ADR-024-s02-openai-compatible-first-provider.md
+  s_371b145dc5ecd9::t_792558b1776a23 1-4,6-27,29-34,42-44,46,55-66,69-72,89-93,96
+  s_371b145dc5ecd9::t_c82a452659e79f 35-41,45,47-49,52,67-68,94-95
+  s_371b145dc5ecd9::t_4f864f5cf672cd 5,28,50-51,53-54
+  s_371b145dc5ecd9::t_c11e008fa2bc47 73-88
+docs/demos/S02-tui-spike.md
+  s_371b145dc5ecd9::t_26313437298d8a 59-62,71-73,81-83
+  s_371b145dc5ecd9::t_c11e008fa2bc47 3-4,10-11,20,57,77-80
+  s_371b145dc5ecd9::t_5ae5fd7971ac68 42-53
+  s_371b145dc5ecd9::t_060178e12cb4cb 21-33
+  s_371b145dc5ecd9::t_e83de84ec98f20 1-2,5-9,12-19,34-41,54-56,58,63-70,74-76
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/StopReason.java
+  s_371b145dc5ecd9::t_07fe043c63b05e 24-32
+docs/adr/ADR-026-s02-cli-overrides-run-deadline.md
+  s_371b145dc5ecd9::t_aa54f39e87663e 1-54
+cc-java.ps1
+  s_371b145dc5ecd9::t_eecf7b784e10cb 7-11
+  s_371b145dc5ecd9::t_441049414c55a7 18
+  s_371b145dc5ecd9::t_f573498c4c900e 1-6,12-17,19-46
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/ModelStreamObserver.java
+  s_371b145dc5ecd9::t_b4c4d31df62459 1-29
+cc-java-tui/package.json
+  s_371b145dc5ecd9::t_b06d0b4d72074f 1-28
+config/provider.local.properties.example
+  s_371b145dc5ecd9::t_01d66513741165 1-5
+README.md
+  s_371b145dc5ecd9::t_7a9a6d917a3c83 8,14,151-153,169-171
+  s_371b145dc5ecd9::t_c82a452659e79f 174-195
+  s_371b145dc5ecd9::t_67aa2ddb16b6ff 5,127,172-173,206-209,212,223-224
+  s_371b145dc5ecd9::t_40bfecb1c435d7 196,238-239
+  s_371b145dc5ecd9::t_91ba36a8c53619 9,128,210-211
+  s_371b145dc5ecd9::t_8f4cedf60693fa 166
+  s_371b145dc5ecd9::t_84d3e660475f5d 10-12,129
+  s_371b145dc5ecd9::t_26313437298d8a 130-138
+docs/adr/ADR-023-s02-java-headless-ink-tui.md
+  s_371b145dc5ecd9::t_f5b495180035dd 189-207
+  s_371b145dc5ecd9::t_05adfe318967df 155-156
+  s_371b145dc5ecd9::t_6108d8ce77d3e8 208-217
+  s_371b145dc5ecd9::t_4e75693032f81f 171-188
+docs/evidence/S02-provider-runtime-integration-2026-07-29.md
+  s_371b145dc5ecd9::t_6bd8bf0990fbcc 57,82,86-88
+  s_371b145dc5ecd9::t_c11e008fa2bc47 1-56,59-60,63-81,83-85
+  s_371b145dc5ecd9::t_158448a19c20e3 58
+  s_371b145dc5ecd9::t_ae89ac01dcd0fd 61-62
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/CcJavaCommand.java
+  s_371b145dc5ecd9::t_f573498c4c900e 1-5,9,12,14-35,58-63,75,77,79-94
+  s_371b145dc5ecd9::t_7461028e8acf6f 6-8,10-11,13,36-57,64-74,76,78
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/CancellationToken.java
+  s_371b145dc5ecd9::t_b4c4d31df62459 1-65
+cc-java-tui/test/fixtures/fake-stdio-child.mjs
+  s_371b145dc5ecd9::t_fe1141971cf986 1-17,24-28,51-60,64-67,71-86
+  s_371b145dc5ecd9::t_67ee341a2bfbc0 29-39
+  s_371b145dc5ecd9::t_77acf467b4b7af 18-20,68-70
+  s_371b145dc5ecd9::t_fb9c9223f525c7 40-50
+  s_371b145dc5ecd9::t_1e411f6f132344 21-23,61-63
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/stdio/StdioProtocolServerTest.java
+  s_371b145dc5ecd9::t_25c0bac0dd503e 39,46-47,69,71
+  s_371b145dc5ecd9::t_46495ecf41012a 1-38,40-45,48-68,70,72-164
+cc-java-model-spring-ai/src/main/java/io/github/liumaishenjian/ccjava/model/springai/SpringAiJson.java
+  s_371b145dc5ecd9::t_7e30f112bc04b6 1-36
+docs/feature-parity-matrix.md
+  s_371b145dc5ecd9::t_84d3e660475f5d 12,158,160,178,265-266,280
+  s_371b145dc5ecd9::t_4eb6b0a7ed55cf 230,240,242-243,245,249-250,260,264,277,279,281,391
+  s_371b145dc5ecd9::t_e2a35df0166661 173-174
+  s_371b145dc5ecd9::t_6d3ea98292a463 9,175,228,241
+  s_371b145dc5ecd9::t_26313437298d8a 10-11,156,161,179-182
+  s_371b145dc5ecd9::t_acca8404247ccb 157
+  s_371b145dc5ecd9::t_41aa8e429d681a 176-177,369,390
+  s_371b145dc5ecd9::t_33428659010510 477,479
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/stdio/StdioProtocol.java
+  s_371b145dc5ecd9::t_fda24a9e79315f 1-166
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/stdio/FakeStdioCommandHandler.java
+  s_371b145dc5ecd9::t_a8eaa7dca4a628 1-247,251-255,257-317
+  s_371b145dc5ecd9::t_0c4f82acf1aed4 248
+  s_371b145dc5ecd9::t_25c0bac0dd503e 249-250,256
+cc-java-tui/src/stdio-client.ts
+  s_371b145dc5ecd9::t_4b343b6487265c 134,147
+  s_371b145dc5ecd9::t_b06d0b4d72074f 1-23,25-38,40-46,50-54,56-66,73,75,79,81-116,126-131,133,135,143-146,148-151,166-234,236-239,241-242,244,278,293
+  s_371b145dc5ecd9::t_77acf467b4b7af 24,39,47-49,55,74,76-78,80,117-125,132,136-142,152-165,235,240,243,245-277,279-292
+  s_371b145dc5ecd9::t_a1d5f5c0fc0848 67-72
+docs/demos/S02-stdio-spike.md
+  s_371b145dc5ecd9::t_adb1d569d9b796 1-28
+AGENTS.md
+  s_371b145dc5ecd9::t_26313437298d8a 21,35-37
+  s_371b145dc5ecd9::t_c82a452659e79f 237-240
+  s_371b145dc5ecd9::t_160e00682f27e0 20
+  s_371b145dc5ecd9::t_41aa8e429d681a 19
+  s_371b145dc5ecd9::t_0fc4de1ba59914 18,33,45-48,50,377-380
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/ModelUsage.java
+  s_371b145dc5ecd9::t_b4c4d31df62459 1-24
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/CcJavaCliMain.java
+  s_371b145dc5ecd9::t_f7e84f267d8126 21-22,47-48,62-66
+  s_371b145dc5ecd9::t_f573498c4c900e 3,5-6,8,13-15,27,29,32-46,49-61
+  s_371b145dc5ecd9::t_b17c110f2dbea8 1-2,4,7,9-12,16-20,23-26,28,30-31,67-68
+cc-java-model-spring-ai/src/main/java/io/github/liumaishenjian/ccjava/model/springai/config/ProviderConfigurationException.java
+  s_371b145dc5ecd9::t_01d66513741165 1-12,14-41,43,45,47,49,51,53-55
+  s_371b145dc5ecd9::t_15b131f06b2522 13,42,44,46,48,50,52
+docs/adr/ADR-027-s02-model-stream-resilience.md
+  s_371b145dc5ecd9::t_5611b0b4de3646 1-128
+docs/progress-state.properties
+  s_371b145dc5ecd9::t_060178e12cb4cb 13
+  s_371b145dc5ecd9::t_e2b388e11c9abc 26
+  s_371b145dc5ecd9::t_d42ecc9ee6e29f 4
+  s_371b145dc5ecd9::t_e4d2de038d9e5b 5
+  s_371b145dc5ecd9::t_26313437298d8a 9-10,18-19,34,36,41
+  s_371b145dc5ecd9::t_b3de65c5541b1b 15-17,29-32
+  s_371b145dc5ecd9::t_4b26f70cdfa6eb 40
+  s_371b145dc5ecd9::t_8f4cedf60693fa 7,23,28
+cc-java-model-spring-ai/src/test/java/io/github/liumaishenjian/ccjava/model/springai/config/ProviderSettingsLoaderTest.java
+  s_371b145dc5ecd9::t_01d66513741165 1-3,6-10,12,14-15,17-25,47-118,138-145
+  s_371b145dc5ecd9::t_24b8b245e34008 16,119-137
+  s_371b145dc5ecd9::t_2fa5deb09b895a 4-5,11,13,26-46
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/CliOverrides.java
+  s_371b145dc5ecd9::t_7461028e8acf6f 1-49
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/AgentEvent.java
+  s_371b145dc5ecd9::t_b4c4d31df62459 11
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/stdio/package-info.java
+  s_371b145dc5ecd9::t_93270c40973104 1-10
+cc-java-model-spring-ai/src/test/java/io/github/liumaishenjian/ccjava/model/springai/SpringAiModelGatewayTest.java
+  s_371b145dc5ecd9::t_9edde6002d98f4 1-2,4-89,91-103,167-183,222-224,243-315,320-321,323-356
+  s_371b145dc5ecd9::t_3186538641aa8f 134-166
+  s_371b145dc5ecd9::t_226eb0b8b5fbdc 3,104-133,184-221,225-242,316-319,322
+  s_371b145dc5ecd9::t_1c83ef2e4ce415 90
+cc-java-core/src/test/java/io/github/liumaishenjian/ccjava/core/AgentRuntimeTest.java
+  s_371b145dc5ecd9::t_e748e39e6fac00 33,643-682
+  s_371b145dc5ecd9::t_810cb81d15866a 15,18,39,688-721
+  s_371b145dc5ecd9::t_3657314741b2ab 16,19,40-42,44,571-639,684-687
+  s_371b145dc5ecd9::t_dd915cb38fd53c 640,683,722,724-752
+  s_371b145dc5ecd9::t_9ed732f95003bd 641-642
+  s_371b145dc5ecd9::t_5e4e3151316e9f 723
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/stdio/StdioProtocolCodec.java
+  s_371b145dc5ecd9::t_fda24a9e79315f 1-146,148-149,151-160,162-166,168-187
+  s_371b145dc5ecd9::t_25c0bac0dd503e 150,167
+  s_371b145dc5ecd9::t_0c4f82acf1aed4 147,161
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/stdio/StdioProtocolServer.java
+  s_371b145dc5ecd9::t_86a98cd53f9d68 150-154
+  s_371b145dc5ecd9::t_82c0dd7417a818 1-149,155-193
+cc-java-tui/test/stdio-client.test.ts
+  s_371b145dc5ecd9::t_0a8abd702ec27c 128
+  s_371b145dc5ecd9::t_5cecd9492aa9a4 13,35,54
+  s_371b145dc5ecd9::t_77acf467b4b7af 62-96,124,134-142
+  s_371b145dc5ecd9::t_fe1141971cf986 1-12,14-34,36-53,55-61,117-123,125-127,129-133,143-144
+  s_371b145dc5ecd9::t_1e411f6f132344 97-116
+docs/demos/S02-provider-local-config.md
+  s_371b145dc5ecd9::t_c82a452659e79f 1-2,5-37
+  s_371b145dc5ecd9::t_a2482434d7e6ce 52-65
+  s_371b145dc5ecd9::t_ca2cee27e54d72 3-4,38-51
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/DefaultCliModeRunner.java
+  s_371b145dc5ecd9::t_f573498c4c900e 1-3,5-15,18-51,54-61,63-64,72-79,81-88,92-98,101,107-115,119-121,134,140-141,143-147,155-164,173-174
+  s_371b145dc5ecd9::t_07fe043c63b05e 151-152
+  s_371b145dc5ecd9::t_8ac70781c8e2ac 4,16-17,52-53,62,65-71,80,89-91,99-100,102-106,116-118,122-133,135-139,148-150,153-154,165-172
+  s_371b145dc5ecd9::t_06c1224610f604 142
+docs/evidence/S02-provider-config-2026-07-29.md
+  s_371b145dc5ecd9::t_c82a452659e79f 1-36
+docs/demos/S02-java-print.md
+  s_371b145dc5ecd9::t_91ba36a8c53619 22-23,41-55
+  s_371b145dc5ecd9::t_6108d8ce77d3e8 1-21,24-27,31-40
+  s_371b145dc5ecd9::t_ec819813479f58 28-30
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/package-info.java
+  s_371b145dc5ecd9::t_93270c40973104 2,4-7,9-10
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/ModelTurn.java
+  s_371b145dc5ecd9::t_10f6e0ab839f82 13,24-25
+  s_371b145dc5ecd9::t_b4c4d31df62459 16-18,31-40
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/stdio/StdioProtocolProcessTest.java
+  s_371b145dc5ecd9::t_25c0bac0dd503e 42-43,51-52,61-62,114
+  s_371b145dc5ecd9::t_554a25fba88fc8 38-41,45-50,54-58,60,65-69,109,113,124-127,129-138
+  s_371b145dc5ecd9::t_46495ecf41012a 1-37,44,53,59,63-64,70-108,110-112,115-123,128,139-145
+cc-java-core/src/test/java/io/github/liumaishenjian/ccjava/core/RetryingModelGatewayTest.java
+  s_371b145dc5ecd9::t_810cb81d15866a 1-153
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/stdio/StdioProtocolException.java
+  s_371b145dc5ecd9::t_eb33dc9f59e1e3 19,21-22
+  s_371b145dc5ecd9::t_fda24a9e79315f 1-2,4-14,18,20,23-63
+  s_371b145dc5ecd9::t_0cec52411d0edc 3,15-17
+cc-java-tui/src/protocol.ts
+  s_371b145dc5ecd9::t_b06d0b4d72074f 1-162
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/runtime/HeadlessRuntimeSession.java
+  s_371b145dc5ecd9::t_64eea60817d84b 29-31,55,69-88,95-96,108-127,130,162-167,185-190
+  s_371b145dc5ecd9::t_fd5d8b5a0f95bb 1-8,11-28,32-54,56-68,97-107,128-129,131-161,168-184,191-232,234-255
+  s_371b145dc5ecd9::t_f4e0349f2c37f1 233
+  s_371b145dc5ecd9::t_07fe043c63b05e 9-10,89-94
+cc-java-tui/src/index.tsx
+  s_371b145dc5ecd9::t_77acf467b4b7af 6-10,16,18-31,33-37,39-41
+  s_371b145dc5ecd9::t_86fa879fec9abf 54-55,62-63,65,73
+  s_371b145dc5ecd9::t_b06d0b4d72074f 1-5,11-12,15,17,32,38,42-49,52-53,56-61,64,66-72,74-86,91
+  s_371b145dc5ecd9::t_1ce47246881f45 13-14,50-51,87-90
+docs/evidence/S02-cli-overrides-timeout-2026-07-29.md
+  s_371b145dc5ecd9::t_d5965f5d13d742 26-27,53-66
+  s_371b145dc5ecd9::t_aa54f39e87663e 1-25,28-52,67-72
+cc-java-tui/package-lock.json
+  s_371b145dc5ecd9::t_323e865f94e941 1-2763
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "8c09a76aca869f80c9793dbdd4ba40197eeb6fe9",
+  "prompts": {},
+  "sessions": {
+    "s_371b145dc5ecd9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa772-84c7-7680-9e8a-026c8e1161ea",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "yliu27 <yliu27@leqee.com>"
+    }
+  }
+}
