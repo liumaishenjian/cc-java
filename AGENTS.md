@@ -32,14 +32,16 @@
 
 ## 2. 当前项目阶段
 
-仓库已经完成 **S01：Runtime Kernel**，G0-G6 与 Stage Exit 均为 Accepted；被测实现
-Commit 为 `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd`。当前处于 **S02 实现阶段**：
+仓库已经完成 **S01：Runtime Kernel** 与 **S02：Model + Streaming CLI**，
+两者 G0-G6 与 Stage Exit 均为 Accepted；S01 被测实现 Commit 为
+`5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd`，S02 被测实现 Commit 为 `700251e`。
+当前下一阶段为 **S03 Read Tools 启动 Gate**：
 ADR-023 已把 S02 固定为 24 项 Feature、Java Headless Runtime、实验性 stdio v0 与
 React/Ink TUI；真实 Provider、Runtime/stdio/TUI、Java `--print`、类型化 CLI Override、
 Runtime 墙钟限制、ADR-027 模型流健壮性与 ADR-028 Windows 直接子进程生命周期已在
 工作区验证；ADR-029 连续 Headless Session、ADR-030 隐私安全 Telemetry 与真实 TTY
 活动取消也已在工作区验证；ADR-031 已把当前 Provider 同回合只生成一个 Tool Call
-登记为明确偏差。G0-G5 已通过，G6 等待 Commit-scoped 退出复验。
+登记为明确偏差。S02 已在 `700251e` 上完成 Commit-scoped 复验并通过 G0-G6。
 
 当前允许并要求：
 
@@ -54,6 +56,9 @@ Runtime 墙钟限制、ADR-027 模型流健壮性与 ADR-028 Windows 直接子�
   `10c7873`，不得继续扩展其中的 JLine Renderer；
 - 文件 Tool、Shell、完整权限策略和持久化能力继续保持未实现状态；
 - S02 的代码、测试、Demo、证据和看板更新必须作为新的独立变更开展。
+- S03 必须先固定 WorkspaceGuard、list/search/read/git status/diff、结果上限、
+  Junction/Symlink 逃逸和敏感文件拒绝的 Gate/ADR，再开始生产实现；
+- S03 不得提前实现 S04 的文件写入、Patch 或 Shell Command。
 
 不得仅因为 S01 已退出就宣称 S02 或更后阶段能力已经可用。
 

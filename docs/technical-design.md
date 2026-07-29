@@ -1269,9 +1269,9 @@ Scripted Fake Model、Fake Tool 和 Fake Event Sink 只存在于测试源。
 S01 未使用任何授权或未核验参考源码；设计和代码由 ADR-017、本项目需求、公开基线及
 独立 Fake 场景解释。Windows Wrapper 与执行验证缺口已经关闭，并在 Commit
 `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd` 上通过 G4/G6；S01 Stage Exit 已
-Accepted。S02 的真实 Provider、Java Runtime/stdio、React/Ink 非 TTY 链路与部分
-取消边界已通过，G2/G3 已 Passed，Capability 已按证据局部提升；G0、G4-G6 与
-完整 S02 退出目标仍未完成。
+Accepted。S02 的真实 Provider、Java Runtime/stdio、React/Ink、连续 Session、
+取消边界和隐私安全 Telemetry 已在实现 Commit `700251e` 上通过 G0-G6，
+Stage Exit 为 Accepted。下一步是 S03 Read Tools 启动 Gate。
 
 ### 27.2 分 Stage 实现
 

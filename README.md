@@ -2,7 +2,7 @@
 
 一个以成熟 Coding Agent 为参照、用 Java 独立重实现的学习型 Agent Runtime 与 CLI。
 
-> 当前状态：**S01 Runtime Kernel 已 Accepted，当前处于 S02 实现阶段**。框架无关领域协议、
+> 当前状态：**S01 Runtime Kernel 与 S02 Model + Streaming CLI 均已 Accepted**。框架无关领域协议、
 > 显式 Agent Loop、Tool Pipeline 和内存 Session 已通过 Commit-scoped 离线验证；
 > S02 已重新固定为 24 项范围，并选定“Java Headless Runtime + 实验性 stdio v0 +
 > React/Ink TUI”；真实 OpenAI-compatible Provider、文本流、原始 Tool Call、
@@ -11,9 +11,9 @@
 > S02 仍在进行中；跨 Chunk 多 Tool、429 有界重试、不完整流与长度终态已有本机
 > OpenAI-compatible Contract 证据，真实中转模型同回合只返回一个 Tool Call，
 > Windows 活动 Run 取消与进程负例已关闭；当前 Provider 的同回合多 Tool 限制已登记为
-> 明确偏差。S02 等待 Commit-scoped G6 退出复验。
+> 明确偏差。S02 已在实现 Commit `700251e` 上通过 G0-G6；下一步是 S03 Read Tools 启动 Gate。
 >
-> Current status: S01 accepted; S02 has a real provider-backed headless/TUI path but is not complete.
+> Current status: S01 and S02 accepted; S03 Read Tools is next.
 
 ## 项目目标
 
@@ -225,8 +225,8 @@ Linux/macOS 使用 `./mvnw`。最后一条命令中的 Core 协议测试就是 S
 > 标准测试；包含预算拒绝负例的聚焦 Demo 也以 5/5 通过。完整证据见
 > [S01 标准验证证据](./docs/evidence/S01-runtime-kernel-2026-07-28.md)。
 > 相同命令已在 Commit `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd` 的 Clean
-> 工作区上复验；G0-G6 与 S01 Stage Exit 已通过。S02 当前 G1-G3 已通过，
-> G0、G4-G6 仍按剩余异常、取消、CLI Override 与终端负例保持 Open。
+> 工作区上复验；G0-G6 与 S01 Stage Exit 已通过。S02 实现 Commit `700251e`
+> 也已通过 G0-G6 和 Commit-scoped 标准复验，Stage Exit 为 Accepted。
 
 ### 更新项目进度看板
 

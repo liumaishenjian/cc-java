@@ -4,8 +4,8 @@
 - Stage: S02 Model + Streaming CLI
 - Capability IDs: `CLI-01`、`CLI-06`、`CLI-09`、`CLI-10`、`CLI-11`
 - ADR: [ADR-028](../adr/ADR-028-s02-windows-terminal-lifecycle.md)
-- Tested implementation: `WORKTREE`
-- Classification: `WORKTREE_VERIFIED`
+- Tested implementation: `700251e`
+- Classification: `COMMIT_VERIFIED`
 
 ## 实现结论
 

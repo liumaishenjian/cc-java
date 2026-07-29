@@ -153,12 +153,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 193 |
-| 当前阶段 | S02 Model + Streaming CLI（24 项目标已在工作区验证） |
-| Stage Exit | Open：G0-G5 已通过；G6 等待 Commit-scoped 退出复验 |
+| 当前阶段 | S02 Model + Streaming CLI（Accepted on `700251e`） |
+| Stage Exit | Accepted：G0-G6 已通过 |
 | 当前等级 | 19 项为 L2，22 项为 L1，152 项为 L0 |
 | 默认最终目标 | 193 项达到 L3，或存在明确 `Accepted Deviation` |
 | 当前能力覆盖 | 10.36%（193 项等权、目标 L3） |
-| 下一步 | 获得授权后创建 S02 退出 Commit，在该 Commit 上复验并关闭 G6 |
+| 下一步 | 建立 S03 Read Tools 启动 Gate，先验证 WorkspaceGuard 与只读 Tool 边界 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 

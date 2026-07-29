@@ -7,7 +7,7 @@
 - Reference Behavior Baseline: `R2026.03`
 - Authorized Snapshot ID: `AUTH-SRC-2026-07-29-A`
 - Classification: 参考机制 `Observed`；本项目契约与实现 `Documented`
-- Evidence Commit: `WORKTREE`
+- Evidence Commit: `700251e`
 
 ## 独立重现行为
 

@@ -4,8 +4,8 @@
 - Stage: S02 Model + Streaming CLI
 - Capability IDs: `CLI-01`、`SESSION-02`
 - ADR: [ADR-029](../adr/ADR-029-s02-continuous-session.md)
-- Tested implementation: `WORKTREE`
-- Classification: `WORKTREE_VERIFIED`
+- Tested implementation: `700251e`
+- Classification: `COMMIT_VERIFIED`
 
 ## 机制对照
 
