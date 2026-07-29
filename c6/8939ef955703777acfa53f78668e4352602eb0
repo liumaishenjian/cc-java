@@ -1,0 +1,41 @@
+AGENTS.md
+  s_371b145dc5ecd9::t_1a6b7b8248b3ba 35-38,44,59-61
+docs/evidence/S02-privacy-safe-run-telemetry-2026-07-29.md
+  s_371b145dc5ecd9::t_1a6b7b8248b3ba 10
+docs/evidence/S02-windows-terminal-lifecycle-2026-07-29.md
+  s_371b145dc5ecd9::t_1a6b7b8248b3ba 7-8
+docs/progress-state.properties
+  s_371b145dc5ecd9::t_69694fb4924a77 16
+  s_371b145dc5ecd9::t_ae31f26ddc1e5a 4
+  s_371b145dc5ecd9::t_1a6b7b8248b3ba 7-10,13,17,23,37-38,40
+docs/progress.html
+  s_371b145dc5ecd9::t_148fc8de32d6e1 226,231,234,250,259,266,276,289,319,322,333,335-336,339
+README.md
+  s_371b145dc5ecd9::t_1a6b7b8248b3ba 5,14,16,228-229
+docs/gap-reports/S02.md
+  s_371b145dc5ecd9::t_1a6b7b8248b3ba 3,5,36,38-40
+docs/evidence/S02-continuous-session-2026-07-29.md
+  s_371b145dc5ecd9::t_1a6b7b8248b3ba 7-8
+docs/feature-parity-matrix.md
+  s_371b145dc5ecd9::t_1a6b7b8248b3ba 156-157,161
+docs/evidence/S02-model-streaming-cli-2026-07-29.md
+  s_371b145dc5ecd9::t_1a6b7b8248b3ba 1-68
+docs/technical-design.md
+  s_371b145dc5ecd9::t_1a6b7b8248b3ba 1272-1274
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "c68939ef955703777acfa53f78668e4352602eb0",
+  "prompts": {},
+  "sessions": {
+    "s_371b145dc5ecd9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa772-84c7-7680-9e8a-026c8e1161ea",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "yliu27 <yliu27@leqee.com>"
+    }
+  }
+}
