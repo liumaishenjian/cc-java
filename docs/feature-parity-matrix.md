@@ -7,7 +7,7 @@
 > 最后更新：2026-07-30
 >
 > 当前代码状态：S01 Runtime Kernel 与 S02 Model + Streaming CLI 已 Accepted；S03
-> Read Tools 已完成实现和专项离线验证，处于 Exit Candidate，待最终对账与 Commit-scoped 复验
+> Read Tools 已在实现 Commit `71a2818` 上完成实现、专项离线验证和 Commit-scoped 复验，Stage Exit Accepted
 
 ## 1. 文档目的
 
@@ -151,12 +151,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 193 |
-| 当前阶段 | S03 Read Tools（`IN_PROGRESS`） |
-| Stage Exit | Exit Candidate：G0-G5 已通过，G6 与 Commit-scoped 复验待关闭 |
+| 当前阶段 | S03 Read Tools（Accepted on `71a2818`） |
+| Stage Exit | Accepted：G0-G6 与 Commit-scoped 复验已通过 |
 | 当前等级 | 29 项为 L2，25 项为 L1，139 项为 L0 |
 | 默认最终目标 | 193 项达到 L3，或存在明确 `Accepted Deviation` |
 | 当前能力覆盖 | 14.34%（193 项等权、目标 L3） |
-| 下一步 | 完成 S03 文档/看板对账、真实 Provider opt-in Demo 与 Commit-scoped 复验 |
+| 下一步 | 建立 S04 Write + Command 启动 Gate，先固定 Patch、Command、Approval、脏工作区和进程树边界 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 

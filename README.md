@@ -12,10 +12,10 @@
 > Contract 证据；真实中转模型同回合只返回一个 Tool Call，该限制已登记为明确偏差。
 > S02 已在实现 Commit `700251e` 上通过 G0-G6。S03 已按
 > [ADR-032](./docs/adr/ADR-032-s03-read-tools-security-contract.md)实现五个只读 Tool、
-> WorkspaceGuard、结果硬上限、根 `AGENTS.md` 与安全 Tool 进度，并通过离线 E2E 和真实
-> Windows Junction 专项验证；当前为 Exit Candidate，待最终 Commit-scoped 复验后退出。
+> WorkspaceGuard、结果硬上限、根 `AGENTS.md` 与安全 Tool 进度，并通过离线 E2E、真实
+> Windows Junction 和实现 Commit `71a2818` 的 Commit-scoped 复验；S03 Stage Exit 已 Accepted。
 >
-> Current status: S01 and S02 accepted; S03 Read Tools is an exit candidate.
+> Current status: S01, S02 and S03 accepted; S04 Write + Command gate is next.
 
 ## 项目目标
 

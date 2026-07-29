@@ -5,7 +5,7 @@
 > 最后更新：2026-07-30
 >
 > 当前阶段：S01 Runtime Kernel 与 S02 Model + Streaming CLI 已 Accepted；S03 Read
-> Tools 已完成独立实现与专项离线验证，当前为 Exit Candidate，待最终对账与 Commit-scoped 复验
+> Tools 已在实现 Commit `71a2818` 上完成独立实现、专项离线验证和 Commit-scoped 复验，Stage Exit Accepted
 >
 > 产品负责人：项目维护者
 

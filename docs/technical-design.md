@@ -7,7 +7,7 @@
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
 > 当前学习阶段：S01 Runtime Kernel 与 S02 Model + Streaming CLI 已 Accepted；S03
-> Read Tools `EXIT_CANDIDATE`
+> Read Tools 已在实现 Commit `71a2818` 上 Accepted
 >
 > 当前实现状态：S02 真实 Provider、Java Headless、stdio v0、React/Ink、Java Print、
 > 连续 Session、Deadline、取消与隐私安全 Telemetry 已通过；S03 五个只读 Tool、
