@@ -66,11 +66,20 @@ Java 直接子进程，不执行异步 I/O、不输出 stderr 内容。
 
 ### 4. Paste 与 Resize
 
-- Paste 只在 `ready` 状态进入输入缓冲；
+- `connecting` 阶段允许编辑和回显输入，但只有 `ready` 可以提交；
+- 同步 Input Ref 保存最新字符，避免快速 Paste/输入后立即回车读取旧 React State；
+- Paste 只在可编辑状态进入输入缓冲；
 - 输入缓冲与 Java Prompt 共用 8192 字符上限；
 - Unicode 按 Code Point 删除和裁剪；
 - Resize 只改变 Viewport 投影，不重建 Session 或 Run；
 - Bracketed Paste 的终端解析由 Ink 负责，本项目验证传入组件后的状态行为。
+
+### 5. 非交互失败与构建缓存
+
+- 非交互 Transport Failure 返回退出码 1 和固定诊断，不打印 Node/TypeScript 堆栈；
+- 意外 Java exit 只公开 exit/signal 与 stderr 字节数，不展示 stderr 原文；
+- `-SkipBuild` 只有在主类、classpath 存在且 Java 源码/POM 均不比产物新时才复用；
+- 产物缺失或陈旧时自动执行 Maven 构建，不允许“文件存在”冒充缓存有效。
 
 ## 可证伪验证
 
@@ -82,6 +91,8 @@ Java 直接子进程，不执行异步 I/O、不输出 stderr 内容。
 6. 80 列到 20 列重渲染保持同一 Run 内容；
 7. Windows 原生 TTY 完成中文 Paste、Resize、活动取消和空闲退出；
 8. 每个进程场景结束后按捕获 PID 验证不存在。
+9. `connecting` 输入立即回显，ready 后快速输入并回车提交完整文本；
+10. Java 崩溃的非交互路径返回固定失败且不包含 Node 堆栈。
 
 ## 延后内容
 

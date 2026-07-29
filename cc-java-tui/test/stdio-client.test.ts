@@ -76,7 +76,9 @@ describe('StdioClient', () => {
     client.startRun('触发崩溃');
     await waitFor(() => exited);
 
-    expect(failures).toEqual(['Java 子进程意外退出']);
+    expect(failures).toEqual([
+      'Java 子进程意外退出（exit=17，stderr=0 bytes）',
+    ]);
     expect(client.isClosed()).toBe(true);
   });
 

@@ -29,6 +29,7 @@ export const MAX_INPUT_CHARS = 8_192;
 export function AgentTui({client}: AgentTuiProps) {
   const [state, dispatch] = useReducer(reduceTuiState, initialTuiState);
   const [input, setInput] = useState('');
+  const inputRef = useRef('');
   const cancelPending = useRef(false);
   const {exit} = useApp();
   const {columns} = useWindowSize();
@@ -63,8 +64,10 @@ export function AgentTui({client}: AgentTuiProps) {
   }, [client, exit]);
 
   usePaste(pasted => {
-    if (state.phase === 'ready') {
-      setInput(current => appendInput(current, pasted));
+    if (canEditInput(state.phase)) {
+      const next = appendInput(inputRef.current, pasted);
+      inputRef.current = next;
+      setInput(next);
     }
   });
 
@@ -87,26 +90,38 @@ export function AgentTui({client}: AgentTuiProps) {
       }
       return;
     }
-    if (state.phase !== 'ready') {
+    if (!canEditInput(state.phase)) {
       return;
     }
     if (key.return) {
-      const prompt = input.trim();
+      if (state.phase !== 'ready') {
+        return;
+      }
+      const prompt = inputRef.current.trim();
       if (prompt.length > 0) {
         const requestId = client.startRun(prompt);
         dispatch({type: 'run.submitted', requestId, prompt});
+        inputRef.current = '';
         setInput('');
       }
       return;
     }
     if (key.backspace) {
-      setInput(current => editInput(current, text, key));
+      const next = editInput(inputRef.current, text, key);
+      inputRef.current = next;
+      setInput(next);
       return;
     }
     if (!key.ctrl && !key.meta && text.length > 0) {
-      setInput(current => editInput(current, text, key));
+      const next = editInput(inputRef.current, text, key);
+      inputRef.current = next;
+      setInput(next);
     }
-  }, {isActive: state.phase === 'ready' || state.phase === 'running'});
+  }, {
+    isActive: state.phase === 'connecting'
+      || state.phase === 'ready'
+      || state.phase === 'running',
+  });
 
   return <AgentView state={state} input={input} columns={columns} />;
 }
@@ -135,7 +150,7 @@ export function AgentView({state, input, columns}: AgentViewProps) {
       {state.notice === undefined ? null : <Text color="red">{state.notice}</Text>}
       <Box marginTop={1}>
         <Text color="yellow">&gt; </Text>
-        <Text>{state.phase === 'ready' ? input : ''}</Text>
+        <Text>{canEditInput(state.phase) ? input : ''}</Text>
         {state.phase === 'running' ? <Text dimColor>模型输出中…</Text> : null}
       </Box>
     </Box>
@@ -151,6 +166,15 @@ export function decideInterrupt(
     return cancelPending ? 'terminate' : 'cancel';
   }
   return 'shutdown';
+}
+
+/**
+ * 连接建立期间允许预先编辑输入，但只有 ready 状态才能提交给 Java。
+ */
+export function canEditInput(
+  phase: ReturnType<typeof reduceTuiState>['phase'],
+): boolean {
+  return phase === 'connecting' || phase === 'ready';
 }
 
 export function editInput(

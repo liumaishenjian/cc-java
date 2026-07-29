@@ -935,8 +935,10 @@ S02 只实现流式会话所需的最小 TUI：
 
 `StdioClient` 把未请求 shutdown 的 Java exit 转成 Transport Failure。shutdown 先等待
 优雅 exit，超时 kill 后仍继续等待；cancel 也有独立期限。Node 入口注册同步 exit guard，
-但正常退出仍由异步 shutdown 完成。Paste 只在 ready 状态进入缓冲，并按 Unicode
-Code Point 限制为 8192；Resize 只改变 Viewport 投影。精确状态和验证边界见
+但正常退出仍由异步 shutdown 完成。连接期可以编辑但不能提交；同步 Input Ref 保证快速
+输入/粘贴后立即回车不会读取旧 React State。Paste 按 Unicode Code Point 限制为 8192；
+Resize 只改变 Viewport 投影。非交互 Transport Failure 使用固定诊断和退出码，不输出
+Node 堆栈或 Java stderr 原文。精确状态和验证边界见
 [ADR-028](./adr/ADR-028-s02-windows-terminal-lifecycle.md)。
 
 S04～S05 再加入 Tool/Approval 展示，S08 再完成多行、历史、补全和 Slash Command。

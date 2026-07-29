@@ -29,8 +29,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File `
   -Prompt "介绍一下你自己" -Timeout "30s" -SkipBuild
 ```
 
-`-SkipBuild` 会验证主类和 classpath 文件确实存在；代码或依赖变化后不得继续使用，
-应先重新执行一次不带该参数的命令。
+`-SkipBuild` 会验证主类和 classpath 文件存在，并比较 Java 源码/POM 与产物时间；
+产物陈旧时会明确提示并自动重新构建。
 
 ## 交互正例
 
@@ -53,6 +53,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
 
 输入任意单行任务并回车。观察：
 
+- `connecting` 阶段即可预先输入并回显，进入 `ready` 后再提交；
 - 状态从 `ready → running → ready`；
 - 真实模型文本按 Delta 显示；
 - Run 终态显示 `[completed]`；

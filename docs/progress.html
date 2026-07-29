@@ -223,7 +223,7 @@
     }
   </style>
 </head>
-<body data-matrix-digest="b447f859843e" data-state-digest="85d72c4a10ae" data-code-digest="226ecde3d4c6">
+<body data-matrix-digest="b447f859843e" data-state-digest="ca2f8edf9b38" data-code-digest="ae5bfe9f49b8">
   <main class="shell">
     <section class="hero">
       <p class="eyebrow">Reference-driven Java Agent Runtime</p>
@@ -273,7 +273,7 @@
           <p class="panel-desc">Capability 可以先达到阶段等级，但 Stage 只有 G0-G6 全部通过才退出。</p>
         </div>
       </div>
-      <ol class="gate-grid"><li class="gate open"><div class="gate-id"><span>G0</span><span class="badge open">待关闭</span></div><p>授权快照与边界已登记；官方坐标已核验；真实文本流、单 Tool、Usage、Deadline 取消已观察；真实 Provider 同回合多 Tool 只生成一个，仍需确认能力或记录偏差。</p></li><li class="gate passed"><div class="gate-id"><span>G1</span><span class="badge passed">已通过</span></div><p>ADR-021/023/024 列出全部 24 项 Feature、19 项 L2/5 项 L1 目标、非目标以及 Java-stdio、Ink、OpenAI-compatible Provider 可证伪 Spike。</p></li><li class="gate passed"><div class="gate-id"><span>G2</span><span class="badge passed">已通过</span></div><p>真实 Provider Spike 已固定 Spring AI 2.0.0、Boot BOM 4.1.0、OpenAI Chat Adapter、React/Ink 与 stdio v0；直接 ChatModel 保留原始 Tool Call 且不执行 Tool。</p></li><li class="gate passed"><div class="gate-id"><span>G3</span><span class="badge passed">已通过</span></div><p>真实 Java Composition Root 已把 React/Ink stdio v0 接到 AgentRuntime、Spring AI Adapter 与本地 Provider；Core/Domain 未泄漏框架类型。</p></li><li class="gate open"><div class="gate-id"><span>G4</span><span class="badge open">待关闭</span></div><p>Core 36/36、Provider普通21项、SSE Contract 4/4、CLI 25/25、React/Ink 20/20 已通过；进程崩溃、取消/关闭超时、PID 清理、Paste 和 Resize 已关闭；仍等待真实 TTY 活动取消复核及 Provider 双 Tool 处置。</p></li><li class="gate open"><div class="gate-id"><span>G5</span><span class="badge open">待关闭</span></div><p>真实 Provider Print/React-Ink Timeout、本机 HTTP 429/断流/length/多 Tool Fixture，以及 Windows 子进程崩溃、取消/关闭超时和无残留 PID 已通过；真实 TTY 活动取消仍待人工复核。</p></li><li class="gate open"><div class="gate-id"><span>G6</span><span class="badge open">待关闭</span></div><p>等待 24 项目标、实现、证据、差距报告和能力声明的退出对账。</p></li></ol>
+      <ol class="gate-grid"><li class="gate open"><div class="gate-id"><span>G0</span><span class="badge open">待关闭</span></div><p>授权快照与边界已登记；官方坐标已核验；真实文本流、单 Tool、Usage、Deadline 取消已观察；真实 Provider 同回合多 Tool 只生成一个，仍需确认能力或记录偏差。</p></li><li class="gate passed"><div class="gate-id"><span>G1</span><span class="badge passed">已通过</span></div><p>ADR-021/023/024 列出全部 24 项 Feature、19 项 L2/5 项 L1 目标、非目标以及 Java-stdio、Ink、OpenAI-compatible Provider 可证伪 Spike。</p></li><li class="gate passed"><div class="gate-id"><span>G2</span><span class="badge passed">已通过</span></div><p>真实 Provider Spike 已固定 Spring AI 2.0.0、Boot BOM 4.1.0、OpenAI Chat Adapter、React/Ink 与 stdio v0；直接 ChatModel 保留原始 Tool Call 且不执行 Tool。</p></li><li class="gate passed"><div class="gate-id"><span>G3</span><span class="badge passed">已通过</span></div><p>真实 Java Composition Root 已把 React/Ink stdio v0 接到 AgentRuntime、Spring AI Adapter 与本地 Provider；Core/Domain 未泄漏框架类型。</p></li><li class="gate open"><div class="gate-id"><span>G4</span><span class="badge open">待关闭</span></div><p>Core 36/36、Provider普通21项、SSE Contract 4/4、CLI 25/25、React/Ink 21/21 已通过；崩溃诊断、连接期输入、快速回车、取消/关闭超时、PID 清理、Paste 和 Resize 已关闭；仍等待真实 TTY 活动取消复核及 Provider 双 Tool 处置。</p></li><li class="gate open"><div class="gate-id"><span>G5</span><span class="badge open">待关闭</span></div><p>真实 Provider Print/React-Ink Timeout、本机 HTTP 429/断流/length/多 Tool Fixture，以及 Windows 子进程崩溃、取消/关闭超时和无残留 PID 已通过；真实 TTY 活动取消仍待人工复核。</p></li><li class="gate open"><div class="gate-id"><span>G6</span><span class="badge open">待关闭</span></div><p>等待 24 项目标、实现、证据、差距报告和能力声明的退出对账。</p></li></ol>
     </section>
 
     <section class="panel" id="roadmap">
@@ -330,13 +330,13 @@
         </div>
       </div>
       <dl class="evidence-grid">
-        <div class="evidence-item"><dt>Last change</dt><dd>修复 TUI Demo 前置 Maven 静默造成的假卡死：增加构建阶段提示与显式 -SkipBuild 快速复验；本轮 Capability Level 无变化。</dd></div>
+        <div class="evidence-item"><dt>Last change</dt><dd>修复真实 TUI 子进程失败堆栈、连接期输入不回显和快速输入后回车读取旧状态；SkipBuild 增加源码/POM 新鲜度校验；本轮 Capability Level 无变化。</dd></div>
         <div class="evidence-item"><dt>Evidence stage</dt><dd><code>S02</code></dd></div>
         <div class="evidence-item"><dt>Evidence class</dt><dd><code>WORKTREE_VERIFIED</code></dd></div>
         <div class="evidence-item"><dt>Code commit</dt><dd><code>WORKTREE</code></dd></div>
-        <div class="evidence-item"><dt>Standard command</dt><dd><code>./mvnw.cmd clean verify；./mvnw.cmd -DskipTests javadoc:aggregate；npm.cmd run check；OpenAiStreamingContractTest；真实 Provider Spike/双 Tool 负例；Windows TTY；jps -lv</code></dd></div>
-        <div class="evidence-item"><dt>Result</dt><dd>Domain 1/1、Core 36/36、Provider 普通 21 项与本机 SSE Contract 4/4、CLI 25/25、TUI 20/20 已通过；真实 Windows TTY ready/空闲关闭与 jps 无残留通过；活动取消保留人工复核；真实 Provider 双 Tool 保留兼容性负例。</dd></div>
-        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix b447f859843e</code><br><code>state 85d72c4a10ae</code><br><code>code/build 226ecde3d4c6</code></dd></div>
+        <div class="evidence-item"><dt>Standard command</dt><dd><code>./mvnw.cmd clean verify；./mvnw.cmd -DskipTests javadoc:aggregate；npm.cmd run check；真实 Provider 非交互连续两次；Windows TTY 连接期输入/空闲 Ctrl+C；jps -lv</code></dd></div>
+        <div class="evidence-item"><dt>Result</dt><dd>Domain 1/1、Core 36/36、Provider 普通 21 项与本机 SSE Contract 4/4、CLI 25/25、TUI 21/21 已通过；真实 Provider 非交互连续两次成功；Windows TTY 连接期输入回显/保留、空闲关闭与 jps 无残留通过；活动取消保留人工复核。</dd></div>
+        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix b447f859843e</code><br><code>state ca2f8edf9b38</code><br><code>code/build ae5bfe9f49b8</code></dd></div>
       </dl>
     </section>
 

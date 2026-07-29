@@ -23,16 +23,47 @@ $cliDirectory = Join-Path $repositoryRoot 'cc-java-cli'
 $tuiDirectory = Join-Path $repositoryRoot 'cc-java-tui'
 $classpathFile = Join-Path $cliDirectory 'target\stdio-spike-classpath.txt'
 $mainClassFile = Join-Path $cliDirectory 'target\classes\io\github\liumaishenjian\ccjava\cli\CcJavaCliMain.class'
+$javaModuleDirectories = @(
+    (Join-Path $repositoryRoot 'cc-java-domain'),
+    (Join-Path $repositoryRoot 'cc-java-core'),
+    (Join-Path $repositoryRoot 'cc-java-model-spring-ai'),
+    (Join-Path $repositoryRoot 'cc-java-tools-local'),
+    (Join-Path $repositoryRoot 'cc-java-cli')
+)
 
 # Compile the real Java Headless entrypoint and pass Java arguments without a shell string.
-if ($SkipBuild) {
-    if (-not (Test-Path -LiteralPath $classpathFile -PathType Leaf) -or
-        -not (Test-Path -LiteralPath $mainClassFile -PathType Leaf)) {
-        throw 'SkipBuild requires one successful run without -SkipBuild.'
+$canReuseBuild = $false
+if ((Test-Path -LiteralPath $classpathFile -PathType Leaf) -and
+    (Test-Path -LiteralPath $mainClassFile -PathType Leaf)) {
+    $oldestOutput = @(
+        (Get-Item -LiteralPath $classpathFile).LastWriteTimeUtc,
+        (Get-Item -LiteralPath $mainClassFile).LastWriteTimeUtc
+    ) | Sort-Object | Select-Object -First 1
+    $buildInputs = @((Get-Item -LiteralPath $rootPom))
+    foreach ($moduleDirectory in $javaModuleDirectories) {
+        $modulePom = Join-Path $moduleDirectory 'pom.xml'
+        if (Test-Path -LiteralPath $modulePom -PathType Leaf) {
+            $buildInputs += Get-Item -LiteralPath $modulePom
+        }
+        $sourceDirectory = Join-Path $moduleDirectory 'src\main\java'
+        if (Test-Path -LiteralPath $sourceDirectory -PathType Container) {
+            $buildInputs += Get-ChildItem -LiteralPath $sourceDirectory -Recurse -File -Filter '*.java'
+        }
     }
+    $canReuseBuild = -not ($buildInputs | Where-Object {
+        $_.LastWriteTimeUtc -gt $oldestOutput
+    } | Select-Object -First 1)
+}
+
+if ($SkipBuild -and $canReuseBuild) {
     [Console]::Error.WriteLine('[cc-java] Reusing existing Java build outputs.')
 }
 else {
+    if ($SkipBuild) {
+        [Console]::Error.WriteLine(
+            '[cc-java] Existing Java outputs are missing or stale; rebuilding.'
+        )
+    }
     [Console]::Error.WriteLine(
         '[cc-java] Building Java Headless; the first run may take 1-2 minutes.'
     )

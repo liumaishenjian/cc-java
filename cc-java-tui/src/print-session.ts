@@ -13,8 +13,32 @@ export async function runNonInteractive(
   output: NodeJS.WritableStream,
   diagnosticOutput: NodeJS.WritableStream = output,
 ): Promise<number> {
-  return await new Promise<number>((resolve, reject) => {
+  return await new Promise<number>(resolve => {
     let initialized = false;
+    let settled = false;
+    let finishing = false;
+    let offExit = () => {};
+    const finish = (code: number) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      offEvent();
+      offFailure();
+      offExit();
+      resolve(code);
+    };
+    const finishAfterShutdown = (code: number) => {
+      finishing = true;
+      void client.shutdown().then(
+        () => finish(code),
+        () => {
+          diagnosticOutput.write('cc-java: Java 子进程关闭失败\n');
+          client.terminate();
+          finish(1);
+        },
+      );
+    };
     const offEvent = client.onEvent((event: ProtocolEvent) => {
       if (event.type === 'initialized' && !initialized) {
         initialized = true;
@@ -23,23 +47,36 @@ export async function runNonInteractive(
         output.write(String(event.payload.text));
       } else if (event.type === 'run.completed') {
         output.write('\n');
-        void client.shutdown().then(() => resolve(0), reject);
+        finishAfterShutdown(0);
       } else if (event.type === 'run.cancelled') {
         diagnosticOutput.write('cc-java: run cancelled\n');
-        void client.shutdown().then(() => resolve(130), reject);
+        finishAfterShutdown(130);
       } else if (event.type === 'run.failed') {
         diagnosticOutput.write(failureMessage(event));
-        void client.shutdown().then(() => resolve(1), reject);
+        finishAfterShutdown(1);
+      } else if (event.type === 'protocol.error') {
+        diagnosticOutput.write('cc-java: Java 返回协议错误\n');
+        client.terminate();
+        finish(1);
       }
     });
     const offFailure = client.onFailure(message => {
-      reject(new Error(message));
+      diagnosticOutput.write(`cc-java: ${message}\n`);
+      finish(1);
     });
-    client.onExit(() => {
-      offEvent();
-      offFailure();
+    offExit = client.onExit(() => {
+      if (!settled && !finishing) {
+        diagnosticOutput.write('cc-java: Java 子进程连接提前关闭\n');
+        finish(1);
+      }
     });
-    client.initialize();
+    try {
+      client.initialize();
+    } catch {
+      diagnosticOutput.write('cc-java: 无法初始化 Java 子进程连接\n');
+      client.terminate();
+      finish(1);
+    }
   });
 }
 

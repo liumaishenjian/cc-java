@@ -83,16 +83,32 @@ describe('runNonInteractive', () => {
     expect(diagnostic).toBe('cc-java: output limit reached\n');
   });
 
-  it('Java 在活动 Run 中崩溃时拒绝 Promise 而不是静默悬挂', async () => {
+  it('Java 在活动 Run 中崩溃时返回固定失败而不是输出 Node 堆栈', async () => {
     const output = new PassThrough();
+    const diagnosticOutput = new PassThrough();
+    let diagnostic = '';
+    diagnosticOutput.setEncoding('utf8');
+    diagnosticOutput.on('data', chunk => {
+      diagnostic += chunk;
+    });
     const client = new StdioClient({
       executable: process.execPath,
       args: [fixture, 'crash'],
       cwd: process.cwd(),
     });
 
-    await expect(runNonInteractive(client, 'crash', output))
-      .rejects.toThrow('Java 子进程意外退出');
+    const code = await runNonInteractive(
+      client,
+      'crash',
+      output,
+      diagnosticOutput,
+    );
+
+    expect(code).toBe(1);
+    expect(diagnostic).toMatch(
+      /^cc-java: Java 子进程意外退出（exit=17，stderr=0 bytes）\n$/u,
+    );
+    expect(diagnostic).not.toContain('Error:');
     expect(client.isClosed()).toBe(true);
   });
 });

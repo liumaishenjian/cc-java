@@ -75,7 +75,7 @@ export class StdioClient {
       if (this.#pending.length > 0) {
         this.#emitFailure('Java stdout 以不完整协议行结束');
       } else if (!this.#shutdownRequested && !this.#failureEmitted) {
-        this.#emitFailure('Java 子进程意外退出');
+        this.#emitFailure(unexpectedExitMessage(code, signal, this.#stderrBytes));
       }
       this.#closed = true;
       this.#events.emit('exit', {code, signal, stderrBytes: this.#stderrBytes});
@@ -276,6 +276,15 @@ export class StdioClient {
       this.#child.once('exit', onExit);
     });
   }
+}
+
+function unexpectedExitMessage(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+  stderrBytes: number,
+): string {
+  const reason = code === null ? `signal=${signal ?? 'UNKNOWN'}` : `exit=${code}`;
+  return `Java 子进程意外退出（${reason}，stderr=${stderrBytes} bytes）`;
 }
 
 /**

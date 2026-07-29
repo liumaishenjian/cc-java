@@ -1,12 +1,16 @@
 import {render} from 'ink-testing-library';
 import {describe, expect, it} from 'vitest';
 import {
+  AgentTui,
   AgentView,
   appendInput,
+  canEditInput,
   decideInterrupt,
   editInput,
   MAX_INPUT_CHARS,
 } from '../src/app.js';
+import type {AgentClient} from '../src/app.js';
+import type {ProtocolEvent} from '../src/protocol.js';
 import type {TuiState} from '../src/state.js';
 
 describe('AgentView', () => {
@@ -99,4 +103,87 @@ describe('AgentView', () => {
     expect(Array.from(result)).toHaveLength(MAX_INPUT_CHARS);
     expect(result.startsWith('前缀')).toBe(true);
   });
+
+  it('连接期间真实 useInput 链路立即回显，ready 后可以提交', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+
+    await waitForFrame(() => client.initializeCalls === 1);
+    view.stdin.write('预输入');
+    await waitForFrame(() => view.lastFrame()?.includes('预输入') === true);
+    expect(client.prompts).toEqual([]);
+    expect(canEditInput('connecting')).toBe(true);
+
+    client.emit({
+      version: 0,
+      type: 'initialized',
+      requestId: 'tui-1',
+      sessionId: 'session-1',
+      sequence: 1,
+      payload: {protocolVersion: 0},
+    });
+    await waitForFrame(() => view.lastFrame()?.includes('状态：ready') === true);
+    view.stdin.write('任务');
+    view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 1);
+
+    expect(client.prompts).toEqual(['预输入任务']);
+    view.unmount();
+  });
 });
+
+class FakeAgentClient implements AgentClient {
+  readonly prompts: string[] = [];
+  initializeCalls = 0;
+  readonly #eventListeners = new Set<(event: ProtocolEvent) => void>();
+
+  public onEvent(listener: (event: ProtocolEvent) => void): () => void {
+    this.#eventListeners.add(listener);
+    return () => this.#eventListeners.delete(listener);
+  }
+
+  public onFailure(): () => void {
+    return () => {};
+  }
+
+  public onExit(): () => void {
+    return () => {};
+  }
+
+  public initialize(): string {
+    this.initializeCalls++;
+    return 'tui-1';
+  }
+
+  public startRun(prompt: string): string {
+    this.prompts.push(prompt);
+    return 'tui-2';
+  }
+
+  public cancelRun(): string {
+    return 'tui-3';
+  }
+
+  public async shutdown(): Promise<void> {
+    return await Promise.resolve();
+  }
+
+  public terminate(): void {
+  }
+
+  public emit(event: ProtocolEvent): void {
+    for (const listener of this.#eventListeners) {
+      listener(event);
+    }
+  }
+}
+
+async function waitForFrame(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (!predicate()) {
+    if (Date.now() >= deadline) {
+      throw new Error('等待 Ink 输入投影超时');
+    }
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+}
