@@ -152,7 +152,8 @@ S14 再决定 npm 包、zip、jlink/jpackage 或其他跨平台发行组合；S0
 不得整包合并 `10c7873`。后续以独立聚焦变更选择性重做或移植：
 
 - 保留方向：Domain/Core 的流式事件、Usage/FinishReason、取消、Deadline、Retry；
-- 保留方向：Spring AI/Ollama Adapter、Chunk 聚合和 opt-in E2E；
+- 仅保留可独立解释的 Provider-neutral Chunk 聚合与 opt-in E2E 思路；不移植
+  Ollama Adapter，首个 Provider 以 ADR-024 的 OpenAI 兼容方向重做；
 - 调整：`CoreCliRuntime` 重命名为 UI 无关的 Application Session；
 - 淘汰：`JLineCliTerminal`、`InteractiveSession`、`TerminalRenderer` 及对应 UI 测试/依赖；
 - 改造：`CcJavaCommand` 只承载 Java `--print` / `--stdio` Headless 入口。
@@ -167,3 +168,50 @@ S14 再决定 npm 包、zip、jlink/jpackage 或其他跨平台发行组合；S0
 - `CLI-12` 与 `DIST-04` 仍在 S14，本 ADR不把内部传输包装成稳定多 Surface 平台；
 - S01 架构和代码无需重写；
 - 本 ADR 不表示 Provider、stdio 协议或 React/Ink TUI 已经实现。
+
+## Spike A 结果（2026-07-29）
+
+Java Fake stdio Spike 已在 CLI 适配层实现并通过 35/35 离线测试，其中 CLI 新增
+12 个测试。Spike 证明：
+
+- 单行 UTF-8 NDJSON、严格 Envelope、有界读取和有界单 Writer 队列可以独立成立；
+- stdin Reader 与异步 Fake Run 分离后，活动 Run 期间仍能接收 `run.cancel`；
+- Event Emitter 可以确定性守卫 `run.started`、唯一终态和终态后禁止继续输出；
+- Windows 上测试进程可以经 `shutdown` 正常退出，并验证没有存活的已捕获后代进程。
+
+Spike 采用 `tools.jackson.core:jackson-databind:3.1.0`。3.1.0 是本次验证使用的 LTS
+候选版本，并已通过 Maven Central 解析和依赖收敛检查；它仍须与 Ink、Provider 和许可证
+核验一起进入 G2 的最终依赖结论。
+
+完整证据见 [S02 Java Fake stdio Spike 证据](../evidence/S02-stdio-spike-2026-07-29.md)。
+该结果没有提升 `CLI-11`、`CLI-06` 或 `LOOP-08` 的 Capability Level；React/Ink、
+真实 Runtime/Provider、stderr 洪水和异常退出清理仍未证明，因此 G2-G6 保持 `OPEN`。
+
+## Spike B 结果（2026-07-29）
+
+`cc-java-tui` 已使用 Node.js 22.15.0、React 19.2.8 与 Ink 7.1.1 完成最小 Spike，
+并提交 npm lockfile。TypeScript 严格编译和 12/12 离线测试通过，Windows 上实际完成：
+
+- React/Ink TTY 接收中文输入，并按 `ready → running → ready` 渲染 Java 事件；
+- Java Fake 的两个 Delta 按序显示为 `alpha beta`；
+- 空闲 `Ctrl+C` 发送 `shutdown` 后退出，Node 与 Java 退出码均为 0；
+- 非 TTY 跨语言 Demo 输出纯文本 `alpha beta`，不含 ANSI；
+- 乱序事件、Backspace Unicode 删除、窄窗口展示与活动 Run 取消命令有确定性测试。
+
+TUI 代码只发送命令并消费事件；`reduceTuiState` 不推断终态，`StdioClient` 不经 Shell
+启动 Java，也不展示 stderr 原文。进度生成器已扩展为把 TypeScript、`package.json` 和
+lockfile 纳入代码摘要，并通过漂移自测。
+
+完整证据见 [S02 React/Ink TUI Spike 证据](../evidence/S02-tui-spike-2026-07-29.md)。
+由于真实 Runtime/Provider、可重放 Resize/Bracketed Paste、异常退出和 Linux 行为尚未
+证明，相关 Capability 继续保持 L0，G2-G6 仍保持 `OPEN`。
+
+## Java Print 结果（2026-07-29）
+
+后续 [ADR-025](./ADR-025-s02-picocli-java-print.md) 已固定 Picocli 4.7.7，并证明
+`--print` 与 `--stdio` 可以共用同一 Java `HeadlessRuntimeSession`。从
+`C:\Windows\System32` 使用仓库脚本绝对路径完成真实模型调用，stdout 只有流式文本，
+退出码为 0；离线测试覆盖模式互斥、帮助、文本不重复和 Runtime 装配。
+
+该结果把 `BOOT-01` 与 `CLI-02` 提升至 L2；`CFG-01`、真实运行中取消和异常负例仍未
+关闭，因此不改变 S02 Stage Exit。

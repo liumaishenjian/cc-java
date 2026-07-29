@@ -21,6 +21,15 @@ public enum StopReason {
     /** 模型 Provider 调用失败。 */
     MODEL_ERROR,
 
+    /** 模型瞬时错误已经耗尽本回合的有界重试。 */
+    MODEL_RETRY_EXHAUSTED,
+
+    /** 模型流在完整终态前结束，残缺内容未进入规范历史。 */
+    INCOMPLETE_MODEL_STREAM,
+
+    /** 模型输出达到长度上限，本阶段选择明确停止而不自动续写。 */
+    OUTPUT_LIMIT_REACHED,
+
     /** 模型既未返回文本，也未返回有效 Tool Call。 */
     INVALID_MODEL_RESPONSE,
 

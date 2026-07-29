@@ -52,7 +52,8 @@ public record AgentRunResult(
         RunStatus expectedStatus = switch (stopReason) {
             case COMPLETED -> RunStatus.COMPLETED;
             case USER_CANCELLED -> RunStatus.CANCELLED;
-            case MODEL_ERROR, INTERNAL_ERROR -> RunStatus.FAILED;
+            case MODEL_ERROR, MODEL_RETRY_EXHAUSTED,
+                    INCOMPLETE_MODEL_STREAM, INTERNAL_ERROR -> RunStatus.FAILED;
             default -> RunStatus.STOPPED;
         };
         if (status != expectedStatus) {
@@ -118,7 +119,8 @@ public record AgentRunResult(
         }
         RunStatus status = switch (reason) {
             case USER_CANCELLED -> RunStatus.CANCELLED;
-            case MODEL_ERROR, INTERNAL_ERROR -> RunStatus.FAILED;
+            case MODEL_ERROR, MODEL_RETRY_EXHAUSTED,
+                    INCOMPLETE_MODEL_STREAM, INTERNAL_ERROR -> RunStatus.FAILED;
             default -> RunStatus.STOPPED;
         };
         return new AgentRunResult(

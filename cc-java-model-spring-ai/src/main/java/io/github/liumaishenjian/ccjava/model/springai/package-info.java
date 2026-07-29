@@ -5,8 +5,8 @@
  * 和 Provider 异常的双向转换。适配器只完成一次模型回合，不能自行执行工具，
  * 也不能接管 {@code cc-java-core} 所拥有的 Agent Loop。</p>
  *
- * <p>S01 仅建立模块和包边界，不引入 Spring AI 依赖或真实 Provider；
- * 真实模型适配在 S02 中实现。</p>
+ * <p>S01 仅建立模块和包边界；S02 使用 Spring AI 2.0 的直接 ChatModel API
+ * 实现 OpenAI-compatible 流式适配，不使用会接管 Tool Loop 的 ChatClient Advisor。</p>
  *
  * @since 0.1.0
  */

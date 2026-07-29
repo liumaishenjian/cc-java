@@ -6,7 +6,10 @@
 >
 > 最后更新：2026-07-29
 >
-> 当前代码状态：S01 Runtime Kernel 已 Accepted；当前位于 S02 启动 Gate，尚未开始生产实现
+> 当前代码状态：S01 Runtime Kernel 已 Accepted；S02 真实 Provider、
+> Runtime/stdio/TUI、Picocli Java Print、CLI Override、墙钟限制、模型流健壮性与
+> Windows 直接子进程生命周期已通过，
+> Stage 尚未退出
 
 ## 1. 文档目的
 
@@ -150,12 +153,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 193 |
-| 当前阶段 | S02 Model + Streaming CLI（启动 Gate；生产实现尚未开始） |
-| Stage Exit | Open：G1 已固定范围；G0、G2-G6 尚未通过 |
-| 当前等级 | 19 项为 L1，174 项为 L0 |
+| 当前阶段 | S02 Model + Streaming CLI（模型流健壮性与 Windows 进程生命周期已通过） |
+| Stage Exit | Open：G1-G3 已通过；G0、G4-G6 尚未通过 |
+| 当前等级 | 14 项为 L2，26 项为 L1，153 项为 L0 |
 | 默认最终目标 | 193 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 3.28%（193 项等权、目标 L3） |
-| 下一步 | 完成 Java Fake stdio、最小 React/Ink 与真实 Provider/Streaming Spike，再固定协议和依赖版本 |
+| 当前能力覆盖 | 9.33%（193 项等权、目标 L3） |
+| 下一步 | 复核真实 TTY 连续多轮/活动取消，并确认真实 Provider 同回合多 Tool 兼容性 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -167,8 +170,16 @@ S01 等级证据见 [Runtime Kernel ADR](./adr/ADR-017-s01-runtime-kernel.md)、
 
 S02 的 24 项完整范围、19 项 L2 / 5 项 L1 退出目标及可证伪 Spike 见
 [ADR-021](./adr/ADR-021-s02-model-streaming-cli-scope.md)与
-[ADR-023](./adr/ADR-023-s02-java-headless-ink-tui.md)。CLI 路线的重新决策只通过 G1，
-不表示 S02 代码已经开始。
+[ADR-023](./adr/ADR-023-s02-java-headless-ink-tui.md)。Java Fake stdio 与 React/Ink
+Spike 已留下证据，但尚未提升 Capability Level；真实 Provider 方向见
+[ADR-024](./adr/ADR-024-s02-openai-compatible-first-provider.md)，Java Print 决策和
+真实演示见 [ADR-025](./adr/ADR-025-s02-picocli-java-print.md)，CLI Override 与
+Runtime Deadline 见 [ADR-026](./adr/ADR-026-s02-cli-overrides-run-deadline.md)。
+模型流聚合、重试、不完整流与长度终态见
+[ADR-027](./adr/ADR-027-s02-model-stream-resilience.md)。Windows 两阶段中断、Paste、
+Resize 与直接子进程退出边界见
+[ADR-028](./adr/ADR-028-s02-windows-terminal-lifecycle.md)；本轮不改变 Capability
+Level，原因见对应证据。
 
 ### 5.2 Stage 退出目标与跨阶段路径
 
@@ -214,9 +225,9 @@ Stage 完成项。
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| BOOT-01 | CLI 启动并识别运行模式 | Picocli Headless + React/Ink Interactive | L0 | S02 | REF-02/AUTH-01 |
+| BOOT-01 | CLI 启动并识别运行模式 | Picocli Headless + React/Ink Interactive | L2 | S02 | REF-02/AUTH-01 |
 | BOOT-02 | 确定 Workspace 与 Git 状态 | `WorkspaceSnapshot` | L0 | S03 | REF-02 |
-| BOOT-03 | 加载模型、工具和权限 | `SessionBootstrapper` | L0 | S02/S05 | REF-01 |
+| BOOT-03 | 加载模型、工具和权限 | `SessionBootstrapper` | L1 | S02/S05 | REF-01 |
 | BOOT-04 | 加载项目指令 | `InstructionLoader` | L0 | S03/S08 | REF-05 |
 | BOOT-05 | 创建 Session 和初始 Context | `SessionStore` + `ContextAssembler` | L1 | S01 | REF-02 |
 | BOOT-06 | 启动诊断 | `/doctor` 与配置来源报告 | L0 | S08/S14 | REF-02 |
@@ -226,17 +237,17 @@ Stage 完成项。
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| CLI-01 | Interactive Session | React/Ink TUI + Java Application Session | L0 | S02 | REF-02/AUTH-01 |
-| CLI-02 | Print / Headless | Picocli `--print` | L0 | S02 | REF-02 |
-| CLI-03 | 流式 Assistant Text | stdio Event → Ink 组件渲染 | L0 | S02 | REF-02/AUTH-01 |
-| CLI-04 | Tool 进度与输出 | 有序 Agent Event 渲染 | L0 | S02/S03 | REF-02 |
+| CLI-01 | Interactive Session | React/Ink TUI + Java Application Session | L1 | S02 | REF-02/AUTH-01 |
+| CLI-02 | Print / Headless | Picocli `--print` | L2 | S02 | REF-02 |
+| CLI-03 | 流式 Assistant Text | stdio Event → Ink 组件渲染 | L2 | S02 | REF-02/AUTH-01 |
+| CLI-04 | Tool 进度与输出 | 有序 Agent Event 渲染 | L1 | S02/S03 | REF-02 |
 | CLI-05 | Permission Prompt | 终端 Approval UI | L0 | S04/S05 | REF-04 |
-| CLI-06 | Ctrl+C Cancel | 当前 Run/Tool 取消 | L0 | S02/S04 | REF-02 |
+| CLI-06 | Ctrl+C Cancel | 当前 Run/Tool 取消 | L1 | S02/S04 | REF-02 |
 | CLI-07 | Steering | S08 运行中排队用户补充消息 | L0 | S08 | REF-02 |
 | CLI-08 | Slash Commands | S08 提供 help/clear/compact/context/model/permissions/resume | L0 | S08 | REF-02 |
 | CLI-09 | 多行、历史、补全 | S08 完整 React/Ink 输入能力 | L0 | S08 | REF-02 |
-| CLI-10 | TTY / Non-TTY 降级 | 无 ANSI 输出与管道模式 | L0 | S02/S14 | REF-02 |
-| CLI-11 | 机器输出协议 | S02 内部 stdio v0 L1 → S14 稳定 JSON/JSONL L3 | L0 | S02/S14 | REF-02 |
+| CLI-10 | TTY / Non-TTY 降级 | 无 ANSI 输出与管道模式 | L2 | S02/S14 | REF-02 |
+| CLI-11 | 机器输出协议 | S02 内部 stdio v0 L1 → S14 稳定 JSON/JSONL L3 | L1 | S02/S14 | REF-02 |
 | CLI-12 | 多 Surface 共用引擎 | CLI/SDK/API 共用 Runtime | L0 | S14 | REF-02 |
 
 ## 8. Agent Loop 对照
@@ -246,13 +257,13 @@ Stage 完成项。
 | LOOP-01 | 显式循环状态 | `AgentRunState` | L1 | S01 | REF-01 |
 | LOOP-02 | User → Model → Tool → Model | User-controlled Loop | L1 | S01 | REF-01/08 |
 | LOOP-03 | 单回合多个 Tool Call | 保持消息和 Call ID 协议 | L1 | S01 | REF-08 |
-| LOOP-04 | 流式 Model Turn | Delta + 聚合结果 | L0 | S02 | REF-02/08 |
+| LOOP-04 | 流式 Model Turn | Delta + 聚合结果 | L2 | S02 | REF-02/08 |
 | LOOP-05 | Tool Result 驱动下一回合 | Canonical Message History | L1 | S01 | REF-08 |
 | LOOP-06 | 多 Continue 原因 | 显式 Transition/Stop Reason | L1 | S01/S07 | REF-01 |
 | LOOP-07 | 最大回合和工具数 | `AgentLimits` | L1 | S01 | REF-01 |
-| LOOP-08 | Deadline 与取消 | Cancellation 传播 | L0 | S02/S04 | REF-02 |
-| LOOP-09 | 模型错误重试 | 有界 Retry Policy | L0 | S02/S14 | REF-01 |
-| LOOP-10 | Model Output Length Recovery | S02 识别截断/不完整输出并有界停止或续接 → S14 L3 恢复策略 | L0 | S02/S14 | REF-01 |
+| LOOP-08 | Deadline 与取消 | Cancellation 传播 | L1 | S02/S04 | REF-02 |
+| LOOP-09 | 模型错误重试 | 有界 Retry Policy | L2 | S02/S14 | REF-01/AUTH-01 |
+| LOOP-10 | Model Output Length Recovery | S02 识别截断/不完整输出并有界停止或续接 → S14 L3 恢复策略 | L2 | S02/S14 | REF-01/AUTH-01 |
 | LOOP-11 | Context 溢出恢复 | Compact / Stop / Retry | L0 | S07 | REF-01/02 |
 | LOOP-12 | Model Fallback | Provider-aware Fallback | L0 | S14 | REF-01 |
 | LOOP-13 | 用户拒绝后继续推理 | Denied Tool Result 回传模型 | L0 | S05 | REF-04 |
@@ -263,11 +274,11 @@ Stage 完成项。
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
 | MODEL-01 | Model Gateway | Provider-neutral Port | L1 | S01 | REF-08 |
-| MODEL-02 | 一个真实 Provider | Spring AI Adapter | L0 | S02 | REF-08 |
+| MODEL-02 | 一个真实 Provider | Spring AI Adapter | L2 | S02 | REF-08 |
 | MODEL-03 | Scripted Fake Model | 确定性测试 | L1 | S01 | REF-08 |
-| MODEL-04 | Text Streaming | Adapter 内消费 Flux | L0 | S02 | REF-08 |
-| MODEL-05 | Tool Call Streaming | Chunk 聚合 | L0 | S02 | REF-08 |
-| MODEL-06 | Usage / Finish Reason | 规范化 Capability | L0 | S02 | REF-08 |
+| MODEL-04 | Text Streaming | Adapter 内消费 Flux | L2 | S02 | REF-08 |
+| MODEL-05 | Tool Call Streaming | Chunk 聚合 | L2 | S02 | REF-08/AUTH-01 |
+| MODEL-06 | Usage / Finish Reason | 规范化 Capability | L2 | S02 | REF-08 |
 | MODEL-07 | 第二 Provider | S14 验证 Provider-neutral Port | L0 | S14 | REF-02 |
 | MODEL-08 | Model Switching | Session Command | L0 | S08 | REF-02 |
 | MODEL-09 | Prompt Cache | 稳定前缀和 Provider Hint | L0 | S07/S14 | REF-01 |
@@ -355,7 +366,7 @@ Stage 完成项。
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| CTX-01 | System Context Assembly | 稳定策略 + Runtime Metadata | L1 | S01/S02 | REF-02 |
+| CTX-01 | System Context Assembly | 稳定策略 + Runtime Metadata | L2 | S01/S02 | REF-02 |
 | CTX-02 | Project Instructions | 根 AGENTS.md | L0 | S03 | REF-05 |
 | CTX-03 | Hierarchical Instructions | User/Project/Directory | L0 | S08 | REF-05 |
 | CTX-04 | Path-scoped Rules | 只在相关文件加载 | L0 | S08 | REF-05 |
@@ -376,8 +387,8 @@ Stage 完成项。
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| CFG-01 | CLI Overrides | Picocli 参数 | L0 | S02 | REF-02 |
-| CFG-02 | Environment | Provider/Runtime 环境变量 | L0 | S02 | REF-02 |
+| CFG-01 | CLI Overrides | Picocli 参数 | L2 | S02 | REF-02 |
+| CFG-02 | Provider Runtime Configuration | Git 忽略的 Provider 本地文件 + 环境变量覆盖 | L2 | S02 | REF-02 |
 | CFG-03 | User Settings | `~/.cc-java/` | L0 | S08 | REF-01 |
 | CFG-04 | Project Settings | 版本控制配置 | L0 | S08 | REF-01 |
 | CFG-05 | Local Settings | Gitignored 本地覆盖 | L0 | S08 | REF-01 |
@@ -463,9 +474,9 @@ Stage 完成项。
 | --- | --- | --- | --- | --- | --- |
 | OBS-01 | Agent Event | 可重放控制流 | L1 | S01 | REF-01 |
 | OBS-02 | Turn/Tool Timing | Micrometer Metrics | L0 | S02/S14 | REF-01 |
-| OBS-03 | Token / Cost | Provider Usage 统计 | L0 | S02/S14 | REF-01 |
+| OBS-03 | Token / Cost | Provider Usage 统计 | L1 | S02/S14 | REF-01 |
 | OBS-04 | Stop / Recovery Analytics | 失败原因分布 | L0 | S07/S14 | REF-01 |
-| OBS-05 | Privacy Controls | Prompt/Content 默认关闭 | L0 | S02/S14 | REF-01 |
+| OBS-05 | Privacy Controls | Prompt/Content 默认关闭 | L1 | S02/S14 | REF-01 |
 | OBS-06 | OpenTelemetry | 可选 Trace Export | L0 | S14 | REF-01 |
 | EVAL-01 | Seed Tasks | Java Fixture 任务集 | L0 | S04/S14 | REF-01 |
 | EVAL-02 | Behavior Replay | Fake Model 确定性回放 | L1 | S01/S06 | REF-01 |

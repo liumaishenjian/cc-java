@@ -6,9 +6,11 @@
 >
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
-> 当前学习阶段：S01 Runtime Kernel 已 Accepted；S02 处于启动 Gate
+> 当前学习阶段：S01 Runtime Kernel 已 Accepted；S02 实现中
 >
-> 当前实现状态：离线 Agent Loop 已实现；Headless/stdio/React/Ink 方案已决定，生产实现尚未开始
+> 当前实现状态：真实 Provider、Spring AI Adapter、Core 流式/取消与
+> React/Ink → stdio → Runtime、Java `--print`、CLI Override 与 Deadline 链路已通过；
+> 模型流健壮性已实现；Windows TTY/进程负例和尚未确认的真实多 Tool 兼容性仍未关闭
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 
@@ -60,7 +62,8 @@ S01～S04 会逐步形成第一个可运行的 Mini Coding Agent CLI。它只是
 [公开行为基线](./reference-baselines/R2026.03-public-behavior.md)、
 [授权参考源码登记](./reference-baselines/R2026.03-authorized-source.md)、
 [ADR-022](./adr/ADR-022-reactivate-authorized-reference-study.md)和
-[ADR-023](./adr/ADR-023-s02-java-headless-ink-tui.md)。
+[ADR-023](./adr/ADR-023-s02-java-headless-ink-tui.md)和
+[ADR-024](./adr/ADR-024-s02-openai-compatible-first-provider.md)。
 
 ### 2.1 阶段权威与完成证据
 
@@ -127,16 +130,16 @@ S01～S04 依次完成 Loop、真实模型与 CLI、只读工具、写入与命�
 | Maven | Wrapper 3.3.4 → Maven 3.9.16 | Accepted；Windows 启动缺陷已修复并通过 Commit-scoped G4 |
 | GroupId / 根包 | `io.github.liumaishenjian` / `io.github.liumaishenjian.ccjava` | Accepted（S01） |
 | Test | JUnit 5.14.3 + AssertJ 3.27.7 | Accepted（S01） |
-| Spring Boot | 在 S02 按真实用途确认 | Deferred |
-| Spring AI | 在 S02 按 Provider Spike 确认 | Deferred |
-| CLI Parser | Picocli，只用于 Java Headless 参数 | Accepted Direction；准确版本 Deferred（S02） |
+| Spring Boot | BOM 4.1.0（仅依赖管理，尚不使用 Boot Runtime） | Accepted（S02 Provider Spike） |
+| Spring AI | 2.0.0 + `spring-ai-openai`，直接使用 `ChatModel` | Accepted（S02 Provider Spike） |
+| CLI Parser | Picocli 4.7.7，只用于 Java Headless 参数 | Accepted（S02 Java Print Spike） |
 | Node.js | 22（本机 Spike 基线） | Accepted for S02 Spike |
-| Interactive Terminal | React + 官方 Ink | Accepted Direction；准确版本 Deferred（S02） |
-| Internal Transport | UTF-8 NDJSON stdio v0 | Accepted Direction；Schema/上限 Deferred（S02） |
-| 首个 Provider | 单一 Spring AI Model Starter | Open（S02） |
+| Interactive Terminal | React 19.2.8 + Ink 7.1.1 | Accepted for S02 experimental TUI |
+| Internal Transport | UTF-8 NDJSON stdio v0 | Accepted for S02 internal transport；S14 前不稳定 |
+| 首个 Provider | Spring AI OpenAI Chat + OpenAI 兼容端点 | Accepted（S02 text/tool/usage/finish Spike） |
 
-S01 不引入 Spring Boot、Spring AI、Picocli、React 或 Ink。准确版本必须在 S02
-通过真实 Provider、Java Fake stdio 与 React/Ink Spike 决定，不能仅为占位锁定依赖。
+S01 Commit 不引入 Spring Boot、Spring AI、Picocli、React 或 Ink。S02 已通过真实
+Provider、Java Fake/真实 stdio、React/Ink 与 Java Print Spike 固定上述已接受版本。
 
 参考：
 
@@ -495,33 +498,33 @@ Tool Call 可能跨多个流式 Chunk，必须聚合后才能进入 Pipeline。
 
 ## 10. Spring AI 适配
 
-候选 Spring AI 公开文档描述了 Framework-Controlled、Advisor-Controlled 和
-User-Controlled Tool Execution；准确 API 与版本必须由 S02 Spike 复验。本项目的架构
-要求选择 User-Controlled。
+Spring AI 公开文档描述了 Framework-Controlled、Advisor-Controlled 和
+User-Controlled Tool Execution。S02 Spike 已确认使用 Spring AI 2.0.0 的直接
+`ChatModel` 调用，不创建 `ToolCallingAdvisor`，从而保持 User-Controlled 边界。
 
 本节对应 S02。S01 只使用 Scripted Fake `ModelGateway`，在离线协议测试完成前不接真实 Provider。
 
 实现要求：
 
-- 如果使用 `ChatClient`，必须用所选版本官方支持的方式禁用自动 Tool Loop；
-- 准确配置类型、方法名和全局/请求级作用域只能在 Spike 后写入 G2 ADR，当前文档不把
-  某个候选 API 名称当作已确认契约；
+- 当前 Adapter 直接使用 `ChatModel.stream`，不使用自动 Tool Loop；
+- `OpenAiChatOptions` 只提供模型、流式 Usage 与不可执行的 Tool Definition callback；
 - Adapter 只返回 Tool Call；
 - Tool 执行由核心 Pipeline 完成；
 - 不配置全局高风险 `defaultTools`；
 - Tool Schema 按当前 Run 权限和模式提供。
 
-开始正式实现前必须完成一个独立 Spike，验证：
+真实 Provider Spike 已验证文本流、单 Tool Call、Usage、Finish Reason 和自动工具执行
+边界。ADR-027 进一步以本机 OpenAI-compatible SSE Fixture 证明：
 
-1. 文本流可以被观察；
-2. Tool Call Chunks 可以无损聚合；
-3. 多 Tool Call 的 ID 和顺序保持；
-4. Tool Result 可以正确进入下一轮模型消息；
-5. 自动工具执行确实关闭；
-6. 取消能中断模型请求；
-7. Usage 缺失时正常降级。
+1. 两个 Tool Call 的跨 Chunk 参数可无损聚合，ID 和顺序保持；
+2. 前两次 HTTP 429、第三次成功时只在首个可见 Delta 前重试；
+3. 已输出 Delta 后断流不重试，正常 EOF 缺少支持的 Finish Reason 也 Fail Closed；
+4. `length` 被保留给 Runtime，并映射为 `OUTPUT_LIMIT_REACHED`；
+5. SDK 内建重试保持关闭，Core 默认最多三次并受同一 CancellationToken/Deadline 控制。
 
-Adapter 选择 `ChatClient` 还是直接 `ChatModel` 不改变核心端口。优先使用能保留 Spring AI Observability 且不会接管 Tool Loop 的方案。
+Tool Result 进入下一轮模型消息已有 S01/Fake 证据。当前真实中转模型的显式同回合双
+Tool Spike 只返回第一个调用，因此该 Provider/模型能力仍为兼容性差距；本机 Fixture
+已证明 Spring AI/Adapter 不会丢失两个已生成的调用。
 
 ## 11. Tool Execution Pipeline
 
@@ -886,6 +889,23 @@ Picocli 只负责参数、帮助、Workspace、Model、Mode、退出码和后续
 子命令。`--print` 直接运行一次任务；`--stdio` 启动一个不读取终端、不输出 ANSI 的
 长驻 Application Session。
 
+S02 当前只开放互斥的 `--print <prompt>` 与 `--stdio`。二者共用
+`HeadlessRuntimeSession` 装配到同一个 `AgentRuntime`，避免 Surface 复制模型/工具循环。
+Print 只把 `ModelTextDelta` 写到 stdout；若非流式 Fake 只给聚合终态，则回退输出一次
+`finalText`。退出码为成功 `0`、运行失败 `1`、用法/Provider 配置错误 `2`、用户取消
+`130`。API Key 不作为 CLI 参数，stderr 不输出 Prompt、端点或 Provider 原始异常。
+
+两种模式共同接受：
+
+- `--workspace <path>`：默认当前目录，进入 Runtime 前解析为真实可访问目录；
+- `--model <name>`：覆盖本次进程模型名，重新执行配置校验；
+- `--timeout <duration>`：接受 `ms/s/m` 或 ISO-8601，范围 10ms～30m，默认 5m。
+
+实际 Workspace、最终模型名和 Timeout 写入 `SessionSpec.runtimeMetadata`。API Key 和
+Base URL 不提供 CLI Override。`AgentLimits.maxDuration` 由 Core 驱动虚拟 Deadline
+线程；到期经同一 CancellationToken 释放模型订阅并产生 `TIME_LIMIT_REACHED`。
+用户取消/超时竞态由首次原因获胜，取消后的迟到 Text Delta 在 Runtime 边界被丢弃。
+
 ### 19.2 S02 内部 stdio v0
 
 Node stdin/stdout 保留给终端。TUI 拉起 Java 子进程后：
@@ -913,6 +933,12 @@ S02 只实现流式会话所需的最小 TUI：
 - 活动 Run 第一次 `Ctrl+C` 发送取消；超时或第二次中断才终止 Java 子进程；
 - TTY/非 TTY、中文宽字符、粘贴和 Resize 的原生 Windows 验证。
 
+`StdioClient` 把未请求 shutdown 的 Java exit 转成 Transport Failure。shutdown 先等待
+优雅 exit，超时 kill 后仍继续等待；cancel 也有独立期限。Node 入口注册同步 exit guard，
+但正常退出仍由异步 shutdown 完成。Paste 只在 ready 状态进入缓冲，并按 Unicode
+Code Point 限制为 8192；Resize 只改变 Viewport 投影。精确状态和验证边界见
+[ADR-028](./adr/ADR-028-s02-windows-terminal-lifecycle.md)。
+
 S04～S05 再加入 Tool/Approval 展示，S08 再完成多行、历史、补全和 Slash Command。
 UI 由纯 Reducer 驱动，不断言整屏 ANSI Golden Output。
 
@@ -921,10 +947,16 @@ UI 由纯 Reducer 驱动，不断言整屏 ANSI Golden Output。
 ### 20.1 S02 起步配置
 
 - CLI 参数配置 Workspace、Mode 和模型名；
-- Provider API Key 来自环境变量或外部秘密存储；
+- 首个 Provider 默认从 Git 忽略的 `config/provider.local.properties` 读取
+  `openai.base-url`、`openai.api-key` 与 `openai.model`；
+- 仓库只提交空值模板 `config/provider.local.properties.example`，每台电脑独立填写
+  本地文件；该 S02 固定文件不是 S08 通用配置层级；
+- `CC_JAVA_OPENAI_BASE_URL`、`CC_JAVA_OPENAI_API_KEY` 与
+  `CC_JAVA_OPENAI_MODEL` 可覆盖本地文件，用于 CI、临时运行或外部秘密存储；
 - API Key 不允许通过普通 CLI 参数传入；
 - 日志和异常统一脱敏；
-- 不创建项目级 Provider 密钥文件。
+- Loader 固定配置路径、限制 16 KiB、拒绝符号链接并校验 Base URL；
+- 不创建任何可被 Git 跟踪的 Provider 密钥文件。
 
 ### 20.2 S08 分层配置
 
@@ -1172,6 +1204,11 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | [ADR-021](./adr/ADR-021-s02-model-streaming-cli-scope.md) | Accepted | Provider/Streaming 目标有效；CLI 部分被 ADR-023 取代 |
 | [ADR-022](./adr/ADR-022-reactivate-authorized-reference-study.md) | Accepted | 按维护者授权确认恢复仓库外受控机制研究 |
 | [ADR-023](./adr/ADR-023-s02-java-headless-ink-tui.md) | Accepted | S02 采用 Java Headless + 内部 stdio v0 + React/Ink |
+| [ADR-024](./adr/ADR-024-s02-openai-compatible-first-provider.md) | Accepted | 首个真实 Provider 使用维护者提供的 OpenAI 兼容端点；真实能力由 Spike 证伪 |
+| [ADR-025](./adr/ADR-025-s02-picocli-java-print.md) | Accepted | S02 固定 Picocli 4.7.7、Java Print 和退出码 |
+| [ADR-026](./adr/ADR-026-s02-cli-overrides-run-deadline.md) | Accepted | S02 固定类型化 CLI Override、Runtime Metadata 和墙钟 Deadline |
+| [ADR-027](./adr/ADR-027-s02-model-stream-resilience.md) | Accepted | S02 固定多 Tool 聚合、有界重试、不完整流和长度明确停止 |
+| [ADR-028](./adr/ADR-028-s02-windows-terminal-lifecycle.md) | Accepted | S02 固定两阶段中断、退出等待、Paste 上限和 Resize 状态边界 |
 
 ## 26. 需求追踪
 
@@ -1210,7 +1247,9 @@ Scripted Fake Model、Fake Tool 和 Fake Event Sink 只存在于测试源。
 S01 未使用任何授权或未核验参考源码；设计和代码由 ADR-017、本项目需求、公开基线及
 独立 Fake 场景解释。Windows Wrapper 与执行验证缺口已经关闭，并在 Commit
 `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd` 上通过 G4/G6；S01 Stage Exit 已
-Accepted。S02 当前只完成 ADR-021/ADR-023 重新对账后的 G1 范围，生产实现尚未开始。
+Accepted。S02 的真实 Provider、Java Runtime/stdio、React/Ink 非 TTY 链路与部分
+取消边界已通过，G2/G3 已 Passed，Capability 已按证据局部提升；G0、G4-G6 与
+完整 S02 退出目标仍未完成。
 
 ### 27.2 分 Stage 实现
 

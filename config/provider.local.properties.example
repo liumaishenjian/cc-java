@@ -1,0 +1,5 @@
+# Copy this file to provider.local.properties on each computer.
+# provider.local.properties is Git-ignored and must never be committed.
+openai.base-url=
+openai.api-key=
+openai.model=

@@ -2,12 +2,16 @@
 
 一个以成熟 Coding Agent 为参照、用 Java 独立重实现的学习型 Agent Runtime 与 CLI。
 
-> 当前状态：**S01 Runtime Kernel 已 Accepted，当前位于 S02 启动 Gate**。框架无关领域协议、
+> 当前状态：**S01 Runtime Kernel 已 Accepted，当前处于 S02 实现阶段**。框架无关领域协议、
 > 显式 Agent Loop、Tool Pipeline 和内存 Session 已通过 Commit-scoped 离线验证；
 > S02 已重新固定为 24 项范围，并选定“Java Headless Runtime + 实验性 stdio v0 +
-> React/Ink TUI”；真实模型、协议和可交互 CLI 仍未实现，生产实现尚未开始。
+> React/Ink TUI”；真实 OpenAI-compatible Provider、文本流、原始 Tool Call、
+> Core 取消、TUI 非 TTY、Picocli Java `--print`、CLI Override 与墙钟超时链路已跑通。
+> S02 仍在进行中；跨 Chunk 多 Tool、429 有界重试、不完整流与长度终态已有本机
+> OpenAI-compatible Contract 证据，真实中转模型同回合只返回一个 Tool Call，
+> Windows 完整交互与进程负例尚未关闭。
 >
-> Current status: S01 accepted; S02 is at its launch gate; no provider or interactive CLI yet.
+> Current status: S01 accepted; S02 has a real provider-backed headless/TUI path but is not complete.
 
 ## 项目目标
 
@@ -120,14 +124,18 @@ Spring AI 只位于模型和集成适配层，React/Ink 只位于终端前端。
 7. [技术设计](./docs/technical-design.md)：Java 架构、协议和实现约束；
 8. [ADR-022](./docs/adr/ADR-022-reactivate-authorized-reference-study.md)：维护者授权确认后的受控研究规则；
 9. [ADR-023](./docs/adr/ADR-023-s02-java-headless-ink-tui.md)：S02 的 Headless/Ink 路线、协议和验证；
-10. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：仍有效的 Provider 与 Streaming 目标；
-11. [ADR-020（历史）](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)：此前暂停研究的审计记录；
-12. [Stage 证据包模板](./docs/templates/stage-evidence-package.md)：每个阶段统一的 G0-G6 Gate；
-13. [S01 Runtime Kernel ADR](./docs/adr/ADR-017-s01-runtime-kernel.md)：首个代码阶段的关键取舍；
-14. [S01 离线 Demo](./docs/demos/S01-agent-loop.md)：如何复现 Fake Model 协议闭环；
-15. [S01 标准验证证据](./docs/evidence/S01-runtime-kernel-2026-07-28.md)：Wrapper、标准命令、报告与正反例实际结果；
-16. [S01 差距报告](./docs/gap-reports/S01.md)：已经学到什么，以及仍缺什么；
-17. [AGENTS.md](./AGENTS.md)：人类与 AI 贡献者必须遵循的规则。
+10. [ADR-025](./docs/adr/ADR-025-s02-picocli-java-print.md)：Picocli Java Print、共用 Runtime Session 与退出码；
+11. [ADR-026](./docs/adr/ADR-026-s02-cli-overrides-run-deadline.md)：Workspace/Model/Timeout Override 与 Core Deadline；
+12. [ADR-027](./docs/adr/ADR-027-s02-model-stream-resilience.md)：多 Tool、重试、不完整流和长度终态；
+13. [ADR-028](./docs/adr/ADR-028-s02-windows-terminal-lifecycle.md)：两阶段中断、退出等待、Paste 与 Resize；
+14. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：仍有效的 Provider 与 Streaming 目标；
+15. [ADR-020（历史）](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)：此前暂停研究的审计记录；
+16. [Stage 证据包模板](./docs/templates/stage-evidence-package.md)：每个阶段统一的 G0-G6 Gate；
+17. [S01 Runtime Kernel ADR](./docs/adr/ADR-017-s01-runtime-kernel.md)：首个代码阶段的关键取舍；
+18. [S01 离线 Demo](./docs/demos/S01-agent-loop.md)：如何复现 Fake Model 协议闭环；
+19. [S01 标准验证证据](./docs/evidence/S01-runtime-kernel-2026-07-28.md)：Wrapper、标准命令、报告与正反例实际结果；
+20. [S01 差距报告](./docs/gap-reports/S01.md)：已经学到什么，以及仍缺什么；
+21. [AGENTS.md](./AGENTS.md)：人类与 AI 贡献者必须遵循的规则。
 
 ## 技术基线
 
@@ -140,8 +148,9 @@ S01 已确认：
 - GroupId `io.github.liumaishenjian`；
 - Java 根包 `io.github.liumaishenjian.ccjava`。
 
-本机具备 Node.js 22，可用于 S02 TUI Spike。Spring Boot、Spring AI、Picocli、
-React、Ink 和首个模型 Provider 的准确版本都延后到对应 Spike 后确认。
+本机 Node.js 22 已完成 S02 TUI Spike；当前验证依赖为 React 19.2.8 与 Ink 7.1.1。
+首个模型方向采用 OpenAI 兼容接口；真实 Spike 已固定 Spring Boot BOM 4.1.0、
+Spring AI 2.0.0 与 `spring-ai-openai`。Picocli 尚未引入。
 
 ## S01 能做什么
 
@@ -154,8 +163,36 @@ React、Ink 和首个模型 Provider 的准确版本都延后到对应 Spike 后
 - 同一内存 Session 中多个 Run 的连续消息历史；
 - Session/Run/Model/Permission/Tool 的有序事件和唯一 Run 终态。
 
-当前明确不能连接真实模型、读取或修改仓库、执行命令、显示交互终端、跨进程恢复会话，
+S01 Accepted Commit 明确不能连接真实模型、读取或修改仓库、执行命令、显示交互终端、跨进程恢复会话，
 也不具备完整权限策略、取消、超时或 OS Sandbox。
+
+S02 工作区已把 React/Ink TUI 的内部 stdio v0 接到真实 Java `AgentRuntime` 和
+OpenAI-compatible Provider；测试专用 Fake 仍用于离线协议、乱序与取消回归。
+当前不包含文件 Tool、Shell、完整权限策略或持久化。复现方法见
+[S02 TUI Spike Demo](./docs/demos/S02-tui-spike.md)和
+[S02 Java Print Demo](./docs/demos/S02-java-print.md)。
+
+### 填写本机模型配置
+
+每台电脑在仓库内填写一次 Git 忽略文件：
+
+```text
+config/provider.local.properties
+```
+
+格式如下：
+
+```properties
+openai.base-url=https://your-gateway.example
+openai.api-key=your-api-key
+openai.model=your-model-name
+```
+
+仓库只跟踪空值模板
+[`config/provider.local.properties.example`](./config/provider.local.properties.example)。
+真实本地文件不会进入 Git；不要把它复制到 Issue、日志或证据包。环境变量
+`CC_JAVA_OPENAI_BASE_URL`、`CC_JAVA_OPENAI_API_KEY` 和
+`CC_JAVA_OPENAI_MODEL` 仍可作为临时覆盖。
 
 ## 构建与离线 Demo
 
@@ -166,6 +203,13 @@ java -version
 .\mvnw.cmd clean verify
 .\mvnw.cmd -DskipTests javadoc:aggregate
 .\mvnw.cmd -pl cc-java-core -am test
+
+# 一次性真实模型调用；可从任意当前目录使用脚本绝对路径
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
+  "E:\Java\cc-java\cc-java.ps1" `
+  --workspace "E:\Java\cc-java" `
+  --timeout 30s `
+  --print "介绍一下你自己"
 ```
 
 Linux/macOS 使用 `./mvnw`。最后一条命令中的 Core 协议测试就是 S01 Demo；
@@ -176,8 +220,8 @@ Linux/macOS 使用 `./mvnw`。最后一条命令中的 Core 协议测试就是 S
 > 标准测试；包含预算拒绝负例的聚焦 Demo 也以 5/5 通过。完整证据见
 > [S01 标准验证证据](./docs/evidence/S01-runtime-kernel-2026-07-28.md)。
 > 相同命令已在 Commit `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd` 的 Clean
-> 工作区上复验；G0-G6 与 S01 Stage Exit 已通过。S02 当前仅通过启动范围 G1；
-> 下一步先完成官方来源/版本核验和 Provider/Streaming/CLI Spike。
+> 工作区上复验；G0-G6 与 S01 Stage Exit 已通过。S02 当前 G1-G3 已通过，
+> G0、G4-G6 仍按剩余异常、取消、CLI Override 与终端负例保持 Open。
 
 ### 更新项目进度看板
 
@@ -191,8 +235,8 @@ java scripts/ProgressDashboard.java --self-test
 
 第一条命令根据功能矩阵和 `docs/progress-state.properties` 生成
 `docs/progress.html`；第二条命令只检查生成结果是否最新，过期时返回失败。
-生成结果还包含 Java 源码、POM、Wrapper 和仓库脚本的摘要，所以代码变更后未重新生成
-看板也会被 `--check` 识别。
+生成结果还包含 Java/TypeScript 源码、POM、npm package/lockfile、Wrapper 和仓库脚本
+的摘要，所以代码变更后未重新生成看板也会被 `--check` 识别。
 如果代码输入或功能矩阵的摘要发生变化，生成器会先要求把它报告的当前值写入
 `progress-state.properties` 的 `inputs.code.digest` 或 `inputs.matrix.digest`；
 这一步用于强制重新审视 `last.change`、Gate、证据和能力等级，而不只是重新生成 HTML。

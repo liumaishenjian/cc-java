@@ -4,7 +4,9 @@
 >
 > 最后更新：2026-07-29
 >
-> 当前阶段：S01 Runtime Kernel 已 Accepted；S02 处于启动 Gate，生产实现尚未开始
+> 当前阶段：S01 Runtime Kernel 已 Accepted；S02 真实 Provider/Runtime/TUI、
+> Java Print、CLI Override、墙钟限制和模型流健壮性已通过，但 24 项退出目标和
+> Windows 负例仍未全部关闭
 >
 > 产品负责人：项目维护者
 
@@ -156,6 +158,7 @@ cc-java [--workspace <path>]
 
 ```text
 cc-java --print "解释订单创建流程"
+cc-java --workspace . --model model-name --timeout 30s --print "解释订单创建流程"
 ```
 
 用于脚本和 CI。首个 Print 实现不得弹出无法处理的交互审批；遇到未预授权写操作时应拒绝并返回明确退出码。
@@ -223,12 +226,15 @@ FixBug 可以在 S11 后实现为 Skill 或独立应用，也可以作为 S04 �
 
 ### S02：Model 与 Streaming CLI
 
-- 接入一个 Spring AI 模型 Provider；
+- 接入维护者提供的 OpenAI 兼容模型端点，Spring AI Adapter 仍保持 Provider-neutral
+  Core 边界；
 - Java Headless Composition Root 提供 `--print` 和实验性 `--stdio`；
 - React/Ink TUI 拉起 Java 子进程并提供 Interactive Session；
 - 内部 UTF-8 NDJSON v0 只承诺 S02 本地进程通信，不是稳定公共 API；
 - 支持流式文本、Tool Call Chunk 聚合和执行状态展示；
 - 支持模型流取消、不完整流、输出长度 finish reason、有界停止/续接、限流和 Usage 转换；
+- S02 的重试只发生在第一个可见 Delta 前，最多三次并受 Run Deadline/取消约束；
+  已输出后的断流 Fail Closed，`length` 以明确停止结束，自动续写留到 S14 评测；
 - Windows 验证 `Ctrl+C`、TTY/非 TTY、中文宽字符、粘贴、Resize 和无孤儿进程；
 - 用显式启用的真实 Provider E2E 验证 Adapter，但普通 CI 仍只使用 Fake。
 
@@ -548,11 +554,16 @@ S01 已确认：
    精确 Revision、License 和再发布权继续保持 `Unknown`。
 6. S02 的 UI 路线采用 Java Headless + 内部 stdio v0 + React/Ink；`CLI-11` 在 S02
    只达到 L1，稳定公共 JSON/JSONL 仍属于 S14。
+7. S02 首个真实 Provider 采用维护者提供的 OpenAI 兼容 Base URL、API Key 和模型，
+   不使用 Ollama；每台电脑默认填写 Git 忽略的 `config/provider.local.properties`，
+   环境变量可以覆盖，具体兼容能力由真实 Spike 验证。
 
 后续 Stage 仍需确认：
 
-1. S02 的首个模型 Provider；
-2. Spring AI、Picocli、React、Ink 的准确版本，以及最小协议 Schema/大小上限；
+1. OpenAI 兼容中转端点的 Tool Call Streaming、Usage、Finish Reason 与 Cancellation
+   实际兼容程度；
+2. 最小协议 Schema/大小上限；Spring AI 2.0.0、Spring Boot BOM 4.1.0 与
+   Picocli 4.7.7 已由真实 Spike 确认；
 3. `run_command` 在 Windows 和 Linux 的默认 Shell；
 4. S04 是否允许“当前会话始终允许”Shell，或只允许单次批准；
 5. “开源不商用”的准确含义：

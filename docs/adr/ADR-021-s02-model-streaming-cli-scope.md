@@ -7,7 +7,7 @@
 - Reference Behavior Baseline: `R2026.03`
 - Authorized Snapshot ID: `N/A - Not Used`（本 ADR 当时未使用；后续 CLI 决策使用 `AUTH-SRC-2026-07-29-A`）
 - Capability IDs: 原 23 项；当前 S02 以 ADR-023 调整后的 24 项为准
-- Decision Scope: 固定 G1 范围、退出目标和 Spike；不选择具体 Provider 或依赖版本
+- Decision Scope: 固定 G1 范围、退出目标和 Spike；首个 Provider 后续由 ADR-024 选择
 
 ## 背景
 
@@ -20,6 +20,10 @@ S01 已经用框架无关 Domain 和同步控制流证明 Agent Loop、Tool 协�
 
 在选择 Spring Boot、Spring AI、Picocli、终端 UI 和 Provider 的准确版本前，需要先固定
 完整 Stage 范围，并用最小 Spike 证伪关键假设。否则依赖选择会先于真实协议证据。
+
+> 2026-07-29 更新：维护者已通过
+> [ADR-024](./ADR-024-s02-openai-compatible-first-provider.md)选择 OpenAI 兼容端点作为
+> 首个真实 Provider，不再使用 Ollama；准确框架版本和兼容行为仍由 Spike 决定。
 
 ## 决策
 
@@ -66,10 +70,11 @@ S01 已经用框架无关 Domain 和同步控制流证明 Agent Loop、Tool 协�
 
 本 ADR 不使用任何隔离或未核验源码。正式实现前必须：
 
-1. 记录 Spring Boot、Spring AI、候选 Provider、Picocli、Node 与 Ink 官方文档的访问日期；
+1. 记录 Spring Boot、Spring AI OpenAI Chat、Picocli、Node 与 Ink 官方文档的访问日期；
 2. 确认候选版本存在于 Maven Central，记录 BOM/Starter 的准确坐标；
 3. 记录 Spring AI 在该版本下关闭自动 Tool Loop 的官方方式；
-4. 明确 Provider 对 Tool Call Streaming、Usage、Finish Reason 和 Cancellation 的实际支持；
+4. 明确维护者提供的 OpenAI 兼容端点对 Tool Call Streaming、Usage、Finish Reason
+   和 Cancellation 的实际支持；
 5. 将页面版本、Provider 差异和无法确认项标记为 `Unknown`。
 
 上述工作完成前，S02 的 G0 保持 `OPEN`，不得锁定准确依赖版本。

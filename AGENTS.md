@@ -15,6 +15,10 @@
 7. [技术设计文档](./docs/technical-design.md)
 8. [ADR-022](./docs/adr/ADR-022-reactivate-authorized-reference-study.md)、
    [ADR-023](./docs/adr/ADR-023-s02-java-headless-ink-tui.md)、
+   [ADR-025](./docs/adr/ADR-025-s02-picocli-java-print.md)、
+   [ADR-026](./docs/adr/ADR-026-s02-cli-overrides-run-deadline.md)、
+   [ADR-027](./docs/adr/ADR-027-s02-model-stream-resilience.md)、
+   [ADR-028](./docs/adr/ADR-028-s02-windows-terminal-lifecycle.md)、
    [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)、
    [ADR-018](./docs/adr/ADR-018-authorized-reference-study.md)、
    [ADR-019](./docs/adr/ADR-019-s07-progressive-context-reduction.md)与
@@ -26,9 +30,11 @@
 ## 2. 当前项目阶段
 
 仓库已经完成 **S01：Runtime Kernel**，G0-G6 与 Stage Exit 均为 Accepted；被测实现
-Commit 为 `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd`。当前处于 **S02 启动 Gate**：
+Commit 为 `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd`。当前处于 **S02 实现阶段**：
 ADR-023 已把 S02 固定为 24 项 Feature、Java Headless Runtime、实验性 stdio v0 与
-React/Ink TUI；生产实现尚未开始。
+React/Ink TUI；真实 Provider、Runtime/stdio/TUI、Java `--print`、类型化 CLI Override、
+Runtime 墙钟限制、ADR-027 模型流健壮性与 ADR-028 Windows 直接子进程生命周期已在
+工作区验证；真实 Provider 同回合多 Tool 兼容性和真实 TTY 活动取消复核尚未关闭。
 
 当前允许并要求：
 
@@ -36,12 +42,12 @@ React/Ink TUI；生产实现尚未开始。
   与离线 Fake 测试回归继续通过；
 - S02 实现范围必须保持 ADR-021 与 ADR-023 的 24 项 Feature、`Current → Target` 等级、真实
   Provider/流式 Tool Call Spike、CLI 契约、取消边界和可证伪实验；
-- 只有 Spike 证明真实用途后，才能确认 Spring Boot、Spring AI、Picocli、React 与 Ink 的
-  准确版本和依赖；
-- S02 先验证 Java Fake stdio 和最小 React/Ink；不得整包合并候选分支
+- 已由对应 Spike 固定 Spring Boot BOM 4.1.0、Spring AI 2.0.0、Picocli 4.7.7、
+  React 19.2.8 与 Ink 7.1.1；新增或升级仍必须重新提供兼容证据；
+- S02 已完成 Java Fake stdio、最小 React/Ink、真实 Provider 与 Java Print Spike；
+  不得整包合并候选分支
   `10c7873`，不得继续扩展其中的 JLine Renderer；
-- 在 S02 启动 Gate 完成前，真实 Provider、流式 CLI、文件 Tool、Shell、完整权限策略
-  和持久化能力继续保持未实现状态；
+- 文件 Tool、Shell、完整权限策略和持久化能力继续保持未实现状态；
 - S02 的代码、测试、Demo、证据和看板更新必须作为新的独立变更开展。
 
 不得仅因为 S01 已退出就宣称 S02 或更后阶段能力已经可用。
@@ -228,7 +234,10 @@ Stage 是可验证的学习切片，不表示后续能力不在项目范围内�
 - 不得把模型或用户文本直接插值到 Shell 字符串中。
 - 应尽量使用结构化参数执行已批准命令，并固定工作目录、超时、输出上限和取消机制。
 - 默认不得记录 API Key、完整 Prompt、完整源码文件或未经处理的敏感 Tool 输出。
-- 密钥只能来自环境变量或外部 Secret Store，不能写入提交的配置。
+- S02 Provider 密钥可以来自环境变量、外部 Secret Store，或固定路径
+  `config/provider.local.properties`；该本地文件必须保持 Git 忽略，不得被提交、
+  复制到证据包或写入日志；
+- 不得把密钥写入任何已提交配置；`config/provider.local.properties.example` 只能包含空值；
 - 不得加入真实公司端点、凭证、Schema、日志、工单、源码或未脱敏业务数据。
 - Commit、Push、Merge、Release、Deployment 和外部系统写入需要单独、明确的用户授权。
 
@@ -365,10 +374,10 @@ public final class AgentRuntime {
 
 ## 14. 依赖与版本策略
 
-已确认的技术基线只有 Java 21、Maven 3.9.16、JUnit 5.14.3、AssertJ 3.27.7，以及
-本机 Spike 基线 Node.js 22。Spring Boot、Spring AI、Picocli、React、Ink 与首个
-Provider 的准确版本保持 Deferred，
-只能在 S02 完成官方来源核验和真实 Provider/Streaming/CLI Spike 后通过 ADR 确认。
+已确认的技术基线包括 Java 21、Maven 3.9.16、JUnit 5.14.3、AssertJ 3.27.7、
+Node.js 22、Spring Boot BOM 4.1.0、Spring AI 2.0.0、Picocli 4.7.7、
+React 19.2.8 与 Ink 7.1.1。首个 Provider 为维护者配置的 OpenAI-compatible 端点；
+具体服务实现不进入仓库或能力声明。
 
 引入依赖时：
 

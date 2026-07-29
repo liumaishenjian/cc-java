@@ -12,7 +12,11 @@ import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
 import io.github.liumaishenjian.ccjava.domain.LifecycleEvent;
 import io.github.liumaishenjian.ccjava.domain.ModelRequest;
+import io.github.liumaishenjian.ccjava.domain.ModelFinishReason;
+import io.github.liumaishenjian.ccjava.domain.ModelTextDelta;
 import io.github.liumaishenjian.ccjava.domain.ModelTurn;
+import io.github.liumaishenjian.ccjava.domain.ModelTurnMetadata;
+import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.domain.PermissionDecision;
 import io.github.liumaishenjian.ccjava.domain.RunStatus;
 import io.github.liumaishenjian.ccjava.domain.SessionSpec;
@@ -26,12 +30,18 @@ import io.github.liumaishenjian.ccjava.domain.ToolResultMessage;
 import io.github.liumaishenjian.ccjava.domain.ToolResultStatus;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class AgentRuntimeTest {
@@ -556,6 +566,188 @@ class AgentRuntimeTest {
         assertThat(model.requests()).hasSize(2);
         assertThat(model.requests().get(1).messages())
                 .contains(new ToolResultMessage(deniedResult));
+    }
+
+    @Test
+    void publishesStreamingDeltasBeforeTheAggregatedTurnCompletes() {
+        StreamingModelGateway model = (request, observer, cancellation) -> {
+            observer.onTextDelta("alpha");
+            observer.onTextDelta(" beta");
+            return ModelTurn.text("alpha beta");
+        };
+        Harness harness = newHarness(model);
+
+        AgentRunResult result = harness.run("流式回答", AgentLimits.DEFAULT);
+
+        assertThat(result.stopReason()).isEqualTo(StopReason.COMPLETED);
+        assertThat(harness.events().envelopes())
+                .extracting(AgentEventEnvelope::event)
+                .filteredOn(ModelTextDelta.class::isInstance)
+                .containsExactly(
+                        new ModelTextDelta(1, "alpha"),
+                        new ModelTextDelta(1, " beta"));
+        assertThat(indexOfEvent(
+                harness.events().envelopes(),
+                LifecycleEvent.ModelTurnStarted.class,
+                1)).isLessThan(harness.events().envelopes().stream()
+                .map(AgentEventEnvelope::event)
+                .toList()
+                .indexOf(new ModelTextDelta(1, "alpha")));
+        assertThat(harness.events().envelopes().stream()
+                .map(AgentEventEnvelope::event)
+                .toList()
+                .indexOf(new ModelTextDelta(1, " beta")))
+                .isLessThan(indexOfEvent(
+                        harness.events().envelopes(),
+                        LifecycleEvent.ModelTurnCompleted.class,
+                        1));
+    }
+
+    @Test
+    void exactRunCancellationStopsTheModelStreamWithOneCancelledTerminal() throws Exception {
+        CountDownLatch modelStarted = new CountDownLatch(1);
+        CountDownLatch cancellationObserved = new CountDownLatch(1);
+        AtomicReference<RunId> requestedRunId = new AtomicReference<>();
+        StreamingModelGateway model = (request, observer, cancellation) -> {
+            requestedRunId.set(request.runId());
+            modelStarted.countDown();
+            try (CancellationToken.Registration ignored =
+                         cancellation.onCancellation(cancellationObserved::countDown)) {
+                if (!cancellationObserved.await(2, TimeUnit.SECONDS)) {
+                    throw new ModelGatewayException("Test cancellation timeout");
+                }
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new ModelGatewayException("Test interrupted");
+            }
+            throw new ModelGatewayException("Model request cancelled");
+        };
+        Harness harness = newHarness(model);
+
+        CompletableFuture<AgentRunResult> running =
+                CompletableFuture.supplyAsync(() -> harness.run("等待取消", AgentLimits.DEFAULT));
+        assertThat(modelStarted.await(2, TimeUnit.SECONDS)).isTrue();
+        RunId runId = requestedRunId.get();
+        assertThat(harness.runtime().cancel(harness.session().id(), new RunId("wrong-run")))
+                .isFalse();
+        assertThat(harness.runtime().cancel(harness.session().id(), runId)).isTrue();
+
+        AgentRunResult result = running.get(2, TimeUnit.SECONDS);
+        assertThat(result.status()).isEqualTo(RunStatus.CANCELLED);
+        assertThat(result.stopReason()).isEqualTo(StopReason.USER_CANCELLED);
+        assertThat(result.runId()).isEqualTo(runId);
+        assertThat(harness.runtime().cancel(harness.session().id(), runId)).isFalse();
+        assertThat(harness.events().envelopes())
+                .noneMatch(envelope ->
+                        envelope.event() instanceof LifecycleEvent.ModelTurnCompleted);
+        assertThat(harness.events().envelopes())
+                .filteredOn(envelope -> envelope.event() instanceof LifecycleEvent.RunFinished)
+                .singleElement()
+                .satisfies(envelope -> assertThat(envelope.event())
+                        .isEqualTo(new LifecycleEvent.RunFinished(result)));
+    }
+
+    @Test
+    void wallClockDeadlineCancelsModelAndSuppressesLateDelta() {
+        CountDownLatch modelStarted = new CountDownLatch(1);
+        CountDownLatch cancellationObserved = new CountDownLatch(1);
+        StreamingModelGateway model = (request, observer, cancellation) -> {
+            observer.onTextDelta("before-timeout");
+            modelStarted.countDown();
+            try (CancellationToken.Registration ignored =
+                         cancellation.onCancellation(cancellationObserved::countDown)) {
+                if (!cancellationObserved.await(2, TimeUnit.SECONDS)) {
+                    throw new ModelGatewayException("Test deadline timeout");
+                }
+                observer.onTextDelta("late-after-timeout");
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new ModelGatewayException("Test interrupted");
+            }
+            throw new ModelGatewayException("Model request timed out");
+        };
+        Harness harness = newHarness(model);
+
+        AgentRunResult result = harness.run(
+                "等待墙钟限制",
+                new AgentLimits(16, 32, Duration.ofMillis(50)));
+
+        assertThat(result.status()).isEqualTo(RunStatus.STOPPED);
+        assertThat(result.stopReason()).isEqualTo(StopReason.TIME_LIMIT_REACHED);
+        assertThat(modelStarted.getCount()).isZero();
+        assertThat(cancellationObserved.getCount()).isZero();
+        assertThat(harness.events().envelopes())
+                .extracting(AgentEventEnvelope::event)
+                .filteredOn(ModelTextDelta.class::isInstance)
+                .containsExactly(new ModelTextDelta(1, "before-timeout"));
+        assertThat(harness.events().envelopes())
+                .filteredOn(envelope -> envelope.event() instanceof LifecycleEvent.RunFinished)
+                .singleElement()
+                .satisfies(envelope -> assertThat(envelope.event())
+                        .isEqualTo(new LifecycleEvent.RunFinished(result)));
+    }
+
+    @Test
+    void lengthFinishReasonStopsWithoutAppendingTruncatedAssistant() {
+        ModelTurn truncated = new ModelTurn(
+                AssistantMessage.text("partial"),
+                new ModelTurnMetadata(
+                        ModelFinishReason.LENGTH,
+                        Optional.empty(),
+                        Optional.of("test-model")));
+        Harness harness = newHarness(ScriptedModelGateway.of(truncated));
+
+        AgentRunResult result = harness.run("生成较长回答", AgentLimits.DEFAULT);
+
+        assertThat(result.status()).isEqualTo(RunStatus.STOPPED);
+        assertThat(result.stopReason()).isEqualTo(StopReason.OUTPUT_LIMIT_REACHED);
+        assertThat(result.finalText()).isEmpty();
+        assertThat(harness.session().messages())
+                .containsExactly(new UserMessage("生成较长回答"));
+    }
+
+    @Test
+    void mapsIncompleteModelStreamToDedicatedFailureReason() {
+        ModelGateway model = request -> {
+            throw new ModelGatewayException(
+                    ModelGatewayException.FailureKind.INCOMPLETE_STREAM,
+                    "incomplete");
+        };
+        Harness harness = newHarness(model);
+
+        AgentRunResult result = harness.run("触发断流", AgentLimits.DEFAULT);
+
+        assertThat(result.status()).isEqualTo(RunStatus.FAILED);
+        assertThat(result.stopReason()).isEqualTo(StopReason.INCOMPLETE_MODEL_STREAM);
+    }
+
+    @Test
+    void retryExhaustionProducesOneRuntimeTerminalEvent() {
+        AtomicInteger attempts = new AtomicInteger();
+        StreamingModelGateway provider = (request, observer, cancellation) -> {
+            attempts.incrementAndGet();
+            throw new ModelGatewayException(
+                    ModelGatewayException.FailureKind.RETRYABLE,
+                    "busy");
+        };
+        RetryingModelGateway model = new RetryingModelGateway(
+                provider,
+                new ModelRetryPolicy(
+                        3,
+                        List.of(Duration.ZERO, Duration.ZERO)));
+        Harness harness = newHarness(model);
+
+        AgentRunResult result = harness.run("触发重试耗尽", AgentLimits.DEFAULT);
+
+        assertThat(attempts).hasValue(3);
+        assertThat(result.status()).isEqualTo(RunStatus.FAILED);
+        assertThat(result.stopReason()).isEqualTo(StopReason.MODEL_RETRY_EXHAUSTED);
+        assertThat(harness.events().envelopes())
+                .filteredOn(envelope ->
+                        envelope.event() instanceof LifecycleEvent.RunFinished)
+                .singleElement()
+                .satisfies(envelope -> assertThat(envelope.event())
+                        .isEqualTo(new LifecycleEvent.RunFinished(result)));
     }
 
     private static Harness newHarness(

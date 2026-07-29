@@ -1339,6 +1339,12 @@ public final class ProgressDashboard {
         boolean text = name.endsWith(".java")
                 || name.endsWith(".xml")
                 || name.endsWith(".properties")
+                || name.endsWith(".ts")
+                || name.endsWith(".tsx")
+                || name.endsWith(".js")
+                || name.endsWith(".mjs")
+                || name.endsWith(".cjs")
+                || name.endsWith(".json")
                 || name.endsWith(".cmd")
                 || name.endsWith(".ps1")
                 || name.endsWith(".sh")
@@ -1358,7 +1364,35 @@ public final class ProgressDashboard {
                 || "mvnw.cmd".equals(relative)
                 || relative.startsWith(".mvn/")
                 || relative.startsWith("scripts/")
+                || isRootLauncherScript(relative)
+                || isTuiCodeOrBuildInput(relative)
                 || (relative.startsWith("cc-java-") && relative.contains("/src/"));
+    }
+
+    private static boolean isRootLauncherScript(String relative) {
+        if (relative.contains("/")) {
+            return false;
+        }
+        String lower = relative.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".ps1")
+                || lower.endsWith(".cmd")
+                || lower.endsWith(".sh");
+    }
+
+    private static boolean isTuiCodeOrBuildInput(String relative) {
+        if (!relative.startsWith("cc-java-tui/")
+                || relative.startsWith("cc-java-tui/node_modules/")
+                || relative.startsWith("cc-java-tui/dist/")
+                || relative.startsWith("cc-java-tui/coverage/")) {
+            return false;
+        }
+        String lower = relative.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".ts")
+                || lower.endsWith(".tsx")
+                || lower.endsWith(".js")
+                || lower.endsWith(".mjs")
+                || lower.endsWith(".cjs")
+                || lower.endsWith(".json");
     }
 
     private static String normalizedRelativePath(Path root, Path path) {
@@ -1473,6 +1507,63 @@ public final class ProgressDashboard {
         assertCondition(
                 !html.contains("S01 已退出") && !html.contains("S02 已可用"),
                 "rendered HTML still contains a hard-coded Stage transition");
+        selfTestTuiDigest();
+    }
+
+    private static void selfTestTuiDigest() {
+        Path root = null;
+        try {
+            root = Files.createTempDirectory("cc-java-progress-tui-");
+            Path source = root.resolve("cc-java-tui/src/view.tsx");
+            Path packageJson = root.resolve("cc-java-tui/package.json");
+            Path ignored = root.resolve("cc-java-tui/node_modules/example/index.js");
+            Path rootLauncher = root.resolve("cc-java.ps1");
+            Files.createDirectories(source.getParent());
+            Files.createDirectories(ignored.getParent());
+            Files.writeString(source, "export const value = 1;\n", StandardCharsets.UTF_8);
+            Files.writeString(packageJson, "{\"private\":true}\n", StandardCharsets.UTF_8);
+            Files.writeString(ignored, "ignored-1\n", StandardCharsets.UTF_8);
+            Files.writeString(rootLauncher, "Write-Output 'one'\n", StandardCharsets.UTF_8);
+
+            String initial = repositoryInputDigest(root);
+            Files.writeString(source, "export const value = 2;\n", StandardCharsets.UTF_8);
+            String sourceChanged = repositoryInputDigest(root);
+            assertCondition(
+                    !initial.equals(sourceChanged),
+                    "TypeScript source changes were not included in code digest");
+
+            Files.writeString(ignored, "ignored-2\n", StandardCharsets.UTF_8);
+            String ignoredChanged = repositoryInputDigest(root);
+            assertCondition(
+                    sourceChanged.equals(ignoredChanged),
+                    "node_modules unexpectedly changed code digest");
+
+            Files.writeString(rootLauncher, "Write-Output 'two'\n", StandardCharsets.UTF_8);
+            String launcherChanged = repositoryInputDigest(root);
+            assertCondition(
+                    !ignoredChanged.equals(launcherChanged),
+                    "root launcher script changes were not included in code digest");
+        } catch (IOException | NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("TUI digest self-test failed", exception);
+        } finally {
+            if (root != null) {
+                try (Stream<Path> paths = Files.walk(root)) {
+                    paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (IOException exception) {
+                            throw new IllegalStateException(
+                                    "Unable to clean TUI digest self-test fixture",
+                                    exception);
+                        }
+                    });
+                } catch (IOException exception) {
+                    throw new IllegalStateException(
+                            "Unable to enumerate TUI digest self-test fixture",
+                            exception);
+                }
+            }
+        }
     }
 
     private static Properties acceptedSelfTestState() {

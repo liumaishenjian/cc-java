@@ -32,5 +32,19 @@
             <artifactId>cc-java-tools-local</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>tools.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>info.picocli</groupId>
+            <artifactId>picocli</artifactId>
+        </dependency>
+        <!-- Headless 默认不记录 Prompt、端点或 Provider 响应，也避免 SLF4J 无绑定警告污染 stderr。 -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-nop</artifactId>
+            <scope>runtime</scope>
+        </dependency>
     </dependencies>
 </project>

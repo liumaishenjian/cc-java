@@ -1,12 +1,13 @@
 /**
- * 提供 cc-java 的命令行入口、终端适配和依赖装配。
+ * 提供 cc-java 的 Java Headless 入口与依赖装配。
  *
- * <p>该包是应用的 Composition Root，未来负责创建模型、工具、核心 Runtime
- * 与终端组件，并把用户输入和 Agent Event 转换为 CLI 交互。CLI 只负责输入、
- * 展示和装配，不承担 Agent 决策、权限判断或 Tool Call 消息拼接。</p>
+ * <p>该包是 Java 应用的 Composition Root，负责创建模型、工具与核心 Runtime，
+ * 并通过 Print 或 stdio 协议暴露命令和事件。React/Ink 终端位于独立的
+ * {@code cc-java-tui} 包；Java Headless 不承担终端重绘，也不把 Agent 决策、
+ * 权限判断或 Tool Call 消息拼接交给 UI。</p>
  *
- * <p>S01 仅建立模块和包边界，不引入 Picocli、JLine 或 Spring Boot；
- * 可交互与 Print 两种 CLI 入口在 S02 中实现。</p>
+ * <p>S02 先通过 Fake stdio Spike 验证协议、取消和进程生命周期。协议达到
+ * G2 前仅是内部 v0，不是稳定 SDK 或外部兼容承诺。</p>
  *
  * @since 0.1.0
  */

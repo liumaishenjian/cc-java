@@ -30,6 +30,11 @@
 
         <junit.version>5.14.3</junit.version>
         <assertj.version>3.27.7</assertj.version>
+        <jackson.version>3.1.0</jackson.version>
+        <spring-boot.version>4.1.0</spring-boot.version>
+        <spring-ai.version>2.0.0</spring-ai.version>
+        <victools.version>5.0.0</victools.version>
+        <picocli.version>4.7.7</picocli.version>
 
         <maven.compiler.plugin.version>3.15.0</maven.compiler.plugin.version>
         <maven.surefire.plugin.version>3.5.5</maven.surefire.plugin.version>
@@ -39,12 +44,58 @@
 
     <dependencyManagement>
         <dependencies>
+            <!-- 保留项目已经验证的 Jackson 3 与 JUnit 5 基线，避免被 Boot BOM 悄悄提升主版本。 -->
+            <dependency>
+                <groupId>tools.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>${jackson.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>org.junit</groupId>
                 <artifactId>junit-bom</artifactId>
                 <version>${junit.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!--
+                Spring AI 2.0.0 直接使用 victools 5.0.0，而 openai-java 仍声明 4.38.0。
+                在适配器边界统一到 Spring AI 的版本，并由真实 Provider Spike 验证兼容性。
+            -->
+            <dependency>
+                <groupId>com.github.victools</groupId>
+                <artifactId>jsonschema-generator</artifactId>
+                <version>${victools.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.github.victools</groupId>
+                <artifactId>jsonschema-module-jackson</artifactId>
+                <version>${victools.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.github.victools</groupId>
+                <artifactId>jsonschema-module-swagger-2</artifactId>
+                <version>${victools.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>info.picocli</groupId>
+                <artifactId>picocli</artifactId>
+                <version>${picocli.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

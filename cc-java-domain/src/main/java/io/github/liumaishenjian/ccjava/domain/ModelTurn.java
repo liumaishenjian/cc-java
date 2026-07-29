@@ -10,20 +10,34 @@ import java.util.Objects;
  * 由 Adapter 实现，但最终仍必须归一化为该类型。</p>
  *
  * @param assistantMessage 本回合完整的 Assistant Message
+ * @param metadata Provider 返回的规范化结束原因、Usage 与模型标识
  * @since 0.1.0
  */
-public record ModelTurn(AssistantMessage assistantMessage) {
+public record ModelTurn(
+        AssistantMessage assistantMessage,
+        ModelTurnMetadata metadata) {
 
     /**
      * 创建一个已经完整聚合的模型回合。
      *
      * @param assistantMessage 本回合完整的 Assistant 消息
-     * @throws NullPointerException Assistant 消息为空时
+     * @param metadata Provider 元数据；不提供时应使用 {@link ModelTurnMetadata#unknown()}
+     * @throws NullPointerException Assistant 消息或元数据为空时
      */
     public ModelTurn {
         assistantMessage = Objects.requireNonNull(
                 assistantMessage,
                 "assistantMessage 不能为空");
+        metadata = Objects.requireNonNull(metadata, "metadata 不能为空");
+    }
+
+    /**
+     * 创建没有 Provider 元数据的模型回合，供 Fake 和 S01 兼容路径使用。
+     *
+     * @param assistantMessage 已聚合 Assistant Message
+     */
+    public ModelTurn(AssistantMessage assistantMessage) {
+        this(assistantMessage, ModelTurnMetadata.unknown());
     }
 
     /**

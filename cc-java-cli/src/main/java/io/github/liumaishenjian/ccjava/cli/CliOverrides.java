@@ -1,0 +1,49 @@
+package io.github.liumaishenjian.ccjava.cli;
+
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.Objects;
+import java.util.Optional;
+
+/**
+ * Java Headless 单次进程的类型化 CLI Override。
+ *
+ * <p>该值只携带非 Secret 配置。API Key 和 Base URL 继续来自 Git 忽略文件或环境变量；
+ * Workspace 在生产 Runner 中解析为真实目录后才进入 Session Metadata。</p>
+ *
+ * @param workspace 用户选择的 Workspace
+ * @param model 可选模型名覆盖
+ * @param timeout 每个 Run 的墙钟限制
+ * @since 0.1.0
+ */
+record CliOverrides(
+        Path workspace,
+        Optional<String> model,
+        Duration timeout) {
+
+    static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(5);
+    static final Duration MIN_TIMEOUT = Duration.ofMillis(10);
+    static final Duration MAX_TIMEOUT = Duration.ofMinutes(30);
+    private static final int MAX_MODEL_LENGTH = 200;
+
+    CliOverrides {
+        workspace = Objects.requireNonNull(workspace, "workspace 不能为空")
+                .toAbsolutePath()
+                .normalize();
+        model = Objects.requireNonNull(model, "model 不能为空")
+                .map(String::trim);
+        timeout = Objects.requireNonNull(timeout, "timeout 不能为空");
+        if (model.isPresent()) {
+            String value = model.orElseThrow();
+            if (value.isBlank()
+                    || value.length() > MAX_MODEL_LENGTH
+                    || value.chars().anyMatch(Character::isISOControl)) {
+                throw new IllegalArgumentException("model 为空或包含不支持的字符");
+            }
+        }
+        if (timeout.compareTo(MIN_TIMEOUT) < 0
+                || timeout.compareTo(MAX_TIMEOUT) > 0) {
+            throw new IllegalArgumentException("timeout 必须在 10ms 到 30m 之间");
+        }
+    }
+}
