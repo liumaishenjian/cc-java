@@ -1,0 +1,22 @@
+docs/progress-state.properties
+  s_371b145dc5ecd9::t_7a5b2367a6aedc 13
+  s_371b145dc5ecd9::t_76e9e6483211f8 5
+cc-java-core/src/test/java/io/github/liumaishenjian/ccjava/core/RetryingModelGatewayTest.java
+  s_371b145dc5ecd9::t_3c0770e577485b 129-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "347dfafce00f9690b457e10b786cef96363d9258",
+  "prompts": {},
+  "sessions": {
+    "s_371b145dc5ecd9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa772-84c7-7680-9e8a-026c8e1161ea",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "yliu27 <yliu27@leqee.com>"
+    }
+  }
+}
