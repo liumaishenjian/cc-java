@@ -1,0 +1,214 @@
+docs/evidence/S03-ripgrep-search-2026-07-30.md
+  s_371b145dc5ecd9::t_d54298e30be0de 54,61
+  s_371b145dc5ecd9::t_187f002c5f021d 1-2,4-22,31-37,39-41,62-64
+  s_371b145dc5ecd9::t_626726beb1d542 57-60
+  s_371b145dc5ecd9::t_62b2dc0dfbdfc6 23-28,47-49,66
+  s_371b145dc5ecd9::t_70750b54fa1d93 3,42-43,52-53,65
+  s_371b145dc5ecd9::t_0ceb80b30c32a6 29-30,55-56
+  s_371b145dc5ecd9::t_5b9f59797cd318 38,44-46,50-51
+cc-java-tools-local/src/test/java/io/github/liumaishenjian/ccjava/tools/local/tool/ListAndSearchToolTest.java
+  s_371b145dc5ecd9::t_01eb09bbc15faf 98-106
+  s_371b145dc5ecd9::t_406eaaf123f47a 14-15,18,73,87,231,233-236
+  s_371b145dc5ecd9::t_1a586a4113db96 232
+  s_371b145dc5ecd9::t_5f1950f3f4c72d 6,16-17,19-20,24-25,27,107-179,188-191,193-229,237
+  s_371b145dc5ecd9::t_91aa2bf6624293 192
+  s_371b145dc5ecd9::t_838da1747c3369 230
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/runtime/HeadlessRuntimeSessionTest.java
+  s_371b145dc5ecd9::t_3c6509c2262921 32,237-311,365-376
+scripts/ResolveRipgrep.ps1
+  s_371b145dc5ecd9::t_bbfe6bc96603ca 26-27,29-30,32-36
+  s_371b145dc5ecd9::t_0286a38076fe3e 2-3,5-7,10,12-14,16-17,23,28,31,40-41,45-50,52
+  s_371b145dc5ecd9::t_34b26c6ef1c12c 1,4,9,11,15,18-20,24-25,37-39,42-44,51,54
+  s_371b145dc5ecd9::t_bd6975d831aff7 8,53
+  s_371b145dc5ecd9::t_b7c77c22f2709e 21-22
+docs/reference-baselines/R2026.03-authorized-source.md
+  s_371b145dc5ecd9::t_187f002c5f021d 67-83
+AGENTS.md
+  s_371b145dc5ecd9::t_18daeb5287aef6 190-208
+  s_371b145dc5ecd9::t_bc7b55bb3d6b6d 25-26
+  s_371b145dc5ecd9::t_62766f7935aa4e 209
+docs/feature-parity-matrix.md
+  s_371b145dc5ecd9::t_112bcc45655405 301,568
+cc-java-tui/src/app.tsx
+  s_371b145dc5ecd9::t_c6402e873db59e 5,155,168-184
+docs/product-requirements.md
+  s_371b145dc5ecd9::t_112bcc45655405 243-245
+cc-java-tools-local/pom.xml
+  s_371b145dc5ecd9::t_57c1078226370c 30
+  s_371b145dc5ecd9::t_a4fce286800bd5 32-33
+  s_371b145dc5ecd9::t_8fa9c11d5f29a7 31,34
+docs/adr/ADR-032-s03-read-tools-security-contract.md
+  s_371b145dc5ecd9::t_b0c17666097020 250-252
+cc-java-tui/test/state.test.ts
+  s_371b145dc5ecd9::t_88971f122b5f5b 48-52,55-60,134-162
+  s_371b145dc5ecd9::t_4883d7a97be24f 118
+  s_371b145dc5ecd9::t_46cb67617a062e 133
+  s_371b145dc5ecd9::t_f064f897a2b36b 163
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/ToolExecutionPipeline.java
+  s_371b145dc5ecd9::t_88b53f33ec618a 74-95,99-101
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/search/RipgrepParsedResult.java
+  s_371b145dc5ecd9::t_df2bd38d2d5bc2 3-32
+  s_371b145dc5ecd9::t_e7ef4e4513bdaa 1-2
+  s_371b145dc5ecd9::t_2ee8ff4191db8e 33-35
+  s_281d8184e03be6::t_e2d54f232546da 36-37
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/search/TextSearchMode.java
+  s_371b145dc5ecd9::t_0eafe3f7dde7ef 1-15
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/search/package-info.java
+  s_371b145dc5ecd9::t_8b373dc1f37753 1-7
+docs/progress-state.properties
+  s_371b145dc5ecd9::t_0ceb80b30c32a6 9,13,35
+  s_371b145dc5ecd9::t_6d381a187ade60 4
+  s_371b145dc5ecd9::t_626726beb1d542 18,37
+  s_371b145dc5ecd9::t_5b9f59797cd318 33
+  s_371b145dc5ecd9::t_70750b54fa1d93 7-8,10,16-17,19,24,27,29,31,38-39
+  s_371b145dc5ecd9::t_1270ccd2f7f168 5
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/tool/SearchTextTool.java
+  s_371b145dc5ecd9::t_1d460a8ae213af 16-17,19,21-22,53-55,59,61,65,114-117,120-142,155,158-169,171-193,195,201-202,211,222-230
+  s_371b145dc5ecd9::t_6cb6342bde84c4 268,276-282,284-287,289,575-577
+  s_371b145dc5ecd9::t_1a586a4113db96 119,157,199-200
+  s_371b145dc5ecd9::t_fcf33edde35291 20,71,89,91-92,196
+  s_371b145dc5ecd9::t_6d1aa2a8d1fa80 231-267,269-275,283,288,290-420,570-574,578-584
+  s_371b145dc5ecd9::t_afe914f2448c3f 18,79-86,194,197-198,203-205
+  s_371b145dc5ecd9::t_2255cae546ec95 40,42-45,74
+  s_371b145dc5ecd9::t_075739d8d034b6 87
+  s_371b145dc5ecd9::t_523c7388fe5a06 88
+docs/technical-design.md
+  s_371b145dc5ecd9::t_112bcc45655405 975-990
+  s_371b145dc5ecd9::t_18daeb5287aef6 1270
+  s_371b145dc5ecd9::t_da8dbbffd9e1d0 963-968,998
+  s_371b145dc5ecd9::t_0ceb80b30c32a6 991-995
+  s_371b145dc5ecd9::t_bb90bd8355281c 972-974,996-997
+docs/progress.html
+  s_371b145dc5ecd9::t_1b6db4b9ee1bcc 226,231,276,333,338-339
+  s_371b145dc5ecd9::t_5765d0cbf36eb4 234,250,259,266,289,335-337
+  s_371b145dc5ecd9::t_037e034e8d366b 309
+docs/adr/ADR-033-s03-ripgrep-search-backend.md
+  s_371b145dc5ecd9::t_0ceb80b30c32a6 64-67,83-84
+  s_371b145dc5ecd9::t_a7be50d2e826ba 81-82
+  s_371b145dc5ecd9::t_66ae5a1bb04b31 1-48,68-71,85-86
+  s_371b145dc5ecd9::t_62b2dc0dfbdfc6 56-58,74-78
+  s_371b145dc5ecd9::t_ccfecf040c580c 49-51,53-55
+  s_371b145dc5ecd9::t_83d040fbfd293e 59-63
+  s_371b145dc5ecd9::t_74bc06c559e222 72-73
+  s_371b145dc5ecd9::t_baa8ed015ec3df 79-80
+  s_371b145dc5ecd9::t_fffb02de192922 52
+cc-java-tui/test/app.test.tsx
+  s_371b145dc5ecd9::t_88971f122b5f5b 30-32,64-66,107-109,121-145
+  s_371b145dc5ecd9::t_75e53209a226ae 39-40
+README.md
+  s_371b145dc5ecd9::t_5b9f59797cd318 17-19
+  s_371b145dc5ecd9::t_0ceb80b30c32a6 20-21
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/search/RipgrepJsonParseException.java
+  s_371b145dc5ecd9::t_c0e85b844163ab 1-20
+cc-java-tools-local/src/test/java/io/github/liumaishenjian/ccjava/tools/local/search/RipgrepJsonLinesParserTest.java
+  s_371b145dc5ecd9::t_8e45a905997f8e 102-103
+  s_371b145dc5ecd9::t_d91cfcb385cb60 29
+  s_371b145dc5ecd9::t_df2bd38d2d5bc2 1-28,30-101,104-112
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/search/TextSearchBackend.java
+  s_371b145dc5ecd9::t_509a90139a1839 4,35-59,61-63
+  s_371b145dc5ecd9::t_1a586a4113db96 28-33
+  s_371b145dc5ecd9::t_0eafe3f7dde7ef 66-81
+  s_371b145dc5ecd9::t_fcf33edde35291 1-3,5-16,34,64,87,89-95,97-98,104-108,114-118
+  s_371b145dc5ecd9::t_d67e16187a8cc1 60
+  s_371b145dc5ecd9::t_075739d8d034b6 17-27,65,82-86,88,96,99-103,109-113
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/search/SearchCancellation.java
+  s_371b145dc5ecd9::t_509a90139a1839 1-44
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/search/RipgrepJsonLinesParser.java
+  s_371b145dc5ecd9::t_82ee00a8041491 1-9,14-35,37-56,60-101,113-133,135,137-150,152-156,158-172,177-197,200-209,212-214,217-223,226-227,230-231,236-237
+  s_371b145dc5ecd9::t_b865bf6b81dbeb 10-13,36,57-59,102-112,134,136,151,157,173-176,198-199,210,215-216,224-225,228-229,232-235
+  s_371b145dc5ecd9::t_d91cfcb385cb60 211
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/ToolErrorCode.java
+  s_371b145dc5ecd9::t_0eafe3f7dde7ef 61-66
+  s_371b145dc5ecd9::t_938e6b12bda67a 58-60
+cc-java-tui/src/state.ts
+  s_371b145dc5ecd9::t_c6402e873db59e 22-24,75-77,181-187,195-203
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/ToolInvocation.java
+  s_371b145dc5ecd9::t_88b53f33ec618a 15,22-39,48,56-57
+cc-java.ps1
+  s_371b145dc5ecd9::t_34b26c6ef1c12c 18-20
+cc-java-tui/src/protocol.ts
+  s_371b145dc5ecd9::t_c6402e873db59e 146-174
+  s_371b145dc5ecd9::t_6f14c86e823c54 175
+cc-java-tools-local/src/test/java/io/github/liumaishenjian/ccjava/tools/local/search/FakeRipgrepProcess.java
+  s_371b145dc5ecd9::t_79db4e0b8ab408 1-2,6-13,20,23-28,56,73-74,113-114
+  s_371b145dc5ecd9::t_2f7c1fbb5d672a 69,71-72
+  s_371b145dc5ecd9::t_2e34ee79b78a2e 37-40,104-112
+  s_371b145dc5ecd9::t_f3ccbbd14e74ed 44-52
+  s_371b145dc5ecd9::t_705a6ac6fcc6b7 3-5,14-19,21-22,29-36,41-43,53-55,57-68,70,75-103
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/search/TextSearchRequest.java
+  s_371b145dc5ecd9::t_0eafe3f7dde7ef 1-70
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/AgentRuntime.java
+  s_371b145dc5ecd9::t_88b53f33ec618a 224-229
+cc-java-tui/README.md
+  s_371b145dc5ecd9::t_da8dbbffd9e1d0 8-11
+scripts/RunS02TuiSpike.ps1
+  s_371b145dc5ecd9::t_34b26c6ef1c12c 34-36
+docs/gap-reports/S03.md
+  s_371b145dc5ecd9::t_bb90bd8355281c 43
+  s_371b145dc5ecd9::t_da8dbbffd9e1d0 37,56
+  s_371b145dc5ecd9::t_62b2dc0dfbdfc6 13-15,32,34,44-45
+cc-java-core/src/test/java/io/github/liumaishenjian/ccjava/core/ToolExecutionPipelineTest.java
+  s_371b145dc5ecd9::t_6723afc951fefa 20,87-109
+cc-java-tui/test/protocol.test.ts
+  s_371b145dc5ecd9::t_88971f122b5f5b 40-51
+cc-java-tools-local/src/test/java/io/github/liumaishenjian/ccjava/tools/local/search/RipgrepSearchClientTest.java
+  s_371b145dc5ecd9::t_722a43b4e72ece 29,31,47-51
+  s_371b145dc5ecd9::t_78a9ec32a4ba53 39
+  s_371b145dc5ecd9::t_6ca35e379a8259 75-76,78-88,108-119,233-241,243-268
+  s_371b145dc5ecd9::t_b66b9502be5abb 212
+  s_371b145dc5ecd9::t_84d0012e53fcdc 242
+  s_371b145dc5ecd9::t_406eaaf123f47a 1-4,6-7,15-28,30,32-38,40-41,43-46,52,332-333
+  s_371b145dc5ecd9::t_705a6ac6fcc6b7 5,9,11-14,42,58-74,121-123,125,127,131-141,144,159-177,179-181,188,190-211,213-214,217-226,228-230,232,269-273,275,279-312,314-331
+  s_371b145dc5ecd9::t_5678a34c324b47 53-54
+  s_371b145dc5ecd9::t_2e34ee79b78a2e 178,182-187
+  s_371b145dc5ecd9::t_06471b796119a9 189,227
+  s_371b145dc5ecd9::t_9710f312308157 77,89-107
+  s_371b145dc5ecd9::t_2f7c1fbb5d672a 8,10,55-57,120,124,126,128-130,142-143,215-216,231,274,276-278,313
+  s_371b145dc5ecd9::t_f3ccbbd14e74ed 145-158
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/search/RipgrepSearchClient.java
+  s_371b145dc5ecd9::t_075739d8d034b6 114,116-118,130
+  s_371b145dc5ecd9::t_626206274822e0 555-570
+  s_371b145dc5ecd9::t_509a90139a1839 13-14,20-22,31,33-34,55,76,84,90-107,115,120,124,126,141-169,192-199,276,279-286,290-300,312-315,325-332,334,337-346,353-355,359,362,364-365,367,370-375,381-401,403-423,426,428-429,432-485,487-505,507-549,551-554,579,601,607-610,615-622
+  s_371b145dc5ecd9::t_fcf33edde35291 26,134,352,356,360,378,506
+  s_371b145dc5ecd9::t_1a586a4113db96 139-140,207-210
+  s_371b145dc5ecd9::t_cad5c5d84b9d2d 45-52,217-220,267-270
+  s_371b145dc5ecd9::t_79db4e0b8ab408 66-75,110,200
+  s_371b145dc5ecd9::t_e2daba16cf648b 1-12,15-19,23-25,27-29,35-37,42-44,53-54,58-65,112-113,119,121-123,125,127-129,131-133,135-138,201-206,211-216,221-225,277-278,316-319,323-324,333,335-336,357-358,361,366,368-369,376-377,379-380,424-425,427,430-431,571-578,580-600,602-606,611-614,623-625
+  s_371b145dc5ecd9::t_4cbc7398b473d8 30,287-289,301-311,347,349-351,363,402,550
+  s_371b145dc5ecd9::t_538422b2108273 38-41
+  s_371b145dc5ecd9::t_2f7c1fbb5d672a 32,56,77-83,85-89,108-109
+  s_371b145dc5ecd9::t_fc78eaf9ddc1cd 57,111,170-191,226-266,271-275,320-322,348,486
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/search/RipgrepExecutableResolver.java
+  s_371b145dc5ecd9::t_509a90139a1839 1-60
+docs/demos/S03-read-tools.md
+  s_371b145dc5ecd9::t_bb90bd8355281c 68,109
+  s_371b145dc5ecd9::t_0ceb80b30c32a6 18-19,51-63
+  s_371b145dc5ecd9::t_62b2dc0dfbdfc6 110-113,115
+  s_371b145dc5ecd9::t_1f6dfd951b5fac 44-50,64-67
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/search/RipgrepJsonEvent.java
+  s_371b145dc5ecd9::t_249185c10cf8c4 1-107
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "238fd631f7ae2246e6d57742508480ca05763850",
+  "prompts": {},
+  "sessions": {
+    "s_281d8184e03be6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fb187-3701-70d0-9dfd-64c7739529e7",
+        "model": "unknown"
+      },
+      "human_author": "yliu27 <yliu27@leqee.com>"
+    },
+    "s_371b145dc5ecd9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa772-84c7-7680-9e8a-026c8e1161ea",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "yliu27 <yliu27@leqee.com>"
+    }
+  }
+}
