@@ -112,8 +112,39 @@ class RuntimeStdioCommandHandlerTest {
                 .contains("read_file", "ordinal")
                 .doesNotContain("MISSING_SECRET_PATH", "PROMPT_SECRET", "arguments", "content");
         assertThat(failed.payload().toString())
-                .contains("sensitive_path", "returnedCharacters")
+                .contains(
+                        "sensitive_path",
+                        "returnedCharacters",
+                        "\"returnedItems\":0",
+                        "\"truncationReason\":\"none\"")
                 .doesNotContain("MISSING_SECRET_PATH", "PROMPT_SECRET", "arguments", "content");
+    }
+
+    @Test
+    void extractsOnlyFixedSearchModeForPresentation() {
+        ToolCall files = new ToolCall(
+                "call-files",
+                "search_text",
+                new JsonObject(java.util.Map.of(
+                        "query", "PRIVATE_QUERY",
+                        "path", "PRIVATE_PATH",
+                        "mode", "files")));
+        ToolCall defaults = new ToolCall(
+                "call-content",
+                "search_text",
+                new JsonObject(java.util.Map.of("query", "PRIVATE_QUERY")));
+        ToolCall invalid = new ToolCall(
+                "call-invalid",
+                "search_text",
+                new JsonObject(java.util.Map.of("query", "PRIVATE_QUERY", "mode", "raw")));
+
+        assertThat(RuntimeStdioCommandHandler.safeToolMode(files)).contains("files");
+        assertThat(RuntimeStdioCommandHandler.safeToolMode(defaults)).contains("content");
+        assertThat(RuntimeStdioCommandHandler.safeToolMode(invalid)).isEmpty();
+        assertThat(RuntimeStdioCommandHandler.safeToolMode(new ToolCall(
+                "call-read",
+                "read_file",
+                new JsonObject(java.util.Map.of("path", "PRIVATE_PATH"))))).isEmpty();
     }
 
     private CapturedEvent awaitTerminal(List<CapturedEvent> events)

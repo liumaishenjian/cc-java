@@ -2,13 +2,18 @@ import type {ProtocolEvent} from './protocol.js';
 
 export type RunStatus = 'running' | 'completed' | 'cancelled' | 'failed';
 export type ClientPhase = 'connecting' | 'ready' | 'running' | 'closing' | 'closed' | 'failed';
+export type SearchMode = 'content' | 'files' | 'count';
 
 export interface ToolView {
   readonly ordinal: number;
   readonly name: string;
+  readonly mode: SearchMode | undefined;
   readonly status: 'started' | 'success' | 'failed' | 'denied';
   readonly returnedCharacters: number | undefined;
+  readonly returnedItems: number | undefined;
+  readonly filteredItems: number | undefined;
   readonly truncated: boolean;
+  readonly truncationReason: string | undefined;
   readonly errorCode: string | undefined;
 }
 
@@ -141,9 +146,13 @@ function upsertStartedTool(
   const item: ToolView = {
     ordinal,
     name: String(event.payload.toolName),
+    mode: searchMode(event.payload.mode),
     status: 'started',
     returnedCharacters: undefined,
+    returnedItems: undefined,
+    filteredItems: undefined,
     truncated: false,
+    truncationReason: undefined,
     errorCode: undefined,
   };
   return [...tools.filter(tool => tool.ordinal !== ordinal), item]
@@ -162,10 +171,14 @@ function upsertFinishedTool(
   const item: ToolView = {
     ordinal,
     name: String(event.payload.toolName),
+    mode: searchMode(event.payload.mode),
     status,
-    returnedCharacters: Number.isSafeInteger(event.payload.returnedCharacters)
-      ? Number(event.payload.returnedCharacters) : undefined,
+    returnedCharacters: safeCount(event.payload.returnedCharacters),
+    returnedItems: safeCount(event.payload.returnedItems),
+    filteredItems: safeCount(event.payload.filteredItems),
     truncated: event.payload.truncated === true,
+    truncationReason: typeof event.payload.truncationReason === 'string'
+      ? event.payload.truncationReason : undefined,
     errorCode: typeof event.payload.errorCode === 'string'
       ? event.payload.errorCode : undefined,
   };
@@ -190,6 +203,16 @@ function finishRun(
     phase: 'ready',
     activeRunId: undefined,
   };
+}
+
+function safeCount(value: unknown): number | undefined {
+  return Number.isSafeInteger(value) && (value as number) >= 0
+    ? value as number : undefined;
+}
+
+function searchMode(value: unknown): SearchMode | undefined {
+  return value === 'content' || value === 'files' || value === 'count'
+    ? value : undefined;
 }
 
 function terminalText(value: unknown): string | undefined {

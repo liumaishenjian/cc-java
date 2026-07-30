@@ -171,7 +171,10 @@ class HeadlessRuntimeSessionTest {
                 .extracting(definition -> definition.name())
                 .containsExactly("list_files", "search_text", "read_file", "git_status", "git_diff");
         assertThat(((SystemMessage) requests.getFirst().messages().getFirst()).content())
-                .contains("<project-instructions", "Only explain evidence");
+                .contains(
+                        "<project-instructions",
+                        "Only explain evidence",
+                        "instead of reproducing complete tool results");
         assertThat(requests.get(1).messages())
                 .filteredOn(ToolResultMessage.class::isInstance)
                 .singleElement()

@@ -49,4 +49,29 @@ describe('decodeEvent', () => {
       payload: {stopReason: 'model_error\n伪造终端输出'},
     }), 1)).toThrowError(/stopReason/);
   });
+
+  it('接受安全 Tool 展示摘要并拒绝未知模式', () => {
+    const event = decodeEvent(JSON.stringify({
+      version: 0,
+      type: 'tool.completed',
+      requestId: 'req-1',
+      sessionId: 'session-1',
+      runId: 'run-1',
+      sequence: 1,
+      payload: {
+        ordinal: 1,
+        toolName: 'search_text',
+        status: 'success',
+        mode: 'content',
+        returnedItems: 12,
+        truncationReason: 'item_limit',
+      },
+    }), 1);
+
+    expect(event.payload.returnedItems).toBe(12);
+    expect(() => decodeEvent(JSON.stringify({
+      ...event,
+      payload: {...event.payload, mode: 'raw'},
+    }), 1)).toThrowError(/模式/);
+  });
 });

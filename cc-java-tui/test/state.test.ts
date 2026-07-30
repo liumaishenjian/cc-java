@@ -33,14 +33,24 @@ describe('reduceTuiState', () => {
         toolName: 'read_file',
         status: 'success',
         returnedCharacters: 42,
+        returnedItems: 2,
+        filteredItems: 3,
         truncated: true,
+        truncationReason: 'item_limit',
       }, 'req-run', 'session-1', 'run-1'),
     });
 
     expect(state.phase).toBe('running');
     expect(state.runs[0]?.text).toBe('你好');
     expect(state.runs[0]?.tools).toEqual([
-      expect.objectContaining({name: 'read_file', status: 'success', truncated: true}),
+      expect.objectContaining({
+        name: 'read_file',
+        status: 'success',
+        returnedItems: 2,
+        filteredItems: 3,
+        truncated: true,
+        truncationReason: 'item_limit',
+      }),
     ]);
 
     state = reduceTuiState(state, {

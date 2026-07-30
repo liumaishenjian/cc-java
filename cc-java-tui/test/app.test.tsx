@@ -35,9 +35,9 @@ describe('AgentView', () => {
     const view = render(<AgentView state={state} input="下一步" columns={20} />);
 
     expect(view.lastFrame()).toContain('解释中文宽字符');
-    expect(view.lastFrame()).toContain('coding agent');
-    expect(view.lastFrame()).toContain('[completed:');
-    expect(view.lastFrame()).toContain('modelTurns=1');
+    expect(view.lastFrame()).toContain('coding');
+    expect(view.lastFrame()).toContain('已完成');
+    expect(view.lastFrame()).toContain('1 回合');
     expect(view.lastFrame()).toContain('下一步');
   });
 
@@ -55,9 +55,13 @@ describe('AgentView', () => {
         tools: [{
           ordinal: 1,
           name: 'read_file',
+          mode: undefined,
           status: 'started',
           returnedCharacters: undefined,
+          returnedItems: undefined,
+          filteredItems: undefined,
           truncated: false,
+          truncationReason: undefined,
           errorCode: undefined,
         }],
         status: 'running',
@@ -68,9 +72,9 @@ describe('AgentView', () => {
     };
     const view = render(<AgentView state={state} input="" columns={80} />);
 
-    expect(view.lastFrame()).toContain('模型输出中');
-    expect(view.lastFrame()).toContain('read_file: started');
-    expect(view.lastFrame()).toContain('[running]');
+    expect(view.lastFrame()).toContain('正在处理');
+    expect(view.lastFrame()).toContain('阅读文件（进行中）');
+    expect(view.lastFrame()).toContain('运行中');
   });
 
   it('Backspace 按 Unicode Code Point 删除且中断动作取决于 Java Run 投影', () => {
@@ -139,7 +143,7 @@ describe('AgentView', () => {
     const view = render(<AgentView state={state} input="" columns={80} />);
 
     expect(view.lastFrame()).toContain(
-      '[failed: turn_limit_reached, modelTurns=16, toolCalls=12]',
+      '运行失败 · turn_limit_reached · 16 回合 · 12 次工具',
     );
   });
 
@@ -168,7 +172,7 @@ describe('AgentView', () => {
       sequence: 1,
       payload: {protocolVersion: 0},
     });
-    await waitForFrame(() => view.lastFrame()?.includes('状态：ready') === true);
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
     view.stdin.write('任务');
     view.stdin.write('\r');
     await waitForFrame(() => client.prompts.length === 1);

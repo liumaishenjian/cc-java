@@ -94,10 +94,40 @@ pwsh -NoProfile -ExecutionPolicy Bypass `
 
 预期观察：
 
-1. TUI/stdio 可见不含参数和正文的 Tool 进度；
+1. TUI 把连续 search/read 聚合为不含参数、路径和正文的语义化 Tool 活动；
 2. 模型按需调用 list/search/read/git status 或 diff；
-3. 最终回答引用仓库证据；
+3. 最终回答以 Markdown 标题、列表、行内代码和代码块渲染，不直接显示 `##` 等原始标记；
 4. `git status --short` 在运行前后没有新增 Agent 修改。
+
+用于专门观察展示层的任务：
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File `
+  "E:\Java\cc-java\scripts\RunS02TuiSpike.ps1" `
+  -Workspace "E:\Java\cc-java" `
+  -Timeout "60s" `
+  -SkipBuild
+```
+
+进入 `就绪` 后输入：
+
+```text
+请只读搜索 AgentRuntime，简短说明它的职责。回答使用二级标题、项目符号和行内代码。
+```
+
+`-Prompt` 会显式进入面向管道的非交互 Print 模式，不用于观察 Ink 页面。
+预期层级为“用户任务 → 聚合 Tool 活动 → Markdown 回答 → Java 权威终态 → 输入框”。
+失败、拒绝和截断会显著显示；成功 Tool 不再逐条输出 `[tool n]` 机器记录。
+搜索活动按模式显示为：
+
+```text
+✓ 搜索文件 · 29 个文件
+✓ 搜索内容 · 48 处匹配 · 结果已截断
+✓ 统计匹配 · 26 个文件已统计
+```
+
+这些计数来自 Java Tool metadata，不是 TUI 解析正文所得。模型默认只总结和引用与问题
+有关的证据；只有用户明确要求穷举时才应在 Assistant 正文中展开全部结果。
 
 真实网络/API Key 不是 S03 普通验证前提；如果当前 Provider 不稳定调用工具，应登记真实
 Provider 兼容差距，不能用离线 E2E 冒充真实网络结果。
@@ -113,3 +143,4 @@ Provider 兼容差距，不能用离线 E2E 冒充真实网络结果。
 - 活动 rg 搜索接收 Run 取消并清理进程树；取消、超时、输出超限和协议损坏使用不同错误；
 - 根 `AGENTS.md` 只加载一次，不递归 import；分层规则属于 S08；
 - Patch、Write、Shell、Approval 与通用命令进程取消属于 S04。
+- TUI 当前没有展开单次 Tool 详情的快捷键；完整历史导航、折叠控制和多行输入属于 S08。

@@ -143,6 +143,9 @@ function validateEventShape(
   ) {
     throw new ProtocolViolation(`${type} 缺少安全 Tool 摘要`);
   }
+  if (type === 'tool.started' || type === 'tool.completed' || type === 'tool.failed') {
+    validateOptionalToolPresentation(type, payload);
+  }
   if (isTerminalRunEvent(type)) {
     const stopReason = payload.stopReason;
     if (
@@ -153,6 +156,34 @@ function validateEventShape(
     }
     validateOptionalTerminalCount(type, payload, 'modelTurns');
     validateOptionalTerminalCount(type, payload, 'toolCalls');
+  }
+}
+
+function validateOptionalToolPresentation(
+  type: EventType,
+  payload: Readonly<Record<string, unknown>>,
+): void {
+  if (
+    'mode' in payload
+    && payload.mode !== 'content'
+    && payload.mode !== 'files'
+    && payload.mode !== 'count'
+  ) {
+    throw new ProtocolViolation(`${type} 包含未知搜索展示模式`);
+  }
+  if (
+    'returnedItems' in payload
+    && (!Number.isSafeInteger(payload.returnedItems)
+      || (payload.returnedItems as number) < 0)
+  ) {
+    throw new ProtocolViolation(`${type} 的 returnedItems 必须是非负安全整数`);
+  }
+  if (
+    'truncationReason' in payload
+    && (typeof payload.truncationReason !== 'string'
+      || !/^[a-z][a-z0-9_]{0,63}$/.test(payload.truncationReason))
+  ) {
+    throw new ProtocolViolation(`${type} 包含无效截断原因`);
   }
 }
 

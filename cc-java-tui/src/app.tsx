@@ -3,6 +3,8 @@ import {Box, Text, useApp, useInput, usePaste, useWindowSize} from 'ink';
 import {initialTuiState, reduceTuiState} from './state.js';
 import type {ProtocolEvent} from './protocol.js';
 import type {RunView} from './state.js';
+import {AssistantMarkdown} from './assistant-markdown.js';
+import {ToolActivityGroup} from './tool-activity.js';
 
 export interface AgentTuiProps {
   readonly client: AgentClient;
@@ -137,29 +139,50 @@ export interface AgentViewProps {
  * 纯展示组件，使宽字符、窄窗口和各 Run 终态无需真实终端即可验证。
  */
 export function AgentView({state, input, columns}: AgentViewProps) {
+  const width = Math.max(20, columns);
   return (
-    <Box flexDirection="column" width={Math.max(20, columns)}>
-      <Text bold color="cyan">cc-java S03 read tools</Text>
-      <Text dimColor>状态：{state.phase}　Ctrl+C：取消 Run；再次按下强制退出</Text>
+    <Box flexDirection="column" width={width}>
+      <Box>
+        <Text bold color="cyan">cc-java</Text>
+        <Text color="blue">  S03</Text>
+        <Text dimColor>  {phaseLabel(state.phase)}</Text>
+      </Box>
       {state.runs.map(run => (
         <Box key={run.requestId} flexDirection="column" marginTop={1}>
-          <Text color="green">&gt; {run.prompt}</Text>
-          {run.tools.map(tool => (
-            <Text key={tool.ordinal} dimColor>
-              [tool {tool.ordinal}] {tool.name}: {tool.status}
-              {tool.truncated ? ' (truncated)' : ''}
-              {tool.errorCode === undefined ? '' : ` (${tool.errorCode})`}
-            </Text>
-          ))}
-          <Text>{run.text}</Text>
-          <Text dimColor>{formatRunTerminal(run)}</Text>
+          <Box>
+            <Text color="green" bold>❯ </Text>
+            <Text bold>{run.prompt}</Text>
+          </Box>
+          <ToolActivityGroup tools={run.tools} />
+          {run.text.length === 0 ? null : (
+            <Box marginTop={1} flexDirection="row">
+              <Text color="cyan">● </Text>
+              <Box flexDirection="column" flexGrow={1}>
+                <AssistantMarkdown text={run.text} />
+              </Box>
+            </Box>
+          )}
+          <RunTerminal run={run} />
         </Box>
       ))}
-      {state.notice === undefined ? null : <Text color="red">{state.notice}</Text>}
-      <Box marginTop={1}>
-        <Text color="yellow">&gt; </Text>
+      {state.notice === undefined ? null : (
+        <Box marginTop={1}>
+          <Text color="red">✗ {state.notice}</Text>
+        </Box>
+      )}
+      <Box
+        marginTop={1}
+        borderStyle="round"
+        borderColor={state.phase === 'ready' ? 'cyan' : 'gray'}
+        paddingX={1}
+      >
+        <Text color="cyan">❯ </Text>
         <Text>{canEditInput(state.phase) ? input : ''}</Text>
-        {state.phase === 'running' ? <Text dimColor>模型输出中…</Text> : null}
+        {state.phase === 'running'
+          ? <Text dimColor>正在处理…  Ctrl+C 取消</Text>
+          : input.length === 0
+            ? <Text dimColor>{inputHint(state.phase)}</Text>
+            : null}
       </Box>
     </Box>
   );
@@ -170,16 +193,58 @@ export function AgentView({state, input, columns}: AgentViewProps) {
  */
 export function formatRunTerminal(run: RunView): string {
   if (run.status === 'running') {
-    return '[running]';
+    return '正在运行';
   }
-  const details = [
-    run.stopReason,
-    run.modelTurns === undefined ? undefined : `modelTurns=${run.modelTurns}`,
-    run.toolCalls === undefined ? undefined : `toolCalls=${run.toolCalls}`,
+  const counts = [
+    run.modelTurns === undefined ? undefined : `${run.modelTurns} 回合`,
+    run.toolCalls === undefined ? undefined : `${run.toolCalls} 次工具`,
   ].filter((value): value is string => value !== undefined);
-  return details.length === 0
-    ? `[${run.status}]`
-    : `[${run.status}: ${details.join(', ')}]`;
+  if (run.status === 'completed') {
+    return counts.length === 0 ? '已完成' : `已完成 · ${counts.join(' · ')}`;
+  }
+  const reason = run.stopReason === undefined ? '' : ` · ${run.stopReason}`;
+  return `${runStatusLabel(run.status)}${reason}`
+    + (counts.length === 0 ? '' : ` · ${counts.join(' · ')}`);
+}
+
+function RunTerminal({run}: {readonly run: RunView}) {
+  if (run.status === 'running') {
+    return null;
+  }
+  const failed = run.status === 'failed';
+  return (
+    <Box marginTop={1} marginLeft={2}>
+      <Text color={failed ? 'red' : run.status === 'cancelled' ? 'yellow' : 'green'}
+        dimColor={!failed}>
+        {failed ? '✗' : run.status === 'cancelled' ? '■' : '✓'} {formatRunTerminal(run)}
+      </Text>
+    </Box>
+  );
+}
+
+function phaseLabel(phase: ReturnType<typeof reduceTuiState>['phase']): string {
+  switch (phase) {
+    case 'connecting':
+      return '正在连接';
+    case 'ready':
+      return '就绪';
+    case 'running':
+      return '运行中';
+    case 'closing':
+      return '正在关闭';
+    case 'closed':
+      return '已关闭';
+    case 'failed':
+      return '连接失败';
+  }
+}
+
+function runStatusLabel(status: Exclude<RunView['status'], 'running' | 'completed'>): string {
+  return status === 'cancelled' ? '已取消' : '运行失败';
+}
+
+function inputHint(phase: ReturnType<typeof reduceTuiState>['phase']): string {
+  return phase === 'connecting' ? '连接中，可以先输入任务' : '输入任务，Enter 发送';
 }
 
 export function decideInterrupt(

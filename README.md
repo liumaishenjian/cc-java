@@ -19,6 +19,9 @@
 > rg 缺失时的受限降级，精确代码搜索不使用 RAG。
 > PowerShell 启动器会从 `CC_JAVA_RIPGREP_PATH`、PATH 或本机现有 Codex Desktop
 > 安装中解析 rg；项目本身不下载或分发该二进制。
+> TUI 已将连续只读 Tool 聚合为安全活动摘要，搜索按 content/files/count 显示匹配或
+> 文件条目数，并使用 Markdown Ink 组件区分标题、列表、代码与终态；Java Runtime
+> 仍是 Run 状态的唯一权威。
 >
 > Current status: S01, S02 and S03 accepted; S04 Write + Command gate is next.
 

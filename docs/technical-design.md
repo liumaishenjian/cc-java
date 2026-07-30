@@ -989,6 +989,22 @@ files 模式按 mtime 降序，并以协议路径稳定打破并列。rg 不可�
 content 子集进入 Java 有界扫描，其他请求返回 `SEARCH_UNAVAILABLE`。本阶段不引入 RAG；
 语义搜索必须作为独立 Capability 评测。
 
+### 19.6 S03 终端语义化展示
+
+S03 退出后的体验维护仍保持 Java Runtime 为状态权威。TUI 把现有有序事件投影为三类
+展示：用户任务、聚合 Tool 活动和 Markdown Assistant 正文。连续同类 Tool 默认合并，
+失败、拒绝与截断保持显著；成功终态只显示低噪声计数，非成功终态继续显示 Java
+`stopReason`。Tool 展示只消费名称、状态、返回字符数、过滤数量、截断和安全错误码，
+以及通用 `returnedItems`。`search_text` 额外投影固定的
+`content/files/count` 模式，分别显示匹配数、文件数和已统计文件数；查询、路径、
+其他参数和 Tool Result 正文不进入 TUI 事件。模型默认应总结并引用相关证据，而不是
+把完整搜索结果重新抄入最终回答；用户明确要求穷举时不由 TUI 强行裁剪。
+
+Markdown 使用 `marked` 解析为词法 Token，再映射为项目自有 Ink 组件；解析异常退回纯
+文本，因此流式未闭合片段不会破坏 Session。该切片不增加写入、Command、Approval、
+多行输入、历史、补全或 Slash Command，完整边界见
+[ADR-034](./adr/ADR-034-s03-tui-presentation.md)。
+
 Windows PowerShell 启动器在创建 Node/Java 子进程前调用同一个只读 resolver：
 显式 `CC_JAVA_RIPGREP_PATH` 优先，其次系统 PATH，最后允许复用本机已经存在的 Codex
 Desktop rg。解析成功后只把绝对目录补入本次进程树 PATH，不修改系统环境、不下载工具、

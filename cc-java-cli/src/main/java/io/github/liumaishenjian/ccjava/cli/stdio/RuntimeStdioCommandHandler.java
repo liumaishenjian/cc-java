@@ -12,12 +12,16 @@ import io.github.liumaishenjian.ccjava.domain.AgentRunResult;
 import io.github.liumaishenjian.ccjava.domain.LifecycleEvent;
 import io.github.liumaishenjian.ccjava.domain.ModelTextDelta;
 import io.github.liumaishenjian.ccjava.domain.RunId;
+import io.github.liumaishenjian.ccjava.domain.ToolCall;
 import io.github.liumaishenjian.ccjava.model.springai.config.OpenAiCompatibleSettings;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.databind.node.ArrayNode;
 
 import java.util.Objects;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -211,6 +215,10 @@ public final class RuntimeStdioCommandHandler
             payload.put("ordinal", before.ordinal());
             payload.put("toolName", before.call().name());
             payload.put("status", "started");
+            safeToolMode(before.call()).ifPresent(mode -> {
+                run.toolModes.put(before.ordinal(), mode);
+                payload.put("mode", mode);
+            });
             emit(run, "tool.started", payload);
         } else if (envelope.event() instanceof LifecycleEvent.AfterTool after) {
             ObjectNode payload = codec.objectNode();
@@ -218,8 +226,14 @@ public final class RuntimeStdioCommandHandler
             payload.put("toolName", after.result().toolName());
             payload.put("status", after.result().status().name().toLowerCase());
             payload.put("returnedCharacters", after.result().metadata().returnedCharacters());
+            payload.put("returnedItems", after.result().metadata().returnedItems());
             payload.put("truncated", after.result().metadata().truncated());
+            payload.put(
+                    "truncationReason",
+                    after.result().metadata().truncationReason().name().toLowerCase(Locale.ROOT));
             payload.put("filteredItems", after.result().metadata().filteredItems());
+            Optional.ofNullable(run.toolModes.remove(after.ordinal()))
+                    .ifPresent(mode -> payload.put("mode", mode));
             after.result().error().ifPresent(error -> payload.put(
                     "errorCode", error.code().name().toLowerCase()));
             String type = after.result().status()
@@ -296,6 +310,30 @@ public final class RuntimeStdioCommandHandler
             payload.set("totalUsage", usageNode);
         });
         return payload;
+    }
+
+    /**
+     * 从 Tool Call 中只提取允许进入展示协议的固定枚举，不暴露查询、路径或其他参数。
+     *
+     * @param call 原始 Tool Call
+     * @return search_text 的安全模式；非搜索或非法模式为空
+     */
+    static Optional<String> safeToolMode(ToolCall call) {
+        Objects.requireNonNull(call, "call 不能为空");
+        if (!"search_text".equals(call.name())) {
+            return Optional.empty();
+        }
+        try {
+            String mode = call.arguments().string("mode")
+                    .orElse("content")
+                    .toLowerCase(Locale.ROOT);
+            return switch (mode) {
+                case "content", "files", "count" -> Optional.of(mode);
+                default -> Optional.empty();
+            };
+        } catch (IllegalArgumentException exception) {
+            return Optional.empty();
+        }
     }
 
     private void emitUnexpectedFailure(ActiveRun run) {
@@ -404,6 +442,7 @@ public final class RuntimeStdioCommandHandler
         private final String requestId;
         private final int promptChars;
         private final StdioProtocol.EventEmitter events;
+        private final Map<Integer, String> toolModes = new LinkedHashMap<>();
         private RunId runId;
 
         private ActiveRun(

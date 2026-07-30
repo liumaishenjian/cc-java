@@ -243,8 +243,8 @@ Stage 完成项。
 | --- | --- | --- | --- | --- | --- |
 | CLI-01 | Interactive Session | React/Ink TUI + Java Application Session | L2 | S02 | REF-02/AUTH-01 |
 | CLI-02 | Print / Headless | Picocli `--print` | L2 | S02 | REF-02 |
-| CLI-03 | 流式 Assistant Text | stdio Event → Ink 组件渲染 | L2 | S02 | REF-02/AUTH-01 |
-| CLI-04 | Tool 进度与输出 | 有序 Agent Event 渲染 | L2 | S02/S03 | REF-02 |
+| CLI-03 | 流式 Assistant Text | stdio Event → Markdown Ink 组件渲染 | L2 | S02/S03 | REF-02/AUTH-01 |
+| CLI-04 | Tool 进度与输出 | 有序 Agent Event → 连续 Tool 语义化聚合 | L2 | S02/S03 | REF-02/AUTH-01 |
 | CLI-05 | Permission Prompt | 终端 Approval UI | L0 | S04/S05 | REF-04 |
 | CLI-06 | Ctrl+C Cancel | 当前 Run/Tool 取消 | L1 | S02/S04 | REF-02 |
 | CLI-07 | Steering | S08 运行中排队用户补充消息 | L0 | S08 | REF-02 |
