@@ -24,6 +24,7 @@
    [ADR-031](./docs/adr/ADR-031-s02-provider-multi-tool-deviation.md)、
    [ADR-032](./docs/adr/ADR-032-s03-read-tools-security-contract.md)、
    [ADR-033](./docs/adr/ADR-033-s03-ripgrep-search-backend.md)、
+   [ADR-035](./docs/adr/ADR-035-s04-approval-spine.md)、
    [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)、
    [ADR-018](./docs/adr/ADR-018-authorized-reference-study.md)、
    [ADR-019](./docs/adr/ADR-019-s07-progressive-context-reduction.md)与
@@ -37,13 +38,19 @@
 仓库已经完成 **S01：Runtime Kernel** 与 **S02：Model + Streaming CLI**，
 两者 G0-G6 与 Stage Exit 均为 Accepted；S01 被测实现 Commit 为
 `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd`，S02 被测实现 Commit 为 `700251e`。
-当前下一阶段为 **S03 Read Tools 启动 Gate**：
-ADR-023 已把 S02 固定为 24 项 Feature、Java Headless Runtime、实验性 stdio v0 与
-React/Ink TUI；真实 Provider、Runtime/stdio/TUI、Java `--print`、类型化 CLI Override、
-Runtime 墙钟限制、ADR-027 模型流健壮性与 ADR-028 Windows 直接子进程生命周期已在
-工作区验证；ADR-029 连续 Headless Session、ADR-030 隐私安全 Telemetry 与真实 TTY
-活动取消也已在工作区验证；ADR-031 已把当前 Provider 同回合只生成一个 Tool Call
-登记为明确偏差。S02 已在 `700251e` 上完成 Commit-scoped 复验并通过 G0-G6。
+S03 Read Tools 已在实现 Commit `238fd631f7ae2246e6d57742508480ca05763850`
+上完成 G0-G6 与 Stage Exit；WorkspaceGuard、五个只读 Tool、根 `AGENTS.md`、
+结果上限、Junction/Symlink、敏感文件拒绝、ripgrep 完整参数与恢复策略均已有
+Commit-scoped 证据。当前阶段为 **S04 Write + Command**：ADR-035 已固定 Approval
+启动 Gate；Approval L1 切片已实现 DEFAULT/PLAN Effect 决策表、Allow Once/Deny
+stdio 协议和 React/Ink 审批面板。真实 Patch/Write L1 切片已实现精确上下文
+`apply_patch`、只创建新文件的 `write_file`、父目录 realpath、提交前冲突重检、
+同目录暂存/Move、有界审批摘要与文件取消。`run_command` L1 切片已实现固定平台
+Shell/Workspace、准确命令审批、最小环境、
+stdout/stderr 事件、输出上限、timeout/cancel 与 Windows 进程树清理；完整编码闭环
+已通过公开 `Calculator.divide` Fixture 验证越权拒绝、测试失败、再次 Patch、成功
+测试和 Git Diff。S04 工作区 G0-G6 材料已具备，Stage Exit 仍等待本地退出 Commit 上
+复验。
 
 当前允许并要求：
 
@@ -56,13 +63,18 @@ Runtime 墙钟限制、ADR-027 模型流健壮性与 ADR-028 Windows 直接子�
 - S02 已完成 Java Fake stdio、最小 React/Ink、真实 Provider 与 Java Print Spike；
   不得整包合并候选分支
   `10c7873`，不得继续扩展其中的 JLine Renderer；
-- 文件 Tool、Shell、完整权限策略和持久化能力继续保持未实现状态；
-- S02 的代码、测试、Demo、证据和看板更新必须作为新的独立变更开展。
-- S03 必须先固定 WorkspaceGuard、list/search/read/git status/diff、结果上限、
-  Junction/Symlink 逃逸和敏感文件拒绝的 Gate/ADR，再开始生产实现；
-- S03 不得提前实现 S04 的文件写入、Patch 或 Shell Command。
+- S03 的只读安全边界和搜索回归必须继续通过；
+- S04 的 Approval → Patch/Write → Command → Mini Coding Agent E2E 已按顺序完成；
+  未经维护者授权不得创建退出 Commit，也不得提前开始 S05；
+- Patch/Write 的精确上下文、新文件父目录 realpath、原子替换、敏感路径和脏工作区保护
+  回归必须保持通过；Command 的固定 Shell、精确预览、最小环境、输出上限、
+  timeout/cancel 和 Windows 进程树清理回归也必须保持通过；
+- S04 只支持 Allow Once/Deny；Session Allow、可配置规则和 Hard Denial 属于 S05；
+- 当前没有 OS Sandbox；不得把应用层 Permission 或进程清理描述成 S13 隔离能力；
+- 持久化、Checkpoint、Context 压缩及后续能力继续保持未实现状态。
 
-不得仅因为 S01 已退出就宣称 S02 或更后阶段能力已经可用。
+不得仅因为 Patch/Write 与 Command 可运行就宣称完整 Mini Coding Agent 或 S04 Stage
+Exit 已可用。
 
 ## 3. 项目定位
 

@@ -23,7 +23,19 @@
 > 文件条目数，并使用 Markdown Ink 组件区分标题、列表、代码与终态；Java Runtime
 > 仍是 Run 状态的唯一权威。
 >
-> Current status: S01, S02 and S03 accepted; S04 Write + Command gate is next.
+> S04 工作区实现已完成 Approval、真实 Patch/Write、Command 与公开 Fixture Coding
+> Loop：固定 DEFAULT/PLAN Effect 决策表、
+> 可取消的 Allow Once / Deny stdio 协议、React/Ink 审批面板、精确上下文
+> `apply_patch` 和只创建新文件的 `write_file` 已接入生产 Tool Registry。写入审批只展示
+> 相对路径、创建/修改和行数；文件 Tool 已覆盖内容冲突、父目录 realpath、敏感路径、
+> Junction/Symlink、同目录暂存、取消和结果上限。`run_command` 已实现固定
+> Shell/Workspace、准确命令审批、最小环境、stdout/stderr 事件、输出上限、
+> timeout/cancel 和 Windows 进程树清理。PRD 的 `Calculator.divide` 公开 Fixture 已
+> 真实经历越权拒绝、测试失败、再次 Patch、测试成功和 Git Diff；`EVAL-01` 达到单
+> Seed Task 的 L1。S04 Stage Exit 仍为 Open，等待本地退出 Commit 上复验。
+>
+> Current status: S01, S02 and S03 accepted; S04 worktree implementation is complete,
+> with Stage Exit pending Commit-scoped verification.
 
 ## 项目目标
 
@@ -184,9 +196,18 @@ S01 Accepted Commit 明确不能连接真实模型、读取或修改仓库、执
 
 S02 工作区已把 React/Ink TUI 的内部 stdio v0 接到真实 Java `AgentRuntime` 和
 OpenAI-compatible Provider；测试专用 Fake 仍用于离线协议、乱序与取消回归。
-当前已经包含 S03 只读文件/Git Tool，但仍不包含写文件、Patch、通用 Shell、完整权限策略或持久化。复现方法见
+当前已经包含 S03 只读文件/Git Tool，以及 S04 L1 单次审批、`apply_patch` 和
+`write_file`。`apply_patch` 只做带精确旧内容前置条件的文本替换；`write_file` 只创建
+直接父目录已经存在的新 UTF-8 文件，不覆盖已有文件。两者在交互模式默认询问，Print
+模式安全拒绝。S04 `run_command` 也已达到 L1：固定平台 Shell 和 Workspace，准确展示
+命令/Shell/cwd 后单次审批，过滤子进程环境，并支持 stdout/stderr 事件、输出上限、
+timeout、取消和 Windows 进程树清理。它仍运行在当前用户账户下，不是 OS Sandbox。
+项目仍不包含后台命令、完整权限策略或持久化。复现方法见
 [S02 TUI Spike Demo](./docs/demos/S02-tui-spike.md)和
-[S02 Java Print Demo](./docs/demos/S02-java-print.md)。
+[S02 Java Print Demo](./docs/demos/S02-java-print.md)，文件写入契约见
+[S04 Patch/Write Demo](./docs/demos/S04-patch-write.md)，命令契约见
+[S04 Command Demo](./docs/demos/S04-command.md)，完整闭环见
+[S04 Coding Loop Demo](./docs/demos/S04-coding-loop.md)。
 
 ### 填写本机模型配置
 

@@ -16,26 +16,74 @@ import io.github.liumaishenjian.ccjava.domain.ModelFinishReason;
 import io.github.liumaishenjian.ccjava.domain.ModelTurn;
 import io.github.liumaishenjian.ccjava.domain.ModelTurnMetadata;
 import io.github.liumaishenjian.ccjava.domain.ModelUsage;
+import io.github.liumaishenjian.ccjava.domain.PermissionDecision;
 import io.github.liumaishenjian.ccjava.domain.StopReason;
 import io.github.liumaishenjian.ccjava.domain.SystemMessage;
 import io.github.liumaishenjian.ccjava.domain.ToolCall;
 import io.github.liumaishenjian.ccjava.domain.ToolResultMessage;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
+import java.io.IOException;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.time.Duration;
+import java.util.Comparator;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Assumptions;
-import org.junit.jupiter.api.io.TempDir;
 
 class HeadlessRuntimeSessionTest {
 
-    @TempDir
     Path temporaryWorkspace;
+
+    @BeforeEach
+    void createWorkspaceBelowBuildDirectory() throws IOException {
+        Path fixtureRoot = Path.of("target", "headless-test-workspaces")
+                .toAbsolutePath()
+                .normalize();
+        Files.createDirectories(fixtureRoot);
+        temporaryWorkspace = Files.createTempDirectory(fixtureRoot, "session-");
+    }
+
+    @AfterEach
+    void removeWorkspace() throws Exception {
+        if (temporaryWorkspace == null || !Files.exists(temporaryWorkspace)) {
+            return;
+        }
+        IOException lastFailure = null;
+        for (int attempt = 0; attempt < 5 && Files.exists(temporaryWorkspace); attempt++) {
+            try {
+                deleteWorkspaceTree();
+                return;
+            } catch (IOException failure) {
+                lastFailure = failure;
+                Thread.sleep(50L * (attempt + 1));
+            }
+        }
+        if (lastFailure != null) {
+            throw lastFailure;
+        }
+    }
+
+    private void deleteWorkspaceTree() throws IOException {
+        try (var paths = Files.walk(temporaryWorkspace)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (AccessDeniedException failure) {
+                    if (!path.toFile().setWritable(true)) {
+                        throw failure;
+                    }
+                    Files.deleteIfExists(path);
+                }
+            }
+        }
+    }
 
     @Test
     void runsDeterministicModelThroughTheRealAgentRuntime() {
@@ -169,17 +217,102 @@ class HeadlessRuntimeSessionTest {
         assertThat(requests).hasSize(2);
         assertThat(requests.getFirst().toolDefinitions())
                 .extracting(definition -> definition.name())
-                .containsExactly("list_files", "search_text", "read_file", "git_status", "git_diff");
+                .containsExactly(
+                        "list_files",
+                        "search_text",
+                        "read_file",
+                        "git_status",
+                        "git_diff",
+                        "apply_patch",
+                        "write_file",
+                        "run_command");
         assertThat(((SystemMessage) requests.getFirst().messages().getFirst()).content())
                 .contains(
                         "<project-instructions",
                         "Only explain evidence",
-                        "instead of reproducing complete tool results");
+                        "apply_patch requires exact oldText");
         assertThat(requests.get(1).messages())
                 .filteredOn(ToolResultMessage.class::isInstance)
                 .singleElement()
                 .satisfies(message -> assertThat(((ToolResultMessage) message).result().content())
                         .contains("1 | alpha", "2 | beta"));
+    }
+
+    @Test
+    void nonInteractiveApprovalDeniesPatchWithoutChangingWorkspace() throws Exception {
+        Path file = Files.writeString(temporaryWorkspace.resolve("sample.txt"), "old\n");
+        CopyOnWriteArrayList<ModelRequest> requests = new CopyOnWriteArrayList<>();
+        ModelGateway model = request -> {
+            requests.add(request);
+            if (requests.size() == 1) {
+                return new ModelTurn(
+                        AssistantMessage.tools(java.util.List.of(new ToolCall(
+                                "call-patch",
+                                "apply_patch",
+                                new JsonObject(Map.of(
+                                        "path", "sample.txt",
+                                        "oldText", "old",
+                                        "newText", "new"))))),
+                        ModelTurnMetadata.unknown());
+            }
+            return ModelTurn.text("denied");
+        };
+
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                model,
+                AgentEventSink.noop(),
+                new HeadlessRuntimeOptions(
+                        temporaryWorkspace, "fake-model", Duration.ofSeconds(3)))) {
+            application.open();
+            application.run("try patch");
+        }
+
+        assertThat(Files.readString(file)).isEqualTo("old\n");
+        ToolResultMessage result = requests.getLast().messages().stream()
+                .filter(ToolResultMessage.class::isInstance)
+                .map(ToolResultMessage.class::cast)
+                .findFirst().orElseThrow();
+        assertThat(result.result().status())
+                .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolResultStatus.DENIED);
+    }
+
+    @Test
+    void explicitAllowOnceExecutesRealPatchThroughCanonicalPipeline() throws Exception {
+        Path file = Files.writeString(temporaryWorkspace.resolve("sample.txt"), "old\n");
+        CopyOnWriteArrayList<ModelRequest> requests = new CopyOnWriteArrayList<>();
+        ModelGateway model = request -> {
+            requests.add(request);
+            if (requests.size() == 1) {
+                return new ModelTurn(
+                        AssistantMessage.tools(java.util.List.of(new ToolCall(
+                                "call-patch",
+                                "apply_patch",
+                                new JsonObject(Map.of(
+                                        "path", "sample.txt",
+                                        "oldText", "old",
+                                        "newText", "new"))))),
+                        ModelTurnMetadata.unknown());
+            }
+            return ModelTurn.text("patched");
+        };
+
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                model,
+                AgentEventSink.noop(),
+                new HeadlessRuntimeOptions(
+                        temporaryWorkspace, "fake-model", Duration.ofSeconds(3)),
+                (ignoredInvocation, ignoredDefinition) -> PermissionDecision.ALLOW)) {
+            application.open();
+            application.run("patch once");
+        }
+
+        assertThat(Files.readString(file)).isEqualTo("new\n");
+        ToolResultMessage result = requests.getLast().messages().stream()
+                .filter(ToolResultMessage.class::isInstance)
+                .map(ToolResultMessage.class::cast)
+                .findFirst().orElseThrow();
+        assertThat(result.result().content())
+                .contains("path: sample.txt", "operation: modified");
     }
 
     @Test
@@ -216,7 +349,7 @@ class HeadlessRuntimeSessionTest {
                 model,
                 AgentEventSink.noop(),
                 new HeadlessRuntimeOptions(
-                        temporaryWorkspace, "fake-model", Duration.ofSeconds(5)))) {
+                        temporaryWorkspace, "fake-model", Duration.ofSeconds(30)))) {
             application.open();
             result = application.run("inspect repository");
         }

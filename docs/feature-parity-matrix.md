@@ -6,8 +6,13 @@
 >
 > 最后更新：2026-07-30
 >
-> 当前代码状态：S01 Runtime Kernel 与 S02 Model + Streaming CLI 已 Accepted；S03
-> Read Tools 已在实现 Commit `71a2818` 上完成实现、专项离线验证和 Commit-scoped 复验，Stage Exit Accepted
+> 当前代码状态：S01-S03 已 Accepted；S04 Write + Command 工作区实现已完成，等待
+> 本地退出 Commit 上复验。ADR-035 已完成 Approval、真实 Patch/Write、Command 和
+> 公开 Fixture Coding Loop：固定权限决策、Allow
+> Once/Deny、精确上下文替换、只创建新文件、固定 Shell、准确命令审批、最小环境、
+> 输出事件/上限、timeout/cancel 和 Windows 进程树已有独立实现与专项验证；PRD
+> `divide` 任务已经历越权拒绝、测试失败、再次修复和成功。Stage Exit 仍为 Open，
+> 不把 Worktree 证据冒充 Commit-scoped Accepted。
 
 ## 1. 文档目的
 
@@ -151,12 +156,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 193 |
-| 当前阶段 | S03 Read Tools（Accepted on `71a2818`） |
-| Stage Exit | Accepted：G0-G6 与 Commit-scoped 复验已通过 |
-| 当前等级 | 29 项为 L2，25 项为 L1，139 项为 L0 |
+| 当前阶段 | S04 Write + Command（In Progress） |
+| Stage Exit | Open：工作区 G0-G6 已具备，等待本地退出 Commit 上复验 |
+| 当前等级 | 29 项为 L2，38 项为 L1，126 项为 L0 |
 | 默认最终目标 | 193 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 14.34%（193 项等权、目标 L3） |
-| 下一步 | 建立 S04 Write + Command 启动 Gate，先固定 Patch、Command、Approval、脏工作区和进程树边界 |
+| 当前能力覆盖 | 16.58%（193 项等权、目标 L3） |
+| 下一步 | 创建 S04 本地退出 Commit，并在该 Commit 上执行 G0-G6 复验；通过后进入 S05 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -245,7 +250,7 @@ Stage 完成项。
 | CLI-02 | Print / Headless | Picocli `--print` | L2 | S02 | REF-02 |
 | CLI-03 | 流式 Assistant Text | stdio Event → Markdown Ink 组件渲染 | L2 | S02/S03 | REF-02/AUTH-01 |
 | CLI-04 | Tool 进度与输出 | 有序 Agent Event → 连续 Tool 语义化聚合 | L2 | S02/S03 | REF-02/AUTH-01 |
-| CLI-05 | Permission Prompt | 终端 Approval UI | L0 | S04/S05 | REF-04 |
+| CLI-05 | Permission Prompt | 终端 Approval UI | L1 | S04/S05 | REF-04/AUTH-01 |
 | CLI-06 | Ctrl+C Cancel | 当前 Run/Tool 取消 | L1 | S02/S04 | REF-02 |
 | CLI-07 | Steering | S08 运行中排队用户补充消息 | L0 | S08 | REF-02 |
 | CLI-08 | Slash Commands | S08 提供 help/clear/compact/context/model/permissions/resume | L0 | S08 | REF-02 |
@@ -301,13 +306,13 @@ Stage 完成项。
 | TOOL-05 | Grep / Search | 受控 ripgrep：完整参数、三模式、JSON 结果、取消与一次资源恢复；Java 字面降级 | L2 | S03 | REF-02/AUTH-01 |
 | TOOL-06 | Read File | 分段、行号、大小限制 | L2 | S03 | REF-02 |
 | TOOL-07 | Git Status / Diff | 脏工作区和证据 | L2 | S03/S04 | REF-02 |
-| TOOL-08 | Apply Patch / Edit | 原子文本修改 | L0 | S04 | REF-02 |
-| TOOL-09 | Write / Create | 新文件写入 | L0 | S04 | REF-02 |
-| TOOL-10 | Run Command | Shell、timeout、exit code | L0 | S04 | REF-02 |
-| TOOL-11 | Tool Output Streaming | stdout/stderr Event | L0 | S04 | REF-02 |
+| TOOL-08 | Apply Patch / Edit | 精确旧内容、冲突重检、同目录原子替换与有界 Patch 摘要 | L1 | S04 | REF-02/AUTH-01 |
+| TOOL-09 | Write / Create | 仅创建新 UTF-8 文件、父目录 realpath 与禁止覆盖 | L1 | S04 | REF-02/AUTH-01 |
+| TOOL-10 | Run Command | 固定平台 Shell/Workspace、准确审批、timeout 与 exit code | L1 | S04 | REF-02/AUTH-01 |
+| TOOL-11 | Tool Output Streaming | 有界 stdout/stderr Lifecycle/stdio v0/TUI Event | L1 | S04 | REF-02/AUTH-01 |
 | TOOL-12 | Result Truncation | 显式截断和摘要 | L2 | S03/S07 | REF-01 |
 | TOOL-13 | Structured Tool Error | 模型可纠正错误 | L2 | S01/S03 | REF-01 |
-| TOOL-14 | Tool Cancellation | Model/Process/File 取消 | L0 | S04 | REF-02 |
+| TOOL-14 | Tool Cancellation | 文件提交前取消 L1 → Process 取消与进程树 L2 | L1 | S04 | REF-02 |
 | TOOL-15 | 并行安全工具 | Read-only 并行执行 | L0 | S12 | REF-01 |
 | TOOL-16 | Tool Search / Lazy Schema | 大工具集按需加载 | L0 | S10/S11 | REF-02/03 |
 | TOOL-17 | Code Intelligence | LSP / Symbol Tool | L0 | S14/S15 | REF-02/03 |
@@ -317,13 +322,13 @@ Stage 完成项。
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| PERM-01 | Tool Effect 分类 | Read/Write/Process/Network/System | L0 | S04/S05 | REF-04 |
-| PERM-02 | Manual / Default | 副作用默认询问 | L0 | S04 | REF-04 |
-| PERM-03 | Plan Mode | S04 固定安全模式 → S05 可配置策略 | L0 | S04/S05 | REF-04 |
+| PERM-01 | Tool Effect 分类 | Read/Write/Process/Network/System | L1 | S04/S05 | REF-04/AUTH-01 |
+| PERM-02 | Manual / Default | 副作用默认询问 | L1 | S04 | REF-04/AUTH-01 |
+| PERM-03 | Plan Mode | S04 固定安全模式 → S05 可配置策略 | L1 | S04/S05 | REF-04/AUTH-01 |
 | PERM-04 | Accept Edits | Workspace Write 自动批准 | L0 | S05 | REF-04 |
 | PERM-05 | Auto Mode | 独立安全决策器 | L0 | S13/S15 | REF-04 |
 | PERM-06 | Allow / Ask / Deny | 声明性规则 | L0 | S05/S08 | REF-04 |
-| PERM-07 | Allow Once / Session | 范围化审批缓存 | L0 | S04/S05 | REF-04 |
+| PERM-07 | Allow Once / Session | 范围化审批缓存 | L1 | S04/S05 | REF-04/AUTH-01 |
 | PERM-08 | Protected Paths | 不可写路径 | L0 | S05/S13 | REF-04 |
 | PERM-09 | Hard Denial | 不可被项目配置覆盖 | L0 | S05/S13 | REF-01/04 |
 | PERM-10 | Permission Event | 可观察与 Hook | L0 | S05/S09 | REF-07 |
@@ -356,8 +361,8 @@ Stage 完成项。
 | SEC-01 | Workspace Realpath | 路径与新文件父目录校验 | L1 | S03/S04 | REF-02 |
 | SEC-02 | Symlink / Junction | 跨平台逃逸测试 | L1 | S03/S13 | REF-02 |
 | SEC-03 | Sensitive Files | 默认拒绝和配置 | L1 | S03/S13 | REF-04 |
-| SEC-04 | Process Tree Control | timeout/cancel/cleanup | L0 | S04/S13 | REF-02 |
-| SEC-05 | Environment Filtering | 最小环境变量 | L0 | S04/S13 | REF-01 |
+| SEC-04 | Process Tree Control | timeout/cancel、Windows taskkill 与 ProcessHandle 清理 | L1 | S04/S13 | REF-02/AUTH-01 |
+| SEC-05 | Environment Filtering | 固定 allowlist，不继承 Provider Key/未知 Secret | L1 | S04/S13 | REF-01/AUTH-01 |
 | SEC-06 | File Sandbox | Workspace 级 OS 隔离 | L0 | S13 | REF-01 |
 | SEC-07 | Network Sandbox | Domain/Port Policy | L0 | S13 | REF-01 |
 | SEC-08 | Container Backend | 隔离执行环境 | L0 | S13 | REF-01 |
@@ -482,7 +487,7 @@ Stage 完成项。
 | OBS-04 | Stop / Recovery Analytics | 失败原因分布 | L0 | S07/S14 | REF-01 |
 | OBS-05 | Privacy Controls | S02 最小化 Telemetry L2 → S14 Export Policy L3 | L2 | S02/S14 | REF-01/AUTH-01 |
 | OBS-06 | OpenTelemetry | 可选 Trace Export | L0 | S14 | REF-01 |
-| EVAL-01 | Seed Tasks | Java Fixture 任务集 | L0 | S04/S14 | REF-01 |
+| EVAL-01 | Seed Tasks | S04 单个公开 Scripted Java Fixture L1 → S14 任务集与指标 L3 | L1 | S04/S14 | REF-01 |
 | EVAL-02 | Behavior Replay | Fake Model 确定性回放 | L1 | S01/S06 | REF-01 |
 | EVAL-03 | Agent Success Metrics | 完成率、成本、工具轨迹 | L0 | S14 | REF-01 |
 | EVAL-04 | Security Eval | 越权与 Prompt Injection | L0 | S13 | REF-01 |
@@ -583,6 +588,18 @@ Fake User
 - timeout/cancel/process tree；
 - 脏工作区识别；
 - “修改 → 测试失败 → 再修改 → 成功”Demo。
+
+S04 启动 Gate 与首个 Approval 切片见
+[ADR-035](./adr/ADR-035-s04-approval-spine.md)：当前只把固定 Effect 决策表、
+可取消的单次审批协议和 React/Ink Approval UI 提升到 L1。第二切片已实现真实
+`apply_patch` 与 `write_file`：精确旧内容和多匹配前置条件、新文件父目录 realpath、
+敏感路径/Junction/Symlink 拒绝、同目录暂存与单次 Move、提交前冲突重检、取消和
+有界 Patch 摘要均有确定性测试。第三切片已实现 `run_command` 的固定 Shell/Workspace、
+准确审批、最小环境、stdout/stderr Event、输出上限、timeout/cancel 与 Windows
+进程树清理，并通过真实子进程和无孤儿 Marker 测试。公开 Fixture 已按 PRD 的
+`divide` 任务完成“越权拒绝 → 错误实现 → 增加自测 → 测试失败 → 再修改 → 成功 →
+Git Diff”的真实 Pipeline 闭环，`EVAL-01` 达到单 Seed Task 的 L1。S14 的任务集、
+真实模型成功率和成本指标仍未实现。
 
 ### S05：Permission Pipeline
 

@@ -2,7 +2,7 @@ import {useEffect, useReducer, useRef, useState} from 'react';
 import {Box, Text, useApp, useInput, usePaste, useWindowSize} from 'ink';
 import {initialTuiState, reduceTuiState} from './state.js';
 import type {ProtocolEvent} from './protocol.js';
-import type {RunView} from './state.js';
+import type {ApprovalView, RunView} from './state.js';
 import {AssistantMarkdown} from './assistant-markdown.js';
 import {ToolActivityGroup} from './tool-activity.js';
 
@@ -17,6 +17,7 @@ export interface AgentClient {
   initialize(): string;
   startRun(prompt: string): string;
   cancelRun(): string;
+  resolveApproval(approvalId: string, decision: 'allow_once' | 'deny'): string;
   shutdown(): Promise<void>;
   terminate(): void;
 }
@@ -34,6 +35,9 @@ export function AgentTui({client}: AgentTuiProps) {
   const [input, setInput] = useState('');
   const inputRef = useRef('');
   const cancelPending = useRef(false);
+  const pendingApproval = state.runs.findLast(
+    run => run.status === 'running',
+  )?.pendingApproval;
   const {exit} = useApp();
   const {columns} = useWindowSize();
 
@@ -93,6 +97,17 @@ export function AgentTui({client}: AgentTuiProps) {
       }
       return;
     }
+    if (pendingApproval !== undefined) {
+      const decision = approvalDecision(text);
+      if (decision !== undefined && !pendingApproval.submitted) {
+        client.resolveApproval(pendingApproval.approvalId, decision);
+        dispatch({
+          type: 'approval.submitted',
+          approvalId: pendingApproval.approvalId,
+        });
+      }
+      return;
+    }
     if (!canEditInput(state.phase)) {
       return;
     }
@@ -144,7 +159,7 @@ export function AgentView({state, input, columns}: AgentViewProps) {
     <Box flexDirection="column" width={width}>
       <Box>
         <Text bold color="cyan">cc-java</Text>
-        <Text color="blue">  S03</Text>
+        <Text color="blue">  S04</Text>
         <Text dimColor>  {phaseLabel(state.phase)}</Text>
       </Box>
       {state.runs.map(run => (
@@ -154,6 +169,18 @@ export function AgentView({state, input, columns}: AgentViewProps) {
             <Text bold>{run.prompt}</Text>
           </Box>
           <ToolActivityGroup tools={run.tools} />
+          {run.tools.filter(tool => tool.output.length > 0).map(tool => (
+            <Box
+              key={`output-${tool.ordinal}`}
+              marginLeft={4}
+              flexDirection="column"
+            >
+              <Text dimColor>{tool.output}</Text>
+            </Box>
+          ))}
+          {run.pendingApproval === undefined
+            ? null
+            : <ApprovalPrompt approval={run.pendingApproval} />}
           {run.text.length === 0 ? null : (
             <Box marginTop={1} flexDirection="row">
               <Text color="cyan">● </Text>
@@ -173,7 +200,10 @@ export function AgentView({state, input, columns}: AgentViewProps) {
       <Box
         marginTop={1}
         borderStyle="round"
-        borderColor={state.phase === 'ready' ? 'cyan' : 'gray'}
+        borderColor={state.runs.findLast(run => run.status === 'running')
+          ?.pendingApproval === undefined
+          ? state.phase === 'ready' ? 'cyan' : 'gray'
+          : 'yellow'}
         paddingX={1}
       >
         <Text color="cyan">❯ </Text>
@@ -184,6 +214,52 @@ export function AgentView({state, input, columns}: AgentViewProps) {
             ? <Text dimColor>{inputHint(state.phase)}</Text>
             : null}
       </Box>
+    </Box>
+  );
+}
+
+function ApprovalPrompt({approval}: {readonly approval: ApprovalView}) {
+  const action = approval.effect === 'write_workspace'
+    ? '修改 Workspace'
+    : '启动本地进程';
+  return (
+    <Box
+      marginTop={1}
+      marginLeft={2}
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="yellow"
+      paddingX={1}
+    >
+      <Text color="yellow" bold>需要批准：{action}</Text>
+      <Text>{approval.toolName} · 第 {approval.ordinal} 个工具调用</Text>
+      {approval.target === undefined
+        ? null
+        : (
+          <>
+            <Text>
+              {approval.operation === 'create' ? '创建' : '修改'}：{approval.target}
+            </Text>
+            <Text color="green">
+              +{approval.addedLines ?? 0} 行
+              <Text color="red">　-{approval.removedLines ?? 0} 行</Text>
+            </Text>
+          </>
+        )}
+      {approval.command === undefined
+        ? null
+        : (
+          <>
+            <Text>Shell：{approval.shell}</Text>
+            <Text>工作目录：{approval.workingDirectory}</Text>
+            <Text color="cyan">{approval.command}</Text>
+          </>
+        )}
+      <Text dimColor>
+        {approval.submitted
+          ? '决定已发送，等待 Java 确认'
+          : 'Y 允许本次　N 拒绝　Ctrl+C 取消 Run'}
+      </Text>
     </Box>
   );
 }
@@ -245,6 +321,19 @@ function runStatusLabel(status: Exclude<RunView['status'], 'running' | 'complete
 
 function inputHint(phase: ReturnType<typeof reduceTuiState>['phase']): string {
   return phase === 'connecting' ? '连接中，可以先输入任务' : '输入任务，Enter 发送';
+}
+
+export function approvalDecision(
+  text: string,
+): 'allow_once' | 'deny' | undefined {
+  const normalized = text.toLowerCase();
+  if (normalized === 'y') {
+    return 'allow_once';
+  }
+  if (normalized === 'n') {
+    return 'deny';
+  }
+  return undefined;
 }
 
 export function decideInterrupt(

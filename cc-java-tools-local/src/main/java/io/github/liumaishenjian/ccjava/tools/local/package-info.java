@@ -6,8 +6,9 @@
  * 执行；本模块不能向 CLI 或模型适配器暴露绕过 Pipeline 的副作用入口。</p>
  *
  * <p>S03 已实现 WorkspaceGuard、固定敏感路径、根 AGENTS.md、WorkspaceSnapshot 与
- * list/search/read/git status/diff 五个只读工具。写入、Patch 和通用命令仍严格属于 S04，
- * 本模块当前没有对应生产入口。</p>
+ * list/search/read/git status/diff 五个只读工具。S04 已加入精确上下文
+ * {@code apply_patch} 与只创建新文件的 {@code write_file}；二者共享同一 Guard 并必须
+ * 经过 Permission/Approval。通用命令仍未注册。</p>
  *
  * @since 0.1.0
  */

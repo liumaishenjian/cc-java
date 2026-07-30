@@ -11,6 +11,7 @@ import io.github.liumaishenjian.ccjava.domain.AgentEventEnvelope;
 import io.github.liumaishenjian.ccjava.domain.AgentRunResult;
 import io.github.liumaishenjian.ccjava.domain.LifecycleEvent;
 import io.github.liumaishenjian.ccjava.domain.ModelTextDelta;
+import io.github.liumaishenjian.ccjava.domain.PermissionDecision;
 import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.domain.ToolCall;
 import io.github.liumaishenjian.ccjava.model.springai.config.OpenAiCompatibleSettings;
@@ -45,6 +46,7 @@ public final class RuntimeStdioCommandHandler
     private final StdioProtocolCodec codec = new StdioProtocolCodec();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(
             Thread.ofPlatform().name("cc-java-runtime-run").daemon(true).factory());
+    private final StdioApprovalCoordinator approvals;
     private final HeadlessRuntimeSession application;
     private State state = State.NEW;
     private ActiveRun activeRun;
@@ -72,10 +74,12 @@ public final class RuntimeStdioCommandHandler
             OpenAiCompatibleSettings settings,
             Path workspace,
             Duration timeout) {
+        approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
         application = new HeadlessRuntimeSession(
                 Objects.requireNonNull(settings, "settings 不能为空"),
                 this,
-                new HeadlessRuntimeOptions(workspace, settings.model(), timeout));
+                new HeadlessRuntimeOptions(workspace, settings.model(), timeout),
+                approvals);
     }
 
     /**
@@ -84,9 +88,29 @@ public final class RuntimeStdioCommandHandler
      * @param model 不访问网络的模型端口
      */
     RuntimeStdioCommandHandler(ModelGateway model) {
+        this(
+                model,
+                new HeadlessRuntimeOptions(
+                        Path.of("").toAbsolutePath().normalize(),
+                        "fake-model",
+                        io.github.liumaishenjian.ccjava.domain.AgentLimits.DEFAULT.maxDuration()));
+    }
+
+    /**
+     * 使用 Fake Model 和显式 Workspace 装配真实 Runtime/stdio Adapter。
+     *
+     * @param model 不访问网络的模型端口
+     * @param options 测试 Workspace 与墙钟配置
+     */
+    RuntimeStdioCommandHandler(
+            ModelGateway model,
+            HeadlessRuntimeOptions options) {
+        approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
         application = new HeadlessRuntimeSession(
                 Objects.requireNonNull(model, "model 不能为空"),
-                this);
+                this,
+                Objects.requireNonNull(options, "options 不能为空"),
+                approvals);
     }
 
     @Override
@@ -97,6 +121,7 @@ public final class RuntimeStdioCommandHandler
             case "initialize" -> initialize(command, events);
             case "run.start" -> startRun(command, events);
             case "run.cancel" -> cancelRun(command);
+            case "approval.resolve" -> resolveApproval(command);
             case "shutdown" -> shutdown();
             default -> throw protocolError(
                     "UNKNOWN_COMMAND",
@@ -177,7 +202,87 @@ public final class RuntimeStdioCommandHandler
                 application.cancel(activeRun.runId);
             }
         }
+        approvals.close();
         return StdioProtocol.Disposition.SHUTDOWN;
+    }
+
+    private StdioProtocol.Disposition resolveApproval(StdioProtocol.Command command)
+            throws StdioProtocolException {
+        String approvalId;
+        PermissionDecision decision;
+        synchronized (lock) {
+            ensureState(State.RUNNING, command);
+            requireSession(command);
+            if (activeRun == null
+                    || activeRun.runId == null
+                    || command.runId().isEmpty()
+                    || !activeRun.runId.value().equals(command.runId().orElseThrow())) {
+                throw protocolError(
+                        "INVALID_STATE",
+                        command,
+                        "approval.resolve 与活动 Run 不匹配");
+            }
+            JsonNode id = command.payload().get("approvalId");
+            JsonNode rawDecision = command.payload().get("decision");
+            if (id == null
+                    || !id.isString()
+                    || id.stringValue().isBlank()
+                    || id.stringValue().length() > 128
+                    || rawDecision == null
+                    || !rawDecision.isString()) {
+                throw protocolError(
+                        "INVALID_PAYLOAD",
+                        command,
+                        "approval.resolve payload 无效");
+            }
+            approvalId = id.stringValue();
+            decision = switch (rawDecision.stringValue()) {
+                case "allow_once" -> PermissionDecision.ALLOW;
+                case "deny" -> PermissionDecision.DENY;
+                default -> throw protocolError(
+                        "INVALID_PAYLOAD",
+                        command,
+                        "approval.resolve decision 无效");
+            };
+        }
+        if (!approvals.resolve(approvalId, decision)) {
+            throw protocolError(
+                    "STALE_APPROVAL",
+                    command,
+                    "审批不存在、已结束或与当前请求不匹配");
+        }
+        return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    private void emitApprovalRequest(StdioApprovalCoordinator.Request request) {
+        ActiveRun run;
+        synchronized (lock) {
+            run = activeRun;
+            if (run == null
+                    || run.runId == null
+                    || !run.runId.equals(request.runId())
+                    || state != State.RUNNING) {
+                throw new IllegalStateException("审批请求与活动 Run 不匹配");
+            }
+        }
+        ObjectNode payload = codec.objectNode();
+        payload.put("approvalId", request.approvalId());
+        payload.put("ordinal", request.ordinal());
+        payload.put("toolName", request.toolName());
+        payload.put("effect", request.effect().name().toLowerCase(Locale.ROOT));
+        if (!request.preview().target().isEmpty()) {
+            payload.put("target", request.preview().target());
+            payload.put("operation", request.preview().operation());
+            payload.put("removedLines", request.preview().removedLines());
+            payload.put("addedLines", request.preview().addedLines());
+        }
+        if (!request.preview().command().isEmpty()) {
+            payload.put("command", request.preview().command());
+            payload.put("shell", request.preview().shell());
+            payload.put("workingDirectory", request.preview().workingDirectory());
+            payload.put("operation", request.preview().operation());
+        }
+        emit(run, "approval.requested", payload);
     }
 
     private void executeRun(ActiveRun run, String prompt) {
@@ -240,6 +345,13 @@ public final class RuntimeStdioCommandHandler
                     == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS
                             ? "tool.completed" : "tool.failed";
             emit(run, type, payload);
+        } else if (envelope.event() instanceof LifecycleEvent.ToolOutput output) {
+            ObjectNode payload = codec.objectNode();
+            payload.put("ordinal", output.ordinal());
+            payload.put("toolName", output.toolName());
+            payload.put("stream", output.stream().name().toLowerCase(Locale.ROOT));
+            payload.put("text", output.text());
+            emit(run, "tool.output", payload);
         } else if (envelope.event() instanceof ModelTextDelta delta) {
             ObjectNode payload = codec.objectNode();
             payload.put("text", delta.text());
@@ -419,6 +531,7 @@ public final class RuntimeStdioCommandHandler
                 application.cancel(activeRun.runId);
             }
         }
+        approvals.close();
         executor.shutdown();
         if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
             executor.shutdownNow();

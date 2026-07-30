@@ -63,6 +63,18 @@ final class ToolArguments {
         }
     }
 
+    static void requireMaximumCharacters(String name, String value, int maximum) {
+        if (value != null && value.codePointCount(0, value.length()) > maximum) {
+            throw new IllegalArgumentException(name + " 超过字符上限 " + maximum);
+        }
+    }
+
+    static void rejectBinaryNull(String name, String value) {
+        if (value != null && value.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException(name + " 不能包含二进制 NUL");
+        }
+    }
+
     static void requireRange(String name, int value, int minimum, int maximum) {
         if (value < minimum || value > maximum) {
             throw new IllegalArgumentException(

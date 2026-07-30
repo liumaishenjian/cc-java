@@ -38,6 +38,17 @@ public final class LocalReadTools {
     public static List<AgentTool> create(Path workspace) throws IOException {
         WorkspaceGuard guard = new WorkspaceGuard(
                 Objects.requireNonNull(workspace, "workspace 不能为空"));
+        return create(guard);
+    }
+
+    /**
+     * 使用 Composition Root 已固定的 Guard 创建只读 Tool。
+     *
+     * @param guard 与写工具、指令和 Git 快照共享的安全边界
+     * @return 稳定且不可变的只读 Tool 列表
+     */
+    public static List<AgentTool> create(WorkspaceGuard guard) {
+        Objects.requireNonNull(guard, "guard 不能为空");
         GitReadClient git = new GitReadClient(guard.workspace());
         return List.of(
                 new ListFilesTool(guard),

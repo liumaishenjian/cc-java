@@ -28,6 +28,21 @@ class StdioProtocolCodecTest {
     }
 
     @Test
+    void decodesApprovalResolveAsAFirstClassCommand() throws Exception {
+        StdioProtocol.Command command = codec.decodeCommand("""
+                {"version":0,"type":"approval.resolve","requestId":"approve-1",
+                 "sessionId":"session-1","runId":"run-1","sequence":3,
+                 "payload":{"approvalId":"approval-1","decision":"allow_once"}}
+                """);
+
+        assertThat(command.type()).isEqualTo("approval.resolve");
+        assertThat(command.sessionId()).contains("session-1");
+        assertThat(command.runId()).contains("run-1");
+        assertThat(command.payload().get("approvalId").stringValue())
+                .isEqualTo("approval-1");
+    }
+
+    @Test
     void rejectsMalformedDuplicateAndUnknownProtocolInputs() {
         assertProtocolError("{", "MALFORMED_JSON");
         assertProtocolError(

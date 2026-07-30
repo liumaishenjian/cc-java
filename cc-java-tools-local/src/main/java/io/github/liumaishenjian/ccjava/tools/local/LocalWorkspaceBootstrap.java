@@ -2,21 +2,26 @@ package io.github.liumaishenjian.ccjava.tools.local;
 
 import io.github.liumaishenjian.ccjava.core.AgentTool;
 import io.github.liumaishenjian.ccjava.tools.local.git.GitReadClient;
+import io.github.liumaishenjian.ccjava.tools.local.tool.ApplyPatchTool;
+import io.github.liumaishenjian.ccjava.tools.local.tool.WriteFileTool;
+import io.github.liumaishenjian.ccjava.tools.local.tool.RunCommandTool;
+import io.github.liumaishenjian.ccjava.tools.local.command.LocalCommandExecutor;
 import io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceAccessException;
 import io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceGuard;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
 /**
- * 一次性组装 S03 WorkspaceGuard、只读 Tool、根指令和安全 Git 摘要。
+ * 一次性组装 S03-S04 WorkspaceGuard、本地 Tool、根指令和安全 Git 摘要。
  *
  * <p>Composition Root 使用该不可变结果，避免为 Tool、Instructions 和 Snapshot 分别解析
  * Workspace。Bootstrap 不创建 Registry 或 Runtime，也不驱动 Agent Loop。</p>
  *
- * @param tools 按稳定协议顺序排列的五个只读 Tool
+ * @param tools 按稳定协议顺序排列的五个只读、两个写入和一个命令 Tool
  * @param projectInstructions 可选根 AGENTS.md 正文
  * @param snapshot 非 Secret Git 摘要
  * @since 0.3.0
@@ -35,7 +40,7 @@ public record LocalWorkspaceBootstrap(
     }
 
     /**
-     * 从真实 Workspace 构造全部 S03 只读输入。
+     * 从真实 Workspace 构造 S03 只读输入与 S04 受控文件写入 Tool。
      *
      * @param workspace Workspace 目录
      * @return 一次性 Bootstrap 快照
@@ -46,8 +51,12 @@ public record LocalWorkspaceBootstrap(
             throws IOException, WorkspaceAccessException {
         WorkspaceGuard guard = new WorkspaceGuard(workspace);
         GitReadClient git = new GitReadClient(guard.workspace());
+        ArrayList<AgentTool> tools = new ArrayList<>(LocalReadTools.create(guard));
+        tools.add(new ApplyPatchTool(guard));
+        tools.add(new WriteFileTool(guard));
+        tools.add(new RunCommandTool(new LocalCommandExecutor(guard.workspace())));
         return new LocalWorkspaceBootstrap(
-                LocalReadTools.create(guard.workspace()),
+                tools,
                 new RootInstructionLoader(guard).load(),
                 WorkspaceSnapshot.capture(git));
     }

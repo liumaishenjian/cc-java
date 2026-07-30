@@ -6,7 +6,9 @@ const EVENT_TYPES = new Set([
   'initialized',
   'run.started',
   'model.text.delta',
+  'approval.requested',
   'tool.started',
+  'tool.output',
   'tool.completed',
   'tool.failed',
   'run.completed',
@@ -19,7 +21,9 @@ export type EventType =
   | 'initialized'
   | 'run.started'
   | 'model.text.delta'
+  | 'approval.requested'
   | 'tool.started'
+  | 'tool.output'
   | 'tool.completed'
   | 'tool.failed'
   | 'run.completed'
@@ -39,7 +43,12 @@ export interface ProtocolEvent {
 
 export interface ProtocolCommand {
   readonly version: number;
-  readonly type: 'initialize' | 'run.start' | 'run.cancel' | 'shutdown';
+  readonly type:
+    | 'initialize'
+    | 'run.start'
+    | 'run.cancel'
+    | 'approval.resolve'
+    | 'shutdown';
   readonly requestId: string;
   readonly sessionId?: string;
   readonly runId?: string;
@@ -121,7 +130,9 @@ function validateEventShape(
   if (
     (type === 'run.started'
       || type === 'model.text.delta'
+      || type === 'approval.requested'
       || type === 'tool.started'
+      || type === 'tool.output'
       || type === 'tool.completed'
       || type === 'tool.failed'
       || type === 'run.completed'
@@ -133,6 +144,36 @@ function validateEventShape(
   }
   if (type === 'model.text.delta' && typeof payload.text !== 'string') {
     throw new ProtocolViolation('model.text.delta 缺少文本');
+  }
+  if (
+    type === 'approval.requested'
+    && (typeof payload.approvalId !== 'string'
+      || payload.approvalId.trim().length === 0
+      || payload.approvalId.length > MAX_IDENTIFIER_CHARS
+      || !Number.isSafeInteger(payload.ordinal)
+      || (payload.ordinal as number) < 1
+      || typeof payload.toolName !== 'string'
+      || payload.toolName.trim().length === 0
+      || (payload.effect !== 'write_workspace'
+        && payload.effect !== 'execute_process'))
+  ) {
+    throw new ProtocolViolation('approval.requested 缺少安全审批摘要');
+  }
+  if (
+    type === 'tool.output'
+    && (!Number.isSafeInteger(payload.ordinal)
+      || (payload.ordinal as number) < 1
+      || typeof payload.toolName !== 'string'
+      || payload.toolName.trim().length === 0
+      || (payload.stream !== 'stdout' && payload.stream !== 'stderr')
+      || typeof payload.text !== 'string'
+      || payload.text.length === 0
+      || Array.from(payload.text).length > 4_096)
+  ) {
+    throw new ProtocolViolation('tool.output 缺少有界输出摘要');
+  }
+  if (type === 'approval.requested') {
+    validateApprovalPreview(payload);
   }
   if (
     (type === 'tool.started' || type === 'tool.completed' || type === 'tool.failed')
@@ -156,6 +197,60 @@ function validateEventShape(
     }
     validateOptionalTerminalCount(type, payload, 'modelTurns');
     validateOptionalTerminalCount(type, payload, 'toolCalls');
+  }
+}
+
+function validateApprovalPreview(
+  payload: Readonly<Record<string, unknown>>,
+): void {
+  const fields = [
+    payload.target,
+    payload.operation,
+    payload.removedLines,
+    payload.addedLines,
+  ];
+  const present = fields.filter(value => value !== undefined).length;
+  const commandFields = [
+    payload.command,
+    payload.shell,
+    payload.workingDirectory,
+  ];
+  const commandPresent = commandFields.filter(value => value !== undefined).length;
+  if (present === 0 && commandPresent === 0) {
+    return;
+  }
+  if (commandPresent > 0) {
+    if (
+      present !== 1
+      || payload.operation !== 'execute'
+      || commandPresent !== commandFields.length
+      || typeof payload.command !== 'string'
+      || payload.command.trim().length === 0
+      || Array.from(payload.command).length > 8_192
+      || typeof payload.shell !== 'string'
+      || (payload.shell !== 'powershell' && payload.shell !== 'sh')
+      || payload.workingDirectory !== '.'
+    ) {
+      throw new ProtocolViolation('approval.requested 命令预览无效');
+    }
+    return;
+  }
+  if (
+    present !== fields.length
+    || typeof payload.target !== 'string'
+    || payload.target.length === 0
+    || payload.target.length > 512
+    || payload.target.startsWith('/')
+    || payload.target.startsWith('\\')
+    || /^[A-Za-z]:/.test(payload.target)
+    || payload.target.split(/[\\/]/).includes('..')
+    || (payload.operation !== 'modify' && payload.operation !== 'create')
+    || !Number.isSafeInteger(payload.removedLines)
+    || (payload.removedLines as number) < 0
+    || !Number.isSafeInteger(payload.addedLines)
+    || (payload.addedLines as number) < 0
+  ) {
+    throw new ProtocolViolation('approval.requested 文件预览无效');
   }
 }
 

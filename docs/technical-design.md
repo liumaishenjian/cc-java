@@ -717,8 +717,8 @@ S04 的 Shell 在用户操作系统账户下运行。审批和规则降低误操
 
 S04 通过 `ShellAdapter` 隔离平台差异：
 
-- Windows：待确认 PowerShell 7 / Windows PowerShell 策略；
-- Linux：待确认 `/bin/sh` 或用户配置 Shell；
+- Windows：优先固定安装目录 PowerShell 7，缺失时使用系统 Windows PowerShell；
+- Linux/macOS：固定 `/bin/sh`；
 - 向模型提供当前 Shell 类型和操作系统；
 - 审批内容必须与实际执行字符串一致。
 
@@ -734,14 +734,19 @@ S04 通过 `ShellAdapter` 隔离平台差异：
 
 ### 15.2 执行要求
 
-- stdout/stderr 逐步发布 Tool Output Event；
-- 保留退出码；
-- 有默认和最大超时；
-- `Ctrl+C` 终止主进程及子进程树；
-- 禁用交互式 TTY 命令，或检测后停止；
-- 输出达到上限后标记截断，同时继续安全地消费或终止进程；
+- `run_command(command, timeoutSeconds=30)` 只允许模型提供命令正文和 1～120 秒期限；
+- stdout/stderr 由两个虚拟线程并发消费并逐步发布 Tool Output Event；
+- 保留退出码，非零退出属于可恢复验证证据；
+- `Ctrl+C` 和 timeout 共用进程树终止；Windows 先立即强制终止已捕获后代，再使用
+  `taskkill /T /F` 清扫整树并以 `ProcessHandle` 兜底，其他平台处理后代和主进程；
+- stdin 立即关闭，S04 禁用交互式 TTY 和后台执行；
+- 模型结果合计保留 48 KiB，TUI 每 Run 保留 64 KiB；达到上限后标记截断并继续消费；
+- 子进程环境采用固定 allowlist，不继承 Provider Key 和未知 Secret；
 - 不把全部构建输出永久塞入 Context；
 - 不自动执行 commit、push、publish 或 deploy。
+
+Command 仍运行在用户操作系统账户下。进程树清理和环境过滤只达到 L1 应用层控制；
+Windows Job Object、容器、文件/网络隔离和攻击性回归属于 S13。
 
 ## 16. Context Engineering
 
@@ -1011,6 +1016,60 @@ Desktop rg。解析成功后只把绝对目录补入本次进程树 PATH，不�
 不把绝对路径写入普通日志。真正随项目发行 rg 仍属于 S14。
 机制来源与独立实现边界见
 [ADR-033](./adr/ADR-033-s03-ripgrep-search-backend.md)。
+
+### 19.7 S04 单次审批骨架
+
+S04 首个切片在现有 Tool Pipeline 的 `PermissionGate → ApprovalHandler` 扩展缝隙上
+建立固定控制链。Core 的 `FixedPermissionGate` 使用可信 `ToolEffect` 决定：
+DEFAULT 中 Read=Allow、Workspace Write/Process=Ask、Network/System=Deny；PLAN
+中仅 Read=Allow。Print 等非交互入口使用拒绝型 Approval Handler，所以 Ask 不会被
+隐式放行。
+
+stdio v0 增加 `approval.requested` Event 与 `approval.resolve` Command。事件只暴露
+随机 `approvalId`、Tool 序号、Tool 名称和固定 Effect，不序列化原始参数。React/Ink
+只渲染请求并把 Y/N 映射为 `allow_once/deny`；Java 仍是最终权限和 Tool 执行权威。
+Run 取消、shutdown、EOF 或 Handler close 都会按 Deny 释放等待者，过期或不匹配 ID
+不能批准其他调用。首个 Fake Write Tool 不访问文件系统，只用于证明未批准不执行、
+Allow Once 只执行当前调用。真实 Patch/Write 由 19.8 节加入；Command 预览和执行仍在
+后续 S04 切片。
+
+### 19.8 S04 精确上下文 Patch 与新文件创建
+
+S04 文件切片在 `cc-java-tools-local` 注册两个 `WRITE_WORKSPACE` Tool：
+
+- `apply_patch(path, oldText, newText, replaceAll=false)`：目标必须是已有严格 UTF-8
+  普通文件；`oldText` 默认必须唯一匹配，多匹配只能显式 `replaceAll`；
+- `write_file(path, content)`：只创建目标不存在、直接父目录已经存在的新 UTF-8 文件，
+  不覆盖已有文件，也不递归创建目录。
+
+二者仍由 Java `ToolExecutionPipeline` 完成 Validate → Permission → Approval → Execute。
+stdio Approval 只投影 Workspace-relative 目标、`modify/create` 与增删行数，不投影原始
+参数或完整内容。文件执行阶段重新经过 `WorkspaceGuard`；新文件从直接父目录 realpath
+解析，已有文件在提交前重新比较真实路径和原始字节。修改先写入同一父目录的临时文件，
+再以单次 Move 替换；创建使用不带 REPLACE 的 Move，竞态目标存在时返回
+`FILE_CONFLICT`。失败、取消或冲突不会覆盖原文件，正常失败路径会清理暂存文件。
+
+精确旧内容只保护当前修改上下文，并允许文件其他位置保留维护者已有脏改动；它不等于
+S06 Checkpoint，也不自动清理、Reset、Commit 或格式化 Workspace。完整工作区证据仍由
+模型在成功后显式调用 `git_diff` 获取。
+完整边界见 [ADR-035](./adr/ADR-035-s04-approval-spine.md)。
+
+### 19.9 S04 公开 Fixture Coding Loop
+
+普通 CI 使用独立的最小 Java Fixture 和 Scripted `ModelGateway` 验证生产装配，而不是
+绕过 Runtime 直接调用 Tool。Fixture 与 PRD S04 验收任务一致：为 `Calculator` 增加
+`divide`、零除数异常和确定性自测，并声明只允许修改 `src/Calculator.java`。
+
+Scripted Model 的每个后续回合都断言前一 Tool Result：先读取任务与源码；对
+`DO_NOT_EDIT.txt` 的越权 Patch 由确定性审批策略拒绝；再加入一个错误的零除数实现和
+自测，真实 `run_command` 返回非零退出；随后根据失败证据提交第二次精确 Patch，测试
+输出 `ACCEPTANCE_OK`；最后用 `git_diff` 证明只有允许文件改变。
+
+Fixture 在模块构建目录下的唯一临时 Git 仓库执行，避免当前本机对 JUnit 临时目录
+`toRealPath()` 返回 `AccessDeniedException` 的环境问题混入 WorkspaceGuard 证据；
+该拒绝的外部原因尚未证实。测试结束清理 Git 只读 object；不修改源 Fixture，不需要
+网络、API Key 或真实模型。该单任务只把 `EVAL-01` 提升到 L1，S14 才扩展为任务集、
+真实模型重复运行、成功率、成本和跨平台指标。
 
 ## 20. 配置与秘密
 

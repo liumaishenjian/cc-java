@@ -138,6 +138,57 @@ public final class WorkspaceGuard {
     }
 
     /**
+     * 校验一个尚不存在、且直接父目录已经安全存在的新文件目标。
+     *
+     * <p>该方法不创建目录或文件。目标的逻辑路径、敏感策略与直接父目录 realpath
+     * 都在返回前固定；调用方在真正落盘前仍必须再次调用本方法，以防审批期间
+     * Workspace 状态发生变化。</p>
+     *
+     * @param input 模型提供的 Workspace-relative 新文件路径
+     * @return 由真实父目录解析出的安全目标
+     * @throws WorkspaceAccessException 路径非法、目标已存在、父目录不存在或链接逃逸时
+     */
+    public ValidatedWorkspacePath requireNewFile(String input)
+            throws WorkspaceAccessException {
+        Path logicalRelative = parseRelative(input);
+        if (logicalRelative.toString().isEmpty()
+                || ".".equals(logicalRelative.toString())
+                || logicalRelative.getFileName() == null) {
+            throw error(ToolErrorCode.INVALID_PATH, "新文件路径必须包含文件名");
+        }
+        rejectSensitive(logicalRelative);
+        Path logicalTarget = workspace.resolve(logicalRelative).normalize();
+        if (!logicalTarget.startsWith(workspace)) {
+            throw error(ToolErrorCode.WORKSPACE_BOUNDARY_VIOLATION, "路径不能越过 Workspace");
+        }
+        if (Files.exists(logicalTarget, LinkOption.NOFOLLOW_LINKS)) {
+            throw error(ToolErrorCode.FILE_CONFLICT, "新文件目标已经存在");
+        }
+
+        Path logicalParent = logicalTarget.getParent();
+        if (logicalParent == null
+                || !Files.exists(logicalParent, LinkOption.NOFOLLOW_LINKS)) {
+            throw error(ToolErrorCode.PATH_NOT_FOUND, "新文件的直接父目录不存在");
+        }
+        Path realParent;
+        try {
+            realParent = logicalParent.toRealPath();
+        } catch (IOException exception) {
+            throw error(ToolErrorCode.PATH_NOT_FOUND, "新文件的直接父目录无法解析");
+        }
+        if (!realParent.startsWith(workspace)) {
+            throw error(ToolErrorCode.LINK_ESCAPE, "新文件父目录链接到 Workspace 外");
+        }
+        if (!Files.isDirectory(realParent, LinkOption.NOFOLLOW_LINKS)) {
+            throw error(ToolErrorCode.PATH_TYPE_MISMATCH, "新文件父路径不是目录");
+        }
+        rejectSensitive(workspace.relativize(realParent));
+        return new ValidatedWorkspacePath(
+                realParent.resolve(logicalTarget.getFileName()),
+                protocol(logicalRelative));
+    }
+
+    /**
      * 要求目标是目录。
      *
      * @param input 模型路径

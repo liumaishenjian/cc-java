@@ -59,12 +59,14 @@ public final class LifecycleDispatcher {
             AgentEvent event) {
         Objects.requireNonNull(session, "session 不能为空");
         Objects.requireNonNull(event, "event 不能为空");
-        Instant occurredAt = clock.instant();
-        AgentEventEnvelope envelope = session.recordEvent(occurredAt, runId, event);
-        try {
-            sink.publish(envelope);
-        } catch (RuntimeException ignored) {
-            // 事件已进入规范 Session；S14 再为观察者故障增加诊断通道。
+        synchronized (session) {
+            Instant occurredAt = clock.instant();
+            AgentEventEnvelope envelope = session.recordEvent(occurredAt, runId, event);
+            try {
+                sink.publish(envelope);
+            } catch (RuntimeException ignored) {
+                // 事件已进入规范 Session；S14 再为观察者故障增加诊断通道。
+            }
         }
     }
 }

@@ -4,6 +4,21 @@ export type RunStatus = 'running' | 'completed' | 'cancelled' | 'failed';
 export type ClientPhase = 'connecting' | 'ready' | 'running' | 'closing' | 'closed' | 'failed';
 export type SearchMode = 'content' | 'files' | 'count';
 
+export interface ApprovalView {
+  readonly approvalId: string;
+  readonly ordinal: number;
+  readonly toolName: string;
+  readonly effect: 'write_workspace' | 'execute_process';
+  readonly target: string | undefined;
+  readonly operation: 'modify' | 'create' | undefined;
+  readonly removedLines: number | undefined;
+  readonly addedLines: number | undefined;
+  readonly command: string | undefined;
+  readonly shell: 'powershell' | 'sh' | undefined;
+  readonly workingDirectory: string | undefined;
+  readonly submitted: boolean;
+}
+
 export interface ToolView {
   readonly ordinal: number;
   readonly name: string;
@@ -15,6 +30,7 @@ export interface ToolView {
   readonly truncated: boolean;
   readonly truncationReason: string | undefined;
   readonly errorCode: string | undefined;
+  readonly output: string;
 }
 
 export interface RunView {
@@ -23,6 +39,7 @@ export interface RunView {
   readonly runId: string | undefined;
   readonly text: string;
   readonly tools: readonly ToolView[];
+  readonly pendingApproval?: ApprovalView | undefined;
   readonly status: RunStatus;
   readonly stopReason: string | undefined;
   readonly modelTurns: number | undefined;
@@ -39,6 +56,7 @@ export interface TuiState {
 
 export type TuiAction =
   | {readonly type: 'run.submitted'; readonly requestId: string; readonly prompt: string}
+  | {readonly type: 'approval.submitted'; readonly approvalId: string}
   | {readonly type: 'event.received'; readonly event: ProtocolEvent}
   | {readonly type: 'transport.failed'; readonly message: string}
   | {readonly type: 'closing'}
@@ -76,12 +94,23 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
             runId: undefined,
             text: '',
             tools: [],
+            pendingApproval: undefined,
             status: 'running',
             stopReason: undefined,
             modelTurns: undefined,
             toolCalls: undefined,
           },
         ],
+      };
+    case 'approval.submitted':
+      return {
+        ...state,
+        runs: state.runs.map(run => run.pendingApproval?.approvalId === action.approvalId
+          ? {
+              ...run,
+              pendingApproval: {...run.pendingApproval, submitted: true},
+            }
+          : run),
       };
     case 'event.received':
       return applyEvent(state, action.event);
@@ -113,6 +142,24 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
         ...run,
         text: run.text + String(event.payload.text),
       }));
+    case 'approval.requested':
+      return updateCurrentRun(state, event, run => ({
+        ...run,
+        pendingApproval: {
+          approvalId: String(event.payload.approvalId),
+          ordinal: Number(event.payload.ordinal),
+          toolName: String(event.payload.toolName),
+          effect: event.payload.effect as ApprovalView['effect'],
+          target: optionalText(event.payload.target),
+          operation: approvalOperation(event.payload.operation),
+          removedLines: optionalNonNegativeInteger(event.payload.removedLines),
+          addedLines: optionalNonNegativeInteger(event.payload.addedLines),
+          command: optionalText(event.payload.command),
+          shell: approvalShell(event.payload.shell),
+          workingDirectory: optionalText(event.payload.workingDirectory),
+          submitted: false,
+        },
+      }));
     case 'tool.started':
       return updateCurrentRun(state, event, run => ({
         ...run,
@@ -123,6 +170,13 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
       return updateCurrentRun(state, event, run => ({
         ...run,
         tools: upsertFinishedTool(run.tools, event),
+        pendingApproval: run.pendingApproval?.ordinal === Number(event.payload.ordinal)
+          ? undefined : run.pendingApproval,
+      }));
+    case 'tool.output':
+      return updateCurrentRun(state, event, run => ({
+        ...run,
+        tools: appendToolOutput(run.tools, event),
       }));
     case 'run.completed':
       return finishRun(state, event, 'completed');
@@ -136,6 +190,26 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
         notice: safeProtocolMessage(event.payload),
       };
   }
+}
+
+function optionalText(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function approvalOperation(
+  value: unknown,
+): ApprovalView['operation'] {
+  return value === 'modify' || value === 'create' ? value : undefined;
+}
+
+function approvalShell(value: unknown): ApprovalView['shell'] {
+  return value === 'powershell' || value === 'sh' ? value : undefined;
+}
+
+function optionalNonNegativeInteger(value: unknown): number | undefined {
+  return Number.isSafeInteger(value) && (value as number) >= 0
+    ? value as number
+    : undefined;
 }
 
 function upsertStartedTool(
@@ -154,6 +228,7 @@ function upsertStartedTool(
     truncated: false,
     truncationReason: undefined,
     errorCode: undefined,
+    output: '',
   };
   return [...tools.filter(tool => tool.ordinal !== ordinal), item]
     .sort((left, right) => left.ordinal - right.ordinal);
@@ -181,9 +256,26 @@ function upsertFinishedTool(
       ? event.payload.truncationReason : undefined,
     errorCode: typeof event.payload.errorCode === 'string'
       ? event.payload.errorCode : undefined,
+    output: tools.find(tool => tool.ordinal === ordinal)?.output ?? '',
   };
   return [...tools.filter(tool => tool.ordinal !== ordinal), item]
     .sort((left, right) => left.ordinal - right.ordinal);
+}
+
+function appendToolOutput(
+  tools: readonly ToolView[],
+  event: ProtocolEvent,
+): readonly ToolView[] {
+  const ordinal = Number(event.payload.ordinal);
+  const current = tools.find(tool => tool.ordinal === ordinal);
+  if (current === undefined) {
+    return tools;
+  }
+  const prefix = event.payload.stream === 'stderr' ? '[stderr] ' : '';
+  const next = Array.from(current.output + prefix + String(event.payload.text))
+    .slice(0, 64 * 1024)
+    .join('');
+  return tools.map(tool => tool.ordinal === ordinal ? {...tool, output: next} : tool);
 }
 
 function finishRun(
@@ -194,6 +286,7 @@ function finishRun(
   const updated = updateCurrentRun(state, event, run => ({
     ...run,
     status,
+    pendingApproval: undefined,
     stopReason: terminalText(event.payload.stopReason),
     modelTurns: terminalCount(event.payload.modelTurns),
     toolCalls: terminalCount(event.payload.toolCalls),

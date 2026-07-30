@@ -9,6 +9,7 @@ import io.github.liumaishenjian.ccjava.domain.ToolDefinition;
 import io.github.liumaishenjian.ccjava.domain.ToolError;
 import io.github.liumaishenjian.ccjava.domain.ToolErrorCode;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
+import io.github.liumaishenjian.ccjava.domain.ToolOutputStream;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -98,7 +99,13 @@ public final class ToolExecutionPipeline {
         Objects.requireNonNull(call, "call 不能为空");
         Objects.requireNonNull(cancellationToken, "cancellationToken 不能为空");
         ToolInvocation invocation = new ToolInvocation(
-                session.id(), runId, ordinal, call, cancellationToken);
+                session.id(),
+                runId,
+                ordinal,
+                call,
+                cancellationToken,
+                (stream, text) -> publishToolOutput(
+                        session, runId, ordinal, call.name(), stream, text));
 
         AgentTool tool = registry.find(call.name()).orElse(null);
         if (tool == null) {
@@ -260,6 +267,23 @@ public final class ToolExecutionPipeline {
             ToolResult result) {
         lifecycle.dispatch(session, runId, new LifecycleEvent.AfterTool(ordinal, result));
         return result;
+    }
+
+    private void publishToolOutput(
+            AgentSession session,
+            RunId runId,
+            int ordinal,
+            String toolName,
+            ToolOutputStream stream,
+            String text) {
+        try {
+            lifecycle.dispatch(
+                    session,
+                    runId,
+                    new LifecycleEvent.ToolOutput(ordinal, toolName, stream, text));
+        } catch (RuntimeException ignored) {
+            // 输出事件是只读旁路，Surface 失败不能改变 Tool 的权威执行结果。
+        }
     }
 
 }

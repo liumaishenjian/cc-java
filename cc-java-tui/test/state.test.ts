@@ -171,6 +171,91 @@ describe('reduceTuiState', () => {
       toolCalls: 12,
     }));
   });
+
+  it('投影单次审批并在用户提交决定后清理等待面板', () => {
+    let state = reduceTuiState(initialTuiState, {
+      type: 'event.received',
+      event: event('initialized', 1, {protocolVersion: 0}, 'init', 'session-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'run.submitted',
+      requestId: 'req-run',
+      prompt: '修改文件',
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('run.started', 2, {}, 'req-run', 'session-1', 'run-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('approval.requested', 3, {
+        approvalId: 'approval-1',
+        ordinal: 1,
+        toolName: 'apply_patch',
+        effect: 'write_workspace',
+        target: 'src/main/App.java',
+        operation: 'modify',
+        removedLines: 2,
+        addedLines: 3,
+      }, 'req-run', 'session-1', 'run-1'),
+    });
+
+    expect(state.runs[0]?.pendingApproval).toEqual({
+      approvalId: 'approval-1',
+      ordinal: 1,
+      toolName: 'apply_patch',
+      effect: 'write_workspace',
+      target: 'src/main/App.java',
+      operation: 'modify',
+      removedLines: 2,
+      addedLines: 3,
+      command: undefined,
+      shell: undefined,
+      workingDirectory: undefined,
+      submitted: false,
+    });
+    state = reduceTuiState(state, {
+      type: 'approval.submitted',
+      approvalId: 'approval-1',
+    });
+    expect(state.runs[0]?.pendingApproval?.submitted).toBe(true);
+    expect(state.phase).toBe('running');
+  });
+
+  it('把命令输出追加到对应 Tool 且保持通道标记', () => {
+    let state = reduceTuiState(initialTuiState, {
+      type: 'event.received',
+      event: event('initialized', 1, {protocolVersion: 0}, 'init', 'session-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'run.submitted',
+      requestId: 'req-command',
+      prompt: '运行测试',
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('run.started', 2, {}, 'req-command', 'session-1', 'run-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('tool.started', 3, {
+        ordinal: 1,
+        toolName: 'run_command',
+        status: 'started',
+      }, 'req-command', 'session-1', 'run-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('tool.output', 4, {
+        ordinal: 1,
+        toolName: 'run_command',
+        stream: 'stderr',
+        text: 'test failed\n',
+      }, 'req-command', 'session-1', 'run-1'),
+    });
+
+    expect(state.runs[0]?.tools[0]?.output).toBe('[stderr] test failed\n');
+  });
 });
 
 function event(

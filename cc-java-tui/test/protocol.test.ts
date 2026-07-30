@@ -74,4 +74,73 @@ describe('decodeEvent', () => {
       payload: {...event.payload, mode: 'raw'},
     }), 1)).toThrowError(/模式/);
   });
+
+  it('只接受带固定副作用分类的审批摘要', () => {
+    const event = decodeEvent(JSON.stringify({
+      version: 0,
+      type: 'approval.requested',
+      requestId: 'req-1',
+      sessionId: 'session-1',
+      runId: 'run-1',
+      sequence: 1,
+      payload: {
+        approvalId: 'approval-1',
+        ordinal: 2,
+        toolName: 'apply_patch',
+        effect: 'write_workspace',
+        target: 'src/main/App.java',
+        operation: 'modify',
+        removedLines: 2,
+        addedLines: 3,
+      },
+    }), 1);
+
+    expect(event.payload.approvalId).toBe('approval-1');
+    expect(() => decodeEvent(JSON.stringify({
+      ...event,
+      payload: {...event.payload, effect: 'system_or_destructive'},
+    }), 1)).toThrowError(/审批摘要/);
+    expect(() => decodeEvent(JSON.stringify({
+      ...event,
+      payload: {...event.payload, target: 'C:\\secret.txt'},
+    }), 1)).toThrowError(/文件预览/);
+  });
+
+  it('接受准确命令审批和有界 Tool 输出事件', () => {
+    const approval = decodeEvent(JSON.stringify({
+      version: 0,
+      type: 'approval.requested',
+      requestId: 'req-1',
+      sessionId: 'session-1',
+      runId: 'run-1',
+      sequence: 1,
+      payload: {
+        approvalId: 'approval-command',
+        ordinal: 1,
+        toolName: 'run_command',
+        effect: 'execute_process',
+        operation: 'execute',
+        command: 'mvn test',
+        shell: 'powershell',
+        workingDirectory: '.',
+      },
+    }), 1);
+    const output = decodeEvent(JSON.stringify({
+      version: 0,
+      type: 'tool.output',
+      requestId: 'req-1',
+      sessionId: 'session-1',
+      runId: 'run-1',
+      sequence: 2,
+      payload: {
+        ordinal: 1,
+        toolName: 'run_command',
+        stream: 'stdout',
+        text: 'BUILD SUCCESS\n',
+      },
+    }), 2);
+
+    expect(approval.payload.command).toBe('mvn test');
+    expect(output.payload.text).toContain('BUILD SUCCESS');
+  });
 });

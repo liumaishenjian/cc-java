@@ -45,6 +45,29 @@ describe('StdioClient', () => {
       .toBe('run.cancelled');
   });
 
+  it('把匹配的单次审批决定发送给 Java 子进程', async () => {
+    const client = createClient('approval');
+    const events: ProtocolEvent[] = [];
+    client.onEvent(event => events.push(event));
+    client.initialize();
+
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+    client.startRun('修改文件');
+    await waitFor(() => events.some(event => event.type === 'approval.requested'));
+    const approval = events.find(event => event.type === 'approval.requested')!;
+    client.resolveApproval(String(approval.payload.approvalId), 'allow_once');
+    await waitFor(() => events.some(event => event.type === 'run.completed'));
+    await client.shutdown();
+
+    expect(events.map(event => event.type)).toContain('tool.completed');
+    expect(approval.payload).toMatchObject({
+      target: 'src/App.java',
+      operation: 'modify',
+      removedLines: 1,
+      addedLines: 2,
+    });
+  });
+
   it('乱序 stdout 触发失败并终止子进程', async () => {
     const client = createClient('bad-sequence');
     const failures: string[] = [];

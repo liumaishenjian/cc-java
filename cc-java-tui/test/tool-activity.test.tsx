@@ -77,5 +77,6 @@ function tool(
     truncated: false,
     truncationReason: undefined,
     errorCode: undefined,
+    output: '',
   };
 }

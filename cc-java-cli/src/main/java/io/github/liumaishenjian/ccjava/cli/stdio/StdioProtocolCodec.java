@@ -26,6 +26,7 @@ public final class StdioProtocolCodec {
             "initialize",
             "run.start",
             "run.cancel",
+            "approval.resolve",
             "shutdown");
 
     private final ObjectMapper mapper;

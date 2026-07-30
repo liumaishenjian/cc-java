@@ -16,7 +16,8 @@ import tools.jackson.databind.node.ObjectNode;
  * {@code AgentRuntime}，不能在本类中复制 Agent Loop。</p>
  *
  * <p>输入 Reader 与 Application 的异步 Run 线程分离，因此 Run 活动时仍能接收
- * {@code run.cancel}。所有输出都经过 {@link QueuedStdioEventEmitter}，stdout
+ * {@code run.cancel} 与 {@code approval.resolve}。所有输出都经过
+ * {@link QueuedStdioEventEmitter}，stdout
  * 不允许出现日志或普通文本。</p>
  *
  * @since 0.1.0

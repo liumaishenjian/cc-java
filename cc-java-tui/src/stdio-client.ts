@@ -125,6 +125,24 @@ export class StdioClient {
     return requestId;
   }
 
+  /**
+   * 把用户对当前展示请求的单次决定发给 Java 权威端。
+   */
+  public resolveApproval(
+    approvalId: string,
+    decision: 'allow_once' | 'deny',
+  ): string {
+    if (this.#sessionId === undefined || this.#activeRunId === undefined) {
+      throw new Error('当前没有可以审批的 Run');
+    }
+    return this.#send(
+      'approval.resolve',
+      {approvalId, decision},
+      this.#sessionId,
+      this.#activeRunId,
+    );
+  }
+
   public async shutdown(): Promise<void> {
     if (this.#closed) {
       return;

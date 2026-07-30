@@ -35,7 +35,13 @@ class WindowsJunctionWorkspaceGuardTest {
         try {
             assertThat(guard.requireRegularFile("internal-link/inside.txt").realPath())
                     .isEqualTo(internalTarget.resolve("inside.txt").toRealPath());
+            assertThat(guard.requireNewFile("internal-link/new.txt").realPath())
+                    .isEqualTo(internalTarget.toRealPath().resolve("new.txt"));
             assertThatThrownBy(() -> guard.requireRegularFile("external-link/outside.txt"))
+                    .isInstanceOf(WorkspaceAccessException.class)
+                    .satisfies(exception -> assertThat(((WorkspaceAccessException) exception)
+                            .error().code()).isEqualTo(ToolErrorCode.LINK_ESCAPE));
+            assertThatThrownBy(() -> guard.requireNewFile("external-link/new.txt"))
                     .isInstanceOf(WorkspaceAccessException.class)
                     .satisfies(exception -> assertThat(((WorkspaceAccessException) exception)
                             .error().code()).isEqualTo(ToolErrorCode.LINK_ESCAPE));

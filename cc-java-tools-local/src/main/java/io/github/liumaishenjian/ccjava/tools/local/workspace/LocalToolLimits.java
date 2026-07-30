@@ -1,7 +1,7 @@
 package io.github.liumaishenjian.ccjava.tools.local.workspace;
 
 /**
- * S03 本地只读工具的固定资源边界。
+ * S03-S04 本地文件工具的固定资源边界。
  *
  * <p>这些值在 S08 Settings 进入前不可由模型、仓库指令或 Tool 参数放宽。调用参数可以选择
  * 更小的预算；Pipeline 仍会执行独立的最终字符上限。</p>
@@ -36,6 +36,24 @@ public final class LocalToolLimits {
 
     /** 本地只读 Tool 声明的最大模型可见字符数。 */
     public static final int MAX_TOOL_OUTPUT_CHARACTERS = 64_000;
+
+    /** 单个精确替换片段的最大字符数。 */
+    public static final int MAX_PATCH_FRAGMENT_CHARACTERS = 512 * 1024;
+
+    /** 单次 Patch 结果中返回给模型的变更预览字符数。 */
+    public static final int MAX_PATCH_PREVIEW_CHARACTERS = 16 * 1024;
+
+    /** 单条 Shell 命令的最大字符数。 */
+    public static final int MAX_COMMAND_CHARACTERS = 8 * 1024;
+
+    /** 命令 stdout/stderr 合计保留给模型和 TUI 的最大字符数。 */
+    public static final int MAX_COMMAND_OUTPUT_CHARACTERS = 48 * 1024;
+
+    /** 命令默认超时秒数。 */
+    public static final int DEFAULT_COMMAND_TIMEOUT_SECONDS = 30;
+
+    /** 模型可请求的命令最大超时秒数。 */
+    public static final int MAX_COMMAND_TIMEOUT_SECONDS = 120;
 
     private LocalToolLimits() {
     }

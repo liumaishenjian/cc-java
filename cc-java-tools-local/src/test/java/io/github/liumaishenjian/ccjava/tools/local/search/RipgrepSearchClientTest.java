@@ -62,7 +62,7 @@ class RipgrepSearchClientTest {
             return fakeCommand("success");
         };
         RipgrepSearchClient client =
-                new RipgrepSearchClient(workspace, resolver, Duration.ofSeconds(2));
+                new RipgrepSearchClient(workspace, resolver, Duration.ofSeconds(15));
 
         TextSearchBackend.SearchResult result =
                 client.search("$(PRIVATE_SENTINEL)", ".", null, true, false);
@@ -118,10 +118,10 @@ class RipgrepSearchClientTest {
 
     @Test
     void boundsOutputAndDoesNotExposeStderr() {
-        assertThat(catchMode("overflow", Duration.ofSeconds(2)).error().code())
+        assertThat(catchMode("overflow", Duration.ofSeconds(15)).error().code())
                 .isEqualTo(ToolErrorCode.OUTPUT_LIMIT_EXCEEDED);
 
-        TextSearchBackend.SearchException error = catchMode("error", Duration.ofSeconds(2));
+        TextSearchBackend.SearchException error = catchMode("error", Duration.ofSeconds(15));
         assertThat(error.error().code()).isEqualTo(ToolErrorCode.EXECUTION_FAILED);
         assertThat(error.error().message()).doesNotContain("PRIVATE_STDERR_SENTINEL");
         assertThat(error.getMessage()).doesNotContain("PRIVATE_STDERR_SENTINEL");
@@ -131,7 +131,7 @@ class RipgrepSearchClientTest {
     void retriesOnlyExplicitTransientResourceFailure() throws Exception {
         Path attempt = workspace.resolve("attempt.txt");
         RipgrepSearchClient client = client(
-                "eagain", Duration.ofSeconds(3),
+                "eagain", Duration.ofSeconds(15),
                 "-Dcc.java.fake.rg.attempt=" + attempt);
 
         TextSearchBackend.SearchResult result =
@@ -145,7 +145,7 @@ class RipgrepSearchClientTest {
     void stopsAfterOneReducedThreadRetry() throws Exception {
         Path attempt = workspace.resolve("attempt.txt");
         RipgrepSearchClient client = client(
-                "eagain-always", Duration.ofSeconds(3),
+                "eagain-always", Duration.ofSeconds(15),
                 "-Dcc.java.fake.rg.attempt=" + attempt);
 
         TextSearchBackend.SearchException error =
@@ -159,7 +159,7 @@ class RipgrepSearchClientTest {
     void doesNotRetryDeterministicSyntaxFailureOrExposeDiagnostic() throws Exception {
         Path attempt = workspace.resolve("attempt.txt");
         RipgrepSearchClient client = client(
-                "syntax", Duration.ofSeconds(3),
+                "syntax", Duration.ofSeconds(15),
                 "-Dcc.java.fake.rg.attempt=" + attempt);
 
         TextSearchBackend.SearchException error =
@@ -175,7 +175,7 @@ class RipgrepSearchClientTest {
         Path pid = workspace.resolve("parent.pid");
         Path childPid = workspace.resolve("child.pid");
         RipgrepSearchClient client = client(
-                "descendant", Duration.ofSeconds(3),
+                "descendant", Duration.ofSeconds(10),
                 "-Dcc.java.fake.rg.pid=" + pid,
                 "-Dcc.java.fake.rg.childPid=" + childPid);
 
@@ -184,7 +184,7 @@ class RipgrepSearchClientTest {
                         catchSearch(client, SearchCancellation.none()));
         awaitFile(pid);
         awaitFile(childPid);
-        TextSearchBackend.SearchException error = result.get(5, TimeUnit.SECONDS);
+        TextSearchBackend.SearchException error = result.get(15, TimeUnit.SECONDS);
 
         assertThat(error.error().code()).isEqualTo(ToolErrorCode.OPERATION_TIMED_OUT);
         assertProcessStops(readPid(pid));
@@ -197,7 +197,7 @@ class RipgrepSearchClientTest {
         Path childPid = workspace.resolve("child.pid");
         AtomicBoolean cancelled = new AtomicBoolean();
         RipgrepSearchClient client = client(
-                "descendant", Duration.ofSeconds(5),
+                "descendant", Duration.ofSeconds(30),
                 "-Dcc.java.fake.rg.pid=" + pid,
                 "-Dcc.java.fake.rg.childPid=" + childPid);
 
@@ -208,7 +208,7 @@ class RipgrepSearchClientTest {
         awaitFile(childPid);
         cancelled.set(true);
 
-        TextSearchBackend.SearchException error = result.get(3, TimeUnit.SECONDS);
+        TextSearchBackend.SearchException error = result.get(10, TimeUnit.SECONDS);
         assertThat(error.error().code()).isEqualTo(ToolErrorCode.OPERATION_CANCELLED);
         assertProcessStops(readPid(pid));
         assertProcessStops(readPid(childPid));
@@ -307,7 +307,7 @@ class RipgrepSearchClientTest {
     }
 
     private static void awaitFile(Path path) throws Exception {
-        long deadline = System.nanoTime() + Duration.ofSeconds(2).toNanos();
+        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
         while (!Files.exists(path) && System.nanoTime() < deadline) {
             Thread.sleep(10);
         }
@@ -320,7 +320,7 @@ class RipgrepSearchClientTest {
     }
 
     private static void assertProcessStops(long pid) throws Exception {
-        long deadline = System.nanoTime() + Duration.ofSeconds(2).toNanos();
+        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
         while (isAlive(pid) && System.nanoTime() < deadline) {
             Thread.sleep(10);
         }

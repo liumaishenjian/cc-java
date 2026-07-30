@@ -19,6 +19,19 @@ final class Utf8TextReader {
     }
 
     static String read(Path path, long maximumBytes) throws WorkspaceAccessException {
+        return readDocument(path, maximumBytes).text();
+    }
+
+    /**
+     * 读取文本与原始字节，使写工具可以在提交前检测并发变化。
+     *
+     * @param path 已验证普通文件
+     * @param maximumBytes 字节上限
+     * @return 严格 UTF-8 文档快照
+     * @throws WorkspaceAccessException 文件过大、编码非法或读取失败时
+     */
+    static Utf8TextDocument readDocument(Path path, long maximumBytes)
+            throws WorkspaceAccessException {
         long size;
         try {
             size = Files.size(path);
@@ -37,13 +50,14 @@ final class Utf8TextReader {
         if (containsBinaryNull(bytes)) {
             throw error(ToolErrorCode.UNSUPPORTED_ENCODING, "目标不是受支持的 UTF-8 文本");
         }
-        int offset = hasBom(bytes) ? 3 : 0;
+        boolean bom = hasBom(bytes);
+        int offset = bom ? 3 : 0;
         try {
             CharBuffer decoded = StandardCharsets.UTF_8.newDecoder()
                     .onMalformedInput(CodingErrorAction.REPORT)
                     .onUnmappableCharacter(CodingErrorAction.REPORT)
                     .decode(ByteBuffer.wrap(bytes, offset, bytes.length - offset));
-            return decoded.toString();
+            return new Utf8TextDocument(decoded.toString(), bytes, bom);
         } catch (CharacterCodingException exception) {
             throw error(ToolErrorCode.UNSUPPORTED_ENCODING, "目标不是有效 UTF-8 文本");
         }

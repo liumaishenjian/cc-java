@@ -19,6 +19,7 @@ public sealed interface LifecycleEvent extends AgentEvent
                 LifecycleEvent.BeforeTool,
                 LifecycleEvent.PermissionRequested,
                 LifecycleEvent.PermissionDecided,
+                LifecycleEvent.ToolOutput,
                 LifecycleEvent.AfterTool,
                 LifecycleEvent.RunFinished {
 
@@ -180,6 +181,43 @@ public sealed interface LifecycleEvent extends AgentEvent
     }
 
     /**
+     * Tool 执行期间产生的一段有界输出。
+     *
+     * <p>该事件会进入有界的 Session 事件序列并供当前 Run 的交互 Surface 展示，但不
+     * 追加为规范消息，也不进入遥测。最终进入模型 Context 的内容仍由 Tool Result 和
+     * Pipeline 上限唯一决定。</p>
+     *
+     * @param ordinal 本次 Run 内的 Tool Call 序号
+     * @param toolName Tool 名称
+     * @param stream stdout 或 stderr
+     * @param text 非空且有界的文本片段
+     */
+    record ToolOutput(
+            int ordinal,
+            String toolName,
+            ToolOutputStream stream,
+            String text) implements LifecycleEvent {
+
+        /** 单个事件片段的最大字符数。 */
+        public static final int MAX_CHUNK_CHARACTERS = 4_096;
+
+        /**
+         * 校验关联信息和片段边界。
+         */
+        public ToolOutput {
+            if (ordinal < 1) {
+                throw new IllegalArgumentException("ordinal 必须从 1 开始");
+            }
+            toolName = requireText(toolName, "toolName");
+            stream = Objects.requireNonNull(stream, "stream 不能为空");
+            text = requireText(text, "text");
+            if (text.codePointCount(0, text.length()) > MAX_CHUNK_CHARACTERS) {
+                throw new IllegalArgumentException("Tool 输出片段超过字符上限");
+            }
+        }
+    }
+
+    /**
      * 单个 Tool Call 已被规范化为 Tool Result。
      *
      * @param ordinal 本次 Run 内的 Tool Call 序号
@@ -219,5 +257,13 @@ public sealed interface LifecycleEvent extends AgentEvent
         public RunFinished {
             result = Objects.requireNonNull(result, "result 不能为空");
         }
+    }
+
+    private static String requireText(String value, String field) {
+        Objects.requireNonNull(value, field + " 不能为空");
+        if (value.isEmpty()) {
+            throw new IllegalArgumentException(field + " 不能为空");
+        }
+        return value;
     }
 }

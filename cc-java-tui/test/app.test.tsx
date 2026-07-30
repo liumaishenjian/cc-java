@@ -3,6 +3,7 @@ import {describe, expect, it} from 'vitest';
 import {
   AgentTui,
   AgentView,
+  approvalDecision,
   appendInput,
   canEditInput,
   decideInterrupt,
@@ -63,6 +64,7 @@ describe('AgentView', () => {
           truncated: false,
           truncationReason: undefined,
           errorCode: undefined,
+          output: '',
         }],
         status: 'running',
         stopReason: undefined,
@@ -75,6 +77,46 @@ describe('AgentView', () => {
     expect(view.lastFrame()).toContain('正在处理');
     expect(view.lastFrame()).toContain('阅读文件（进行中）');
     expect(view.lastFrame()).toContain('运行中');
+  });
+
+  it('审批面板展示受控相对路径和变更行数', () => {
+    const state: TuiState = {
+      phase: 'running',
+      sessionId: 'session-1',
+      activeRunId: 'run-write',
+      notice: undefined,
+      runs: [{
+        requestId: 'req-write',
+        prompt: '修改文件',
+        runId: 'run-write',
+        text: '',
+        tools: [],
+        pendingApproval: {
+          approvalId: 'approval-1',
+          ordinal: 1,
+          toolName: 'apply_patch',
+          effect: 'write_workspace',
+          target: 'src/main/App.java',
+          operation: 'modify',
+          removedLines: 2,
+          addedLines: 3,
+          command: undefined,
+          shell: undefined,
+          workingDirectory: undefined,
+          submitted: false,
+        },
+        status: 'running',
+        stopReason: undefined,
+        modelTurns: undefined,
+        toolCalls: undefined,
+      }],
+    };
+
+    const view = render(<AgentView state={state} input="" columns={80} />);
+
+    expect(view.lastFrame()).toContain('修改：src/main/App.java');
+    expect(view.lastFrame()).toContain('+3 行');
+    expect(view.lastFrame()).toContain('-2 行');
   });
 
   it('Backspace 按 Unicode Code Point 删除且中断动作取决于 Java Run 投影', () => {
@@ -182,6 +224,14 @@ describe('AgentView', () => {
   });
 });
 
+describe('approvalDecision', () => {
+  it('只把 Y/N 映射为单次允许或拒绝', () => {
+    expect(approvalDecision('Y')).toBe('allow_once');
+    expect(approvalDecision('n')).toBe('deny');
+    expect(approvalDecision('a')).toBeUndefined();
+  });
+});
+
 class FakeAgentClient implements AgentClient {
   readonly prompts: string[] = [];
   initializeCalls = 0;
@@ -212,6 +262,10 @@ class FakeAgentClient implements AgentClient {
 
   public cancelRun(): string {
     return 'tui-3';
+  }
+
+  public resolveApproval(): string {
+    return 'tui-4';
   }
 
   public async shutdown(): Promise<void> {

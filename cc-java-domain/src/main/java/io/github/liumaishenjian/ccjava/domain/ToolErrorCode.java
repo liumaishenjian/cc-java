@@ -43,6 +43,9 @@ public enum ToolErrorCode {
     /** 普通文本文件超过当前 Stage 的读取上限。 */
     FILE_TOO_LARGE,
 
+    /** 文件内容或存在状态不再满足写入前置条件。 */
+    FILE_CONFLICT,
+
     /** 文件不是受支持的严格 UTF-8 文本。 */
     UNSUPPORTED_ENCODING,
 

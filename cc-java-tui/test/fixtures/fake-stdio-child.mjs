@@ -48,6 +48,25 @@ reader.on('line', line => {
       activeRunId = undefined;
       return;
     }
+    if (mode === 'approval') {
+      emit(
+        'approval.requested',
+        command.requestId,
+        {
+          approvalId: 'approval-1',
+          ordinal: 1,
+          toolName: 'apply_patch',
+          effect: 'write_workspace',
+          target: 'src/App.java',
+          operation: 'modify',
+          removedLines: 1,
+          addedLines: 2,
+        },
+        sessionId,
+        activeRunId,
+      );
+      return;
+    }
     timer = setTimeout(() => {
       emit('model.text.delta', command.requestId, {text: '你好 '}, sessionId, activeRunId);
       timer = setTimeout(() => {
@@ -62,6 +81,31 @@ reader.on('line', line => {
       return;
     }
     emit('run.cancelled', command.requestId, {stopReason: 'cancelled'}, sessionId, activeRunId);
+    activeRunId = undefined;
+  } else if (command.type === 'approval.resolve') {
+    if (mode !== 'approval'
+      || command.payload.approvalId !== 'approval-1'
+      || command.payload.decision !== 'allow_once') {
+      process.exit(19);
+      return;
+    }
+    emit(
+      'tool.completed',
+      command.requestId,
+      {
+        ordinal: 1,
+        toolName: 'apply_patch',
+        status: 'success',
+        returnedCharacters: 10,
+        returnedItems: 1,
+        filteredItems: 0,
+        truncated: false,
+        truncationReason: 'none',
+      },
+      sessionId,
+      activeRunId,
+    );
+    emit('run.completed', command.requestId, {stopReason: 'completed'}, sessionId, activeRunId);
     activeRunId = undefined;
   } else if (command.type === 'shutdown') {
     clearTimeout(timer);
