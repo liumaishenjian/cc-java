@@ -223,7 +223,7 @@
     }
   </style>
 </head>
-<body data-matrix-digest="4969f59dddb2" data-state-digest="6d134f03d747" data-code-digest="e305592c26a4">
+<body data-matrix-digest="4969f59dddb2" data-state-digest="4776842735ad" data-code-digest="cde68a8847b9">
   <main class="shell">
     <section class="hero">
       <p class="eyebrow">Reference-driven Java Agent Runtime</p>
@@ -330,13 +330,13 @@
         </div>
       </div>
       <dl class="evidence-grid">
-        <div class="evidence-item"><dt>Last change</dt><dd>S03 退出后完成 CLI-03/CLI-04 展示维护：Markdown Assistant、按 content/files/count 和返回条目数聚合的 Tool 摘要、分层终态与输入区已通过 TUI、Java 协议和真实 Provider TTY 验证；Capability Level 无变化，未启动 S04。</dd></div>
+        <div class="evidence-item"><dt>Last change</dt><dd>合并前复验修正 S02 模型退避取消测试的异常链断言：验证对外 CANCELLED 语义，同时保留内部 RETRYABLE 原因；Capability Level 与 S03 Gate 状态无变化，尚未启动 S04。</dd></div>
         <div class="evidence-item"><dt>Evidence stage</dt><dd><code>S03</code></dd></div>
         <div class="evidence-item"><dt>Evidence class</dt><dd><code>COMMIT_VERIFIED</code></dd></div>
         <div class="evidence-item"><dt>Code commit</dt><dd><code>238fd631f7ae2246e6d57742508480ca05763850</code></dd></div>
         <div class="evidence-item"><dt>Standard command</dt><dd><code>./mvnw.cmd clean verify；npm.cmd --prefix cc-java-tui run check；./mvnw.cmd javadoc:aggregate；java scripts/ProgressDashboard.java --check；java scripts/ProgressDashboard.java --self-test</code></dd></div>
         <div class="evidence-item"><dt>Result</dt><dd>实现 Commit 238fd63 上 Domain 1/1、Core 44/44、Provider 23 项中 21 项离线通过且 2 个自动网络 Spike 跳过、tools-local 37 项中 36 项通过且 1 个非 Windows Symlink 用例跳过、CLI 34/34、TUI 25/25；真实 rg/Provider、PowerShell resolver、正常与超时进程清理、Javadoc和看板均通过。</dd></div>
-        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix 4969f59dddb2</code><br><code>state 6d134f03d747</code><br><code>code/build e305592c26a4</code></dd></div>
+        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix 4969f59dddb2</code><br><code>state 4776842735ad</code><br><code>code/build cde68a8847b9</code></dd></div>
       </dl>
     </section>
 

@@ -126,11 +126,16 @@ class RetryingModelGatewayTest {
         cancellation.cancel();
 
         assertThatThrownBy(() -> running.get(2, TimeUnit.SECONDS))
-                .hasRootCauseInstanceOf(ModelGatewayException.class)
-                .rootCause()
-                .satisfies(failure -> assertThat(
-                        ((ModelGatewayException) failure).kind())
-                        .isEqualTo(CANCELLED));
+                .satisfies(failure -> {
+                    Throwable asynchronousFailure = failure.getCause();
+                    assertThat(asynchronousFailure)
+                            .isInstanceOf(RuntimeException.class);
+                    assertThat(asynchronousFailure.getCause())
+                            .isInstanceOfSatisfying(
+                                    ModelGatewayException.class,
+                                    modelFailure -> assertThat(modelFailure.kind())
+                                            .isEqualTo(CANCELLED));
+                });
         assertThat(attempts).hasValue(1);
     }
 
