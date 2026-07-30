@@ -1,0 +1,23 @@
+docs/progress.html
+  s_371b145dc5ecd9::t_44269daa85c4d1 226,231,234,250,259,266,276,289,333,335-336,338-339
+docs/progress-state.properties
+  s_371b145dc5ecd9::t_4756e774c99e4f 7-10,13,16-18,24,38-39
+docs/evidence/S03-ripgrep-search-2026-07-30.md
+  s_371b145dc5ecd9::t_4756e774c99e4f 3-4,64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "13ae75e59aab90e66664418dd8914a88b7ab2057",
+  "prompts": {},
+  "sessions": {
+    "s_371b145dc5ecd9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa772-84c7-7680-9e8a-026c8e1161ea",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "yliu27 <yliu27@leqee.com>"
+    }
+  }
+}
