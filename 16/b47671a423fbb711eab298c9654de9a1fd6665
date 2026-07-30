@@ -1,0 +1,26 @@
+docs/evidence/S04-coding-loop-worktree-2026-07-30.md
+  s_371b145dc5ecd9::t_8ed9ec66b4c700 63-64
+docs/progress-state.properties
+  s_371b145dc5ecd9::t_8ed9ec66b4c700 13
+  s_371b145dc5ecd9::t_aa907b0b09060d 5
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/runtime/S04CodingLoopFixtureTest.java
+  s_371b145dc5ecd9::t_4547d806f5c1c3 19,64-79
+docs/progress.html
+  s_371b145dc5ecd9::t_938beb23e2e9a9 226,333,339
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "16b47671a423fbb711eab298c9654de9a1fd6665",
+  "prompts": {},
+  "sessions": {
+    "s_371b145dc5ecd9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa772-84c7-7680-9e8a-026c8e1161ea",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "yliu27 <yliu27@leqee.com>"
+    }
+  }
+}
