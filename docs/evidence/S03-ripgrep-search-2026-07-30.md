@@ -1,6 +1,7 @@
 # S03 ripgrep 搜索机制校正证据
 
-- Status: Worktree Verified
+- Status: Commit Verified
+- Implementation Commit: `238fd631f7ae2246e6d57742508480ca05763850`
 - Date: 2026-07-30
 - Stage: S03 Read Tools 退出后维护
 - Capability IDs: `TOOL-05`、`TOOL-12`、`TOOL-13`、`SEC-03`、`SEC-10`
@@ -60,7 +61,6 @@ Windows 沙箱外结果：
   `SEARCH_UNAVAILABLE` 或 rg 子进程卡死；
 - 看板生成、`--check` 与 `--self-test` 全部通过。
 
-## 待关闭
+## 剩余边界
 
-- 获得维护者单独授权后创建 Commit，并完成 Commit-scoped 复验；
 - 内置/嵌入式 rg、签名和跨机器发行仍属于 S14，不计入 S03 退出目标。
