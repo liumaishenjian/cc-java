@@ -29,6 +29,7 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.io.TempDir;
 
 class HeadlessRuntimeSessionTest {
@@ -234,6 +235,81 @@ class HeadlessRuntimeSessionTest {
     }
 
     @Test
+    void completesAdvancedSearchModesAndPaginationThroughCanonicalAgentLoop() throws Exception {
+        Assumptions.assumeTrue(hasRipgrep(), "当前环境没有 rg");
+        Files.createDirectories(temporaryWorkspace.resolve("src"));
+        Files.writeString(temporaryWorkspace.resolve("src/A.java"),
+                "before\nclass A { // needle }\n");
+        Files.writeString(temporaryWorkspace.resolve("src/B.java"),
+                "class B { // needle }\n");
+        Files.writeString(temporaryWorkspace.resolve("README.md"), "needle docs\n");
+        Files.writeString(temporaryWorkspace.resolve(".env"), "needle secret\n");
+        java.util.List<ToolCall> calls = java.util.List.of(
+                new ToolCall("call-content", "search_text", new JsonObject(Map.of(
+                        "query", "need(le)?",
+                        "path", "src",
+                        "type", "java",
+                        "regex", true,
+                        "multiline", true,
+                        "context", 1))),
+                new ToolCall("call-files-1", "search_text", new JsonObject(Map.of(
+                        "query", "needle",
+                        "path", "src",
+                        "mode", "files",
+                        "limit", 1))),
+                new ToolCall("call-files-2", "search_text", new JsonObject(Map.of(
+                        "query", "needle",
+                        "path", "src",
+                        "mode", "files",
+                        "offset", 1,
+                        "limit", 1))),
+                new ToolCall("call-count", "search_text", new JsonObject(Map.of(
+                        "query", "needle",
+                        "path", "src",
+                        "mode", "count",
+                        "limit", 0))));
+        CopyOnWriteArrayList<ModelRequest> requests = new CopyOnWriteArrayList<>();
+        java.util.concurrent.atomic.AtomicInteger turn = new java.util.concurrent.atomic.AtomicInteger();
+        ModelGateway model = request -> {
+            requests.add(request);
+            int current = turn.getAndIncrement();
+            return current < calls.size()
+                    ? new ModelTurn(
+                            AssistantMessage.tools(java.util.List.of(calls.get(current))),
+                            ModelTurnMetadata.unknown())
+                    : ModelTurn.text("advanced search complete");
+        };
+
+        AgentRunResult run;
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                model,
+                AgentEventSink.noop(),
+                new HeadlessRuntimeOptions(
+                        temporaryWorkspace, "fake-model", Duration.ofSeconds(10)))) {
+            application.open();
+            run = application.run("exercise advanced search");
+        }
+
+        assertThat(run.stopReason()).isEqualTo(StopReason.COMPLETED);
+        assertThat(run.toolCalls()).isEqualTo(4);
+        java.util.List<ToolResultMessage> results = requests.getLast().messages().stream()
+                .filter(ToolResultMessage.class::isInstance)
+                .map(ToolResultMessage.class::cast)
+                .toList();
+        assertThat(results).extracting(message -> message.result().callId())
+                .containsExactly("call-content", "call-files-1", "call-files-2", "call-count");
+        assertThat(results.get(0).result().content()).contains("src/A.java:2", "before");
+        assertThat(results.get(0).result().content()).doesNotContain(".env", "README");
+        assertThat(results.get(1).result().metadata().truncated()).isTrue();
+        assertThat(results.get(1).result().metadata().continuation().values())
+                .containsEntry("offset", 1);
+        assertThat(results.get(2).result().content())
+                .isNotEqualTo(results.get(1).result().content());
+        assertThat(results.get(3).result().content())
+                .contains("src/A.java: 1", "src/B.java: 1");
+    }
+
+    @Test
     void sensitiveReadReturnsCorrectableErrorAndProjectInstructionsCannotElevateIt()
             throws Exception {
         Files.writeString(temporaryWorkspace.resolve("AGENTS.md"),
@@ -283,6 +359,18 @@ class HeadlessRuntimeSessionTest {
                 java.nio.charset.StandardCharsets.UTF_8);
         if (process.waitFor() != 0) {
             throw new IllegalStateException("Fixture Git failed: " + output);
+        }
+    }
+
+    private static boolean hasRipgrep() {
+        try {
+            Process process = new ProcessBuilder("rg", "--version")
+                    .redirectErrorStream(true)
+                    .start();
+            process.getInputStream().readAllBytes();
+            return process.waitFor() == 0;
+        } catch (Exception exception) {
+            return false;
         }
     }
 

@@ -960,8 +960,41 @@ Resize 只改变 Viewport 投影。非交互 Transport Failure 使用固定诊�
 Node 堆栈或 Java stderr 原文。精确状态和验证边界见
 [ADR-028](./adr/ADR-028-s02-windows-terminal-lifecycle.md)。
 
+Java 终态事件中的 `stopReason`、`modelTurns` 和 `toolCalls` 由 TUI 校验后保留，并显示为
+不含 Provider 原文的终止摘要。TUI 不得把“所有 Tool 成功”推断成 Run 成功，也不得丢弃
+Java 已经给出的失败分类。失败 Run 的恢复元数据尚不写入下一轮规范模型历史；如何表达
+未完成运行并避免自动重放副作用属于 S06 `SESSION-09`，不能伪造 Assistant Message
+提前实现。
+
 S04～S05 再加入 Tool/Approval 展示，S08 再完成多行、历史、补全和 Slash Command。
 UI 由纯 Reducer 驱动，不断言整屏 ANSI Golden Output。
+
+### 19.5 S03 受控 ripgrep 搜索
+
+`search_text` 通过内部 `TextSearchBackend` 隔离 Tool 契约和搜索引擎。生产装配使用
+`RipgrepSearchClient`，把不可变 `TextSearchRequest` 转换为参数数组，在固定 Workspace
+执行 rg。参数支持字面/正则、Glob/type、大小写、多行、before/after/context、
+content/files/count、行号与 offset/limit；查询始终经 `-e` 传递，`--` 隔离搜索根，
+不经过 Shell。
+
+rg 使用 `--no-config --json`、默认 ignore、敏感 Glob、无链接跟随、并发有界
+stdout/stderr 和 10 秒总墙钟。Run 的 CancellationToken 经 ToolInvocation 传播到
+搜索进程；取消、超时、输出超限和 JSON 协议损坏分开报告，并清理进程树。仅明确的临时
+资源不足执行一次 `--threads 1` 重试；非法正则/type 等确定性错误不重试。退出码 1
+表示无匹配。
+
+JSON 事件聚合为类型化 content/files/count，再由 WorkspaceGuard 逐条复验返回路径；
+分页在有界事件集上执行，`limit=0` 仍受进程字节、JSON 行、事件和 Pipeline 字符上限。
+files 模式按 mtime 降序，并以协议路径稳定打破并列。rg 不可用时只有语义等价的字面
+content 子集进入 Java 有界扫描，其他请求返回 `SEARCH_UNAVAILABLE`。本阶段不引入 RAG；
+语义搜索必须作为独立 Capability 评测。
+
+Windows PowerShell 启动器在创建 Node/Java 子进程前调用同一个只读 resolver：
+显式 `CC_JAVA_RIPGREP_PATH` 优先，其次系统 PATH，最后允许复用本机已经存在的 Codex
+Desktop rg。解析成功后只把绝对目录补入本次进程树 PATH，不修改系统环境、不下载工具、
+不把绝对路径写入普通日志。真正随项目发行 rg 仍属于 S14。
+机制来源与独立实现边界见
+[ADR-033](./adr/ADR-033-s03-ripgrep-search-backend.md)。
 
 ## 20. 配置与秘密
 
@@ -1234,6 +1267,7 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | [ADR-030](./adr/ADR-030-s02-privacy-safe-run-telemetry.md) | Accepted | S02 固定事件边界耗时、可信 Usage 完整覆盖语义与默认最小化观测出口 |
 | [ADR-031](./adr/ADR-031-s02-provider-multi-tool-deviation.md) | Accepted | 当前 Provider 同回合多 Tool 是生成能力偏差；Adapter 继续保留完整协议 |
 | [ADR-032](./adr/ADR-032-s03-read-tools-security-contract.md) | Accepted | S03 固定五个只读 Tool、WorkspaceGuard、敏感路径、结果硬上限、根 `AGENTS.md` 与安全事件投影 |
+| [ADR-033](./adr/ADR-033-s03-ripgrep-search-backend.md) | Accepted | S03 以受控 ripgrep 子进程重实现成熟文本搜索机制，保留 Java 字面搜索降级并明确非 RAG 边界 |
 
 ## 26. 需求追踪
 

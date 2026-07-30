@@ -37,4 +37,16 @@ describe('decodeEvent', () => {
       payload: {text: 'x'},
     }), 1)).toThrowError(/runId/);
   });
+
+  it('拒绝包含控制字符的终止原因', () => {
+    expect(() => decodeEvent(JSON.stringify({
+      version: 0,
+      type: 'run.failed',
+      requestId: 'req-1',
+      sessionId: 'session-1',
+      runId: 'run-1',
+      sequence: 1,
+      payload: {stopReason: 'model_error\n伪造终端输出'},
+    }), 1)).toThrowError(/stopReason/);
+  });
 });

@@ -14,6 +14,11 @@
 > [ADR-032](./docs/adr/ADR-032-s03-read-tools-security-contract.md)实现五个只读 Tool、
 > WorkspaceGuard、结果硬上限、根 `AGENTS.md` 与安全 Tool 进度，并通过离线 E2E、真实
 > Windows Junction 和实现 Commit `71a2818` 的 Commit-scoped 复验；S03 Stage Exit 已 Accepted。
+> 后续搜索机制校正依据授权快照提炼的 ripgrep 策略：受控 rg 已支持完整 Grep 参数、
+> content/files/count、JSON 结果、分页、取消、超时和一次资源恢复；Java 字面扫描只作为
+> rg 缺失时的受限降级，精确代码搜索不使用 RAG。
+> PowerShell 启动器会从 `CC_JAVA_RIPGREP_PATH`、PATH 或本机现有 Codex Desktop
+> 安装中解析 rg；项目本身不下载或分发该二进制。
 >
 > Current status: S01, S02 and S03 accepted; S04 Write + Command gate is next.
 

@@ -240,6 +240,9 @@ FixBug 可以在 S11 后实现为 Skill 或独立应用，也可以作为 S04 �
 ### S03：Read Tools
 
 - 提供 `list_files`、`read_file`、`search_text`、`git_status`、`git_diff`；
+- `search_text` 生产路径采用受控 ripgrep，支持字面/正则、Glob/type、大小写、多行、
+  上下文、content/files/count、offset/limit，并传播 Run 取消；rg 不可用时只允许
+  语义等价的字面 content 子集降级，不把 RAG 冒充精确代码检索；
 - 加载项目根 `AGENTS.md`；
 - 建立 Workspace Realpath、Symlink/Junction、敏感文件和大小边界；
 - 为 Tool Result 建立类型化上限、明确截断和可供后续 Context 使用的元数据；

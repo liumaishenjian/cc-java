@@ -71,10 +71,34 @@ public final class ToolExecutionPipeline {
             RunId runId,
             int ordinal,
             ToolCall call) {
+        return execute(session, runId, ordinal, call, CancellationToken.none());
+    }
+
+    /**
+     * 顺序处理一次 Tool Call，并把当前 Run 的取消信号传播给 Tool Adapter。
+     *
+     * <p>取消信号只允许 Adapter 终止自身 I/O 或子进程；Run 的最终
+     * {@code USER_CANCELLED} 状态仍由 {@link AgentRuntime} 唯一决定。</p>
+     *
+     * @param session 当前 Session
+     * @param runId 当前 Run
+     * @param ordinal 本次 Run 内的调用序号
+     * @param call 原始模型调用
+     * @param cancellationToken 当前 Run 的取消信号
+     * @return 已规范化结果
+     */
+    public ToolResult execute(
+            AgentSession session,
+            RunId runId,
+            int ordinal,
+            ToolCall call,
+            CancellationToken cancellationToken) {
         Objects.requireNonNull(session, "session 不能为空");
         Objects.requireNonNull(runId, "runId 不能为空");
         Objects.requireNonNull(call, "call 不能为空");
-        ToolInvocation invocation = new ToolInvocation(session.id(), runId, ordinal, call);
+        Objects.requireNonNull(cancellationToken, "cancellationToken 不能为空");
+        ToolInvocation invocation = new ToolInvocation(
+                session.id(), runId, ordinal, call, cancellationToken);
 
         AgentTool tool = registry.find(call.name()).orElse(null);
         if (tool == null) {

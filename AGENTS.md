@@ -22,6 +22,8 @@
    [ADR-029](./docs/adr/ADR-029-s02-continuous-session.md)、
    [ADR-030](./docs/adr/ADR-030-s02-privacy-safe-run-telemetry.md)、
    [ADR-031](./docs/adr/ADR-031-s02-provider-multi-tool-deviation.md)、
+   [ADR-032](./docs/adr/ADR-032-s03-read-tools-security-contract.md)、
+   [ADR-033](./docs/adr/ADR-033-s03-ripgrep-search-backend.md)、
    [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)、
    [ADR-018](./docs/adr/ADR-018-authorized-reference-study.md)、
    [ADR-019](./docs/adr/ADR-019-s07-progressive-context-reduction.md)与
@@ -184,6 +186,26 @@ G0-G6 Gate。当前授权研究和独立重实现边界由
 
 完整快照、未知项和停止条件见
 [授权参考源码基线](./docs/reference-baselines/R2026.03-authorized-source.md)与 ADR-022。
+
+### 5.2 成熟核心机制的默认研究要求
+
+对矩阵中的 Agent Loop、Tool、Permission、Context、Session、Hook、MCP、Skill、
+Subagent、Worktree、后台执行和 Sandbox 等成熟核心能力，进入设计或实现前默认必须先在
+`AUTH-SRC-2026-07-29-A` 中完成受控机制研究，而不是直接从头试做。只有授权快照确实没有
+对应机制、材料不可用或该能力明确属于本项目独立创新时，才可写
+`N/A - Not Used`，并必须在 ADR 中记录原因和替代验证方法。
+
+每项研究和重实现至少应留下：
+
+1. 授权源中可抽象表达的职责、状态转换、边界条件、失败恢复和验证方法；
+2. 本项目采用或有意偏离的机制，以及独立 Java/TypeScript 契约；
+3. 能够自动证伪理解错误的 Fake、集成测试、Demo 或度量；
+4. 仍未达到参考机制的差距和后续 Feature/Stage；
+5. 对照结论、测试、文档和看板的自动化复验结果。
+
+维护者负责验收学习目标和体验，不负责替代实现者逐项发现参考机制或手工证明每个基础
+功能。实现者不得因为某项功能“容易自己写”就跳过授权源研究，也不得把授权研究误解为
+复制源码表达。
 
 ## 6. 核心架构不变量
 

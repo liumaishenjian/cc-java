@@ -247,7 +247,9 @@ S03 增加模型可纠正的稳定分类：绝对/非法路径、Workspace 越�
 
 ## 明确延期
 
-- S04：写文件、Patch、通用命令、Approval UI、Tool/进程取消和脏工作区写保护；
+- S04：写文件、Patch、通用命令、Approval UI、通用 Tool/Command 进程取消和脏工作区写保护；
+- S03 维护例外：ADR-033 为完成成熟 Grep 恢复机制，只把无副作用
+  `search_text` 的 Run Cancellation → rg 子进程传播提前到 S03；不授权通用命令执行；
 - S05：完整 Effect/Mode/Rule/Approval 优先级与拒绝恢复；
 - S07：Tool Result 淘汰、摘要和自动 Context 压缩；
 - S08：分层 Instructions、Settings 和可配置敏感路径策略；

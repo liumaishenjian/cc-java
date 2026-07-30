@@ -298,7 +298,7 @@ Stage 完成项。
 | TOOL-02 | Tool Registry | Source-aware Registry | L1 | S01 | REF-01 |
 | TOOL-03 | 统一执行 Pipeline | Validate → Permit → Execute → Normalize | L1 | S01/S05 | REF-01/07 |
 | TOOL-04 | List / Glob | Workspace 文件枚举 | L2 | S03 | REF-02 |
-| TOOL-05 | Grep / Search | 文本和行号搜索 | L2 | S03 | REF-02 |
+| TOOL-05 | Grep / Search | 受控 ripgrep：完整参数、三模式、JSON 结果、取消与一次资源恢复；Java 字面降级 | L2 | S03 | REF-02/AUTH-01 |
 | TOOL-06 | Read File | 分段、行号、大小限制 | L2 | S03 | REF-02 |
 | TOOL-07 | Git Status / Diff | 脏工作区和证据 | L2 | S03/S04 | REF-02 |
 | TOOL-08 | Apply Patch / Edit | 原子文本修改 | L0 | S04 | REF-02 |
@@ -565,6 +565,7 @@ Fake User
 完成条件：
 
 - list/search/read/git status/diff；
+- search 支持完整 Grep 参数、content/files/count、类型化分页、取消、超时和一次资源不足恢复；
 - WorkspaceGuard；
 - AGENTS.md；
 - 类型化单结果上限、明确截断/外置元数据；

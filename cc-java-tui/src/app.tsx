@@ -2,6 +2,7 @@ import {useEffect, useReducer, useRef, useState} from 'react';
 import {Box, Text, useApp, useInput, usePaste, useWindowSize} from 'ink';
 import {initialTuiState, reduceTuiState} from './state.js';
 import type {ProtocolEvent} from './protocol.js';
+import type {RunView} from './state.js';
 
 export interface AgentTuiProps {
   readonly client: AgentClient;
@@ -151,7 +152,7 @@ export function AgentView({state, input, columns}: AgentViewProps) {
             </Text>
           ))}
           <Text>{run.text}</Text>
-          <Text dimColor>[{run.status}]</Text>
+          <Text dimColor>{formatRunTerminal(run)}</Text>
         </Box>
       ))}
       {state.notice === undefined ? null : <Text color="red">{state.notice}</Text>}
@@ -162,6 +163,23 @@ export function AgentView({state, input, columns}: AgentViewProps) {
       </Box>
     </Box>
   );
+}
+
+/**
+ * 把 Java 权威终态投影为不包含 Provider 原文的稳定诊断摘要。
+ */
+export function formatRunTerminal(run: RunView): string {
+  if (run.status === 'running') {
+    return '[running]';
+  }
+  const details = [
+    run.stopReason,
+    run.modelTurns === undefined ? undefined : `modelTurns=${run.modelTurns}`,
+    run.toolCalls === undefined ? undefined : `toolCalls=${run.toolCalls}`,
+  ].filter((value): value is string => value !== undefined);
+  return details.length === 0
+    ? `[${run.status}]`
+    : `[${run.status}: ${details.join(', ')}]`;
 }
 
 export function decideInterrupt(

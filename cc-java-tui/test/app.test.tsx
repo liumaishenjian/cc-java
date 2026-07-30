@@ -27,13 +27,17 @@ describe('AgentView', () => {
         text: '你好，coding agent。',
         tools: [],
         status: 'completed',
+        stopReason: 'completed',
+        modelTurns: 1,
+        toolCalls: 0,
       }],
     };
     const view = render(<AgentView state={state} input="下一步" columns={20} />);
 
     expect(view.lastFrame()).toContain('解释中文宽字符');
     expect(view.lastFrame()).toContain('coding agent');
-    expect(view.lastFrame()).toContain('[completed]');
+    expect(view.lastFrame()).toContain('[completed:');
+    expect(view.lastFrame()).toContain('modelTurns=1');
     expect(view.lastFrame()).toContain('下一步');
   });
 
@@ -57,6 +61,9 @@ describe('AgentView', () => {
           errorCode: undefined,
         }],
         status: 'running',
+        stopReason: undefined,
+        modelTurns: undefined,
+        toolCalls: undefined,
       }],
     };
     const view = render(<AgentView state={state} input="" columns={80} />);
@@ -97,6 +104,9 @@ describe('AgentView', () => {
         text: '已有回答',
         tools: [],
         status: 'completed',
+        stopReason: 'completed',
+        modelTurns: 1,
+        toolCalls: 0,
       }],
     };
     const view = render(<AgentView state={state} input="未提交输入" columns={100} />);
@@ -106,6 +116,31 @@ describe('AgentView', () => {
     expect(view.lastFrame()).toContain('保留上下文');
     expect(view.lastFrame()).toContain('已有回答');
     expect(view.lastFrame()).toContain('未提交输入');
+  });
+
+  it('失败终态展示 Java 权威原因和消耗计数', () => {
+    const state: TuiState = {
+      phase: 'ready',
+      sessionId: 'session-1',
+      activeRunId: undefined,
+      notice: undefined,
+      runs: [{
+        requestId: 'req-failed',
+        prompt: '分析 Agent Loop',
+        runId: 'run-failed',
+        text: '',
+        tools: [],
+        status: 'failed',
+        stopReason: 'turn_limit_reached',
+        modelTurns: 16,
+        toolCalls: 12,
+      }],
+    };
+    const view = render(<AgentView state={state} input="" columns={80} />);
+
+    expect(view.lastFrame()).toContain(
+      '[failed: turn_limit_reached, modelTurns=16, toolCalls=12]',
+    );
   });
 
   it('Paste 按 Unicode Code Point 截断到输入上限', () => {

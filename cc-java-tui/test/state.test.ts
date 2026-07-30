@@ -45,10 +45,19 @@ describe('reduceTuiState', () => {
 
     state = reduceTuiState(state, {
       type: 'event.received',
-      event: event('run.completed', 6, {}, 'req-run', 'session-1', 'run-1'),
+      event: event('run.completed', 6, {
+        stopReason: 'completed',
+        modelTurns: 2,
+        toolCalls: 1,
+      }, 'req-run', 'session-1', 'run-1'),
     });
     expect(state.phase).toBe('ready');
-    expect(state.runs[0]?.status).toBe('completed');
+    expect(state.runs[0]).toEqual(expect.objectContaining({
+      status: 'completed',
+      stopReason: 'completed',
+      modelTurns: 2,
+      toolCalls: 1,
+    }));
   });
 
   it('不把协议错误文本原样显示', () => {
@@ -106,7 +115,7 @@ describe('reduceTuiState', () => {
         event: event(
           'run.completed',
           4 + index * 3,
-          {},
+          {stopReason: 'completed', modelTurns: 1, toolCalls: 0},
           requestId,
           'session-1',
           runId,
@@ -120,6 +129,37 @@ describe('reduceTuiState', () => {
       expect.objectContaining({prompt: 'first', text: 'answer-1', status: 'completed'}),
       expect.objectContaining({prompt: 'second', text: 'answer-2', status: 'completed'}),
     ]);
+  });
+
+  it('保留 Java 返回的失败原因和预算计数', () => {
+    let state = reduceTuiState(initialTuiState, {
+      type: 'event.received',
+      event: event('initialized', 1, {protocolVersion: 0}, 'init', 'session-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'run.submitted',
+      requestId: 'req-failed',
+      prompt: '检查失败原因',
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('run.started', 2, {}, 'req-failed', 'session-1', 'run-failed'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('run.failed', 3, {
+        stopReason: 'turn_limit_reached',
+        modelTurns: 16,
+        toolCalls: 12,
+      }, 'req-failed', 'session-1', 'run-failed'),
+    });
+
+    expect(state.runs[0]).toEqual(expect.objectContaining({
+      status: 'failed',
+      stopReason: 'turn_limit_reached',
+      modelTurns: 16,
+      toolCalls: 12,
+    }));
   });
 });
 

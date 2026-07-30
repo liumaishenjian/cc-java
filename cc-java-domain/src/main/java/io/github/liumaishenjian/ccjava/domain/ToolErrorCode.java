@@ -55,6 +55,15 @@ public enum ToolErrorCode {
     /** 固定只读 Git 操作失败。 */
     GIT_READ_FAILED,
 
+    /** 当前平台找不到可用的精确文本搜索引擎。 */
+    SEARCH_UNAVAILABLE,
+
+    /** 精确搜索的机器输出违反约定协议。 */
+    SEARCH_PROTOCOL_VIOLATION,
+
+    /** Tool Adapter 已响应当前 Run 的取消信号。 */
+    OPERATION_CANCELLED,
+
     /** 固定只读操作达到墙钟期限。 */
     OPERATION_TIMED_OUT,
 

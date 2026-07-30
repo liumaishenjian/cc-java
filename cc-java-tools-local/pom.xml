@@ -27,5 +27,10 @@
             <artifactId>cc-java-core</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- 解析 ripgrep JSON 机器协议，避免在 Tool Adapter 中自造 JSON 解析器。 -->
+        <dependency>
+            <groupId>tools.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
     </dependencies>
 </project>

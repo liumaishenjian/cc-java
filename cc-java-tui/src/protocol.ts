@@ -143,6 +143,36 @@ function validateEventShape(
   ) {
     throw new ProtocolViolation(`${type} 缺少安全 Tool 摘要`);
   }
+  if (isTerminalRunEvent(type)) {
+    const stopReason = payload.stopReason;
+    if (
+      typeof stopReason !== 'string'
+      || !/^[a-z][a-z0-9_]{0,63}$/.test(stopReason)
+    ) {
+      throw new ProtocolViolation(`${type} 缺少安全 stopReason`);
+    }
+    validateOptionalTerminalCount(type, payload, 'modelTurns');
+    validateOptionalTerminalCount(type, payload, 'toolCalls');
+  }
+}
+
+function isTerminalRunEvent(type: EventType): boolean {
+  return type === 'run.completed'
+    || type === 'run.failed'
+    || type === 'run.cancelled';
+}
+
+function validateOptionalTerminalCount(
+  type: EventType,
+  payload: Readonly<Record<string, unknown>>,
+  field: 'modelTurns' | 'toolCalls',
+): void {
+  if (
+    field in payload
+    && (!Number.isSafeInteger(payload[field]) || (payload[field] as number) < 0)
+  ) {
+    throw new ProtocolViolation(`${type} 的 ${field} 必须是非负安全整数`);
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

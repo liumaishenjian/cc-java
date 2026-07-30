@@ -17,6 +17,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class ToolExecutionPipelineTest {
@@ -81,6 +82,29 @@ class ToolExecutionPipelineTest {
         assertThat(result.metadata().truncationReason())
                 .isEqualTo(ToolResultTruncationReason.LINE_LIMIT);
         assertThat(result.metadata().continuation().values()).containsEntry("startLine", 2);
+    }
+
+    @Test
+    void propagatesTheExactRunCancellationTokenToToolInvocation() {
+        AtomicReference<CancellationToken> observed = new AtomicReference<>();
+        AgentTool tool = new RecordingAgentTool(
+                "cancel-aware",
+                ignored -> ToolValidationResult.validResult(),
+                invocation -> {
+                    observed.set(invocation.cancellationToken());
+                    return ToolExecutionOutcome.success("ok");
+                });
+        PipelineFixture fixture = fixture(tool);
+        CancellationSource cancellation = new CancellationSource();
+
+        fixture.pipeline().execute(
+                fixture.session(),
+                new RunId("run-1"),
+                1,
+                new ToolCall("call-1", fixture.toolName(), JsonObject.empty()),
+                cancellation.token());
+
+        assertThat(observed.get()).isSameAs(cancellation.token());
     }
 
     private static AgentTool toolWithLimit(String content, int limit) {

@@ -15,6 +15,8 @@ list_files → search_text → read_file → git_status → git_diff → final
 
 - JDK 21；
 - Git 可执行程序；
+- ripgrep：启动器优先使用 `CC_JAVA_RIPGREP_PATH`，其次 PATH；当前开发机也可复用已经
+  安装的 Codex Desktop rg。其他电脑若未安装，设置该环境变量指向 `rg.exe`；
 - Windows Junction 专项需要 NTFS；
 - 普通离线 Demo 不需要网络或 API Key。
 
@@ -38,6 +40,31 @@ Fixture 在临时 Git 仓库内创建和修改 `src/App.java`。Scripted Model �
 - diff 返回修改证据；
 - Run 以 `COMPLETED` 结束且共执行 5 次 Tool；
 - 测试未通过本项目 Tool 写入 Workspace。
+
+完整 Grep 参数与三模式使用另一条真实 rg、Scripted Model Agent Loop：
+
+```powershell
+.\mvnw.cmd -pl cc-java-cli -am `
+  "-Dtest=HeadlessRuntimeSessionTest#completesAdvancedSearchModesAndPaginationThroughCanonicalAgentLoop" `
+  "-Dsurefire.failIfNoSpecifiedTests=false" test
+```
+
+可在新 PowerShell 中先确认启动器解析结果：
+
+```powershell
+$env:CC_JAVA_RIPGREP_PATH = "D:\Tools\ripgrep\rg.exe" # PATH 已有 rg 时无需设置
+pwsh -NoProfile -ExecutionPolicy Bypass `
+  -File "E:\Java\cc-java\scripts\RunS02TuiSpike.ps1" `
+  -Timeout "60s" `
+  -SkipBuild
+```
+
+启动日志必须出现 `[cc-java] ripgrep is ready.`；若显式路径无效，启动器会在进入 TUI
+前失败，避免 Agent Loop 中连续得到 `SEARCH_UNAVAILABLE`。
+
+该用例依次执行带 `type/regex/multiline/context` 的 content、files 第 1 页、files 第 2 页
+和 `limit=0` 的 count，最后回到模型生成 final。它断言四个 Call ID 严格配对、第一页
+携带 continuation、两页不重复、上下文可见且 `.env`/README 不越过请求根与类型过滤。
 
 ## 安全负例
 
@@ -79,6 +106,10 @@ Provider 兼容差距，不能用离线 E2E 冒充真实网络结果。
 
 - WorkspaceGuard 是应用层路径边界，不是 OS Sandbox；
 - S03 不跟随外部 Symlink/Junction，不读取 `.git/**`、真实 `.env`、Provider 本地配置或私钥；
-- 搜索只支持字面文本，不支持正则；
+- 搜索优先使用受控 ripgrep，支持显式 `regex=true`；rg 不可用时仅保留 Java 字面降级；
+- `search_text` 还支持 `mode=content|files|count`、`type`、`multiline`、
+  `context/beforeContext/afterContext`、`offset/limit`；`context` 优先，
+  `limit=0` 表示不做条目分页但仍受总输出硬上限；
+- 活动 rg 搜索接收 Run 取消并清理进程树；取消、超时、输出超限和协议损坏使用不同错误；
 - 根 `AGENTS.md` 只加载一次，不递归 import；分层规则属于 S08；
-- Patch、Write、Shell、Approval 与 Tool 取消属于 S04。
+- Patch、Write、Shell、Approval 与通用命令进程取消属于 S04。

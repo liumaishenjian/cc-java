@@ -221,7 +221,12 @@ public final class AgentRuntime {
                 int ordinal = state.recordToolCall();
                 ToolResult result;
                 try {
-                    result = toolPipeline.execute(session, runId, ordinal, call);
+                    result = toolPipeline.execute(
+                            session,
+                            runId,
+                            ordinal,
+                            call,
+                            activeRun.cancellation().token());
                 } catch (RuntimeException exception) {
                     result = internalToolFailure(call);
                 }

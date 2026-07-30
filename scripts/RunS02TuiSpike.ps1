@@ -31,6 +31,9 @@ $javaModuleDirectories = @(
     (Join-Path $repositoryRoot 'cc-java-cli')
 )
 
+. (Join-Path $PSScriptRoot 'ResolveRipgrep.ps1')
+Initialize-CcJavaRipgrep
+
 # Compile the real Java Headless entrypoint and pass Java arguments without a shell string.
 $canReuseBuild = $false
 if ((Test-Path -LiteralPath $classpathFile -PathType Leaf) -and

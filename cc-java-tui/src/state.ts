@@ -19,6 +19,9 @@ export interface RunView {
   readonly text: string;
   readonly tools: readonly ToolView[];
   readonly status: RunStatus;
+  readonly stopReason: string | undefined;
+  readonly modelTurns: number | undefined;
+  readonly toolCalls: number | undefined;
 }
 
 export interface TuiState {
@@ -69,6 +72,9 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
             text: '',
             tools: [],
             status: 'running',
+            stopReason: undefined,
+            modelTurns: undefined,
+            toolCalls: undefined,
           },
         ],
       };
@@ -172,12 +178,27 @@ function finishRun(
   event: ProtocolEvent,
   status: Exclude<RunStatus, 'running'>,
 ): TuiState {
-  const updated = updateCurrentRun(state, event, run => ({...run, status}));
+  const updated = updateCurrentRun(state, event, run => ({
+    ...run,
+    status,
+    stopReason: terminalText(event.payload.stopReason),
+    modelTurns: terminalCount(event.payload.modelTurns),
+    toolCalls: terminalCount(event.payload.toolCalls),
+  }));
   return {
     ...updated,
     phase: 'ready',
     activeRunId: undefined,
   };
+}
+
+function terminalText(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function terminalCount(value: unknown): number | undefined {
+  return Number.isSafeInteger(value) && (value as number) >= 0
+    ? value as number : undefined;
 }
 
 function updateCurrentRun(

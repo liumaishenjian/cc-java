@@ -15,6 +15,9 @@ $rootPom = Join-Path $repositoryRoot 'pom.xml'
 $cliDirectory = Join-Path $repositoryRoot 'cc-java-cli'
 $classpathFile = Join-Path $cliDirectory 'target\cc-java-classpath.txt'
 
+. (Join-Path $repositoryRoot 'scripts\ResolveRipgrep.ps1')
+Initialize-CcJavaRipgrep
+
 # Build from the root POM and launch Java with an argument array from any working directory.
 $mavenArguments = @(
     '-q',
