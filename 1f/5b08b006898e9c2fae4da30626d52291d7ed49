@@ -1,0 +1,99 @@
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/stdio/RuntimeStdioCommandHandlerTest.java
+  s_371b145dc5ecd9::t_a3475b691b4537 115-119,123-149
+docs/gap-reports/S03.md
+  s_371b145dc5ecd9::t_025e258cbf1ee9 25
+  s_371b145dc5ecd9::t_5f1604da1ff917 38,59
+cc-java-tui/test/protocol.test.ts
+  s_371b145dc5ecd9::t_01bd244d723d14 52-76
+cc-java-tui/package.json
+  s_371b145dc5ecd9::t_55ce426710f90e 18
+cc-java-tui/src/state.ts
+  s_371b145dc5ecd9::t_69351adc011ceb 5,10,13,16,149,152,155,174,176-178,180-181,208-216
+  s_371b145dc5ecd9::t_a7e197f38f94e3 14,153
+  s_371b145dc5ecd9::t_4983af956af1e8 217
+cc-java-tui/test/state.test.ts
+  s_371b145dc5ecd9::t_01bd244d723d14 36,39,49,52
+  s_371b145dc5ecd9::t_1ee42fb4e5c60a 37,46-48,50-51,53
+README.md
+  s_371b145dc5ecd9::t_025e258cbf1ee9 22-24
+docs/progress.html
+  s_371b145dc5ecd9::t_6675fbaff9e41e 333
+  s_371b145dc5ecd9::t_a89508724ddae5 226,339
+  s_371b145dc5ecd9::t_4444c81da8d2b1 289,309
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/runtime/HeadlessRuntimeSession.java
+  s_371b145dc5ecd9::t_a3475b691b4537 58-60
+docs/evidence/S03-tui-presentation-2026-07-30.md
+  s_371b145dc5ecd9::t_5f1604da1ff917 1-22,26-27,30-41,43-44,70-72
+  s_371b145dc5ecd9::t_824047c3a169b4 45-47
+  s_371b145dc5ecd9::t_025e258cbf1ee9 23-25,28-29,42,55-58,62-64
+  s_371b145dc5ecd9::t_feb2d1f7663185 48-54
+  s_371b145dc5ecd9::t_a12cb7ec451bfd 59-61,65-69
+docs/technical-design.md
+  s_371b145dc5ecd9::t_c23922b5231e87 992-997,1002-1006
+  s_371b145dc5ecd9::t_2c49336bfa89af 998-1001
+  s_371b145dc5ecd9::t_2125d2b555db42 1007
+cc-java-tui/test/tool-activity.test.tsx
+  s_371b145dc5ecd9::t_01bd244d723d14 9-17,22-23,29,36,43-52,57,72,75,78
+  s_371b145dc5ecd9::t_1ee42fb4e5c60a 1-8,18-21,24-28,30-35,37-39,61-71,73-74,76-77,79-81
+  s_371b145dc5ecd9::t_e5f0814125ce9d 40-42,53-56,58-60
+cc-java-tui/src/assistant-markdown.tsx
+  s_371b145dc5ecd9::t_e5f0814125ce9d 172
+  s_371b145dc5ecd9::t_48138393a356af 34,39,47,85-87
+  s_371b145dc5ecd9::t_a7e197f38f94e3 1-33,35-38,40-46,48-84,88-171,173-195
+cc-java-tui/test/assistant-markdown.test.tsx
+  s_371b145dc5ecd9::t_1ee42fb4e5c60a 1-28
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/runtime/HeadlessRuntimeSessionTest.java
+  s_371b145dc5ecd9::t_a3475b691b4537 174-177
+cc-java-tui/test/app.test.tsx
+  s_371b145dc5ecd9::t_1ee42fb4e5c60a 39-40,62,75,77,146
+  s_371b145dc5ecd9::t_01bd244d723d14 58,61,64
+  s_371b145dc5ecd9::t_f8e3a17acae05a 38,76,175
+docs/progress-state.properties
+  s_371b145dc5ecd9::t_025e258cbf1ee9 13
+  s_371b145dc5ecd9::t_a0f12c600ae070 4
+  s_371b145dc5ecd9::t_d784fbc8a65d4a 5
+cc-java-tui/src/tool-activity.tsx
+  s_371b145dc5ecd9::t_e5f0814125ce9d 19-21,45,47,84-86,102-104,136-141,194,197,199-205,207,209,211,213
+  s_371b145dc5ecd9::t_69351adc011ceb 2,10,14-15,18,59-63,75,79-80,83,97-98,101,124-127,134,146-184
+  s_371b145dc5ecd9::t_f8e3a17acae05a 50
+  s_371b145dc5ecd9::t_fe166d3594bbb3 48,217,220-222
+  s_371b145dc5ecd9::t_a7e197f38f94e3 1,3-9,11-13,16-17,22-44,46,49,51-58,64-74,76-78,81-82,87-96,99-100,105-123,128-133,135,142-145,185-193,195-196,198,206,208,210,212,214-216,218-219,223-234
+docs/demos/S03-read-tools.md
+  s_371b145dc5ecd9::t_824047c3a169b4 109,112-118
+  s_371b145dc5ecd9::t_5f1604da1ff917 97,99,102-108,110,119-120,131,146
+  s_371b145dc5ecd9::t_025e258cbf1ee9 121-130
+  s_371b145dc5ecd9::t_0dbf62343dbd73 111
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/stdio/RuntimeStdioCommandHandler.java
+  s_371b145dc5ecd9::t_a3475b691b4537 15,22-24,218-221,229,231-233,235-236,315-338,445
+docs/feature-parity-matrix.md
+  s_371b145dc5ecd9::t_c23922b5231e87 246-247
+cc-java-tui/src/protocol.ts
+  s_371b145dc5ecd9::t_69351adc011ceb 146-148,162-187
+  s_371b145dc5ecd9::t_2a600362f0f225 188-189
+cc-java-tui/src/app.tsx
+  s_371b145dc5ecd9::t_bfdf5302fa9c59 240,242-245
+  s_371b145dc5ecd9::t_a7e197f38f94e3 6-7,142,144-149,156-165,168-179,181-185,196,198-200,202-239,246-247
+  s_371b145dc5ecd9::t_1ee42fb4e5c60a 152-155
+  s_371b145dc5ecd9::t_94507c08b3d49a 241
+docs/adr/ADR-034-s03-tui-presentation.md
+  s_371b145dc5ecd9::t_c23922b5231e87 1-50,53,56-57,60-71
+  s_371b145dc5ecd9::t_2c49336bfa89af 51-52,54-55,58-59
+cc-java-tui/package-lock.json
+  s_371b145dc5ecd9::t_a4875b5940824d 12,2069-2080
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "1f5b08b006898e9c2fae4da30626d52291d7ed49",
+  "prompts": {},
+  "sessions": {
+    "s_371b145dc5ecd9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa772-84c7-7680-9e8a-026c8e1161ea",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "yliu27 <yliu27@leqee.com>"
+    }
+  }
+}
