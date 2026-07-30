@@ -16,7 +16,9 @@
 ```
 
 Stage 为 `S04`；对应 Feature 为 `TOOL-08`、`TOOL-09`、`TOOL-14`、`CLI-05`、
-`SEC-01`。当前目标等级为 L1，S04 Stage Exit 仍为 Open。
+`SEC-01`。当前目标等级为 L1；S04 后续已在实现 Commit `16b4767` 上通过
+Commit-scoped G0-G6，Stage Exit 为 Accepted，见
+[S04 Stage Exit 证据](../evidence/S04-stage-exit-2026-07-30.md)。
 
 ## Tool 契约
 

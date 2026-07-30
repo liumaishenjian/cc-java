@@ -41,7 +41,9 @@
 S03 Read Tools 已在实现 Commit `238fd631f7ae2246e6d57742508480ca05763850`
 上完成 G0-G6 与 Stage Exit；WorkspaceGuard、五个只读 Tool、根 `AGENTS.md`、
 结果上限、Junction/Symlink、敏感文件拒绝、ripgrep 完整参数与恢复策略均已有
-Commit-scoped 证据。当前阶段为 **S04 Write + Command**：ADR-035 已固定 Approval
+Commit-scoped 证据。**S04 Write + Command** 已在实现 Commit
+`16b47671a423fbb711eab298c9654de9a1fd6665` 上完成 G0-G6 与 Stage Exit：
+ADR-035 已固定 Approval
 启动 Gate；Approval L1 切片已实现 DEFAULT/PLAN Effect 决策表、Allow Once/Deny
 stdio 协议和 React/Ink 审批面板。真实 Patch/Write L1 切片已实现精确上下文
 `apply_patch`、只创建新文件的 `write_file`、父目录 realpath、提交前冲突重检、
@@ -49,8 +51,7 @@ stdio 协议和 React/Ink 审批面板。真实 Patch/Write L1 切片已实现�
 Shell/Workspace、准确命令审批、最小环境、
 stdout/stderr 事件、输出上限、timeout/cancel 与 Windows 进程树清理；完整编码闭环
 已通过公开 `Calculator.divide` Fixture 验证越权拒绝、测试失败、再次 Patch、成功
-测试和 Git Diff。S04 工作区 G0-G6 材料已具备，Stage Exit 仍等待本地退出 Commit 上
-复验。
+测试和 Git Diff。当前下一阶段为 **S05 Permission Pipeline 启动 Gate**。
 
 当前允许并要求：
 
@@ -64,17 +65,18 @@ stdout/stderr 事件、输出上限、timeout/cancel 与 Windows 进程树清理
   不得整包合并候选分支
   `10c7873`，不得继续扩展其中的 JLine Renderer；
 - S03 的只读安全边界和搜索回归必须继续通过；
-- S04 的 Approval → Patch/Write → Command → Mini Coding Agent E2E 已按顺序完成；
-  未经维护者授权不得创建退出 Commit，也不得提前开始 S05；
+- S04 的 Approval → Patch/Write → Command → Mini Coding Agent E2E 回归必须继续通过；
+- S05 必须先在授权参考快照中受控研究规则来源、优先级、Session Allow、Hard Denial、
+  拒绝恢复和外部 Tool 统一管线，再固定 ADR、目标等级与可证伪测试，之后才能开始生产实现；
 - Patch/Write 的精确上下文、新文件父目录 realpath、原子替换、敏感路径和脏工作区保护
   回归必须保持通过；Command 的固定 Shell、精确预览、最小环境、输出上限、
   timeout/cancel 和 Windows 进程树清理回归也必须保持通过；
 - S04 只支持 Allow Once/Deny；Session Allow、可配置规则和 Hard Denial 属于 S05；
 - 当前没有 OS Sandbox；不得把应用层 Permission 或进程清理描述成 S13 隔离能力；
-- 持久化、Checkpoint、Context 压缩及后续能力继续保持未实现状态。
+- S06 的持久化/Checkpoint、S07 的 Context 压缩及后续能力继续保持未实现状态。
 
-不得仅因为 Patch/Write 与 Command 可运行就宣称完整 Mini Coding Agent 或 S04 Stage
-Exit 已可用。
+不得仅因为 S04 已退出就宣称 S05 完整 Permission、S13 OS Sandbox 或更后阶段能力
+已经可用。
 
 ## 3. 项目定位
 

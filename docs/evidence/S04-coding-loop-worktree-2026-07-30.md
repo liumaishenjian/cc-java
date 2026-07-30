@@ -1,6 +1,9 @@
 # S04 Coding Loop 工作区证据
 
 > Status：Worktree Verified；Stage Exit 等待 Commit-scoped 复验
+>
+> 后续状态：实现 Commit `16b4767` 已通过 Commit-scoped G0-G6，最终 Accepted 结论见
+> [S04 Stage Exit 证据](./S04-stage-exit-2026-07-30.md)。以下内容保留为历史 Worktree 证据。
 
 ## 元数据
 

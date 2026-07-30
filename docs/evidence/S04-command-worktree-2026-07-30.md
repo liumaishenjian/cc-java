@@ -47,5 +47,6 @@ Command/ripgrep 15 项专项均通过。
 
 公开 Fixture 的“修改 → 测试失败 → 再修改 → 成功”编码闭环已在
 [S04 Coding Loop 工作区证据](./S04-coding-loop-worktree-2026-07-30.md)完成，
-`EVAL-01` 达到 L1。Stage Exit 仍等待退出 Commit 上复验。Windows Job Object、OS
+`EVAL-01` 达到 L1。后续实现 Commit `16b4767` 已通过退出复验，见
+[S04 Stage Exit 证据](./S04-stage-exit-2026-07-30.md)。Windows Job Object、OS
 文件/网络隔离和攻击性进程逃逸回归属于 S13；后台执行属于 S12。

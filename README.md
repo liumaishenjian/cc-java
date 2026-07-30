@@ -23,7 +23,7 @@
 > 文件条目数，并使用 Markdown Ink 组件区分标题、列表、代码与终态；Java Runtime
 > 仍是 Run 状态的唯一权威。
 >
-> S04 工作区实现已完成 Approval、真实 Patch/Write、Command 与公开 Fixture Coding
+> S04 已完成 Approval、真实 Patch/Write、Command 与公开 Fixture Coding
 > Loop：固定 DEFAULT/PLAN Effect 决策表、
 > 可取消的 Allow Once / Deny stdio 协议、React/Ink 审批面板、精确上下文
 > `apply_patch` 和只创建新文件的 `write_file` 已接入生产 Tool Registry。写入审批只展示
@@ -32,10 +32,11 @@
 > Shell/Workspace、准确命令审批、最小环境、stdout/stderr 事件、输出上限、
 > timeout/cancel 和 Windows 进程树清理。PRD 的 `Calculator.divide` 公开 Fixture 已
 > 真实经历越权拒绝、测试失败、再次 Patch、测试成功和 Git Diff；`EVAL-01` 达到单
-> Seed Task 的 L1。S04 Stage Exit 仍为 Open，等待本地退出 Commit 上复验。
+> Seed Task 的 L1。实现 Commit `16b4767` 已通过 Commit-scoped G0-G6，S04 Stage
+> Exit 为 Accepted；下一步先建立 S05 Permission Pipeline 启动 Gate。
 >
-> Current status: S01, S02 and S03 accepted; S04 worktree implementation is complete,
-> with Stage Exit pending Commit-scoped verification.
+> Current status: S01-S04 accepted. Next: establish the S05 Permission Pipeline
+> startup gate before production implementation.
 
 ## 项目目标
 

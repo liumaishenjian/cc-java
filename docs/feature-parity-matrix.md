@@ -6,13 +6,13 @@
 >
 > 最后更新：2026-07-30
 >
-> 当前代码状态：S01-S03 已 Accepted；S04 Write + Command 工作区实现已完成，等待
-> 本地退出 Commit 上复验。ADR-035 已完成 Approval、真实 Patch/Write、Command 和
+> 当前代码状态：S01-S04 已 Accepted；S04 实现 Commit `16b4767` 已通过
+> Commit-scoped G0-G6。ADR-035 已完成 Approval、真实 Patch/Write、Command 和
 > 公开 Fixture Coding Loop：固定权限决策、Allow
 > Once/Deny、精确上下文替换、只创建新文件、固定 Shell、准确命令审批、最小环境、
 > 输出事件/上限、timeout/cancel 和 Windows 进程树已有独立实现与专项验证；PRD
-> `divide` 任务已经历越权拒绝、测试失败、再次修复和成功。Stage Exit 仍为 Open，
-> 不把 Worktree 证据冒充 Commit-scoped Accepted。
+> `divide` 任务已经历越权拒绝、测试失败、再次修复和成功。下一步先建立 S05
+> Permission Pipeline 启动 Gate，不在 Gate 之前直接开始生产实现。
 
 ## 1. 文档目的
 
@@ -156,12 +156,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 193 |
-| 当前阶段 | S04 Write + Command（In Progress） |
-| Stage Exit | Open：工作区 G0-G6 已具备，等待本地退出 Commit 上复验 |
+| 当前阶段 | S04 Write + Command（Accepted） |
+| Stage Exit | Accepted：实现 Commit `16b4767` 已通过 Commit-scoped G0-G6 |
 | 当前等级 | 29 项为 L2，38 项为 L1，126 项为 L0 |
 | 默认最终目标 | 193 项达到 L3，或存在明确 `Accepted Deviation` |
 | 当前能力覆盖 | 16.58%（193 项等权、目标 L3） |
-| 下一步 | 创建 S04 本地退出 Commit，并在该 Commit 上执行 G0-G6 复验；通过后进入 S05 |
+| 下一步 | 建立 S05 Permission Pipeline 启动 Gate，先完成授权源机制研究、ADR 和可证伪测试 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -599,7 +599,8 @@ S04 启动 Gate 与首个 Approval 切片见
 进程树清理，并通过真实子进程和无孤儿 Marker 测试。公开 Fixture 已按 PRD 的
 `divide` 任务完成“越权拒绝 → 错误实现 → 增加自测 → 测试失败 → 再修改 → 成功 →
 Git Diff”的真实 Pipeline 闭环，`EVAL-01` 达到单 Seed Task 的 L1。S14 的任务集、
-真实模型成功率和成本指标仍未实现。
+真实模型成功率和成本指标仍未实现。实现 Commit `16b4767` 的 Commit-scoped G0-G6
+与最终退出结论见 [S04 Stage Exit 证据](./evidence/S04-stage-exit-2026-07-30.md)。
 
 ### S05：Permission Pipeline
 
