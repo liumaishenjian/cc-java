@@ -60,7 +60,8 @@ BUILD SUCCESS
 当前托管沙箱对 JUnit 创建的 `%TEMP%` 目录执行 `toRealPath()` 时返回
 `AccessDeniedException`，同一命令在沙箱外可以访问并完成全量复验。S04 Fixture 和
 Headless Git Loop 因此在模块 `target` 下创建唯一临时仓库，并在结束时处理 Git object
-的 Windows 只读位后清理；该调整不改变生产 WorkspaceGuard。
+的 Windows 只读位；对 Git 临时 pack 文件短暂占用执行最多 5 次有界退避清理。该调整
+不改变生产 WorkspaceGuard。
 
 ## G5：可复现 Demo
 

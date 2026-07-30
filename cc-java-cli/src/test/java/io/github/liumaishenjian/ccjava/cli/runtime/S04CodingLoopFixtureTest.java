@@ -16,6 +16,7 @@ import io.github.liumaishenjian.ccjava.domain.ToolCall;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
 import io.github.liumaishenjian.ccjava.domain.ToolResultMessage;
 import io.github.liumaishenjian.ccjava.domain.ToolResultStatus;
+import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
@@ -60,6 +61,22 @@ class S04CodingLoopFixtureTest {
         if (workspace == null || !Files.exists(workspace)) {
             return;
         }
+        IOException lastFailure = null;
+        for (int attempt = 0; attempt < 5 && Files.exists(workspace); attempt++) {
+            try {
+                deleteWorkspaceTree();
+                return;
+            } catch (IOException failure) {
+                lastFailure = failure;
+                Thread.sleep(50L * (attempt + 1));
+            }
+        }
+        if (lastFailure != null) {
+            throw lastFailure;
+        }
+    }
+
+    private void deleteWorkspaceTree() throws IOException {
         try (var paths = Files.walk(workspace)) {
             for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
                 try {
