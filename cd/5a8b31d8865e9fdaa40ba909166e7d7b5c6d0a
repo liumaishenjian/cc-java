@@ -1,0 +1,281 @@
+cc-java-tui/src/app.tsx
+  s_371b145dc5ecd9::t_0525ad78edc280 162,181-183
+  s_371b145dc5ecd9::t_fd8710494d8a14 5,20,38-40,100-101,103-107
+  s_371b145dc5ecd9::t_b164003a9b5be9 203-206,221-235,263-266,326-338
+  s_371b145dc5ecd9::t_c35da07b0de9d8 102,258-262
+  s_371b145dc5ecd9::t_8babe16713aeaf 172-180,247-255
+  s_371b145dc5ecd9::t_d66302c6d12365 236-246,256-257
+  s_371b145dc5ecd9::t_d4dd58e02150b6 108-110
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/LocalWorkspaceBootstrap.java
+  s_371b145dc5ecd9::t_35924efb9dcce2 5-6,13,19,43,54-56,59
+  s_371b145dc5ecd9::t_d070e7c2d0dc40 7-8,24,57
+cc-java-core/src/test/java/io/github/liumaishenjian/ccjava/core/ToolExecutionPipelineTest.java
+  s_371b145dc5ecd9::t_c35e5c86e7e1f7 7,15,23,113-139,165-190,192-201,209-210
+cc-java-cli/src/test/resources/fixtures/s04-coding-loop/TASK.md
+  s_371b145dc5ecd9::t_7d594236a24401 1-2,8-14
+  s_371b145dc5ecd9::t_633e182dd20eca 3-7
+cc-java-tui/test/app.test.tsx
+  s_371b145dc5ecd9::t_fd90c22fabe72b 82-102,106-120
+  s_371b145dc5ecd9::t_364357b078de82 67,103-105
+  s_371b145dc5ecd9::t_e40168e2a12430 121,267-268
+  s_371b145dc5ecd9::t_ddf5673c921f37 6,227-234
+  s_371b145dc5ecd9::t_2dcb74d9f3e06b 269-270
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/ToolErrorCode.java
+  s_371b145dc5ecd9::t_ab04cc7f8d14c2 46-47
+  s_371b145dc5ecd9::t_0c29bd568f73ce 48
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/runtime/HeadlessRuntimeSession.java
+  s_371b145dc5ecd9::t_85d40ffb557b01 63,66-67
+  s_371b145dc5ecd9::t_b2b225b9720134 5,7,24,111-130,139-140,172-191,195-196,218-219
+  s_371b145dc5ecd9::t_35924efb9dcce2 46,60-62,68-69
+  s_371b145dc5ecd9::t_9d14afdb98d145 47-50,64-65
+  s_371b145dc5ecd9::t_ec52f414e6e540 108-110
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/workspace/LocalToolLimits.java
+  s_371b145dc5ecd9::t_ab04cc7f8d14c2 4,40-44
+  s_371b145dc5ecd9::t_d070e7c2d0dc40 46-57
+  s_371b145dc5ecd9::t_b443a7876fe45e 45
+cc-java-core/src/test/java/io/github/liumaishenjian/ccjava/core/FixedPermissionGateTest.java
+  s_371b145dc5ecd9::t_5f35b558edd9ea 1-65
+cc-java-cli/src/test/resources/fixtures/s04-coding-loop/DO_NOT_EDIT.txt
+  s_371b145dc5ecd9::t_7d594236a24401 1
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/tool/ToolArguments.java
+  s_371b145dc5ecd9::t_49109934b58abb 66-77
+cc-java-tui/src/stdio-client.ts
+  s_371b145dc5ecd9::t_28a8484fa8e998 129-143
+  s_371b145dc5ecd9::t_6bbd76d5b5df20 128,144-145
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/command/CommandExecutionResult.java
+  s_371b145dc5ecd9::t_d070e7c2d0dc40 1-25
+cc-java-tui/src/state.ts
+  s_371b145dc5ecd9::t_c35da07b0de9d8 19,109-112,160
+  s_371b145dc5ecd9::t_610a51a68392a0 7-11,59,97,105-108,113-114,145-152,161-162,173-174,214,280,289
+  s_371b145dc5ecd9::t_d66302c6d12365 12-15,153-156,195-202,207-213
+  s_371b145dc5ecd9::t_73efbc34198c0a 42
+  s_371b145dc5ecd9::t_8babe16713aeaf 16-18,20,33,157-159,176-179,203-206,231,259,265-279
+  s_371b145dc5ecd9::t_1f15acec35ddc3 21,175
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/stdio/StdioProtocolServer.java
+  s_371b145dc5ecd9::t_04a17596729a59 19-20
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/command/LocalCommandExecutor.java
+  s_371b145dc5ecd9::t_d070e7c2d0dc40 1-208
+docs/evidence/S04-coding-loop-worktree-2026-07-30.md
+  s_371b145dc5ecd9::t_9d9936c839d7a1 1-42,51-59,64-76
+  s_371b145dc5ecd9::t_2b9a0559ee6d87 43-50,60-63
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/command/CommandEnvironment.java
+  s_371b145dc5ecd9::t_d070e7c2d0dc40 1-46
+docs/adr/ADR-035-s04-approval-spine.md
+  s_371b145dc5ecd9::t_9f70a491aa439d 166-181,209-210
+  s_371b145dc5ecd9::t_4f183f0a68a2d6 1-94,182-199,204-208
+  s_371b145dc5ecd9::t_5568412d0e307b 129-151,155-165,200-203
+  s_371b145dc5ecd9::t_7f424c01ea0f80 120-124
+  s_371b145dc5ecd9::t_bdfbb7febd06dc 152-154
+  s_371b145dc5ecd9::t_a006189472dbca 95-119,125-128
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/runtime/S04CodingLoopFixtureTest.java
+  s_371b145dc5ecd9::t_6492550a8aca1f 181-183,185-190,201,203-220,243,245-249
+  s_371b145dc5ecd9::t_196bbf447739c3 123-124
+  s_371b145dc5ecd9::t_0bf5303a722209 30-31,47,49-64,73-76
+  s_371b145dc5ecd9::t_633e182dd20eca 110-111,114-115,121-122,125-126,146-151,159-160,176,180,184,193-200,202,221-223,230,232-235,242,244,251,259,264,266-269
+  s_371b145dc5ecd9::t_7d594236a24401 1-20,22-29,32-46,48,77-107,112-113,116-120,127-145,152-158,161-175,177-179,191-192,224-229,231,236-241,250,252-258,260-263,265,270-328,330-343,345,349-361
+  s_371b145dc5ecd9::t_2a1b50e10106f1 329
+  s_371b145dc5ecd9::t_4e096417815341 108-109
+  s_371b145dc5ecd9::t_19c465e6f2b407 344,346-348
+  s_371b145dc5ecd9::t_a8150e4bbf1fca 21,65-72
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/package-info.java
+  s_371b145dc5ecd9::t_775456b845a03d 9-11
+cc-java-tools-local/src/test/java/io/github/liumaishenjian/ccjava/tools/local/tool/RunCommandToolTest.java
+  s_371b145dc5ecd9::t_e3963a8b6943f6 1-61
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/LifecycleEvent.java
+  s_371b145dc5ecd9::t_deff270cc2dea0 22,183-185,189-219,261-267
+  s_371b145dc5ecd9::t_ee374e0207fea5 186-188
+  s_371b145dc5ecd9::t_f49b0243a5b27d 268
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/FixedPermissionGate.java
+  s_371b145dc5ecd9::t_5f35b558edd9ea 1-55
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/ToolOutputSink.java
+  s_371b145dc5ecd9::t_deff270cc2dea0 1-33
+docs/demos/S04-command.md
+  s_371b145dc5ecd9::t_d51d5475281ae9 1-73
+cc-java-tools-local/src/test/java/io/github/liumaishenjian/ccjava/tools/local/tool/AtomicUtf8FileWriterTest.java
+  s_371b145dc5ecd9::t_7accc0b50d42ea 1-28,30-45,47-59,68-70
+  s_371b145dc5ecd9::t_626930525ae6c5 29,46,60-67
+docs/progress-state.properties
+  s_371b145dc5ecd9::t_d7350a50fce1e9 19
+  s_371b145dc5ecd9::t_55c0ea69a72761 15-17,25,28,32
+  s_371b145dc5ecd9::t_411c5b0793fa32 4
+  s_371b145dc5ecd9::t_e4e629b5f2167a 6-8
+  s_371b145dc5ecd9::t_7313c2d006d181 30,34
+  s_371b145dc5ecd9::t_e273fb86ad3768 5
+  s_371b145dc5ecd9::t_2501ec2e24de6f 9-10,13,18,36,38,40
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/ToolInvocation.java
+  s_371b145dc5ecd9::t_deff270cc2dea0 16,24-25,40-70,81,91
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/PermissionMode.java
+  s_371b145dc5ecd9::t_5f35b558edd9ea 1-19
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/tool/Utf8TextReader.java
+  s_371b145dc5ecd9::t_600fd57918244c 22-34,53-54,60
+cc-java-tui/test/protocol.test.ts
+  s_371b145dc5ecd9::t_e25f2300718d67 95-96,107-145
+  s_371b145dc5ecd9::t_fd90c22fabe72b 89,91-94,103-106
+  s_371b145dc5ecd9::t_ddf5673c921f37 78-88,90,98-102
+  s_371b145dc5ecd9::t_91f20d68dfdee8 77,97
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/runtime/HeadlessRuntimeSessionTest.java
+  s_371b145dc5ecd9::t_9d14afdb98d145 227-228
+  s_371b145dc5ecd9::t_2d0b6db120b427 26-27,32,35-36,44-87
+  s_371b145dc5ecd9::t_e6f17fca4d415b 19,220-226,233,241-317
+  s_371b145dc5ecd9::t_6ecc6bbc71120f 352
+cc-java-tui/test/state.test.ts
+  s_371b145dc5ecd9::t_fd90c22fabe72b 194,196-199,206,208-211
+  s_371b145dc5ecd9::t_c35da07b0de9d8 215,221
+  s_371b145dc5ecd9::t_e25f2300718d67 193,201,212-214,216-217,220,223-258
+  s_371b145dc5ecd9::t_ddf5673c921f37 175-192,195,203-205,207,218-219,222
+  s_371b145dc5ecd9::t_0b8b48490bb637 174,200,202
+cc-java-tools-local/src/test/java/io/github/liumaishenjian/ccjava/tools/local/workspace/WorkspaceGuardTest.java
+  s_371b145dc5ecd9::t_b13d160cbb5f7a 67-68,71,78
+  s_371b145dc5ecd9::t_7accc0b50d42ea 82-95,107-119
+  s_371b145dc5ecd9::t_bfb823aeb7b2ea 79-81,120-123
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/tool/ApplyPatchTool.java
+  s_371b145dc5ecd9::t_49109934b58abb 1-182
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/command/ProcessTreeTerminator.java
+  s_371b145dc5ecd9::t_26af87fe30cccf 13-15,29,31-32
+  s_371b145dc5ecd9::t_d070e7c2d0dc40 1-12,16-28,30,33-94
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/LocalReadTools.java
+  s_371b145dc5ecd9::t_35924efb9dcce2 41-51
+README.md
+  s_371b145dc5ecd9::t_9f70a491aa439d 26-27,31-35,209-210
+  s_371b145dc5ecd9::t_d338aba789c309 37-38
+  s_371b145dc5ecd9::t_b7617b33165224 28-30,199-201,207
+  s_371b145dc5ecd9::t_5568412d0e307b 202-205,208
+  s_371b145dc5ecd9::t_ee62406f6e4583 36
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/workspace/WorkspaceGuard.java
+  s_371b145dc5ecd9::t_ab04cc7f8d14c2 141-188
+  s_371b145dc5ecd9::t_aa16dad1cc3b31 140,189-190
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/stdio/RuntimeStdioCommandHandlerTest.java
+  s_371b145dc5ecd9::t_2e40b519e4d592 12-14,20,26-28,158-210,269,272-276,279-280,282-283,287
+  s_371b145dc5ecd9::t_9d14afdb98d145 22,211-268
+cc-java-tui/test/stdio-client.test.ts
+  s_371b145dc5ecd9::t_8f84f81099b602 48-70
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/stdio/StdioApprovalCoordinatorTest.java
+  s_371b145dc5ecd9::t_9d63248663e349 109
+  s_371b145dc5ecd9::t_fd90c22fabe72b 41-42,73-108,110-111
+  s_371b145dc5ecd9::t_84efa9d0938e92 1-40,43-72,112-135
+cc-java-tools-local/src/test/java/io/github/liumaishenjian/ccjava/tools/local/workspace/WindowsJunctionWorkspaceGuardTest.java
+  s_371b145dc5ecd9::t_e371cc668539ed 38-39,43-46
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/stdio/StdioProtocolCodecTest.java
+  s_371b145dc5ecd9::t_205893be914452 31-44
+  s_371b145dc5ecd9::t_c6e85aabf73277 30
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/LifecycleDispatcher.java
+  s_371b145dc5ecd9::t_65df418d218ca5 62-69
+cc-java-cli/src/test/resources/fixtures/s04-coding-loop/AGENTS.md
+  s_371b145dc5ecd9::t_7d594236a24401 1-9
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/stdio/RuntimeStdioCommandHandler.java
+  s_371b145dc5ecd9::t_2e40b519e4d592 91-107,112
+  s_371b145dc5ecd9::t_0cc0e632b1469e 279-284,348-354
+  s_371b145dc5ecd9::t_9597059f8200fc 14,49,77,81-82,108,111,113,124,205,209-272,285-287,534
+  s_371b145dc5ecd9::t_95515c5b59219c 273-278
+docs/feature-parity-matrix.md
+  s_371b145dc5ecd9::t_3556b26d33338b 159
+  s_371b145dc5ecd9::t_8379a0842ea456 592-593,603
+  s_371b145dc5ecd9::t_9d9936c839d7a1 9-11,13-15,160-161,163-164,490,599-602
+  s_371b145dc5ecd9::t_ad53cd054042ee 12,311,364-365,597-598
+  s_371b145dc5ecd9::t_48c149ed8994a2 253,325-327,331
+  s_371b145dc5ecd9::t_ba46066e9cb101 312
+  s_371b145dc5ecd9::t_b7617b33165224 309-310,315,594-596
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/tool/WriteFileTool.java
+  s_371b145dc5ecd9::t_49109934b58abb 1-119
+cc-java-tui/src/protocol.ts
+  s_371b145dc5ecd9::t_c9bbb16a0085ee 9,24,46-51,133,149-161,256
+  s_371b145dc5ecd9::t_d66302c6d12365 148,175-177,203-212,236-255
+  s_371b145dc5ecd9::t_8babe16713aeaf 11,26,135,162-174,213-235
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/tool/AtomicUtf8FileWriter.java
+  s_371b145dc5ecd9::t_600fd57918244c 1-21,24-143,147-184
+  s_371b145dc5ecd9::t_9ee99ecb602f37 144-146
+  s_371b145dc5ecd9::t_7f424c01ea0f80 22-23
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/ToolExecutionPipeline.java
+  s_371b145dc5ecd9::t_deff270cc2dea0 12,102-108,272-285
+  s_371b145dc5ecd9::t_964be6272c1e10 286-288
+cc-java-tui/test/fixtures/fake-stdio-child.mjs
+  s_371b145dc5ecd9::t_8f84f81099b602 51-69,85-109
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/stdio/StdioApprovalCoordinator.java
+  s_371b145dc5ecd9::t_b2b225b9720134 1-14,18-29,33-84,87-164,248-257,259-264,267-275,346-353
+  s_371b145dc5ecd9::t_0cc0e632b1469e 16-17,171-192,206-209,287-289,295-298,303-306,310,313-317,323
+  s_371b145dc5ecd9::t_4cb97cf38429d6 15,30-32,85-86,165-170,193-205,210-247,258,265-266,276-286,290-294,299-302,307-309,311-312,318-322,324-345
+cc-java-cli/src/test/resources/fixtures/s04-coding-loop/src/Calculator.java
+  s_371b145dc5ecd9::t_633e182dd20eca 7
+  s_371b145dc5ecd9::t_7d594236a24401 1-6,8-20
+docs/evidence/S04-patch-write-worktree-2026-07-30.md
+  s_371b145dc5ecd9::t_b7617b33165224 1-28,38-42
+  s_371b145dc5ecd9::t_d7350a50fce1e9 29-37
+cc-java-tui/test/tool-activity.test.tsx
+  s_371b145dc5ecd9::t_364357b078de82 80
+docs/gap-reports/S04.md
+  s_371b145dc5ecd9::t_9d9936c839d7a1 1-24
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/tool/Utf8TextEncoder.java
+  s_371b145dc5ecd9::t_49109934b58abb 1-23
+docs/progress.html
+  s_371b145dc5ecd9::t_d680e15687d3f7 337
+  s_371b145dc5ecd9::t_26ec0de5b04c9b 334-336
+  s_371b145dc5ecd9::t_6dfec0cd7efbef 338-339
+  s_371b145dc5ecd9::t_f991d04f439e41 226,231,233-234,243-244,249-250,254-255,260,266,276,289,302,309,319,333
+AGENTS.md
+  s_371b145dc5ecd9::t_5dc25d68d1cfec 27
+  s_371b145dc5ecd9::t_b7617b33165224 45-47,69
+  s_371b145dc5ecd9::t_9bb8d9de45ab6c 48-49
+  s_371b145dc5ecd9::t_f3c1481a323d51 41-44,66,72-75
+  s_371b145dc5ecd9::t_5568412d0e307b 50,70-71,76-77
+  s_371b145dc5ecd9::t_9f70a491aa439d 51-53,67-68
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/tool/Utf8TextDocument.java
+  s_371b145dc5ecd9::t_600fd57918244c 1-36
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/tool/RunCommandTool.java
+  s_371b145dc5ecd9::t_0cc0e632b1469e 75-81
+  s_371b145dc5ecd9::t_d070e7c2d0dc40 1-74,82-149
+docs/demos/S04-patch-write.md
+  s_371b145dc5ecd9::t_b7617b33165224 1-77
+cc-java-tools-local/src/test/java/io/github/liumaishenjian/ccjava/tools/local/tool/ApplyPatchToolTest.java
+  s_371b145dc5ecd9::t_7accc0b50d42ea 1-155
+cc-java-tools-local/src/test/java/io/github/liumaishenjian/ccjava/tools/local/search/RipgrepSearchClientTest.java
+  s_371b145dc5ecd9::t_8ecfc9dc231ee4 65,121,124,134,148,162,178,187,200,211,310,323
+docs/demos/S04-coding-loop.md
+  s_371b145dc5ecd9::t_9d9936c839d7a1 1-83
+cc-java-tools-local/src/test/java/io/github/liumaishenjian/ccjava/tools/local/command/LocalCommandExecutorTest.java
+  s_371b145dc5ecd9::t_8ecfc9dc231ee4 52,111
+  s_371b145dc5ecd9::t_34bf1fc537654e 154-157,164-167
+  s_371b145dc5ecd9::t_3e59fa3abcf3de 105-110,112-130,138-144,152-153,158-161,163,168-171,193-203
+  s_371b145dc5ecd9::t_e3963a8b6943f6 1-7,9-11,14,17-21,42-51,53-104,131-137,145-151,162,172-192,204-206
+  s_371b145dc5ecd9::t_f0fd56c554e136 8,12-13,15-16,22-41
+docs/technical-design.md
+  s_371b145dc5ecd9::t_9d9936c839d7a1 1057-1067,1073
+  s_371b145dc5ecd9::t_bdfbb7febd06dc 740-741,1068-1072
+  s_371b145dc5ecd9::t_b7617b33165224 1035-1054
+  s_371b145dc5ecd9::t_a0cb21f9e09147 1033-1034
+  s_371b145dc5ecd9::t_545e8cd759d8ce 750,1020-1032,1055
+  s_371b145dc5ecd9::t_5568412d0e307b 720-721,737-739,742-744,748-749
+  s_371b145dc5ecd9::t_fa0e96a5a08df2 1056
+cc-java-tools-local/src/test/java/io/github/liumaishenjian/ccjava/tools/local/tool/WriteFileToolTest.java
+  s_371b145dc5ecd9::t_7accc0b50d42ea 1-87
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/command/package-info.java
+  s_371b145dc5ecd9::t_36737a46307f71 1-8
+docs/evidence/S04-command-worktree-2026-07-30.md
+  s_371b145dc5ecd9::t_d51d5475281ae9 1-26,28-31,45-47
+  s_371b145dc5ecd9::t_7313c2d006d181 32-33,35,37-40
+  s_371b145dc5ecd9::t_2b9a0559ee6d87 27,34,36,41-44,48-51
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/command/CommandShell.java
+  s_371b145dc5ecd9::t_7d286c47e91536 50-54,59-63
+  s_371b145dc5ecd9::t_d070e7c2d0dc40 1-49,55-58,64-114
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/stdio/StdioProtocolCodec.java
+  s_371b145dc5ecd9::t_04a17596729a59 29
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/ToolOutputStream.java
+  s_371b145dc5ecd9::t_deff270cc2dea0 1-18
+cc-java-tools-local/src/main/java/io/github/liumaishenjian/ccjava/tools/local/tool/PatchResultRenderer.java
+  s_371b145dc5ecd9::t_49109934b58abb 1-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "cd5a8b31d8865e9fdaa40ba909166e7d7b5c6d0a",
+  "prompts": {},
+  "sessions": {
+    "s_371b145dc5ecd9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa772-84c7-7680-9e8a-026c8e1161ea",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "yliu27 <yliu27@leqee.com>"
+    }
+  }
+}
