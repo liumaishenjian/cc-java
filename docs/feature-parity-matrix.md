@@ -6,11 +6,11 @@
 >
 > 最后更新：2026-08-03
 >
-> 当前代码状态：S01-S04 已 Accepted；S04 实现 Commit `16b4767` 已通过
-> Commit-scoped G0-G6。S05 Permission Pipeline 的工作树实现已完成三模式、固定规则
-> 优先级、绑定可信 ToolSource 的 Session Grant、Hard Denial、Permission Lifecycle、拒绝
-> 恢复和 Fake External Tool 统一入口，G3-G5 已通过。所列 S05 Feature 已达到退出目标 L2；
-> G6 等待 Commit-scoped 全量对账和维护者验收，Stage 保持 `IN_PROGRESS`。
+> 当前代码状态：S01-S05 已 Accepted；S04 实现 Commit `16b4767` 与 S05 实现 Commit
+> `f7b7137081e2d85417fa5965835d4c014e514dac` 均已通过 Commit-scoped G0-G6。S05
+> Permission Pipeline 已完成三模式、固定规则优先级、绑定可信 ToolSource 的 Session Grant、
+> Hard Denial、隐私安全 Permission Lifecycle、拒绝恢复和 Fake External Tool 统一入口；所列
+> S05 Feature 已达到退出目标 L2。下一步进入 S06 授权研究与启动 Gate，不表示 S06 已实现。
 
 ## 1. 文档目的
 
@@ -154,12 +154,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 193 |
-| 当前阶段 | S05 Permission Pipeline（In Progress） |
-| Stage Exit | Open：G0-G5 工作树证据已通过，G6 等待 Commit-scoped 对账和维护者验收 |
+| 当前阶段 | S05 Permission Pipeline（Accepted） |
+| Stage Exit | Accepted：实现 Commit `f7b7137081e2d85417fa5965835d4c014e514dac` 已通过 Commit-scoped G0-G6 |
 | 当前等级 | 45 项为 L2，31 项为 L1，117 项为 L0 |
 | 默认最终目标 | 193 项达到 L3，或存在明确 `Accepted Deviation` |
 | 当前能力覆盖 | 20.90%（193 项等权、目标 L3） |
-| 下一步 | 完成 S05 Commit-scoped 全量复验与维护者 code review；通过 G6 后接受 Stage Exit |
+| 下一步 | 进入 S06 Session + Checkpoint 授权研究与启动 Gate；尚未实现持久化、resume/fork 或 Checkpoint/Undo |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -602,15 +602,15 @@ Git Diff”的真实 Pipeline 闭环，`EVAL-01` 达到单 Seed Task 的 L1。S1
 
 ### S05：Permission Pipeline
 
-G0-G5 工作树证据已通过，见
+实现 Commit `f7b7137081e2d85417fa5965835d4c014e514dac` 的 Commit-scoped G0-G6 已通过，见
 [ADR-038](./adr/ADR-038-s05-authorized-permission-study.md)、
 [ADR-039](./adr/ADR-039-s05-permission-pipeline.md)、
 [S05 Demo](./demos/S05-permission-pipeline.md)与
 [S05 Stage Evidence](./evidence/S05-permission-pipeline-2026-08-03.md)。本轮范围
 `BOOT-03`、`CLI-05`、`LOOP-13`、`TOOL-03`、`PERM-01/03/04/06/07/08/09/10/11/13`、
-`HOOK-01`、`SEC-09` 已达到 L2；G6 等待 Commit-scoped 对账和维护者验收。`PERM-12`
-分层持久来源留到 S08/S13，真实 Hook/MCP/Plugin/Sub-Agent 与 Sandbox 仍按后续 Stage
-推进。
+`HOOK-01`、`SEC-09` 已达到 L2，Stage Exit 为 Accepted。`PERM-12` 分层持久来源留到
+S08/S13，真实 Hook/MCP/Plugin/Sub-Agent 与 Sandbox 仍按后续 Stage 推进；下一步只启动
+S06 授权研究与 Gate，不表示持久 Session 或 Checkpoint 已实现。
 
 完成条件：
 

@@ -1,20 +1,20 @@
-# S05 Permission Pipeline 工作树证据
+# S05 Permission Pipeline Stage Exit 证据
 
 ## 1. 结论
 
 - Stage：`S05 Permission Pipeline`
-- 状态：`In Progress`（G0-G5 Passed；G6 Commit-scoped 对账待维护者验收）
-- 被测实现：`WORKTREE`
+- 状态：`Accepted`（G0-G6 Passed）
+- 被测实现：`f7b7137081e2d85417fa5965835d4c014e514dac`
 - 参考基线：`R2026.03`
 - 授权参考快照：`AUTH-SRC-2026-07-29-A`
 - Feature IDs：`BOOT-03`、`CLI-05`、`LOOP-13`、`TOOL-03`、
   `PERM-01/03/04/06/07/08/09/10/11/13`、`HOOK-01`、`SEC-09`
-- 证据分类：`WORKTREE_VERIFIED`
+- 证据分类：`COMMIT_VERIFIED`
 - 验证日期：`2026-08-03`
 
-上述 Feature 已按 ADR-039 的 S05 退出目标达到 L2。该等级由生产实现和工作树 G4 证据支持，
-但 Stage Exit 仍保持 Open：当前脏工作树包含前序维护改动，尚无聚焦 Commit 可执行
-Commit-scoped G6 复验和维护者 code review。
+上述 Feature 已按 ADR-039 的 S05 退出目标达到 L2。实现 Commit
+`f7b7137081e2d85417fa5965835d4c014e514dac` 已完成 Commit-scoped 全量复验、文档对账和维护者
+code review，G0-G6 全部通过，S05 Stage Exit 为 Accepted。
 
 ## 2. G0-G6
 
@@ -26,7 +26,7 @@ Commit-scoped G6 复验和维护者 code review。
 | G3 实现 | Passed | Domain 类型、Policy Kernel、Session 状态、Pipeline、Headless/stdio/Picocli/TUI 与 Fake External 路径均已实现 |
 | G4 自动验证 | Passed | S05 定向 Java、Spring AI、TUI、全量 Maven、Javadoc、Dashboard 与 diff 检查均通过并记录于本文件 |
 | G5 Demo | Passed | `docs/demos/S05-permission-pipeline.md` 提供可复现命令、正常路径、负例、实测结果和事实边界 |
-| G6 退出对账 | Open | 矩阵/README/PRD/设计/ADR/Demo/Gap/看板已在工作树对账；仍需聚焦 Commit 上重跑并由维护者验收 |
+| G6 退出对账 | Passed | 实现 Commit 已完成全量复验与维护者 code review；矩阵、README、AGENTS、PRD、技术设计、ADR、Demo、Gap、Evidence 和看板一致，Stage Exit Accepted |
 
 ## 3. ADR-039 九项可证伪契约
 
@@ -57,7 +57,7 @@ Commit-scoped G6 复验和维护者 code review。
   `PermissionOutcome` 或 selector value；审批端口内部仍使用完整 selector。恶意命令 secret
   不出现在四种新增事件的对象图公开字段或 `toString()`。
 
-## 5. 工作树验证结果
+## 5. Commit-scoped 验证结果
 
 环境：Windows 10 Pro、Java 21、Maven Wrapper 3.9.16、Node.js 22。
 
@@ -131,6 +131,7 @@ git diff --check
 
 ## 7. 剩余差距
 
-详细差距见 `docs/gap-reports/S05.md`。核心剩余项是 G6 Commit-scoped 复验、持久
+详细差距见 `docs/gap-reports/S05.md`。S05 已无退出阻塞项；剩余能力包括持久
 Session/Checkpoint（S06）、分层 Settings（S08）、外部 Hook（S09）、真实外部 Tool Adapter
-与信任（S10-S12）以及 OS Sandbox（S13）。
+与信任（S10-S12）以及 OS Sandbox（S13）。下一步进入 S06 授权研究与启动 Gate，当前不把
+这些能力描述为已实现。

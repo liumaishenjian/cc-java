@@ -35,15 +35,16 @@
 > Seed Task 的 L1。实现 Commit `16b4767` 已通过 Commit-scoped G0-G6，S04 Stage
 > Exit 为 Accepted。
 >
-> S05 Permission Pipeline 已完成工作树生产实现和 G3-G5 验证。生产装配支持
-> `DEFAULT/PLAN/ACCEPT_EDITS`、固定优先级的 `ALLOW/ASK/DENY`、绑定可信 ToolSource 与
-> selector 的 Session Grant、Protected Paths/Hard Denial、类型化 Permission Lifecycle、
-> Print Fail Closed、拒绝防循环，以及 Fake MCP/Plugin/Sub-Agent 的统一 Pipeline/64K 输出
-> 上限。Capability 已按 ADR-039 的退出目标提升到 L2；当前仍等待 Commit-scoped G6 对账与
-> 维护者验收，不把工作树证据描述为 Accepted Stage Exit。
+> S05 Permission Pipeline 已在实现 Commit
+> `f7b7137081e2d85417fa5965835d4c014e514dac` 上完成 Commit-scoped G0-G6，Stage Exit 为
+> Accepted。生产装配支持 `DEFAULT/PLAN/ACCEPT_EDITS`、固定优先级的
+> `ALLOW/ASK/DENY`、绑定可信 ToolSource 与 selector 的 Session Grant、Protected
+> Paths/Hard Denial、隐私安全且唯一 final 的 Permission Lifecycle、Print Fail Closed、拒绝
+> 防循环，以及 Fake MCP/Plugin/Sub-Agent 的统一 Pipeline/64K 输出上限；所列 Capability
+> 已按 ADR-039 的退出目标达到 L2。
 >
-> Current status: S01-S04 accepted; S05 worktree implementation and G3-G5 verification
-> complete, with commit-scoped G6 review still open.
+> Current status: S01-S05 accepted. S06 authorization research and startup gates are next;
+> Session persistence and Checkpoint are not implemented yet.
 
 ## 项目目标
 
@@ -169,7 +170,7 @@ Spring AI 只位于模型和集成适配层，React/Ink 只位于终端前端。
 20. [ADR-038](./docs/adr/ADR-038-s05-authorized-permission-study.md)：S05 授权 Permission 机制的采纳与偏离；
 21. [ADR-039](./docs/adr/ADR-039-s05-permission-pipeline.md)：S05 模式、规则、Session Grant、Hard Denial 与验证契约；
 22. [S05 启动 Gate 证据](./docs/evidence/S05-permission-gate-2026-08-02.md)：G0-G2 来源、目标和测试契约；
-23. [S05 工作树证据](./docs/evidence/S05-permission-pipeline-2026-08-03.md)：G3-G5 实现、测试、Demo 与剩余 G6 边界；
+23. [S05 Stage Exit 证据](./docs/evidence/S05-permission-pipeline-2026-08-03.md)：实现 Commit 的 G0-G6、测试、Demo、对账与剩余能力边界；
 24. [S05 Demo](./docs/demos/S05-permission-pipeline.md)：三模式、Session Grant、Hard Denial、拒绝恢复与 Fake External 可复现场景；
 25. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：仍有效的 Provider 与 Streaming 目标；
 26. [ADR-020（历史）](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)：此前暂停研究的审计记录；

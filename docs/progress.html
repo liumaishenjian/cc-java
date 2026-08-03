@@ -223,15 +223,15 @@
     }
   </style>
 </head>
-<body data-matrix-digest="621876fe12cf" data-state-digest="327dc0c11293" data-code-digest="88d435c2c0c4">
+<body data-matrix-digest="5eadbd2a9e65" data-state-digest="4d54815e89f7" data-code-digest="88d435c2c0c4">
   <main class="shell">
     <section class="hero">
       <p class="eyebrow">Reference-driven Java Agent Runtime</p>
       <h1>cc-java 项目进度看板</h1>
-      <p class="hero-copy">S05 Permission Pipeline 工作树生产实现与 G3-G5 已通过：三模式、固定规则优先级、ToolSource-bound Session Grant、Hard Denial、Permission Lifecycle、Print Fail Closed、拒绝恢复和 Fake External Tool 统一入口已有可证伪证据；所列 Feature 已达到 L2。</p>
+      <p class="hero-copy">S05 Permission Pipeline 已在实现 Commit f7b7137081e2d85417fa5965835d4c014e514dac 上完成 Commit-scoped G0-G6：三模式、固定优先级、ToolSource-bound Session Grant、Hard Denial、隐私安全 Permission Lifecycle、Print Fail Closed、拒绝恢复和 Fake External Tool 统一入口均有可证伪证据；所列 Feature 达到 L2。</p>
       <div class="hero-meta">
         <span class="chip"><span class="dot"></span>当前 S05 · Permission Pipeline</span>
-        <span class="chip">Stage Exit · OPEN</span>
+        <span class="chip">Stage Exit · ACCEPTED</span>
         <span class="chip">更新 · 2026-08-03</span>
         <a class="chip" href="feature-parity-matrix.md">打开权威功能矩阵 ↗</a>
       </div>
@@ -247,7 +247,7 @@
       <article class="metric">
         <p class="metric-label">Current Stage</p>
         <p class="metric-value">S05</p>
-        <p class="metric-note">Permission Pipeline · 进行中</p>
+        <p class="metric-note">Permission Pipeline · 已通过</p>
       </article>
       <article class="metric">
         <p class="metric-label">Capabilities Above L0</p>
@@ -256,14 +256,14 @@
       </article>
       <article class="metric">
         <p class="metric-label">Open Gates</p>
-        <p class="metric-value">1</p>
+        <p class="metric-value">0</p>
         <p class="metric-note">S05 只有 G0-G6 全部 PASSED 才能退出。</p>
       </article>
     </section>
 
     <section class="panel callout">
       <strong>Next allowed action</strong>
-      <p>完成聚焦 Commit 上的全量复验与维护者 code review；通过 G6 后再把 S05 Stage Exit 标记为 Accepted，当前不提前进入 S06。</p>
+      <p>进入 S06 Session + Checkpoint 授权研究与启动 Gate，先固定持久格式、恢复语义和可证伪测试；当前不声称 S06 生产能力已实现。</p>
     </section>
 
     <section class="panel" id="gates">
@@ -273,7 +273,7 @@
           <p class="panel-desc">Capability 可以先达到阶段等级，但 Stage 只有 G0-G6 全部通过才退出。</p>
         </div>
       </div>
-      <ol class="gate-grid"><li class="gate passed"><div class="gate-id"><span>G0</span><span class="badge passed">已通过</span></div><p>S05 使用 REF-04 与 AUTH-SRC-2026-07-29-A；授权范围、Unknown、仓库外只读路径、非复制边界和停止条件已在基线、ADR-022 与 ADR-038 登记。</p></li><li class="gate passed"><div class="gate-id"><span>G1</span><span class="badge passed">已通过</span></div><p>ADR-039 固定 S05 Feature、L1/L2 退出目标、三模式、规则/selector、范围化 Session Grant、Hard Denial、Lifecycle、拒绝恢复和延期边界。</p></li><li class="gate passed"><div class="gate-id"><span>G2</span><span class="badge passed">已通过</span></div><p>ADR-038 区分参考观察与本项目采纳；ADR-039 固定独立 Java 边界、优先级、Fake External Tool 统一入口及可证伪测试，不复制参考表达。</p></li><li class="gate passed"><div class="gate-id"><span>G3</span><span class="badge passed">已通过</span></div><p>Domain/Core/CLI/TUI 已独立实现类型化 Policy Kernel、三模式、Startup/Session Rule、ToolSource-bound selector、Hard Denial、审批与拒绝状态；未加入 S06+、真实外部 Adapter、外部 Hook 或 OS Sandbox。</p></li><li class="gate passed"><div class="gate-id"><span>G4</span><span class="badge passed">已通过</span></div><p>ADR-039 九项契约由 PermissionPolicyTest、S05PermissionPipelineTest、Headless/stdio、Spring AI 与 TUI 回归覆盖；含 Policy 异常 final 唯一与 Permission 事件命令/selector 不泄露；全量结果记录在 S05 工作树证据。</p></li><li class="gate passed"><div class="gate-id"><span>G5</span><span class="badge passed">已通过</span></div><p>S05 Demo 提供核心/Headless/stdio/TUI 可复现命令，覆盖 Session Allow、Protected Paths、Print Fail Closed、第三次拒绝和 Fake External Tool 负例。</p></li><li class="gate open"><div class="gate-id"><span>G6</span><span class="badge open">待关闭</span></div><p>矩阵、README、AGENTS、PRD、技术设计、ADR、Demo、Evidence、Gap 和看板已在工作树对账；需聚焦 Commit 上重跑全量验证并由维护者 code review 后才能退出。</p></li></ol>
+      <ol class="gate-grid"><li class="gate passed"><div class="gate-id"><span>G0</span><span class="badge passed">已通过</span></div><p>S05 使用 REF-04 与 AUTH-SRC-2026-07-29-A；授权范围、Unknown、仓库外只读路径、非复制边界和停止条件已在基线、ADR-022 与 ADR-038 登记。</p></li><li class="gate passed"><div class="gate-id"><span>G1</span><span class="badge passed">已通过</span></div><p>ADR-039 固定 S05 Feature、L1/L2 退出目标、三模式、规则/selector、范围化 Session Grant、Hard Denial、Lifecycle、拒绝恢复和延期边界。</p></li><li class="gate passed"><div class="gate-id"><span>G2</span><span class="badge passed">已通过</span></div><p>ADR-038 区分参考观察与本项目采纳；ADR-039 固定独立 Java 边界、优先级、Fake External Tool 统一入口及可证伪测试，不复制参考表达。</p></li><li class="gate passed"><div class="gate-id"><span>G3</span><span class="badge passed">已通过</span></div><p>Domain/Core/CLI/TUI 已独立实现类型化 Policy Kernel、三模式、Startup/Session Rule、ToolSource-bound selector、Hard Denial、审批与拒绝状态；未加入 S06+、真实外部 Adapter、外部 Hook 或 OS Sandbox。</p></li><li class="gate passed"><div class="gate-id"><span>G4</span><span class="badge passed">已通过</span></div><p>ADR-039 九项契约由 PermissionPolicyTest、S05PermissionPipelineTest、Headless/stdio、Spring AI 与 TUI 回归覆盖；含 Policy 异常 final 唯一与 Permission 事件命令/selector 不泄露；全量结果记录在 S05 Commit 证据。</p></li><li class="gate passed"><div class="gate-id"><span>G5</span><span class="badge passed">已通过</span></div><p>S05 Demo 提供核心/Headless/stdio/TUI 可复现命令，覆盖 Session Allow、Protected Paths、Print Fail Closed、第三次拒绝和 Fake External Tool 负例。</p></li><li class="gate passed"><div class="gate-id"><span>G6</span><span class="badge passed">已通过</span></div><p>实现 Commit f7b7137081e2d85417fa5965835d4c014e514dac 已完成全量复验和维护者 code review；矩阵、README、AGENTS、PRD、技术设计、ADR、Demo、Evidence、Gap 与看板完成 Commit-scoped 对账，Stage Exit Accepted。</p></li></ol>
     </section>
 
     <section class="panel" id="roadmap">
@@ -286,7 +286,7 @@
       <div class="table-wrap">
         <table>
           <thead><tr><th>Stage</th><th>状态</th><th>主题</th><th>核心交付</th><th>关联能力</th></tr></thead>
-          <tbody><tr><td class="stage-id">S00</td><td><span class="badge accepted">已通过</span></td><td>Harness 地图</td><td>参考架构、公开行为基线、授权研究登记、矩阵、术语和边界</td><td>0</td></tr><tr><td class="stage-id">S01</td><td><span class="badge accepted">已通过</span></td><td>Runtime Kernel（Agent Loop）</td><td>Fake Model 驱动的显式循环</td><td>19</td></tr><tr><td class="stage-id">S02</td><td><span class="badge accepted">已通过</span></td><td>Model + Streaming CLI</td><td>一个真实 Provider、Java Headless、实验性 stdio、React/Ink TUI 与事件流</td><td>24</td></tr><tr><td class="stage-id">S03</td><td><span class="badge accepted">已通过</span></td><td>Read Tools</td><td>在真实仓库自主搜索和解释代码</td><td>16</td></tr><tr><td class="stage-id">S04</td><td><span class="badge accepted">已通过</span></td><td>Write + Command</td><td>经审批修改代码、执行测试、根据结果继续</td><td>19</td></tr><tr class="current-row"><td class="stage-id">S05</td><td><span class="badge in-progress">进行中</span></td><td>Permission Pipeline</td><td>模式、规则、审批、生命周期和拒绝恢复</td><td>18</td></tr><tr><td class="stage-id">S06</td><td><span class="badge planned">未开始</span></td><td>Session + Checkpoint</td><td>JSONL、resume/fork、崩溃检测和 undo</td><td>11</td></tr><tr><td class="stage-id">S07</td><td><span class="badge planned">未开始</span></td><td>Context Engineering</td><td>Token 预算、Turn 淘汰、摘要、压缩和防抖</td><td>14</td></tr><tr><td class="stage-id">S08</td><td><span class="badge planned">未开始</span></td><td>Instructions + Settings</td><td>用户/项目/目录指令、配置层级和 Context CLI</td><td>17</td></tr><tr><td class="stage-id">S09</td><td><span class="badge planned">未开始</span></td><td>Hooks</td><td>可配置生命周期扩展与阻断</td><td>11</td></tr><tr><td class="stage-id">S10</td><td><span class="badge planned">未开始</span></td><td>MCP</td><td>外部 Server、Tool 过滤、权限统一</td><td>13</td></tr><tr><td class="stage-id">S11</td><td><span class="badge planned">未开始</span></td><td>Skills + Plugins</td><td>懒加载工作流、扩展打包和信任</td><td>16</td></tr><tr><td class="stage-id">S12</td><td><span class="badge planned">未开始</span></td><td>Sub-Agent + Worktree</td><td>RuntimeScope、单 Agent、并发/后台和 Worktree 检查点</td><td>14</td></tr><tr><td class="stage-id">S13</td><td><span class="badge planned">未开始</span></td><td>Sandbox + Security</td><td>Process/File/Network 隔离和攻击测试</td><td>20</td></tr><tr><td class="stage-id">S14</td><td><span class="badge planned">未开始</span></td><td>Production Harness</td><td>Eval/Observability、SDK/Headless、Distribution/Compatibility</td><td>40</td></tr><tr><td class="stage-id">S15</td><td><span class="badge planned">未开始</span></td><td>Independent Innovation</td><td>基于对照结果实现 Java 差异化</td><td>5</td></tr></tbody>
+          <tbody><tr><td class="stage-id">S00</td><td><span class="badge accepted">已通过</span></td><td>Harness 地图</td><td>参考架构、公开行为基线、授权研究登记、矩阵、术语和边界</td><td>0</td></tr><tr><td class="stage-id">S01</td><td><span class="badge accepted">已通过</span></td><td>Runtime Kernel（Agent Loop）</td><td>Fake Model 驱动的显式循环</td><td>19</td></tr><tr><td class="stage-id">S02</td><td><span class="badge accepted">已通过</span></td><td>Model + Streaming CLI</td><td>一个真实 Provider、Java Headless、实验性 stdio、React/Ink TUI 与事件流</td><td>24</td></tr><tr><td class="stage-id">S03</td><td><span class="badge accepted">已通过</span></td><td>Read Tools</td><td>在真实仓库自主搜索和解释代码</td><td>16</td></tr><tr><td class="stage-id">S04</td><td><span class="badge accepted">已通过</span></td><td>Write + Command</td><td>经审批修改代码、执行测试、根据结果继续</td><td>19</td></tr><tr class="current-row"><td class="stage-id">S05</td><td><span class="badge accepted">已通过</span></td><td>Permission Pipeline</td><td>模式、规则、审批、生命周期和拒绝恢复</td><td>18</td></tr><tr><td class="stage-id">S06</td><td><span class="badge planned">未开始</span></td><td>Session + Checkpoint</td><td>JSONL、resume/fork、崩溃检测和 undo</td><td>11</td></tr><tr><td class="stage-id">S07</td><td><span class="badge planned">未开始</span></td><td>Context Engineering</td><td>Token 预算、Turn 淘汰、摘要、压缩和防抖</td><td>14</td></tr><tr><td class="stage-id">S08</td><td><span class="badge planned">未开始</span></td><td>Instructions + Settings</td><td>用户/项目/目录指令、配置层级和 Context CLI</td><td>17</td></tr><tr><td class="stage-id">S09</td><td><span class="badge planned">未开始</span></td><td>Hooks</td><td>可配置生命周期扩展与阻断</td><td>11</td></tr><tr><td class="stage-id">S10</td><td><span class="badge planned">未开始</span></td><td>MCP</td><td>外部 Server、Tool 过滤、权限统一</td><td>13</td></tr><tr><td class="stage-id">S11</td><td><span class="badge planned">未开始</span></td><td>Skills + Plugins</td><td>懒加载工作流、扩展打包和信任</td><td>16</td></tr><tr><td class="stage-id">S12</td><td><span class="badge planned">未开始</span></td><td>Sub-Agent + Worktree</td><td>RuntimeScope、单 Agent、并发/后台和 Worktree 检查点</td><td>14</td></tr><tr><td class="stage-id">S13</td><td><span class="badge planned">未开始</span></td><td>Sandbox + Security</td><td>Process/File/Network 隔离和攻击测试</td><td>20</td></tr><tr><td class="stage-id">S14</td><td><span class="badge planned">未开始</span></td><td>Production Harness</td><td>Eval/Observability、SDK/Headless、Distribution/Compatibility</td><td>40</td></tr><tr><td class="stage-id">S15</td><td><span class="badge planned">未开始</span></td><td>Independent Innovation</td><td>基于对照结果实现 Java 差异化</td><td>5</td></tr></tbody>
         </table>
       </div>
     </section>
@@ -330,13 +330,13 @@
         </div>
       </div>
       <dl class="evidence-grid">
-        <div class="evidence-item"><dt>Last change</dt><dd>S05 lifecycle review 修复 Policy 评估异常的类型化 Fail Closed 与唯一 final 决定，并将新增 Permission 事件改为不持有原始 ToolCall/selector value 的隐私安全摘要；无 Capability Level 变化，Stage Exit 仍等待 Commit-scoped G6。</dd></div>
+        <div class="evidence-item"><dt>Last change</dt><dd>S05 实现 Commit f7b7137081e2d85417fa5965835d4c014e514dac 已完成 Commit-scoped G6 文档对账与维护者验收，Stage Exit 改为 Accepted；无 Capability Level 变化，下一步进入 S06 授权研究与启动 Gate。</dd></div>
         <div class="evidence-item"><dt>Evidence stage</dt><dd><code>S05</code></dd></div>
-        <div class="evidence-item"><dt>Evidence class</dt><dd><code>WORKTREE_VERIFIED</code></dd></div>
-        <div class="evidence-item"><dt>Code commit</dt><dd><code>WORKTREE</code></dd></div>
+        <div class="evidence-item"><dt>Evidence class</dt><dd><code>COMMIT_VERIFIED</code></dd></div>
+        <div class="evidence-item"><dt>Code commit</dt><dd><code>f7b7137081e2d85417fa5965835d4c014e514dac</code></dd></div>
         <div class="evidence-item"><dt>Standard command</dt><dd><code>./mvnw.cmd targeted S05 tests；npm.cmd --prefix cc-java-tui run check；./mvnw.cmd clean verify；./mvnw.cmd -DskipTests javadoc:aggregate；java scripts/ProgressDashboard.java；java scripts/ProgressDashboard.java --check；java scripts/ProgressDashboard.java --self-test；git diff --check</code></dd></div>
-        <div class="evidence-item"><dt>Result</dt><dd>S05 G0-G5 已在工作树通过，ADR-039 九项契约、Demo、Gap 与 L2 矩阵已对账；G6 仍需聚焦 Commit 的全量复验和维护者验收，不把工作树证据冒充 Accepted Stage Exit。</dd></div>
-        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix 621876fe12cf</code><br><code>state 327dc0c11293</code><br><code>code/build 88d435c2c0c4</code></dd></div>
+        <div class="evidence-item"><dt>Result</dt><dd>S05 实现 Commit 已通过 G0-G6；ADR-039 九项契约、全量验证、Demo、Gap、矩阵、README、AGENTS、PRD、技术设计、ADR、Evidence 和看板已完成 Commit-scoped 对账，Stage Exit Accepted。</dd></div>
+        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix 5eadbd2a9e65</code><br><code>state 4d54815e89f7</code><br><code>code/build 88d435c2c0c4</code></dd></div>
       </dl>
     </section>
 

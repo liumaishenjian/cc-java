@@ -55,10 +55,11 @@ stdio 协议和 React/Ink 审批面板。真实 Patch/Write L1 切片已实现�
 Shell/Workspace、准确命令审批、最小环境、
 stdout/stderr 事件、输出上限、timeout/cancel 与 Windows 进程树清理；完整编码闭环
 已通过公开 `Calculator.divide` Fixture 验证越权拒绝、测试失败、再次 Patch、成功
-测试和 Git Diff。**S05 Permission Pipeline** 已完成工作树生产实现和 G3-G5 验证：ADR-038 固定参考结论
-采纳边界，ADR-039 固定三模式、规则优先级、绑定可信 ToolSource 的 Session Grant、Hard
-Denial、Permission Lifecycle、拒绝恢复与 Fake External Tool 测试契约；所列 S05 Feature
-已提升到 L2。Stage 仍为 In Progress，G6 等待 Commit-scoped 全量对账和维护者验收。
+测试和 Git Diff。**S05 Permission Pipeline** 已在实现 Commit
+`f7b7137081e2d85417fa5965835d4c014e514dac` 上完成 G0-G6 与 Stage Exit：ADR-038 固定参考
+结论采纳边界，ADR-039 固定三模式、规则优先级、绑定可信 ToolSource 的 Session Grant、Hard
+Denial、隐私安全 Permission Lifecycle、拒绝恢复与 Fake External Tool 测试契约；所列 S05
+Feature 已达到 L2。
 
 当前允许并要求：
 
@@ -73,9 +74,9 @@ Denial、Permission Lifecycle、拒绝恢复与 Fake External Tool 测试契约�
   `10c7873`，不得继续扩展其中的 JLine Renderer；
 - S03 的只读安全边界和搜索回归必须继续通过；
 - S04 的 Approval → Patch/Write → Command → Mini Coding Agent E2E 回归必须继续通过；
-- S05 的授权研究、独立生产实现和工作树 G3-G5 证据必须继续通过；任何后续修改不得破坏
-  固定优先级、ToolSource-bound Session scope、Hard Denial、拒绝恢复或 Fake External Tool
-  统一入口；Stage Exit 只有在聚焦 Commit 的 G6 复验和维护者验收后才能 Accepted；
+- S05 的授权研究、独立生产实现和 Commit-scoped G0-G6 证据必须继续通过；任何后续修改
+  不得破坏固定优先级、ToolSource-bound Session scope、Hard Denial、隐私安全且唯一 final 的
+  Permission Lifecycle、拒绝恢复或 Fake External Tool 统一入口；
 - Patch/Write 的精确上下文、新文件父目录 realpath、原子替换、敏感路径和脏工作区保护
   回归必须保持通过；Command 的固定 Shell、精确预览、最小环境、输出上限、
   timeout/cancel 和 Windows 进程树清理回归也必须保持通过；
@@ -84,8 +85,9 @@ Denial、Permission Lifecycle、拒绝恢复与 Fake External Tool 测试契约�
 - 当前没有 OS Sandbox；不得把应用层 Permission 或进程清理描述成 S13 隔离能力；
 - S06 的持久化/Checkpoint、S07 的 Context 压缩及后续能力继续保持未实现状态。
 
-不得仅因为 S05 工作树 G3-G5 已通过就宣称 Stage Exit Accepted、S08 分层持久
-Permission、S13 OS Sandbox 或更后阶段能力已经可用。
+S05 Accepted 不表示 S06 持久 Session/Checkpoint、S08 分层持久 Permission、S13 OS
+Sandbox 或更后阶段能力已经可用。下一步只进入 S06 授权研究与启动 Gate，不得提前声称其
+生产能力已实现。
 
 ## 3. 项目定位
 
