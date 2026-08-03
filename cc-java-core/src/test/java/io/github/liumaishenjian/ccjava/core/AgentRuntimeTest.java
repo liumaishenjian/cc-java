@@ -400,7 +400,8 @@ class AgentRuntimeTest {
                         "ModelTurnStarted",
                         "ModelTurnCompleted",
                         "BeforeTool",
-                        "PermissionRequested",
+                        "PermissionEvaluationStarted",
+                        "PermissionEvaluated",
                         "PermissionDecided",
                         "AfterTool",
                         "ModelTurnStarted",
@@ -408,7 +409,7 @@ class AgentRuntimeTest {
                         "RunFinished");
         assertThat(events)
                 .extracting(AgentEventEnvelope::sequence)
-                .containsExactly(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 10L, 11L);
+                .containsExactly(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 10L, 11L, 12L);
         assertThat(events.get(0).runId()).isEmpty();
         assertThat(events.subList(1, events.size()))
                 .allSatisfy(envelope -> assertThat(envelope.runId()).contains(result.runId()));
@@ -543,11 +544,15 @@ class AgentRuntimeTest {
                 "approval_tool",
                 "不应执行");
         AtomicInteger approvalRequests = new AtomicInteger();
-        PermissionGate askGate = (ignoredInvocation, ignoredDefinition) ->
-                PermissionDecision.ASK;
-        ApprovalHandler denyApproval = (ignoredInvocation, ignoredDefinition) -> {
+        PermissionGate askGate = (ignoredInvocation, definition) ->
+                io.github.liumaishenjian.ccjava.domain.PermissionOutcome.of(
+                        PermissionDecision.ASK,
+                        io.github.liumaishenjian.ccjava.domain.PermissionReason.EFFECT_DEFAULT,
+                        io.github.liumaishenjian.ccjava.domain.PermissionSelector.toolWide(
+                                definition.name(), definition.source()));
+        ApprovalHandler denyApproval = (ignoredInvocation, ignoredDefinition, ignoredOutcome) -> {
             approvalRequests.incrementAndGet();
-            return PermissionDecision.DENY;
+            return io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny();
         };
         Harness harness = newHarness(model, askGate, denyApproval, tool);
 
@@ -728,7 +733,13 @@ class AgentRuntimeTest {
             attempts.incrementAndGet();
             throw new ModelGatewayException(
                     ModelGatewayException.FailureKind.RETRYABLE,
-                    "busy");
+                    "busy",
+                    new io.github.liumaishenjian.ccjava.domain.ModelFailureSummary(
+                            io.github.liumaishenjian.ccjava.domain.ModelFailureCategory.PROVIDER_UNAVAILABLE,
+                            java.util.Optional.of(
+                                    io.github.liumaishenjian.ccjava.domain.ModelHttpStatusClass.SERVER_ERROR),
+                            1,
+                            false));
         };
         RetryingModelGateway model = new RetryingModelGateway(
                 provider,
@@ -742,6 +753,13 @@ class AgentRuntimeTest {
         assertThat(attempts).hasValue(3);
         assertThat(result.status()).isEqualTo(RunStatus.FAILED);
         assertThat(result.stopReason()).isEqualTo(StopReason.MODEL_RETRY_EXHAUSTED);
+        assertThat(result.modelFailure()).contains(
+                new io.github.liumaishenjian.ccjava.domain.ModelFailureSummary(
+                        io.github.liumaishenjian.ccjava.domain.ModelFailureCategory.PROVIDER_UNAVAILABLE,
+                        java.util.Optional.of(
+                                io.github.liumaishenjian.ccjava.domain.ModelHttpStatusClass.SERVER_ERROR),
+                        3,
+                        false));
         assertThat(harness.events().envelopes())
                 .filteredOn(envelope ->
                         envelope.event() instanceof LifecycleEvent.RunFinished)
@@ -755,8 +773,14 @@ class AgentRuntimeTest {
             AgentTool... tools) {
         return newHarness(
                 model,
-                (ignoredInvocation, ignoredDefinition) -> PermissionDecision.ALLOW,
-                (ignoredInvocation, ignoredDefinition) -> PermissionDecision.ALLOW,
+                (ignoredInvocation, definition) ->
+                        io.github.liumaishenjian.ccjava.domain.PermissionOutcome.of(
+                                PermissionDecision.ALLOW,
+                                io.github.liumaishenjian.ccjava.domain.PermissionReason.EFFECT_DEFAULT,
+                                io.github.liumaishenjian.ccjava.domain.PermissionSelector.toolWide(
+                                        definition.name(), definition.source())),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.allowOnce(),
                 tools);
     }
 

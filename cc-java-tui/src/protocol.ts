@@ -197,6 +197,7 @@ function validateEventShape(
     }
     validateOptionalTerminalCount(type, payload, 'modelTurns');
     validateOptionalTerminalCount(type, payload, 'toolCalls');
+    validateOptionalModelFailure(type, payload);
   }
 }
 
@@ -298,6 +299,49 @@ function validateOptionalTerminalCount(
     && (!Number.isSafeInteger(payload[field]) || (payload[field] as number) < 0)
   ) {
     throw new ProtocolViolation(`${type} 的 ${field} 必须是非负安全整数`);
+  }
+}
+
+const MODEL_FAILURE_CATEGORIES = new Set([
+  'provider_unavailable',
+  'rate_limited',
+  'request_timeout',
+  'request_conflict',
+  'authentication_failed',
+  'invalid_request',
+  'network_error',
+  'incomplete_stream',
+  'invalid_response',
+  'provider_error',
+]);
+
+function validateOptionalModelFailure(
+  type: EventType,
+  payload: Readonly<Record<string, unknown>>,
+): void {
+  if (!('modelFailure' in payload)) {
+    return;
+  }
+  if (type !== 'run.failed' || !isRecord(payload.modelFailure)) {
+    throw new ProtocolViolation(`${type} 包含无效模型失败摘要`);
+  }
+  const failure = payload.modelFailure;
+  const allowedFields = new Set([
+    'category', 'statusClass', 'attempts', 'receivedOutput',
+  ]);
+  if (
+    Object.keys(failure).some(key => !allowedFields.has(key))
+    || typeof failure.category !== 'string'
+    || !MODEL_FAILURE_CATEGORIES.has(failure.category)
+    || ('statusClass' in failure
+      && failure.statusClass !== '4xx'
+      && failure.statusClass !== '5xx')
+    || !Number.isSafeInteger(failure.attempts)
+    || (failure.attempts as number) < 1
+    || (failure.attempts as number) > 100
+    || typeof failure.receivedOutput !== 'boolean'
+  ) {
+    throw new ProtocolViolation(`${type} 包含无效模型失败摘要`);
   }
 }
 

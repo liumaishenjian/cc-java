@@ -142,8 +142,9 @@ Java CLI Adapter 保存至多一个待决审批，因为 S04 Tool Pipeline 仍�
 
 本项目独立定义 `run_command(command, timeoutSeconds=30)`：
 
-1. Windows 优先使用固定安装路径的 PowerShell 7，缺失时回退系统 Windows PowerShell；
-   其他平台固定 `/bin/sh`。模型不能传入 Shell 路径或额外启动参数；
+1. Windows 依次检查机器级 `%ProgramFiles%\PowerShell\7` 与用户级
+   `%LOCALAPPDATA%\Programs\PowerShell\7` 的固定 PowerShell 7，缺失时回退系统 Windows
+   PowerShell；其他平台固定 `/bin/sh`。模型不能传入 Shell 路径或额外启动参数；
 2. Java 把已批准的完整 `command` 作为固定 Shell 的单个参数传入，不把用户、模型或
    文件文本再次拼接进命令；审批事件准确展示同一命令正文、Shell ID 和 cwd `.`；
 3. 工作目录固定为启动 Workspace；stdin 启动后立即关闭，S04 不提供 TTY、后台任务、

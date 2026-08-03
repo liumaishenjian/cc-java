@@ -26,15 +26,15 @@ class FixedPermissionGateTest {
     void defaultAllowsReadsAsksForLocalSideEffectsAndDeniesExternalEffects() {
         FixedPermissionGate gate = new FixedPermissionGate(PermissionMode.DEFAULT);
 
-        assertThat(gate.evaluate(invocation, definition(ToolEffect.READ_WORKSPACE)))
+        assertThat(gate.evaluate(invocation, definition(ToolEffect.READ_WORKSPACE)).decision())
                 .isEqualTo(PermissionDecision.ALLOW);
-        assertThat(gate.evaluate(invocation, definition(ToolEffect.WRITE_WORKSPACE)))
+        assertThat(gate.evaluate(invocation, definition(ToolEffect.WRITE_WORKSPACE)).decision())
                 .isEqualTo(PermissionDecision.ASK);
-        assertThat(gate.evaluate(invocation, definition(ToolEffect.EXECUTE_PROCESS)))
+        assertThat(gate.evaluate(invocation, definition(ToolEffect.EXECUTE_PROCESS)).decision())
                 .isEqualTo(PermissionDecision.ASK);
-        assertThat(gate.evaluate(invocation, definition(ToolEffect.NETWORK_OR_REMOTE)))
+        assertThat(gate.evaluate(invocation, definition(ToolEffect.NETWORK_OR_REMOTE)).decision())
                 .isEqualTo(PermissionDecision.DENY);
-        assertThat(gate.evaluate(invocation, definition(ToolEffect.SYSTEM_OR_DESTRUCTIVE)))
+        assertThat(gate.evaluate(invocation, definition(ToolEffect.SYSTEM_OR_DESTRUCTIVE)).decision())
                 .isEqualTo(PermissionDecision.DENY);
     }
 
@@ -46,7 +46,8 @@ class FixedPermissionGateTest {
             PermissionDecision expected = effect == ToolEffect.READ_WORKSPACE
                     ? PermissionDecision.ALLOW
                     : PermissionDecision.DENY;
-            assertThat(gate.evaluate(invocation, definition(effect))).isEqualTo(expected);
+            assertThat(gate.evaluate(invocation, definition(effect)).decision())
+                    .isEqualTo(expected);
         }
     }
 

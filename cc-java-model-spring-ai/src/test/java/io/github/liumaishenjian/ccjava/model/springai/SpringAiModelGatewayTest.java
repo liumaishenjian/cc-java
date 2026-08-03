@@ -4,6 +4,7 @@ import com.openai.errors.OpenAIRetryableException;
 import io.github.liumaishenjian.ccjava.core.CancellationSource;
 import io.github.liumaishenjian.ccjava.core.CancellationToken;
 import io.github.liumaishenjian.ccjava.core.ModelGatewayException;
+import io.github.liumaishenjian.ccjava.domain.ModelFailureCategory;
 import io.github.liumaishenjian.ccjava.domain.ModelFinishReason;
 import io.github.liumaishenjian.ccjava.domain.ModelRequest;
 import io.github.liumaishenjian.ccjava.domain.ModelTurn;
@@ -198,6 +199,54 @@ class SpringAiModelGatewayTest {
                 .satisfies(failure -> assertThat(
                         ((ModelGatewayException) failure).kind())
                         .isEqualTo(ModelGatewayException.FailureKind.INCOMPLETE_STREAM));
+    }
+
+    @Test
+    void emptyStreamDoesNotClaimProviderOutput() {
+        SpringAiModelGateway gateway = new SpringAiModelGateway(
+                new RecordingChatModel(Flux.empty()),
+                "test-model");
+
+        assertThatThrownBy(() -> gateway.complete(
+                request(List.of()),
+                ignored -> {
+                },
+                CancellationToken.none()))
+                .isInstanceOf(ModelGatewayException.class)
+                .satisfies(failure -> {
+                    ModelGatewayException modelFailure = (ModelGatewayException) failure;
+                    assertThat(modelFailure.kind())
+                            .isEqualTo(ModelGatewayException.FailureKind.INCOMPLETE_STREAM);
+                    assertThat(modelFailure.summary()).hasValueSatisfying(summary -> {
+                        assertThat(summary.category())
+                                .isEqualTo(ModelFailureCategory.INVALID_RESPONSE);
+                        assertThat(summary.receivedOutput()).isFalse();
+                    });
+                });
+    }
+
+    @Test
+    void metadataOnlyRawResponseClaimsProviderResponse() {
+        ChatResponse metadataOnly = new ChatResponse(
+                List.of(),
+                ChatResponseMetadata.builder().model("provider-model").build());
+        SpringAiModelGateway gateway = new SpringAiModelGateway(
+                new RecordingChatModel(Flux.just(metadataOnly)),
+                "test-model");
+
+        assertThatThrownBy(() -> gateway.complete(
+                request(List.of()),
+                ignored -> {
+                },
+                CancellationToken.none()))
+                .isInstanceOf(ModelGatewayException.class)
+                .satisfies(failure -> {
+                    ModelGatewayException modelFailure = (ModelGatewayException) failure;
+                    assertThat(modelFailure.kind())
+                            .isEqualTo(ModelGatewayException.FailureKind.INCOMPLETE_STREAM);
+                    assertThat(modelFailure.summary()).hasValueSatisfying(summary ->
+                            assertThat(summary.receivedOutput()).isTrue());
+                });
     }
 
     @Test

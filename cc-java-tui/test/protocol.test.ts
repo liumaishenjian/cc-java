@@ -50,6 +50,43 @@ describe('decodeEvent', () => {
     }), 1)).toThrowError(/stopReason/);
   });
 
+  it('只接受白名单模型失败摘要', () => {
+    const event = decodeEvent(JSON.stringify({
+      version: 0,
+      type: 'run.failed',
+      requestId: 'req-1',
+      sessionId: 'session-1',
+      runId: 'run-1',
+      sequence: 1,
+      payload: {
+        stopReason: 'model_retry_exhausted',
+        modelTurns: 1,
+        toolCalls: 0,
+        modelFailure: {
+          category: 'provider_unavailable',
+          statusClass: '5xx',
+          attempts: 3,
+          receivedOutput: false,
+        },
+      },
+    }), 1);
+
+    expect(event.payload.modelFailure).toEqual(expect.objectContaining({attempts: 3}));
+    expect(() => decodeEvent(JSON.stringify({
+      ...event,
+      payload: {
+        ...event.payload,
+        modelFailure: {
+          category: 'provider_unavailable',
+          statusClass: '5xx',
+          attempts: 3,
+          receivedOutput: false,
+          message: 'SECRET_PROVIDER_TEXT',
+        },
+      },
+    }), 1)).toThrowError(/模型失败摘要/);
+  });
+
   it('接受安全 Tool 展示摘要并拒绝未知模式', () => {
     const event = decodeEvent(JSON.stringify({
       version: 0,

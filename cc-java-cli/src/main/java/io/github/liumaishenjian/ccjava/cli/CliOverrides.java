@@ -2,6 +2,7 @@ package io.github.liumaishenjian.ccjava.cli;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import io.github.liumaishenjian.ccjava.domain.PermissionMode;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -14,12 +15,14 @@ import java.util.Optional;
  * @param workspace 用户选择的 Workspace
  * @param model 可选模型名覆盖
  * @param timeout 每个 Run 的墙钟限制
+ * @param permissionMode 当前 S05 Permission Mode
  * @since 0.1.0
  */
 record CliOverrides(
         Path workspace,
         Optional<String> model,
-        Duration timeout) {
+        Duration timeout,
+        PermissionMode permissionMode) {
 
     static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(5);
     static final Duration MIN_TIMEOUT = Duration.ofMillis(10);
@@ -33,6 +36,7 @@ record CliOverrides(
         model = Objects.requireNonNull(model, "model 不能为空")
                 .map(String::trim);
         timeout = Objects.requireNonNull(timeout, "timeout 不能为空");
+        permissionMode = Objects.requireNonNull(permissionMode, "permissionMode 不能为空");
         if (model.isPresent()) {
             String value = model.orElseThrow();
             if (value.isBlank()

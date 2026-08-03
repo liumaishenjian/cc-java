@@ -6,7 +6,9 @@ import io.github.liumaishenjian.ccjava.core.CancellationToken;
 import io.github.liumaishenjian.ccjava.core.ModelGatewayException;
 import io.github.liumaishenjian.ccjava.core.ModelRetryPolicy;
 import io.github.liumaishenjian.ccjava.core.RetryingModelGateway;
+import io.github.liumaishenjian.ccjava.domain.ModelFailureCategory;
 import io.github.liumaishenjian.ccjava.domain.ModelFinishReason;
+import io.github.liumaishenjian.ccjava.domain.ModelHttpStatusClass;
 import io.github.liumaishenjian.ccjava.domain.ModelRequest;
 import io.github.liumaishenjian.ccjava.domain.ModelTurn;
 import io.github.liumaishenjian.ccjava.domain.RunId;
@@ -109,6 +111,48 @@ class OpenAiStreamingContractTest {
     }
 
     @Test
+    void reportsSanitizedProviderUnavailableAfterThreeServerFailures() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            requests.incrementAndGet();
+            byte[] body = "{\"error\":{\"message\":\"SECRET_URL_AND_KEY\"}}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(503, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            RetryingModelGateway gateway = new RetryingModelGateway(
+                    gateway(server),
+                    new ModelRetryPolicy(
+                            3,
+                            List.of(java.time.Duration.ZERO, java.time.Duration.ZERO)));
+
+            assertThatThrownBy(() -> gateway.complete(
+                    textRequest(), ignored -> { }, CancellationToken.none()))
+                    .isInstanceOf(ModelGatewayException.class)
+                    .satisfies(failure -> {
+                        ModelGatewayException modelFailure = (ModelGatewayException) failure;
+                        assertThat(modelFailure.summary()).hasValueSatisfying(summary -> {
+                            assertThat(summary.category())
+                                    .isEqualTo(ModelFailureCategory.PROVIDER_UNAVAILABLE);
+                            assertThat(summary.statusClass())
+                                    .contains(ModelHttpStatusClass.SERVER_ERROR);
+                            assertThat(summary.attempts()).isEqualTo(3);
+                            assertThat(summary.receivedOutput()).isFalse();
+                            assertThat(summary.toString()).doesNotContain("SECRET_URL_AND_KEY");
+                        });
+                    });
+            assertThat(requests).hasValue(3);
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void rejectsSseEofWithoutFinishReasonAsIncomplete() throws Exception {
         HttpServer server = HttpServer.create(
                 new InetSocketAddress("127.0.0.1", 0),
@@ -124,9 +168,15 @@ class OpenAiStreamingContractTest {
                     },
                     CancellationToken.none()))
                     .isInstanceOf(ModelGatewayException.class)
-                    .satisfies(failure -> assertThat(
-                            ((ModelGatewayException) failure).kind())
-                            .isEqualTo(INCOMPLETE_STREAM));
+                    .satisfies(failure -> {
+                        ModelGatewayException modelFailure = (ModelGatewayException) failure;
+                        assertThat(modelFailure.kind()).isEqualTo(INCOMPLETE_STREAM);
+                        assertThat(modelFailure.summary()).hasValueSatisfying(summary -> {
+                            assertThat(summary.category())
+                                    .isEqualTo(ModelFailureCategory.INVALID_RESPONSE);
+                            assertThat(summary.receivedOutput()).isTrue();
+                        });
+                    });
         } finally {
             server.stop(0);
         }

@@ -1,5 +1,6 @@
 package io.github.liumaishenjian.ccjava.core;
 
+import io.github.liumaishenjian.ccjava.domain.ModelFailureSummary;
 import io.github.liumaishenjian.ccjava.domain.ModelRequest;
 import io.github.liumaishenjian.ccjava.domain.ModelTurn;
 
@@ -71,28 +72,64 @@ public final class RetryingModelGateway implements StreamingModelGateway {
                     throw cancelled(failure);
                 }
                 if (emittedText.get()) {
+                    ModelFailureSummary summary = failure.summary()
+                            .map(ModelFailureSummary::withReceivedOutput)
+                            .orElseGet(() -> ModelFailureSummary.firstAttempt(
+                                    io.github.liumaishenjian.ccjava.domain.ModelFailureCategory.INCOMPLETE_STREAM,
+                                    java.util.Optional.empty(),
+                                    true));
                     throw new ModelGatewayException(
                             INCOMPLETE_STREAM,
                             "Model stream failed after publishing output",
+                            summary.withAttempts(attempt),
                             failure);
                 }
                 if (failure.kind() != RETRYABLE) {
-                    throw failure;
+                    throw withAttempt(failure, attempt);
                 }
-                lastFailure = failure;
+                lastFailure = withAttempt(failure, attempt);
                 if (attempt == policy.maxAttempts()) {
+                    ModelFailureSummary summary = lastFailure.summary()
+                            .orElseGet(() -> ModelFailureSummary.firstAttempt(
+                                    io.github.liumaishenjian.ccjava.domain.ModelFailureCategory.PROVIDER_ERROR,
+                                    java.util.Optional.empty(),
+                                    false))
+                            .withAttempts(attempt);
                     throw new ModelGatewayException(
                             RETRY_EXHAUSTED,
                             "Model retry attempts exhausted",
-                            failure);
+                            summary,
+                            lastFailure);
                 }
                 await(policy.delayAfter(attempt), cancellation);
             }
         }
+        ModelFailureSummary summary = lastFailure == null
+                ? ModelFailureSummary.firstAttempt(
+                        io.github.liumaishenjian.ccjava.domain.ModelFailureCategory.PROVIDER_ERROR,
+                        java.util.Optional.empty(),
+                        false)
+                : lastFailure.summary().orElseGet(() -> ModelFailureSummary.firstAttempt(
+                        io.github.liumaishenjian.ccjava.domain.ModelFailureCategory.PROVIDER_ERROR,
+                        java.util.Optional.empty(),
+                        false));
         throw new ModelGatewayException(
                 RETRY_EXHAUSTED,
                 "Model retry attempts exhausted",
+                summary.withAttempts(policy.maxAttempts()),
                 lastFailure);
+    }
+
+    private static ModelGatewayException withAttempt(
+            ModelGatewayException failure,
+            int attempt) {
+        return failure.summary()
+                .map(summary -> new ModelGatewayException(
+                        failure.kind(),
+                        failure.getMessage(),
+                        summary.withAttempts(attempt),
+                        failure.getCause()))
+                .orElse(failure);
     }
 
     private static void await(

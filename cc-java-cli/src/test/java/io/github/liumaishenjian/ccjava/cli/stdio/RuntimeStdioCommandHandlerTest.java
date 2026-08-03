@@ -3,7 +3,11 @@ package io.github.liumaishenjian.ccjava.cli.stdio;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
+import io.github.liumaishenjian.ccjava.core.ModelGatewayException;
+import io.github.liumaishenjian.ccjava.domain.ModelFailureCategory;
+import io.github.liumaishenjian.ccjava.domain.ModelFailureSummary;
 import io.github.liumaishenjian.ccjava.domain.ModelFinishReason;
+import io.github.liumaishenjian.ccjava.domain.ModelHttpStatusClass;
 import io.github.liumaishenjian.ccjava.domain.ModelTurn;
 import io.github.liumaishenjian.ccjava.domain.ModelTurnMetadata;
 import io.github.liumaishenjian.ccjava.domain.ModelUsage;
@@ -80,6 +84,47 @@ class RuntimeStdioCommandHandlerTest {
                             "baseUrl");
             assertThat(terminal.payload().get("finalText").stringValue())
                     .isEqualTo("COMPLETION_SENTINEL");
+        }
+    }
+
+    @Test
+    void terminalProjectsOnlyWhitelistedModelFailureFields() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        ModelFailureSummary summary = new ModelFailureSummary(
+                ModelFailureCategory.PROVIDER_UNAVAILABLE,
+                Optional.of(ModelHttpStatusClass.SERVER_ERROR),
+                1,
+                false);
+
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            throw new ModelGatewayException(
+                    ModelGatewayException.FailureKind.RETRYABLE,
+                    "SECRET_PROVIDER_RESPONSE https://secret.invalid sk-secret",
+                    summary);
+        })) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"run.start\","
+                    + "\"requestId\":\"run\",\"sessionId\":\"%s\",\"sequence\":2,"
+                    + "\"payload\":{\"prompt\":\"PROMPT_SECRET\"}}").formatted(sessionId)), emitter);
+
+            CapturedEvent terminal = awaitAnyTerminal(events);
+            assertThat(terminal.type()).isEqualTo("run.failed");
+            assertThat(terminal.payload().toString())
+                    .contains(
+                            "\"category\":\"provider_unavailable\"",
+                            "\"statusClass\":\"5xx\"",
+                            "\"attempts\":1",
+                            "\"receivedOutput\":false")
+                    .doesNotContain(
+                            "SECRET_PROVIDER_RESPONSE",
+                            "secret.invalid",
+                            "sk-secret",
+                            "PROMPT_SECRET");
         }
     }
 
@@ -211,6 +256,67 @@ class RuntimeStdioCommandHandlerTest {
     }
 
     @Test
+    void allowSessionSkipsSecondApprovalForSameScope() throws Exception {
+        Path file = Files.writeString(workspace.resolve("sample.txt"), "old\n");
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        java.util.concurrent.atomic.AtomicInteger turns = new java.util.concurrent.atomic.AtomicInteger();
+
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(
+                request -> switch (turns.incrementAndGet()) {
+                    case 1 -> new ModelTurn(
+                            AssistantMessage.tools(List.of(new ToolCall(
+                                    "call-patch-1",
+                                    "apply_patch",
+                                    new JsonObject(java.util.Map.of(
+                                            "path", "sample.txt",
+                                            "oldText", "old",
+                                            "newText", "middle"))))),
+                            ModelTurnMetadata.unknown());
+                    case 2 -> new ModelTurn(
+                            AssistantMessage.tools(List.of(new ToolCall(
+                                    "call-patch-2",
+                                    "apply_patch",
+                                    new JsonObject(java.util.Map.of(
+                                            "path", "sample.txt",
+                                            "oldText", "middle",
+                                            "newText", "new"))))),
+                            ModelTurnMetadata.unknown());
+                    default -> ModelTurn.text("done");
+                },
+                new HeadlessRuntimeOptions(
+                        workspace, "fake-model", Duration.ofSeconds(3)))) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\","
+                            + "\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"run.start\","
+                    + "\"requestId\":\"run\",\"sessionId\":\"%s\",\"sequence\":2,"
+                    + "\"payload\":{\"prompt\":\"patch twice\"}}")
+                    .formatted(sessionId)), emitter);
+
+            CapturedEvent approval = awaitEvent(events, "approval.requested");
+            assertThat(approval.payload().get("sessionScope").booleanValue()).isTrue();
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"approval.resolve\","
+                    + "\"requestId\":\"approve\",\"sessionId\":\"%s\",\"runId\":\"%s\","
+                    + "\"sequence\":3,\"payload\":{\"approvalId\":\"%s\","
+                    + "\"decision\":\"allow_session\"}}")
+                    .formatted(
+                            sessionId,
+                            approval.runId().orElseThrow(),
+                            approval.payload().get("approvalId").stringValue())), emitter);
+
+            awaitTerminal(events);
+        }
+
+        assertThat(Files.readString(file)).isEqualTo("new\n");
+        assertThat(events).filteredOn(event -> event.type().equals("approval.requested"))
+                .hasSize(1);
+    }
+
+    @Test
     void commandApprovalShowsExactExecutionAndStreamsOutput() throws Exception {
         String command = CommandShell.current() == CommandShell.WINDOWS_POWERSHELL
                 ? "Write-Output 'command-stream'; Set-Content -Path command.txt -Value ok"
@@ -270,6 +376,23 @@ class RuntimeStdioCommandHandlerTest {
     private CapturedEvent awaitTerminal(List<CapturedEvent> events)
             throws InterruptedException {
         return awaitEvent(events, "run.completed");
+    }
+
+    private CapturedEvent awaitAnyTerminal(List<CapturedEvent> events)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(3).toNanos();
+        while (System.nanoTime() < deadline) {
+            Optional<CapturedEvent> matched = events.stream()
+                    .filter(event -> event.type().equals("run.completed")
+                            || event.type().equals("run.failed")
+                            || event.type().equals("run.cancelled"))
+                    .findFirst();
+            if (matched.isPresent()) {
+                return matched.orElseThrow();
+            }
+            Thread.sleep(10);
+        }
+        throw new AssertionError("未收到 stdio Run 终态事件");
     }
 
     private CapturedEvent awaitEvent(List<CapturedEvent> events, String type)

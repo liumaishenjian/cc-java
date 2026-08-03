@@ -1347,6 +1347,7 @@ public final class ProgressDashboard {
                 || name.endsWith(".json")
                 || name.endsWith(".cmd")
                 || name.endsWith(".ps1")
+                || name.endsWith(".psm1")
                 || name.endsWith(".sh")
                 || "mvnw".equals(name);
         if (!text) {
@@ -1518,12 +1519,19 @@ public final class ProgressDashboard {
             Path packageJson = root.resolve("cc-java-tui/package.json");
             Path ignored = root.resolve("cc-java-tui/node_modules/example/index.js");
             Path rootLauncher = root.resolve("cc-java.ps1");
+            Path rootCommand = root.resolve("codej.cmd");
+            Path repositoryScript = root.resolve("scripts/StartCodejDev.ps1");
+            Path repositoryModule = root.resolve("scripts/CodejDevLauncher.psm1");
             Files.createDirectories(source.getParent());
             Files.createDirectories(ignored.getParent());
             Files.writeString(source, "export const value = 1;\n", StandardCharsets.UTF_8);
             Files.writeString(packageJson, "{\"private\":true}\n", StandardCharsets.UTF_8);
             Files.writeString(ignored, "ignored-1\n", StandardCharsets.UTF_8);
             Files.writeString(rootLauncher, "Write-Output 'one'\n", StandardCharsets.UTF_8);
+            Files.writeString(rootCommand, "@echo off\n", StandardCharsets.UTF_8);
+            Files.createDirectories(repositoryScript.getParent());
+            Files.writeString(repositoryScript, "Write-Output 'script-one'\n", StandardCharsets.UTF_8);
+            Files.writeString(repositoryModule, "function Get-One {}\n", StandardCharsets.UTF_8);
 
             String initial = repositoryInputDigest(root);
             Files.writeString(source, "export const value = 2;\n", StandardCharsets.UTF_8);
@@ -1543,6 +1551,24 @@ public final class ProgressDashboard {
             assertCondition(
                     !ignoredChanged.equals(launcherChanged),
                     "root launcher script changes were not included in code digest");
+
+            Files.writeString(rootCommand, "@echo command-two\n", StandardCharsets.UTF_8);
+            String commandChanged = repositoryInputDigest(root);
+            assertCondition(
+                    !launcherChanged.equals(commandChanged),
+                    "root command launcher changes were not included in code digest");
+
+            Files.writeString(repositoryScript, "Write-Output 'script-two'\n", StandardCharsets.UTF_8);
+            String scriptChanged = repositoryInputDigest(root);
+            assertCondition(
+                    !commandChanged.equals(scriptChanged),
+                    "repository PowerShell scripts were not included in code digest");
+
+            Files.writeString(repositoryModule, "function Get-Two {}\n", StandardCharsets.UTF_8);
+            String moduleChanged = repositoryInputDigest(root);
+            assertCondition(
+                    !scriptChanged.equals(moduleChanged),
+                    "PowerShell modules were not normalized into the code digest");
         } catch (IOException | NoSuchAlgorithmException exception) {
             throw new IllegalStateException("TUI digest self-test failed", exception);
         } finally {

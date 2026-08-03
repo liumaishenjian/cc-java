@@ -117,7 +117,8 @@ class ToolExecutionPipelineTest {
         PipelineFixture allowed = fixture(
                 allowedTool,
                 new FixedPermissionGate(PermissionMode.DEFAULT),
-                (ignoredInvocation, ignoredDefinition) -> PermissionDecision.ALLOW);
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.allowOnce());
 
         ToolResult allowedResult = allowed.execute();
 
@@ -129,7 +130,8 @@ class ToolExecutionPipelineTest {
         PipelineFixture denied = fixture(
                 deniedTool,
                 new FixedPermissionGate(PermissionMode.DEFAULT),
-                (ignoredInvocation, ignoredDefinition) -> PermissionDecision.DENY);
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny());
 
         ToolResult deniedResult = denied.execute();
 
@@ -191,8 +193,14 @@ class ToolExecutionPipelineTest {
     private static PipelineFixture fixture(AgentTool tool) {
         return fixture(
                 tool,
-                (ignoredInvocation, ignoredDefinition) -> PermissionDecision.ALLOW,
-                (ignoredInvocation, ignoredDefinition) -> PermissionDecision.ALLOW);
+                (ignoredInvocation, definition) ->
+                        io.github.liumaishenjian.ccjava.domain.PermissionOutcome.of(
+                                PermissionDecision.ALLOW,
+                                io.github.liumaishenjian.ccjava.domain.PermissionReason.EFFECT_DEFAULT,
+                                io.github.liumaishenjian.ccjava.domain.PermissionSelector.toolWide(
+                                        definition.name(), definition.source())),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.allowOnce());
     }
 
     private static PipelineFixture fixture(

@@ -2,23 +2,41 @@ package io.github.liumaishenjian.ccjava.cli.runtime;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import io.github.liumaishenjian.ccjava.domain.PermissionMode;
+import io.github.liumaishenjian.ccjava.domain.PermissionRule;
+import java.util.List;
 import java.util.Objects;
 
 /**
  * Headless Runtime 创建 Session 与 Run 所需的非 Secret 配置。
  *
- * <p>Workspace、模型名和墙钟限制会进入 Session Metadata，使 CLI Override
- * 可以通过事件和 Fake Model 请求追踪；它们不改变 Permission 或文件访问边界。</p>
+ * <p>Workspace、模型名、墙钟限制和 Permission Mode 在 Composition Root 固定；
+ * Startup Rule 由可信应用代码显式注入，不从 Workspace 内容或模型参数加载。</p>
  *
  * @param workspace 已解析的真实 Workspace 目录
  * @param model Provider 模型标识
  * @param timeout 每个 Run 的墙钟限制
+ * @param permissionMode 当前 S05 Permission Mode
+ * @param startupPermissionRules 可信启动规则
  * @since 0.1.0
  */
 public record HeadlessRuntimeOptions(
         Path workspace,
         String model,
-        Duration timeout) {
+        Duration timeout,
+        PermissionMode permissionMode,
+        List<PermissionRule> startupPermissionRules) {
+
+    /**
+     * 使用 DEFAULT 且无 Startup Rule 创建兼容 S04 调用方的配置。
+     *
+     * @param workspace 已解析的真实 Workspace 目录
+     * @param model Provider 模型标识
+     * @param timeout 每个 Run 的墙钟限制
+     */
+    public HeadlessRuntimeOptions(Path workspace, String model, Duration timeout) {
+        this(workspace, model, timeout, PermissionMode.DEFAULT, List.of());
+    }
 
     /**
      * 规范化非 Secret Runtime 配置。
@@ -26,6 +44,8 @@ public record HeadlessRuntimeOptions(
      * @param workspace 已解析的真实 Workspace 目录
      * @param model Provider 模型标识
      * @param timeout 每个 Run 的墙钟限制
+     * @param permissionMode 当前 Permission Mode
+     * @param startupPermissionRules 可信启动规则
      */
     public HeadlessRuntimeOptions {
         workspace = Objects.requireNonNull(workspace, "workspace 不能为空")
@@ -33,6 +53,9 @@ public record HeadlessRuntimeOptions(
                 .normalize();
         model = Objects.requireNonNull(model, "model 不能为空").trim();
         timeout = Objects.requireNonNull(timeout, "timeout 不能为空");
+        permissionMode = Objects.requireNonNull(permissionMode, "permissionMode 不能为空");
+        startupPermissionRules = List.copyOf(Objects.requireNonNull(
+                startupPermissionRules, "startupPermissionRules 不能为空"));
         if (model.isBlank()) {
             throw new IllegalArgumentException("model 不能为空白");
         }

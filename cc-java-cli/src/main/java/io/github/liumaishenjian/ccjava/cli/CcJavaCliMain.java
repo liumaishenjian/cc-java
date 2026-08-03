@@ -52,6 +52,8 @@ public final class CcJavaCliMain {
             PrintWriter out,
             PrintWriter err) {
         CommandLine commandLine = new CommandLine(new CcJavaCommand(runner));
+        // Headless stdout/stderr 是可脚本化协议面；不能因父终端颜色环境变量改变字节内容。
+        commandLine.setColorScheme(CommandLine.Help.defaultColorScheme(CommandLine.Help.Ansi.OFF));
         commandLine.setOut(out);
         commandLine.setErr(err);
         return commandLine.execute(args);

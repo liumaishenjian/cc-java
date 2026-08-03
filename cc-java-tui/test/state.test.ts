@@ -172,6 +172,41 @@ describe('reduceTuiState', () => {
     }));
   });
 
+  it('投影类型化模型失败摘要', () => {
+    let state = reduceTuiState(initialTuiState, {
+      type: 'event.received',
+      event: event('initialized', 1, {}, 'init', 'session-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'run.submitted', requestId: 'req-model', prompt: '简单任务',
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('run.started', 2, {}, 'req-model', 'session-1', 'run-model'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('run.failed', 3, {
+        stopReason: 'model_retry_exhausted',
+        modelTurns: 1,
+        toolCalls: 0,
+        modelFailure: {
+          category: 'provider_unavailable',
+          statusClass: '5xx',
+          attempts: 3,
+          receivedOutput: false,
+        },
+      }, 'req-model', 'session-1', 'run-model'),
+    });
+
+    expect(state.runs[0]?.modelFailure).toEqual({
+      category: 'provider_unavailable',
+      statusClass: '5xx',
+      attempts: 3,
+      receivedOutput: false,
+    });
+  });
+
   it('投影单次审批并在用户提交决定后清理等待面板', () => {
     let state = reduceTuiState(initialTuiState, {
       type: 'event.received',

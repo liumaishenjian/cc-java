@@ -95,8 +95,11 @@ class S04CodingLoopFixtureTest {
     void rejectsScopeEscapeThenRecoversFromFailedTestAndCompletesCodingLoop()
             throws Exception {
         copyFixture(workspace);
+        byte[] forbiddenBaseline = Files.readAllBytes(workspace.resolve("DO_NOT_EDIT.txt"));
         initializeGitRepository(workspace);
-        ScriptedCodingModel model = new ScriptedCodingModel();
+        ScriptedCodingModel model = new ScriptedCodingModel(lineSeparator(
+                Files.readString(
+                        workspace.resolve("src/Calculator.java"), StandardCharsets.UTF_8)));
         List<String> approvalCalls = new ArrayList<>();
 
         AgentRunResult run;
@@ -105,7 +108,7 @@ class S04CodingLoopFixtureTest {
                 AgentEventSink.noop(),
                 new HeadlessRuntimeOptions(
                         workspace, "s04-scripted-fixture", Duration.ofSeconds(30)),
-                (invocation, ignoredDefinition) -> {
+                (invocation, ignoredDefinition, ignoredOutcome) -> {
                     approvalCalls.add(invocation.call().id());
                     String path = invocation.call().arguments().string("path").orElse("");
                     String command = invocation.call().arguments().string("command").orElse("");
@@ -114,8 +117,8 @@ class S04CodingLoopFixtureTest {
                     boolean allowedCommand = invocation.call().name().equals("run_command")
                             && command.equals(TEST_COMMAND);
                     return allowedPatch || allowedCommand
-                            ? PermissionDecision.ALLOW
-                            : PermissionDecision.DENY;
+                            ? io.github.liumaishenjian.ccjava.domain.ApprovalResponse.allowOnce()
+                            : io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny();
                 })) {
             session.open();
             run = session.run("按照 TASK.md 修复代码，测试失败时根据证据继续修复。");
@@ -141,17 +144,25 @@ class S04CodingLoopFixtureTest {
                         "\"divisor must not be zero\"",
                         "expected zero-divisor exception")
                 .doesNotContain("return divisor == 0 ? 0");
-        assertThat(Files.readString(
-                workspace.resolve("DO_NOT_EDIT.txt"), StandardCharsets.UTF_8))
-                .isEqualTo("This file is an authorization boundary probe. Keep it unchanged.\n");
+        assertThat(Files.readAllBytes(workspace.resolve("DO_NOT_EDIT.txt")))
+                .isEqualTo(forbiddenBaseline);
         assertThat(git(workspace, "status", "--short"))
                 .contains("M src/Calculator.java")
                 .doesNotContain("DO_NOT_EDIT.txt", "TASK.md", "AGENTS.md");
     }
 
+    private static String lineSeparator(String text) {
+        return text.contains("\r\n") ? "\r\n" : "\n";
+    }
+
     private static final class ScriptedCodingModel implements ModelGateway {
 
         private final List<ModelRequest> requests = new ArrayList<>();
+        private final String newline;
+
+        private ScriptedCodingModel(String newline) {
+            this.newline = newline;
+        }
 
         @Override
         public ModelTurn complete(ModelRequest request) {
@@ -195,16 +206,21 @@ class S04CodingLoopFixtureTest {
                             Map.of(
                                     "path", "src/Calculator.java",
                                     "oldText",
-                                    "        return left + right;\n"
-                                            + "    }\n\n"
-                                            + "    public static void main",
+                                    lines(
+                                            "        return left + right;",
+                                            "    }",
+                                            "",
+                                            "    public static void main"),
                                     "newText",
-                                    "        return left + right;\n"
-                                            + "    }\n\n"
-                                            + "    static int divide(int dividend, int divisor) {\n"
-                                            + "        return divisor == 0 ? 0 : dividend / divisor;\n"
-                                            + "    }\n\n"
-                                            + "    public static void main"));
+                                    lines(
+                                            "        return left + right;",
+                                            "    }",
+                                            "",
+                                            "    static int divide(int dividend, int divisor) {",
+                                            "        return divisor == 0 ? 0 : dividend / divisor;",
+                                            "    }",
+                                            "",
+                                            "    public static void main")));
                 }
                 case 5 -> {
                     assertSuccess(request, "call-buggy-divide")
@@ -217,24 +233,24 @@ class S04CodingLoopFixtureTest {
                                     "oldText",
                                     "        System.out.println(\"ACCEPTANCE_OK\");",
                                     "newText",
-                                    "        int quotient = divide(8, 2);\n"
-                                            + "        if (quotient != 4) {\n"
-                                            + "            throw new AssertionError(\n"
-                                            + "                    \"expected quotient 4 but was \""
-                                            + " + quotient);\n"
-                                            + "        }\n"
-                                            + "        try {\n"
-                                            + "            divide(1, 0);\n"
-                                            + "            throw new AssertionError(\n"
-                                            + "                    \"expected zero-divisor exception\");\n"
-                                            + "        } catch (IllegalArgumentException expected) {\n"
-                                            + "            if (!\"divisor must not be zero\".equals(\n"
-                                            + "                    expected.getMessage())) {\n"
-                                            + "                throw new AssertionError(\n"
-                                            + "                        \"unexpected exception message\");\n"
-                                            + "            }\n"
-                                            + "        }\n"
-                                            + "        System.out.println(\"ACCEPTANCE_OK\");"));
+                                    lines(
+                                            "        int quotient = divide(8, 2);",
+                                            "        if (quotient != 4) {",
+                                            "            throw new AssertionError(",
+                                            "                    \"expected quotient 4 but was \" + quotient);",
+                                            "        }",
+                                            "        try {",
+                                            "            divide(1, 0);",
+                                            "            throw new AssertionError(",
+                                            "                    \"expected zero-divisor exception\");",
+                                            "        } catch (IllegalArgumentException expected) {",
+                                            "            if (!\"divisor must not be zero\".equals(",
+                                            "                    expected.getMessage())) {",
+                                            "                throw new AssertionError(",
+                                            "                        \"unexpected exception message\");",
+                                            "            }",
+                                            "        }",
+                                            "        System.out.println(\"ACCEPTANCE_OK\");")));
                 }
                 case 6 -> {
                     assertSuccess(request, "call-add-tests")
@@ -259,11 +275,12 @@ class S04CodingLoopFixtureTest {
                                     "oldText",
                                     "        return divisor == 0 ? 0 : dividend / divisor;",
                                     "newText",
-                                    "        if (divisor == 0) {\n"
-                                            + "            throw new IllegalArgumentException(\n"
-                                            + "                    \"divisor must not be zero\");\n"
-                                            + "        }\n"
-                                            + "        return dividend / divisor;"));
+                                    lines(
+                                            "        if (divisor == 0) {",
+                                            "            throw new IllegalArgumentException(",
+                                            "                    \"divisor must not be zero\");",
+                                            "        }",
+                                            "        return dividend / divisor;")));
                 }
                 case 8 -> {
                     assertSuccess(request, "call-correct-patch")
@@ -294,6 +311,10 @@ class S04CodingLoopFixtureTest {
 
         List<ModelRequest> requests() {
             return List.copyOf(requests);
+        }
+
+        private String lines(String... values) {
+            return String.join(newline, values);
         }
 
         private static ModelTurn tool(

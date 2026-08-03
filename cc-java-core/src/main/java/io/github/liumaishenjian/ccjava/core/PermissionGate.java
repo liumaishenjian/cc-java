@@ -1,13 +1,13 @@
 package io.github.liumaishenjian.ccjava.core;
 
-import io.github.liumaishenjian.ccjava.domain.PermissionDecision;
+import io.github.liumaishenjian.ccjava.domain.PermissionOutcome;
 import io.github.liumaishenjian.ccjava.domain.ToolDefinition;
 
 /**
- * 在 Tool 执行前给出确定性的最小权限决策。
+ * 在 Tool 执行前给出确定性的类型化权限结果。
  *
- * <p>S01 仅验证端口和 Pipeline 顺序，不实现模式、规则和 Hard Denial。
- * 完整权限语义属于 S04～S05。</p>
+ * <p>S05 实现必须在此端口内固定 Hard Denial、规则、模式和 Session 状态优先级；
+ * Surface 只能对 ASK 收敛审批，不能覆盖早先的拒绝或直接执行 Tool。</p>
  *
  * @since 0.1.0
  */
@@ -19,8 +19,8 @@ public interface PermissionGate {
      *
      * @param invocation 调用上下文
      * @param definition Tool Definition
-     * @return ALLOW、ASK 或 DENY
+     * @return 携带决定、固定原因、来源和 selector 的 outcome
      */
-    PermissionDecision evaluate(ToolInvocation invocation, ToolDefinition definition);
+    PermissionOutcome evaluate(ToolInvocation invocation, ToolDefinition definition);
 
 }

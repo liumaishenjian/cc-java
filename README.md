@@ -33,10 +33,17 @@
 > timeout/cancel 和 Windows 进程树清理。PRD 的 `Calculator.divide` 公开 Fixture 已
 > 真实经历越权拒绝、测试失败、再次 Patch、测试成功和 Git Diff；`EVAL-01` 达到单
 > Seed Task 的 L1。实现 Commit `16b4767` 已通过 Commit-scoped G0-G6，S04 Stage
-> Exit 为 Accepted；下一步先建立 S05 Permission Pipeline 启动 Gate。
+> Exit 为 Accepted。
 >
-> Current status: S01-S04 accepted. Next: establish the S05 Permission Pipeline
-> startup gate before production implementation.
+> S05 Permission Pipeline 已完成工作树生产实现和 G3-G5 验证。生产装配支持
+> `DEFAULT/PLAN/ACCEPT_EDITS`、固定优先级的 `ALLOW/ASK/DENY`、绑定可信 ToolSource 与
+> selector 的 Session Grant、Protected Paths/Hard Denial、类型化 Permission Lifecycle、
+> Print Fail Closed、拒绝防循环，以及 Fake MCP/Plugin/Sub-Agent 的统一 Pipeline/64K 输出
+> 上限。Capability 已按 ADR-039 的退出目标提升到 L2；当前仍等待 Commit-scoped G6 对账与
+> 维护者验收，不把工作树证据描述为 Accepted Stage Exit。
+>
+> Current status: S01-S04 accepted; S05 worktree implementation and G3-G5 verification
+> complete, with commit-scoped G6 review still open.
 
 ## 项目目标
 
@@ -157,14 +164,21 @@ Spring AI 只位于模型和集成适配层，React/Ink 只位于终端前端。
 15. [ADR-030](./docs/adr/ADR-030-s02-privacy-safe-run-telemetry.md)：事件边界耗时、可信 Usage 与默认最小化观测；
 16. [ADR-031](./docs/adr/ADR-031-s02-provider-multi-tool-deviation.md)：当前 Provider 同回合多 Tool 偏差；
 17. [ADR-032](./docs/adr/ADR-032-s03-read-tools-security-contract.md)：S03 只读 Tool、WorkspaceGuard、结果上限与安全契约；
-18. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：仍有效的 Provider 与 Streaming 目标；
-18. [ADR-020（历史）](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)：此前暂停研究的审计记录；
-19. [Stage 证据包模板](./docs/templates/stage-evidence-package.md)：每个阶段统一的 G0-G6 Gate；
-20. [S01 Runtime Kernel ADR](./docs/adr/ADR-017-s01-runtime-kernel.md)：首个代码阶段的关键取舍；
-21. [S01 离线 Demo](./docs/demos/S01-agent-loop.md)：如何复现 Fake Model 协议闭环；
-22. [S01 标准验证证据](./docs/evidence/S01-runtime-kernel-2026-07-28.md)：Wrapper、标准命令、报告与正反例实际结果；
-23. [S01 差距报告](./docs/gap-reports/S01.md)：已经学到什么，以及仍缺什么；
-24. [AGENTS.md](./AGENTS.md)：人类与 AI 贡献者必须遵循的规则。
+18. [ADR-036](./docs/adr/ADR-036-codej-development-launcher.md)：用户级 `codej` 源码开发入口、构建缓存与诊断边界；
+19. [ADR-037](./docs/adr/ADR-037-privacy-safe-model-failure-summary.md)：模型失败的脱敏分类、重试次数与终端摘要；
+20. [ADR-038](./docs/adr/ADR-038-s05-authorized-permission-study.md)：S05 授权 Permission 机制的采纳与偏离；
+21. [ADR-039](./docs/adr/ADR-039-s05-permission-pipeline.md)：S05 模式、规则、Session Grant、Hard Denial 与验证契约；
+22. [S05 启动 Gate 证据](./docs/evidence/S05-permission-gate-2026-08-02.md)：G0-G2 来源、目标和测试契约；
+23. [S05 工作树证据](./docs/evidence/S05-permission-pipeline-2026-08-03.md)：G3-G5 实现、测试、Demo 与剩余 G6 边界；
+24. [S05 Demo](./docs/demos/S05-permission-pipeline.md)：三模式、Session Grant、Hard Denial、拒绝恢复与 Fake External 可复现场景；
+25. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：仍有效的 Provider 与 Streaming 目标；
+26. [ADR-020（历史）](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)：此前暂停研究的审计记录；
+27. [Stage 证据包模板](./docs/templates/stage-evidence-package.md)：每个阶段统一的 G0-G6 Gate；
+26. [S01 Runtime Kernel ADR](./docs/adr/ADR-017-s01-runtime-kernel.md)：首个代码阶段的关键取舍；
+27. [S01 离线 Demo](./docs/demos/S01-agent-loop.md)：如何复现 Fake Model 协议闭环；
+28. [S01 标准验证证据](./docs/evidence/S01-runtime-kernel-2026-07-28.md)：Wrapper、标准命令、报告与正反例实际结果；
+29. [S01 差距报告](./docs/gap-reports/S01.md)：已经学到什么，以及仍缺什么；
+30. [AGENTS.md](./AGENTS.md)：人类与 AI 贡献者必须遵循的规则。
 
 ## 技术基线
 
@@ -209,6 +223,43 @@ timeout、取消和 Windows 进程树清理。它仍运行在当前用户账户�
 [S04 Patch/Write Demo](./docs/demos/S04-patch-write.md)，命令契约见
 [S04 Command Demo](./docs/demos/S04-command.md)，完整闭环见
 [S04 Coding Loop Demo](./docs/demos/S04-coding-loop.md)。
+
+### 日常使用：安装 `codej` 开发命令
+
+S04 后维护切片提供 Windows 源码开发入口。它不是正式发行安装器：仍要求本机具有
+PowerShell 7、JDK 21、Node.js 22，并从当前源码仓库按需构建。
+
+先在 PowerShell 7 中查看将发生的操作，再安装依赖、用户级 shim 和 PATH：
+
+```powershell
+pwsh -NoProfile -File .\scripts\InstallCodejDevCommand.ps1 `
+  -SkipDependencies -AddToUserPath -WhatIf
+
+pwsh -NoProfile -File .\scripts\InstallCodejDevCommand.ps1 `
+  -AddToUserPath
+```
+
+第二条命令使用 `npm ci --ignore-scripts` 准备锁定的 TUI 依赖，并把稳定 shim 写入
+`%USERPROFILE%\.local\bin\codej.cmd`。新开终端后，可以从任意项目目录直接执行：
+
+```powershell
+codej                  # 以当前目录为 Workspace，进入交互 TUI
+codej --doctor         # 只检查路径、运行时、产物和配置来源存在性
+codej --rebuild        # 强制重新构建 Java 开发产物
+codej --print "解释这个项目"  # 一次性非交互 Run
+```
+
+`codej` 调用目录是 Agent Workspace；cc-java 源码仓库仍负责构建并提供本地 Provider
+配置。仓库移动后 shim 会明确要求重新安装。卸载前可先加 `-WhatIf`：
+
+```powershell
+pwsh -NoProfile -File .\scripts\InstallCodejDevCommand.ps1 `
+  -Uninstall -RemoveUserPath
+```
+
+卸载不删除源码、Provider 配置或 Maven/npm 缓存。该入口保持 `BOOT-01` L2、
+`DIST-01/DIST-02` L0；正式 Runnable Jar、版本更新和跨平台安装仍属于 S14。
+设计边界见 [ADR-036](./docs/adr/ADR-036-codej-development-launcher.md)。
 
 ### 填写本机模型配置
 

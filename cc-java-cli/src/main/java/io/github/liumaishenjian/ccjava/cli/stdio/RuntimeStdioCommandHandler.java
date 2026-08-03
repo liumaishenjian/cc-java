@@ -9,9 +9,10 @@ import io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeSession;
 import io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeOptions;
 import io.github.liumaishenjian.ccjava.domain.AgentEventEnvelope;
 import io.github.liumaishenjian.ccjava.domain.AgentRunResult;
+import io.github.liumaishenjian.ccjava.domain.ApprovalResponse;
 import io.github.liumaishenjian.ccjava.domain.LifecycleEvent;
 import io.github.liumaishenjian.ccjava.domain.ModelTextDelta;
-import io.github.liumaishenjian.ccjava.domain.PermissionDecision;
+import io.github.liumaishenjian.ccjava.domain.PermissionMode;
 import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.domain.ToolCall;
 import io.github.liumaishenjian.ccjava.model.springai.config.OpenAiCompatibleSettings;
@@ -74,11 +75,32 @@ public final class RuntimeStdioCommandHandler
             OpenAiCompatibleSettings settings,
             Path workspace,
             Duration timeout) {
+        this(settings, workspace, timeout, PermissionMode.DEFAULT);
+    }
+
+    /**
+     * 使用显式 S05 Permission Mode 装配 Headless Runtime。
+     *
+     * @param settings 已应用模型覆盖的 Provider 设置
+     * @param workspace 已解析的真实 Workspace
+     * @param timeout 每个 Run 的墙钟限制
+     * @param permissionMode 当前 Headless Session 的权限模式
+     */
+    public RuntimeStdioCommandHandler(
+            OpenAiCompatibleSettings settings,
+            Path workspace,
+            Duration timeout,
+            PermissionMode permissionMode) {
         approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
         application = new HeadlessRuntimeSession(
                 Objects.requireNonNull(settings, "settings 不能为空"),
                 this,
-                new HeadlessRuntimeOptions(workspace, settings.model(), timeout),
+                new HeadlessRuntimeOptions(
+                        workspace,
+                        settings.model(),
+                        timeout,
+                        permissionMode,
+                        java.util.List.of()),
                 approvals);
     }
 
@@ -209,7 +231,7 @@ public final class RuntimeStdioCommandHandler
     private StdioProtocol.Disposition resolveApproval(StdioProtocol.Command command)
             throws StdioProtocolException {
         String approvalId;
-        PermissionDecision decision;
+        ApprovalResponse decision;
         synchronized (lock) {
             ensureState(State.RUNNING, command);
             requireSession(command);
@@ -237,8 +259,18 @@ public final class RuntimeStdioCommandHandler
             }
             approvalId = id.stringValue();
             decision = switch (rawDecision.stringValue()) {
-                case "allow_once" -> PermissionDecision.ALLOW;
-                case "deny" -> PermissionDecision.DENY;
+                case "allow_once" -> ApprovalResponse.allowOnce();
+                case "allow_session" -> {
+                    StdioApprovalCoordinator.Request pending = approvals.pendingRequest();
+                    if (pending == null || !pending.approvalId().equals(approvalId)) {
+                        throw protocolError(
+                                "STALE_APPROVAL",
+                                command,
+                                "审批不存在、已结束或与当前请求不匹配");
+                    }
+                    yield ApprovalResponse.allowSession(pending.scope());
+                }
+                case "deny" -> ApprovalResponse.deny();
                 default -> throw protocolError(
                         "INVALID_PAYLOAD",
                         command,
@@ -270,6 +302,7 @@ public final class RuntimeStdioCommandHandler
         payload.put("ordinal", request.ordinal());
         payload.put("toolName", request.toolName());
         payload.put("effect", request.effect().name().toLowerCase(Locale.ROOT));
+        payload.put("sessionScope", !request.scope().toolWide());
         if (!request.preview().target().isEmpty()) {
             payload.put("target", request.preview().target());
             payload.put("operation", request.preview().operation());
@@ -368,6 +401,18 @@ public final class RuntimeStdioCommandHandler
         payload.put("modelTurns", result.modelTurns());
         payload.put("toolCalls", result.toolCalls());
         result.finalText().ifPresent(value -> payload.put("finalText", value));
+        result.modelFailure().ifPresent(value -> {
+            ObjectNode failure = codec.objectNode();
+            failure.put("category", value.category().name().toLowerCase(Locale.ROOT));
+            value.statusClass().ifPresent(status -> failure.put(
+                    "statusClass",
+                    status == io.github.liumaishenjian.ccjava.domain.ModelHttpStatusClass.CLIENT_ERROR
+                            ? "4xx"
+                            : "5xx"));
+            failure.put("attempts", value.attempts());
+            failure.put("receivedOutput", value.receivedOutput());
+            payload.set("modelFailure", failure);
+        });
         application.telemetry(result.runId())
                 .ifPresent(value -> payload.set("telemetry", telemetryPayload(value)));
         String type = switch (result.stopReason()) {
@@ -456,6 +501,9 @@ public final class RuntimeStdioCommandHandler
         }
         ObjectNode payload = codec.objectNode();
         payload.put("code", "RUNTIME_FAILURE");
+        payload.put("stopReason", "internal_error");
+        payload.put("modelTurns", 0);
+        payload.put("toolCalls", 0);
         emit(run, "run.failed", payload);
         finish(run);
     }

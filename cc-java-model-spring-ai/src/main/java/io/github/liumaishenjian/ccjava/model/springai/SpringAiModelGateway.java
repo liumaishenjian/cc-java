@@ -5,6 +5,9 @@ import com.openai.errors.OpenAIRetryableException;
 import com.openai.errors.OpenAIServiceException;
 import io.github.liumaishenjian.ccjava.core.CancellationToken;
 import io.github.liumaishenjian.ccjava.core.ModelGatewayException;
+import io.github.liumaishenjian.ccjava.domain.ModelFailureCategory;
+import io.github.liumaishenjian.ccjava.domain.ModelFailureSummary;
+import io.github.liumaishenjian.ccjava.domain.ModelHttpStatusClass;
 import io.github.liumaishenjian.ccjava.core.ModelStreamObserver;
 import io.github.liumaishenjian.ccjava.core.StreamingModelGateway;
 import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
@@ -81,7 +84,7 @@ public final class SpringAiModelGateway implements StreamingModelGateway {
         CompletableFuture<Void> terminal = new CompletableFuture<>();
 
         var rawResponses = chatModel.stream(promptMapper.map(request, model))
-                .doOnNext(ignored -> receivedResponse.set(true));
+                .doOnNext(response -> receivedResponse.set(true));
         var responses = new MessageAggregator().aggregate(
                 rawResponses,
                 aggregate::set);
@@ -107,31 +110,45 @@ public final class SpringAiModelGateway implements StreamingModelGateway {
                 throw new ModelGatewayException(CANCELLED, "Model request cancelled");
             }
             Throwable cause = unwrap(exception);
-            ModelGatewayException.FailureKind kind = receivedResponse.get()
-                    ? INCOMPLETE_STREAM
+            FailureClassification classification = receivedResponse.get()
+                    ? incompleteStream()
                     : classify(cause);
             throw new ModelGatewayException(
-                    kind,
-                    kind == INCOMPLETE_STREAM
+                    classification.kind(),
+                    classification.kind() == INCOMPLETE_STREAM
                             ? "OpenAI-compatible model stream ended before a complete response"
                             : "OpenAI-compatible model request failed: " + safeTypeName(cause),
+                    classification.summary(),
                     cause);
         }
 
         ChatResponse response = aggregate.get();
         if (response == null || response.getResult() == null) {
-            throw new ModelGatewayException(
-                    INCOMPLETE_STREAM,
-                    "Provider returned an incomplete model stream");
+            throw invalidResponse(
+                    "Provider returned an incomplete model stream",
+                    receivedResponse.get());
         }
-        return mapTurn(response);
+        return mapTurn(response, receivedResponse.get());
+    }
+
+    private static boolean hasProviderOutput(ChatResponse response) {
+        if (response == null) {
+            return false;
+        }
+        Generation result = response.getResult();
+        if (result == null || result.getOutput() == null) {
+            return false;
+        }
+        var output = result.getOutput();
+        String text = output.getText();
+        return (text != null && !text.isEmpty()) || !output.getToolCalls().isEmpty();
     }
 
     private static void publishDelta(ChatResponse response, ModelStreamObserver observer) {
-        Generation result = response.getResult();
-        if (result == null) {
+        if (!hasProviderOutput(response)) {
             return;
         }
+        Generation result = response.getResult();
         String text = result.getOutput().getText();
         if (text == null || text.isEmpty()) {
             return;
@@ -143,13 +160,15 @@ public final class SpringAiModelGateway implements StreamingModelGateway {
         }
     }
 
-    private static ModelTurn mapTurn(ChatResponse response) throws ModelGatewayException {
+    private static ModelTurn mapTurn(
+            ChatResponse response,
+            boolean receivedOutput) throws ModelGatewayException {
         Generation result = response.getResult();
         org.springframework.ai.chat.messages.AssistantMessage output = result.getOutput();
         if (output == null) {
-            throw new ModelGatewayException(
-                    INCOMPLETE_STREAM,
-                    "Provider returned a model response without output");
+            throw invalidResponse(
+                    "Provider returned a model response without output",
+                    receivedOutput);
         }
         List<ToolCall> calls;
         try {
@@ -170,24 +189,25 @@ public final class SpringAiModelGateway implements StreamingModelGateway {
                 mapFinishReason(result.getMetadata().getFinishReason()),
                 usage,
                 Optional.ofNullable(providerModel));
-        validateCompleteTurn(assistant, metadata.finishReason());
+        validateCompleteTurn(assistant, metadata.finishReason(), receivedOutput);
         return new ModelTurn(assistant, metadata);
     }
 
     private static void validateCompleteTurn(
             AssistantMessage assistant,
-            ModelFinishReason finishReason) throws ModelGatewayException {
+            ModelFinishReason finishReason,
+            boolean receivedOutput) throws ModelGatewayException {
         if (finishReason == ModelFinishReason.UNKNOWN
                 || finishReason == ModelFinishReason.OTHER) {
-            throw new ModelGatewayException(
-                    INCOMPLETE_STREAM,
-                    "Provider stream ended without a supported finish reason");
+            throw invalidResponse(
+                    "Provider stream ended without a supported finish reason",
+                    receivedOutput);
         }
         boolean hasToolCalls = !assistant.toolCalls().isEmpty();
         if (hasToolCalls != (finishReason == ModelFinishReason.TOOL_CALLS)) {
-            throw new ModelGatewayException(
-                    INCOMPLETE_STREAM,
-                    "Provider returned inconsistent Tool Call completion metadata");
+            throw invalidResponse(
+                    "Provider returned inconsistent Tool Call completion metadata",
+                    receivedOutput);
         }
     }
 
@@ -247,29 +267,81 @@ public final class SpringAiModelGateway implements StreamingModelGateway {
         return current;
     }
 
-    private static ModelGatewayException.FailureKind classify(Throwable throwable) {
+    private static FailureClassification classify(Throwable throwable) {
         for (Throwable current = throwable;
                 current != null;
                 current = current.getCause()) {
-            if (current instanceof OpenAIRetryableException
-                    || current instanceof OpenAIIoException) {
-                return RETRYABLE;
-            }
             if (current instanceof OpenAIServiceException service) {
-                int status = service.statusCode();
-                return status == 408
-                        || status == 409
-                        || status == 429
-                        || status >= 500
-                        ? RETRYABLE
-                        : PERMANENT;
+                return classifyStatus(service.statusCode());
             }
-            if (current instanceof java.io.IOException
-                    || current instanceof java.util.concurrent.TimeoutException) {
-                return RETRYABLE;
+            if (current instanceof java.util.concurrent.TimeoutException) {
+                return retryable(ModelFailureCategory.REQUEST_TIMEOUT, Optional.empty());
+            }
+            if (current instanceof OpenAIRetryableException
+                    || current instanceof OpenAIIoException
+                    || current instanceof java.io.IOException) {
+                return retryable(ModelFailureCategory.NETWORK_ERROR, Optional.empty());
             }
         }
-        return PERMANENT;
+        return permanent(ModelFailureCategory.PROVIDER_ERROR, Optional.empty());
+    }
+
+    private static FailureClassification classifyStatus(int status) {
+        Optional<ModelHttpStatusClass> statusClass = status >= 500
+                ? Optional.of(ModelHttpStatusClass.SERVER_ERROR)
+                : Optional.of(ModelHttpStatusClass.CLIENT_ERROR);
+        if (status >= 500) {
+            return retryable(ModelFailureCategory.PROVIDER_UNAVAILABLE, statusClass);
+        }
+        return switch (status) {
+            case 408 -> retryable(ModelFailureCategory.REQUEST_TIMEOUT, statusClass);
+            case 409 -> retryable(ModelFailureCategory.REQUEST_CONFLICT, statusClass);
+            case 429 -> retryable(ModelFailureCategory.RATE_LIMITED, statusClass);
+            case 401, 403 -> permanent(ModelFailureCategory.AUTHENTICATION_FAILED, statusClass);
+            default -> permanent(ModelFailureCategory.INVALID_REQUEST, statusClass);
+        };
+    }
+
+    private static FailureClassification retryable(
+            ModelFailureCategory category,
+            Optional<ModelHttpStatusClass> statusClass) {
+        return new FailureClassification(
+                RETRYABLE,
+                ModelFailureSummary.firstAttempt(category, statusClass, false));
+    }
+
+    private static FailureClassification permanent(
+            ModelFailureCategory category,
+            Optional<ModelHttpStatusClass> statusClass) {
+        return new FailureClassification(
+                PERMANENT,
+                ModelFailureSummary.firstAttempt(category, statusClass, false));
+    }
+
+    private static FailureClassification incompleteStream() {
+        return new FailureClassification(
+                INCOMPLETE_STREAM,
+                ModelFailureSummary.firstAttempt(
+                        ModelFailureCategory.INCOMPLETE_STREAM,
+                        Optional.empty(),
+                        true));
+    }
+
+    private static ModelGatewayException invalidResponse(
+            String message,
+            boolean receivedOutput) {
+        return new ModelGatewayException(
+                INCOMPLETE_STREAM,
+                message,
+                ModelFailureSummary.firstAttempt(
+                        ModelFailureCategory.INVALID_RESPONSE,
+                        Optional.empty(),
+                        receivedOutput));
+    }
+
+    private record FailureClassification(
+            ModelGatewayException.FailureKind kind,
+            ModelFailureSummary summary) {
     }
 
     private static String requireText(String value, String fieldName) {

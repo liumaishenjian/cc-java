@@ -177,15 +177,24 @@ describe('AgentView', () => {
         text: '',
         tools: [],
         status: 'failed',
-        stopReason: 'turn_limit_reached',
-        modelTurns: 16,
-        toolCalls: 12,
+        stopReason: 'model_retry_exhausted',
+        modelFailure: {
+          category: 'provider_unavailable',
+          statusClass: '5xx',
+          attempts: 3,
+          receivedOutput: false,
+        },
+        modelTurns: 1,
+        toolCalls: 0,
       }],
     };
     const view = render(<AgentView state={state} input="" columns={80} />);
 
     expect(view.lastFrame()).toContain(
-      '运行失败 · turn_limit_reached · 16 回合 · 12 次工具',
+      '运行失败 · model_retry_exhausted · 1 回合 · 0 次工具',
+    );
+    expect(view.lastFrame()).toContain(
+      '模型服务暂时不可用（5xx），已尝试 3 次；请稍后重试',
     );
   });
 
@@ -225,10 +234,11 @@ describe('AgentView', () => {
 });
 
 describe('approvalDecision', () => {
-  it('只把 Y/N 映射为单次允许或拒绝', () => {
+  it('把 Y/A/N 映射为单次允许、会话允许或拒绝', () => {
     expect(approvalDecision('Y')).toBe('allow_once');
+    expect(approvalDecision('a')).toBe('allow_session');
     expect(approvalDecision('n')).toBe('deny');
-    expect(approvalDecision('a')).toBeUndefined();
+    expect(approvalDecision('x')).toBeUndefined();
   });
 });
 

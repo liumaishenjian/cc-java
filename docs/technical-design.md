@@ -611,15 +611,24 @@ S03～S04 不需要 40 个工具。新 Tool 只有在当前 Stage 的对照行�
 
 ```text
 Hard Denial
-→ Permission Mode
-→ Explicit Rules
+→ Explicit DENY Rule
+→ PLAN Mode Restriction
+→ Explicit ASK Rule
+→ Explicit ALLOW Rule（含 Session Grant）
+→ ACCEPT_EDITS / Mode Default
 → Tool Effect Default
 → User Approval
 ```
 
-越靠前优先级越高。Prompt 中的文字不能改变此顺序。
+越靠前优先级越高。Prompt、项目指令、Tool 参数和 Tool 来源不能改变此顺序。S05 规则
+只包含装配时 `STARTUP` 与进程内 `SESSION` 来源；User/Project/Managed 持久来源留到
+S08/S13。规则按 Tool 名称、Tool Definition 的可信 `ToolSource` 与可选规范化 selector 匹配：
+命令 Session Allow 只能匹配同一来源和完整命令，文件写入至少限定 Tool、来源与
+Workspace-relative 目标。同名同参数 Tool 变更来源后不会复用 Grant。
 
-S04 先实现副作用工具的默认询问和单次批准；S05 完成以下决策顺序、声明性规则、硬拒绝和拒绝结果回传。
+完整研究采纳边界和独立契约见 ADR-038、ADR-039。生产装配现已使用类型化
+`PermissionPolicy`、`DefaultHardDenialPolicy` 和进程内 Session Permission 状态；
+`FixedPermissionGate` 只保留 S04 兼容测试用途。
 
 ### 13.2 S05 模式
 
@@ -634,8 +643,15 @@ S04 先实现副作用工具的默认询问和单次批准；S05 完成以下决
 
 - 允许普通读取；
 - 拒绝 Patch；
-- S05 默认拒绝 Shell，后续可开放结构化只读命令；
+- S05 拒绝 Shell；
 - Agent 最终只能给出分析和计划。
+
+`ACCEPT_EDITS`：
+
+- 允许普通读取；
+- 自动允许经过 WorkspaceGuard 和 Tool 参数校验的 `WRITE_WORKSPACE`；
+- Shell 仍默认询问，不能通过命令文本猜测为文件编辑；
+- Network/System 与 Protected Path 仍由 Hard Denial 拒绝。
 
 ### 13.3 审批选项
 
@@ -645,7 +661,9 @@ S04 先实现副作用工具的默认询问和单次批准；S05 完成以下决
 - `ALLOW_SESSION`
 - `DENY`
 
-`ALLOW_SESSION` 应限定到 Tool 和可解释的匹配范围，不能含糊地变成“允许所有 Shell”。
+`ALLOW_SESSION` 应限定到 Tool 和可信代码生成的规范化 selector，不能含糊地变成
+“允许所有 Shell”。`run_command` 只允许同一完整命令；文件写入至少限定 Tool 名称和
+Workspace-relative 目标。Grant 只存在当前内存 Session，关闭后失效。
 
 审批 UI 必须展示：
 
@@ -656,7 +674,12 @@ S04 先实现副作用工具的默认询问和单次批准；S05 完成以下决
 - 模型给出的简短目的；
 - 可选 Patch Diff 或命令预览。
 
-S05 的 Print 模式没有交互终端，遇到 `ASK` 时返回拒绝结果；后续通过显式 Rule 预授权。
+S05 的 Print 模式没有交互终端，遇到 `ASK` 时返回拒绝结果；显式 `STARTUP ALLOW`
+预授权仍须经过 Hard Denial、参数校验和结果规范化。
+
+同一 Session 对相同 selector 的连续拒绝由 Core 计数：第三次及以后固定 Deny，不再反复
+弹出相同审批；新 selector 仍独立评估。该阈值是本项目可测试的 S05 决策，持久恢复和
+自动分类留到 S06/S14。
 
 ### 13.4 Permission 不等于 Sandbox
 
@@ -717,7 +740,9 @@ S04 的 Shell 在用户操作系统账户下运行。审批和规则降低误操
 
 S04 通过 `ShellAdapter` 隔离平台差异：
 
-- Windows：优先固定安装目录 PowerShell 7，缺失时使用系统 Windows PowerShell；
+- Windows：依次检查机器级 `%ProgramFiles%\PowerShell\7` 与用户级
+  `%LOCALAPPDATA%\Programs\PowerShell\7` 的固定 PowerShell 7，缺失时使用系统
+  Windows PowerShell；
 - Linux/macOS：固定 `/bin/sh`；
 - 向模型提供当前 Shell 类型和操作系统；
 - 审批内容必须与实际执行字符串一致。
@@ -856,10 +881,22 @@ S01 预留最小事件点，S05 补齐 Permission 的可观察语义：
 - `MODEL_TURN_START`
 - `MODEL_TURN_END`
 - `BEFORE_TOOL`
-- `PERMISSION_REQUESTED`
+- `PERMISSION_EVALUATION_STARTED`
+- `PERMISSION_EVALUATED`
+- `APPROVAL_REQUESTED`（仅初始决定为 Ask）
+- `PERMISSION_DECIDED`（唯一最终决定）
 - `AFTER_TOOL`
 
-它们用于内部组件解耦和测试，不在 S01～S05 暴露用户可配置 Hook DSL。
+Core/Pipeline 是这些事件的唯一权威。新增 Permission 事件自身使用独立隐私安全值对象，
+只保存 Tool/Call ID、Effect、固定 reason、rule source、交互标记和“是否具体 scope”；它们
+不持有原始 `ToolCall`、完整 `PermissionOutcome` 或 selector value，因此 accessor 和
+`toString()` 均不能泄露命令、任意参数、路径或 Secret。审批端口仍在 Pipeline 内部使用完整
+selector 完成准确预览、决定核对和 Session Grant，但不会把它复制进可观察事件。
+
+Policy 评估异常或返回非法结果时，Pipeline 将其收敛为类型化
+`POLICY_EVALUATION_FAILED_CLOSED` Deny，仍发布 Evaluated 与唯一 Decided，且不执行 Tool；
+Approval Surface 异常则继续收敛为 `APPROVAL_FAILED_CLOSED`。这些事件用于内部组件解耦和
+测试，不在 S01～S05 暴露用户可配置 Hook DSL。
 
 ### 18.2 Agent Event
 
@@ -931,7 +968,18 @@ Java → Node stderr: 脱敏诊断
 这实现 `CLI-11` 的 S02 L1 内部边界，不是稳定外部 API；稳定 JSON/JSONL、SDK、
 Daemon 和兼容承诺仍在 S14。
 
-### 19.3 S02 隐私安全 Telemetry
+### 19.3 隐私安全的模型失败摘要
+
+模型 Adapter 把 HTTP/网络/超时/流错误映射为 Domain 固定枚举和 `4xx/5xx` 状态组，
+Core 重试层只累计实际尝试次数。摘要作为 `AgentRunResult` 唯一终态的一部分进入
+`RunFinished`，再投影到 Print stderr 或 stdio `run.failed.modelFailure`；不创建旁路日志。
+
+Surface 只接收 `category/statusClass/attempts/receivedOutput`，禁止 Provider 响应正文、
+Endpoint、Prompt、Header、Request ID、SDK 类型和异常 message。TUI 严格校验白名单后
+用本地固定中文文案展示，原 StopReason 和退出码保持不变。完整契约见
+[ADR-037](./adr/ADR-037-privacy-safe-model-failure-summary.md)。
+
+### 19.4 S02 隐私安全 Telemetry
 
 `RunTelemetryCollector` 作为 Core 的只读 `AgentEventSink`，从 `RunStarted/RunFinished`、
 `ModelTurnStarted/ModelTurnCompleted` 与 `BeforeTool/AfterTool` 的事件时间边界计算耗时。
@@ -948,7 +996,7 @@ Provider Endpoint 和 API Key。`model.text.delta` 与 `finalText` 是面向当�
 显式产品响应通道，不作为观测出口。精确边界见
 [ADR-030](./adr/ADR-030-s02-privacy-safe-run-telemetry.md)。
 
-### 19.4 React/Ink TUI
+### 19.5 React/Ink TUI
 
 S02 只实现流式会话所需的最小 TUI：
 
@@ -974,7 +1022,7 @@ Java 已经给出的失败分类。失败 Run 的恢复元数据尚不写入下�
 S04～S05 再加入 Tool/Approval 展示，S08 再完成多行、历史、补全和 Slash Command。
 UI 由纯 Reducer 驱动，不断言整屏 ANSI Golden Output。
 
-### 19.5 S03 受控 ripgrep 搜索
+### 19.6 S03 受控 ripgrep 搜索
 
 `search_text` 通过内部 `TextSearchBackend` 隔离 Tool 契约和搜索引擎。生产装配使用
 `RipgrepSearchClient`，把不可变 `TextSearchRequest` 转换为参数数组，在固定 Workspace
@@ -994,7 +1042,7 @@ files 模式按 mtime 降序，并以协议路径稳定打破并列。rg 不可�
 content 子集进入 Java 有界扫描，其他请求返回 `SEARCH_UNAVAILABLE`。本阶段不引入 RAG；
 语义搜索必须作为独立 Capability 评测。
 
-### 19.6 S03 终端语义化展示
+### 19.7 S03 终端语义化展示
 
 S03 退出后的体验维护仍保持 Java Runtime 为状态权威。TUI 把现有有序事件投影为三类
 展示：用户任务、聚合 Tool 活动和 Markdown Assistant 正文。连续同类 Tool 默认合并，
@@ -1017,7 +1065,28 @@ Desktop rg。解析成功后只把绝对目录补入本次进程树 PATH，不�
 机制来源与独立实现边界见
 [ADR-033](./adr/ADR-033-s03-ripgrep-search-backend.md)。
 
-### 19.7 S04 单次审批骨架
+### 19.8 `codej` 源码开发启动入口
+
+S04 Accepted 后的维护切片增加 Windows 用户级开发 shim，但不改变 Runtime 或发行等级。
+安装后的 `%USERPROFILE%\.local\bin\codej.cmd` 只定位源码仓库并转发参数；仓库不存在时
+由 shim 自身返回失效引用。`StartCodejDev.ps1` 把调用时 cwd 作为默认 Workspace，
+`CC_JAVA_REPOSITORY_ROOT` 仍指向 cc-java 源码仓库，使 Provider 配置与 Agent Workspace
+保持分离。
+
+启动参数由共享 PowerShell 模块从原始数组解析，支持 GNU 风格 `--workspace`、`--model`、
+`--timeout`、`--print`、`--rebuild`、`--doctor` 和 `--help`。`--print` 进入现有 TUI
+非交互路径；不增加预填交互消息协议。构建缓存对 POM、Wrapper、Java 生产源码/资源、
+JDK 和 runtime classpath 输入计算内容摘要，并同时验证全部模块产物。仓库级开发锁阻止
+并发 Maven 写入同一组 `target`。
+
+Doctor 只报告路径、运行时、构建产物、TUI 依赖、ripgrep 以及 Provider 文件/环境变量的
+存在性，不读取或显示配置值，也不替代 Java `ProviderSettingsLoader` 校验。安装器支持
+`-WhatIf`，依赖安装禁用 npm lifecycle scripts，只有显式请求才修改用户 PATH；所有权
+标记只防误覆盖/误删，不是安全签名。完整边界见
+[ADR-036](./adr/ADR-036-codej-development-launcher.md)。Runnable Jar、版本更新和正式
+跨平台安装仍属于 S14，`BOOT-01` 保持 L2，`BOOT-06/DIST-01/DIST-02` 保持原等级。
+
+### 19.9 S04 单次审批骨架
 
 S04 首个切片在现有 Tool Pipeline 的 `PermissionGate → ApprovalHandler` 扩展缝隙上
 建立固定控制链。Core 的 `FixedPermissionGate` 使用可信 `ToolEffect` 决定：
@@ -1033,7 +1102,7 @@ Run 取消、shutdown、EOF 或 Handler close 都会按 Deny 释放等待者，�
 Allow Once 只执行当前调用。真实 Patch/Write 由 19.8 节加入；Command 预览和执行仍在
 后续 S04 切片。
 
-### 19.8 S04 精确上下文 Patch 与新文件创建
+### 19.10 S04 精确上下文 Patch 与新文件创建
 
 S04 文件切片在 `cc-java-tools-local` 注册两个 `WRITE_WORKSPACE` Tool：
 
@@ -1054,7 +1123,7 @@ S06 Checkpoint，也不自动清理、Reset、Commit 或格式化 Workspace。�
 模型在成功后显式调用 `git_diff` 获取。
 完整边界见 [ADR-035](./adr/ADR-035-s04-approval-spine.md)。
 
-### 19.9 S04 公开 Fixture Coding Loop
+### 19.11 S04 公开 Fixture Coding Loop
 
 普通 CI 使用独立的最小 Java Fixture 和 Scripted `ModelGateway` 验证生产装配，而不是
 绕过 Runtime 直接调用 Tool。Fixture 与 PRD S04 验收任务一致：为 `Calculator` 增加
@@ -1383,7 +1452,8 @@ S01 未使用任何授权或未核验参考源码；设计和代码由 ADR-017�
 `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd` 上通过 G4/G6；S01 Stage Exit 已
 Accepted。S02 的真实 Provider、Java Runtime/stdio、React/Ink、连续 Session、
 取消边界和隐私安全 Telemetry 已在实现 Commit `700251e` 上通过 G0-G6，
-Stage Exit 为 Accepted。下一步是 S03 Read Tools 启动 Gate。
+Stage Exit 为 Accepted。S03 与 S04 也已完成 Commit-scoped Stage Exit；当前 S05
+Permission Pipeline 已通过 G0-G2 启动 Gate，G3-G6 等待生产实现和证据。
 
 ### 27.2 分 Stage 实现
 

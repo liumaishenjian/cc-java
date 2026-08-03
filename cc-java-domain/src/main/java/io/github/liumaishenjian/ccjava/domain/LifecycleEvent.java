@@ -1,6 +1,7 @@
 package io.github.liumaishenjian.ccjava.domain;
 
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * 表示 Session、Run、Model Turn、Permission 和 Tool Pipeline 的内部生命周期点。
@@ -17,7 +18,9 @@ public sealed interface LifecycleEvent extends AgentEvent
                 LifecycleEvent.ModelTurnStarted,
                 LifecycleEvent.ModelTurnCompleted,
                 LifecycleEvent.BeforeTool,
-                LifecycleEvent.PermissionRequested,
+                LifecycleEvent.PermissionEvaluationStarted,
+                LifecycleEvent.PermissionEvaluated,
+                LifecycleEvent.ApprovalRequested,
                 LifecycleEvent.PermissionDecided,
                 LifecycleEvent.ToolOutput,
                 LifecycleEvent.AfterTool,
@@ -134,48 +137,117 @@ public sealed interface LifecycleEvent extends AgentEvent
     }
 
     /**
-     * Pipeline 正在对 Tool Call 请求权限决策。
+     * Permission 生命周期可公开观察的隐私安全调用摘要。
      *
-     * @param call   原始 Tool Call
-     * @param effect Tool 声明的副作用
+     * <p>该摘要刻意不保存 {@link ToolCall}、参数或完整 {@link PermissionSelector}。
+     * 它只关联稳定 Call ID、Tool 名称和可信 Effect，使内部事件、终端投影和未来
+     * 观察者不能通过 record accessor 或 {@code toString()} 取得命令、文件正文或 Secret。</p>
+     *
+     * @param callId Provider 生成的稳定 Call ID
+     * @param toolName 已注册 Tool 名称
+     * @param effect Tool Definition 声明的可信副作用
      */
-    record PermissionRequested(ToolCall call, ToolEffect effect) implements LifecycleEvent {
+    record PermissionCallSummary(String callId, String toolName, ToolEffect effect) {
 
-        /**
-         * 创建 Tool 权限请求事件。
-         *
-         * @param call 原始 Tool Call
-         * @param effect Tool 声明的副作用
-         * @throws NullPointerException Tool Call 或副作用为空时
-         */
-        public PermissionRequested {
-            call = Objects.requireNonNull(call, "call 不能为空");
+        /** 校验公开摘要只含稳定关联字段。 */
+        public PermissionCallSummary {
+            callId = requireText(callId, "callId");
+            toolName = requireText(toolName, "toolName");
             effect = Objects.requireNonNull(effect, "effect 不能为空");
         }
     }
 
     /**
-     * Tool Call 已得到最终权限决策。
+     * Permission 生命周期可公开观察的隐私安全决定摘要。
      *
-     * @param call     原始 Tool Call
-     * @param decision 最终允许或拒绝决定
+     * <p>Policy 内部仍保留完整 selector 以执行精确规则和 Session Grant；本摘要只暴露
+     * 决定、固定 reason、可选规则来源、是否需要交互，以及 selector 是否为 Tool-wide，
+     * 不暴露 selector value。</p>
+     *
+     * @param decision 初始或最终权限行为
+     * @param reason 稳定、无任意文本的权限原因
+     * @param ruleSource 可选可信规则来源
+     * @param interactive 该阶段是否需要用户审批
+     * @param scoped 是否存在非 Tool-wide 的具体范围
      */
-    record PermissionDecided(ToolCall call, PermissionDecision decision)
-            implements LifecycleEvent {
+    record PermissionDecisionSummary(
+            PermissionDecision decision,
+            PermissionReason reason,
+            Optional<PermissionRuleSource> ruleSource,
+            boolean interactive,
+            boolean scoped) {
 
-        /**
-         * 校验最终决策后创建权限决定事件。
-         *
-         * @param call 原始 Tool Call
-         * @param decision 最终权限决定
-         * @throws NullPointerException Tool Call 或权限决定为空时
-         * @throws IllegalArgumentException 最终决定仍为 {@code ASK} 时
-         */
+        /** 校验决定摘要只使用类型化值。 */
+        public PermissionDecisionSummary {
+            decision = Objects.requireNonNull(decision, "decision 不能为空");
+            reason = Objects.requireNonNull(reason, "reason 不能为空");
+            ruleSource = Objects.requireNonNull(ruleSource, "ruleSource 不能为空");
+        }
+    }
+
+    /**
+     * Pipeline 即将运行 Permission Policy Kernel。
+     *
+     * @param call 隐私安全调用摘要
+     */
+    record PermissionEvaluationStarted(PermissionCallSummary call)
+            implements LifecycleEvent {
+        /** 校验调用摘要。 */
+        public PermissionEvaluationStarted {
+            call = Objects.requireNonNull(call, "call 不能为空");
+        }
+    }
+
+    /**
+     * Policy Kernel 已产生初始决定摘要。
+     *
+     * @param call 隐私安全调用摘要
+     * @param outcome 初始 Allow/Ask/Deny 摘要
+     */
+    record PermissionEvaluated(
+            PermissionCallSummary call,
+            PermissionDecisionSummary outcome) implements LifecycleEvent {
+        /** 校验调用和初始权限摘要。 */
+        public PermissionEvaluated {
+            call = Objects.requireNonNull(call, "call 不能为空");
+            outcome = Objects.requireNonNull(outcome, "outcome 不能为空");
+        }
+    }
+
+    /**
+     * ASK 即将交给用户 Surface 收敛。
+     *
+     * @param call 隐私安全调用摘要
+     * @param outcome 不含 selector value 的交互摘要
+     */
+    record ApprovalRequested(
+            PermissionCallSummary call,
+            PermissionDecisionSummary outcome) implements LifecycleEvent {
+        /** 校验待审批调用和交互摘要。 */
+        public ApprovalRequested {
+            call = Objects.requireNonNull(call, "call 不能为空");
+            outcome = Objects.requireNonNull(outcome, "outcome 不能为空");
+            if (!outcome.interactive()) {
+                throw new IllegalArgumentException("审批请求必须标记为需要交互");
+            }
+        }
+    }
+
+    /**
+     * Tool Call 已得到唯一最终权限摘要。
+     *
+     * @param call 隐私安全调用摘要
+     * @param outcome 最终 Allow 或 Deny 摘要
+     */
+    record PermissionDecided(
+            PermissionCallSummary call,
+            PermissionDecisionSummary outcome) implements LifecycleEvent {
+        /** 校验唯一最终摘要，禁止残留 ASK 或交互状态。 */
         public PermissionDecided {
             call = Objects.requireNonNull(call, "call 不能为空");
-            decision = Objects.requireNonNull(decision, "decision 不能为空");
-            if (decision == PermissionDecision.ASK) {
-                throw new IllegalArgumentException("最终权限事件不能保留 ASK");
+            outcome = Objects.requireNonNull(outcome, "outcome 不能为空");
+            if (outcome.decision() == PermissionDecision.ASK || outcome.interactive()) {
+                throw new IllegalArgumentException("最终权限事件不能保留 ASK 或交互状态");
             }
         }
     }

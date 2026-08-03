@@ -5,6 +5,7 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParameterException;
 import picocli.CommandLine.Spec;
+import io.github.liumaishenjian.ccjava.domain.PermissionMode;
 import picocli.CommandLine.Model.CommandSpec;
 
 import java.nio.file.Path;
@@ -52,6 +53,13 @@ final class CcJavaCommand implements Callable<Integer> {
             description = "每个 Run 的墙钟限制，例如 250ms、30s、5m；默认 5m")
     private Duration timeout = CliOverrides.DEFAULT_TIMEOUT;
 
+    @Option(
+            names = "--permission-mode",
+            paramLabel = "<mode>",
+            converter = PermissionModeConverter.class,
+            description = "Permission 模式：default、plan 或 accept-edits；默认 default")
+    private PermissionMode permissionMode = PermissionMode.DEFAULT;
+
     @Spec
     private CommandSpec commandSpec;
 
@@ -66,7 +74,8 @@ final class CcJavaCommand implements Callable<Integer> {
             overrides = new CliOverrides(
                     workspace,
                     Optional.ofNullable(model),
-                    timeout);
+                    timeout,
+                    permissionMode);
         } catch (IllegalArgumentException exception) {
             throw new ParameterException(
                     commandSpec.commandLine(),

@@ -2,6 +2,7 @@ package io.github.liumaishenjian.ccjava.core;
 
 import io.github.liumaishenjian.ccjava.domain.AgentLimits;
 import io.github.liumaishenjian.ccjava.domain.AgentRunResult;
+import io.github.liumaishenjian.ccjava.domain.ModelFailureSummary;
 import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
 import io.github.liumaishenjian.ccjava.domain.StopReason;
@@ -71,11 +72,18 @@ final class AgentRunState {
     }
 
     AgentRunResult stop(StopReason reason) {
+        return stop(reason, java.util.Optional.empty());
+    }
+
+    AgentRunResult stop(
+            StopReason reason,
+            java.util.Optional<ModelFailureSummary> modelFailure) {
         markFinished();
         return AgentRunResult.stopped(
                 sessionId,
                 runId,
                 reason,
+                modelFailure,
                 modelTurns,
                 toolCalls);
     }

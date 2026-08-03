@@ -3,6 +3,9 @@ package io.github.liumaishenjian.ccjava.cli;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.liumaishenjian.ccjava.domain.AgentRunResult;
+import io.github.liumaishenjian.ccjava.domain.ModelFailureCategory;
+import io.github.liumaishenjian.ccjava.domain.ModelFailureSummary;
+import io.github.liumaishenjian.ccjava.domain.ModelHttpStatusClass;
 import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
 import io.github.liumaishenjian.ccjava.domain.StopReason;
@@ -59,6 +62,32 @@ class DefaultCliModeRunnerTest {
     }
 
     @Test
+    void printsOnlyFixedSanitizedModelFailureSummary() {
+        StringWriter errors = new StringWriter();
+        ModelFailureSummary summary = new ModelFailureSummary(
+                ModelFailureCategory.PROVIDER_UNAVAILABLE,
+                Optional.of(ModelHttpStatusClass.SERVER_ERROR),
+                3,
+                false);
+
+        int exit = DefaultCliModeRunner.exitCode(
+                AgentRunResult.stopped(
+                        new SessionId("session-1"),
+                        new RunId("run-1"),
+                        StopReason.MODEL_RETRY_EXHAUSTED,
+                        Optional.of(summary),
+                        1,
+                        0),
+                new PrintWriter(errors, true));
+
+        assertThat(exit).isEqualTo(CliExitCode.RUNTIME_FAILURE);
+        assertThat(errors.toString())
+                .contains("MODEL_RETRY_EXHAUSTED")
+                .contains("模型服务暂时不可用（5xx），已尝试 3 次；请稍后重试")
+                .doesNotContain("apiKey", "baseUrl", "http");
+    }
+
+    @Test
     void rejectsMissingWorkspaceBeforeReadingProviderConfiguration() {
         StringWriter errors = new StringWriter();
         DefaultCliModeRunner runner = new DefaultCliModeRunner(
@@ -73,7 +102,8 @@ class DefaultCliModeRunnerTest {
         CliOverrides overrides = new CliOverrides(
                 missing,
                 Optional.empty(),
-                Duration.ofSeconds(1));
+                Duration.ofSeconds(1),
+                io.github.liumaishenjian.ccjava.domain.PermissionMode.DEFAULT);
 
         int exitCode = runner.runPrint("hello", overrides);
 

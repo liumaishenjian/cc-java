@@ -3,7 +3,8 @@ package io.github.liumaishenjian.ccjava.cli.stdio;
 import io.github.liumaishenjian.ccjava.core.ApprovalHandler;
 import io.github.liumaishenjian.ccjava.core.CancellationToken;
 import io.github.liumaishenjian.ccjava.core.ToolInvocation;
-import io.github.liumaishenjian.ccjava.domain.PermissionDecision;
+import io.github.liumaishenjian.ccjava.domain.ApprovalResponse;
+import io.github.liumaishenjian.ccjava.domain.PermissionOutcome;
 import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.domain.ToolDefinition;
 import io.github.liumaishenjian.ccjava.domain.ToolEffect;
@@ -66,13 +67,15 @@ final class StdioApprovalCoordinator implements ApprovalHandler, AutoCloseable {
      * @return Allow 或 Deny；取消和关闭均返回 Deny
      */
     @Override
-    public PermissionDecision requestApproval(
+    public ApprovalResponse requestApproval(
             ToolInvocation invocation,
-            ToolDefinition definition) {
+            ToolDefinition definition,
+            PermissionOutcome outcome) {
         Objects.requireNonNull(invocation, "invocation 不能为空");
         Objects.requireNonNull(definition, "definition 不能为空");
+        Objects.requireNonNull(outcome, "outcome 不能为空");
         if (invocation.cancellationToken().isCancellationRequested()) {
-            return PermissionDecision.DENY;
+            return ApprovalResponse.deny();
         }
 
         String approvalId = requireId(idSupplier.get());
@@ -83,11 +86,12 @@ final class StdioApprovalCoordinator implements ApprovalHandler, AutoCloseable {
                         invocation.ordinal(),
                         definition.name(),
                         definition.effect(),
+                        outcome.selector(),
                         preview(invocation, definition)),
                 new CompletableFuture<>());
         synchronized (lock) {
             if (closed) {
-                return PermissionDecision.DENY;
+                return ApprovalResponse.deny();
             }
             if (pending != null) {
                 throw new IllegalStateException("同一连接只能等待一个审批");
@@ -97,12 +101,12 @@ final class StdioApprovalCoordinator implements ApprovalHandler, AutoCloseable {
 
         try (CancellationToken.Registration ignored =
                      invocation.cancellationToken().onCancellation(
-                             () -> resolveInternally(approvalId, PermissionDecision.DENY))) {
+                             () -> resolveInternally(approvalId, ApprovalResponse.deny()))) {
             if (!current.decision().isDone()) {
                 try {
                     requestSink.accept(current.request());
                 } catch (RuntimeException failure) {
-                    resolveInternally(approvalId, PermissionDecision.DENY);
+                    resolveInternally(approvalId, ApprovalResponse.deny());
                 }
             }
             return current.decision().join();
@@ -122,18 +126,21 @@ final class StdioApprovalCoordinator implements ApprovalHandler, AutoCloseable {
      * @param decision 最终 Allow 或 Deny
      * @return ID 匹配且首次完成时为 {@code true}
      */
-    boolean resolve(String approvalId, PermissionDecision decision) {
+    boolean resolve(String approvalId, ApprovalResponse decision) {
         Objects.requireNonNull(approvalId, "approvalId 不能为空");
         Objects.requireNonNull(decision, "decision 不能为空");
-        if (decision == PermissionDecision.ASK) {
-            throw new IllegalArgumentException("审批结果不能是 ASK");
-        }
         return resolveInternally(approvalId, decision);
+    }
+
+    Request pendingRequest() {
+        synchronized (lock) {
+            return pending == null ? null : pending.request();
+        }
     }
 
     private boolean resolveInternally(
             String approvalId,
-            PermissionDecision decision) {
+            ApprovalResponse decision) {
         synchronized (lock) {
             if (pending == null
                     || !pending.request().approvalId().equals(approvalId)) {
@@ -151,7 +158,7 @@ final class StdioApprovalCoordinator implements ApprovalHandler, AutoCloseable {
         synchronized (lock) {
             closed = true;
             if (pending != null) {
-                pending.decision().complete(PermissionDecision.DENY);
+                pending.decision().complete(ApprovalResponse.deny());
             }
         }
     }
@@ -255,6 +262,7 @@ final class StdioApprovalCoordinator implements ApprovalHandler, AutoCloseable {
      * @param ordinal Tool 序号
      * @param toolName 固定 Tool 名称
      * @param effect Tool 最高副作用
+     * @param scope 可用于 Session Allow 的具体规范化范围
      * @param preview 只含相对路径、操作与行数的专用预览
      */
     record Request(
@@ -263,6 +271,7 @@ final class StdioApprovalCoordinator implements ApprovalHandler, AutoCloseable {
             int ordinal,
             String toolName,
             ToolEffect effect,
+            io.github.liumaishenjian.ccjava.domain.PermissionSelector scope,
             Preview preview) {
 
         Request {
@@ -273,6 +282,7 @@ final class StdioApprovalCoordinator implements ApprovalHandler, AutoCloseable {
             }
             Objects.requireNonNull(toolName, "toolName 不能为空");
             effect = Objects.requireNonNull(effect, "effect 不能为空");
+            scope = Objects.requireNonNull(scope, "scope 不能为空");
             preview = Objects.requireNonNull(preview, "preview 不能为空");
         }
     }
@@ -348,6 +358,6 @@ final class StdioApprovalCoordinator implements ApprovalHandler, AutoCloseable {
 
     private record Pending(
             Request request,
-            CompletableFuture<PermissionDecision> decision) {
+            CompletableFuture<ApprovalResponse> decision) {
     }
 }

@@ -68,7 +68,9 @@ final class DefaultCliModeRunner implements CliModeRunner {
                                  new HeadlessRuntimeOptions(
                                          prepared.workspace(),
                                          prepared.settings().model(),
-                                         overrides.timeout()))) {
+                                         overrides.timeout(),
+                                         overrides.permissionMode(),
+                                         java.util.List.of()))) {
                 application.open();
                 Thread shutdownHook = Thread.ofPlatform()
                         .name("cc-java-print-cancel")
@@ -103,7 +105,8 @@ final class DefaultCliModeRunner implements CliModeRunner {
             RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(
                     prepared.settings(),
                     prepared.workspace(),
-                    overrides.timeout());
+                    overrides.timeout(),
+                    overrides.permissionMode());
             StdioProtocolServer.ExitReason reason =
                     new StdioProtocolServer(input, output, handler).run();
             return reason == StdioProtocolServer.ExitReason.INTERNAL_ERROR
@@ -153,6 +156,8 @@ final class DefaultCliModeRunner implements CliModeRunner {
         } else {
             errorOutput.println("cc-java: run failed (" + result.stopReason() + ")");
         }
+        result.modelFailure().ifPresent(summary ->
+                errorOutput.println("cc-java: " + ModelFailureFormatter.format(summary)));
         return CliExitCode.RUNTIME_FAILURE;
     }
 

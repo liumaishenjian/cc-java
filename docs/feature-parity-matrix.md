@@ -4,15 +4,13 @@
 >
 > 参考版本：R2026.03
 >
-> 最后更新：2026-07-30
+> 最后更新：2026-08-03
 >
 > 当前代码状态：S01-S04 已 Accepted；S04 实现 Commit `16b4767` 已通过
-> Commit-scoped G0-G6。ADR-035 已完成 Approval、真实 Patch/Write、Command 和
-> 公开 Fixture Coding Loop：固定权限决策、Allow
-> Once/Deny、精确上下文替换、只创建新文件、固定 Shell、准确命令审批、最小环境、
-> 输出事件/上限、timeout/cancel 和 Windows 进程树已有独立实现与专项验证；PRD
-> `divide` 任务已经历越权拒绝、测试失败、再次修复和成功。下一步先建立 S05
-> Permission Pipeline 启动 Gate，不在 Gate 之前直接开始生产实现。
+> Commit-scoped G0-G6。S05 Permission Pipeline 的工作树实现已完成三模式、固定规则
+> 优先级、绑定可信 ToolSource 的 Session Grant、Hard Denial、Permission Lifecycle、拒绝
+> 恢复和 Fake External Tool 统一入口，G3-G5 已通过。所列 S05 Feature 已达到退出目标 L2；
+> G6 等待 Commit-scoped 全量对账和维护者验收，Stage 保持 `IN_PROGRESS`。
 
 ## 1. 文档目的
 
@@ -156,12 +154,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 193 |
-| 当前阶段 | S04 Write + Command（Accepted） |
-| Stage Exit | Accepted：实现 Commit `16b4767` 已通过 Commit-scoped G0-G6 |
-| 当前等级 | 29 项为 L2，38 项为 L1，126 项为 L0 |
+| 当前阶段 | S05 Permission Pipeline（In Progress） |
+| Stage Exit | Open：G0-G5 工作树证据已通过，G6 等待 Commit-scoped 对账和维护者验收 |
+| 当前等级 | 45 项为 L2，31 项为 L1，117 项为 L0 |
 | 默认最终目标 | 193 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 16.58%（193 项等权、目标 L3） |
-| 下一步 | 建立 S05 Permission Pipeline 启动 Gate，先完成授权源机制研究、ADR 和可证伪测试 |
+| 当前能力覆盖 | 20.90%（193 项等权、目标 L3） |
+| 下一步 | 完成 S05 Commit-scoped 全量复验与维护者 code review；通过 G6 后接受 Stage Exit |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -236,7 +234,7 @@ Stage 完成项。
 | --- | --- | --- | --- | --- | --- |
 | BOOT-01 | CLI 启动并识别运行模式 | Picocli Headless + React/Ink Interactive | L2 | S02 | REF-02/AUTH-01 |
 | BOOT-02 | 确定 Workspace 与 Git 状态 | `WorkspaceSnapshot` | L2 | S03 | REF-02 |
-| BOOT-03 | 加载模型、工具和权限 | `SessionBootstrapper` | L1 | S02/S05 | REF-01 |
+| BOOT-03 | 加载模型、工具和权限 | `SessionBootstrapper` | L2 | S02/S05 | REF-01 |
 | BOOT-04 | 加载项目指令 | `InstructionLoader` | L1 | S03/S08 | REF-05 |
 | BOOT-05 | 创建 Session 和初始 Context | `SessionStore` + `ContextAssembler` | L1 | S01 | REF-02 |
 | BOOT-06 | 启动诊断 | `/doctor` 与配置来源报告 | L0 | S08/S14 | REF-02 |
@@ -250,7 +248,7 @@ Stage 完成项。
 | CLI-02 | Print / Headless | Picocli `--print` | L2 | S02 | REF-02 |
 | CLI-03 | 流式 Assistant Text | stdio Event → Markdown Ink 组件渲染 | L2 | S02/S03 | REF-02/AUTH-01 |
 | CLI-04 | Tool 进度与输出 | 有序 Agent Event → 连续 Tool 语义化聚合 | L2 | S02/S03 | REF-02/AUTH-01 |
-| CLI-05 | Permission Prompt | 终端 Approval UI | L1 | S04/S05 | REF-04/AUTH-01 |
+| CLI-05 | Permission Prompt | 终端 Approval UI | L2 | S04/S05 | REF-04/AUTH-01 |
 | CLI-06 | Ctrl+C Cancel | 当前 Run/Tool 取消 | L1 | S02/S04 | REF-02 |
 | CLI-07 | Steering | S08 运行中排队用户补充消息 | L0 | S08 | REF-02 |
 | CLI-08 | Slash Commands | S08 提供 help/clear/compact/context/model/permissions/resume | L0 | S08 | REF-02 |
@@ -275,7 +273,7 @@ Stage 完成项。
 | LOOP-10 | Model Output Length Recovery | S02 识别截断/不完整输出并有界停止或续接 → S14 L3 恢复策略 | L2 | S02/S14 | REF-01/AUTH-01 |
 | LOOP-11 | Context 溢出恢复 | Compact / Stop / Retry | L0 | S07 | REF-01/02 |
 | LOOP-12 | Model Fallback | Provider-aware Fallback | L0 | S14 | REF-01 |
-| LOOP-13 | 用户拒绝后继续推理 | Denied Tool Result 回传模型 | L0 | S05 | REF-04 |
+| LOOP-13 | 用户拒绝后继续推理 | Denied Tool Result 回传模型 | L2 | S05 | REF-04 |
 | LOOP-14 | 崩溃和未完成 Tool | Session Recovery Gate | L0 | S06 | REF-06 |
 
 ## 9. Model Runtime 对照
@@ -301,7 +299,7 @@ Stage 完成项。
 | --- | --- | --- | --- | --- | --- |
 | TOOL-01 | Tool Definition + Schema | Framework-free Contract | L1 | S01 | REF-08 |
 | TOOL-02 | Tool Registry | Source-aware Registry | L1 | S01 | REF-01 |
-| TOOL-03 | 统一执行 Pipeline | Validate → Permit → Execute → Normalize | L1 | S01/S05 | REF-01/07 |
+| TOOL-03 | 统一执行 Pipeline | Validate → Permit → Execute → Normalize | L2 | S01/S05 | REF-01/07 |
 | TOOL-04 | List / Glob | Workspace 文件枚举 | L2 | S03 | REF-02 |
 | TOOL-05 | Grep / Search | 受控 ripgrep：完整参数、三模式、JSON 结果、取消与一次资源恢复；Java 字面降级 | L2 | S03 | REF-02/AUTH-01 |
 | TOOL-06 | Read File | 分段、行号、大小限制 | L2 | S03 | REF-02 |
@@ -322,25 +320,25 @@ Stage 完成项。
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| PERM-01 | Tool Effect 分类 | Read/Write/Process/Network/System | L1 | S04/S05 | REF-04/AUTH-01 |
+| PERM-01 | Tool Effect 分类 | Read/Write/Process/Network/System | L2 | S04/S05 | REF-04/AUTH-01 |
 | PERM-02 | Manual / Default | 副作用默认询问 | L1 | S04 | REF-04/AUTH-01 |
-| PERM-03 | Plan Mode | S04 固定安全模式 → S05 可配置策略 | L1 | S04/S05 | REF-04/AUTH-01 |
-| PERM-04 | Accept Edits | Workspace Write 自动批准 | L0 | S05 | REF-04 |
+| PERM-03 | Plan Mode | S04 固定安全模式 → S05 可配置策略 | L2 | S04/S05 | REF-04/AUTH-01 |
+| PERM-04 | Accept Edits | Workspace Write 自动批准 | L2 | S05 | REF-04 |
 | PERM-05 | Auto Mode | 独立安全决策器 | L0 | S13/S15 | REF-04 |
-| PERM-06 | Allow / Ask / Deny | 声明性规则 | L0 | S05/S08 | REF-04 |
-| PERM-07 | Allow Once / Session | 范围化审批缓存 | L1 | S04/S05 | REF-04/AUTH-01 |
-| PERM-08 | Protected Paths | 不可写路径 | L0 | S05/S13 | REF-04 |
-| PERM-09 | Hard Denial | 不可被项目配置覆盖 | L0 | S05/S13 | REF-01/04 |
-| PERM-10 | Permission Event | 可观察与 Hook | L0 | S05/S09 | REF-07 |
-| PERM-11 | Denial Tracking | 重复拒绝降级 | L0 | S05/S14 | REF-01/04 |
+| PERM-06 | Allow / Ask / Deny | 声明性规则 | L2 | S05/S08 | REF-04 |
+| PERM-07 | Allow Once / Session | 范围化审批缓存 | L2 | S04/S05 | REF-04/AUTH-01 |
+| PERM-08 | Protected Paths | 不可写路径 | L2 | S05/S13 | REF-04 |
+| PERM-09 | Hard Denial | 不可被项目配置覆盖 | L2 | S05/S13 | REF-01/04 |
+| PERM-10 | Permission Event | 可观察与 Hook | L2 | S05/S09 | REF-07 |
+| PERM-11 | Denial Tracking | 重复拒绝降级 | L2 | S05/S14 | REF-01/04 |
 | PERM-12 | Project/User/Managed Scope | 分层策略 | L0 | S08/S13 | REF-04 |
-| PERM-13 | Print Mode Policy | 无交互时确定性处理 ASK | L0 | S05 | REF-04 |
+| PERM-13 | Print Mode Policy | 无交互时确定性处理 ASK | L2 | S05 | REF-04 |
 
 ## 12. Lifecycle / Hooks 对照
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| HOOK-01 | 内部 Lifecycle Event | Session/Run/Model/Tool/Permission | L1 | S01/S05 | REF-07 |
+| HOOK-01 | 内部 Lifecycle Event | Session/Run/Model/Tool/Permission | L2 | S01/S05 | REF-07 |
 | HOOK-02 | Pre Tool | 执行前观察和阻断 | L0 | S05/S09 | REF-07 |
 | HOOK-03 | Post Tool | 结果观察和附加 Context | L0 | S05/S09 | REF-07 |
 | HOOK-04 | Session Start/End | 环境和清理扩展 | L0 | S09 | REF-07 |
@@ -366,7 +364,7 @@ Stage 完成项。
 | SEC-06 | File Sandbox | Workspace 级 OS 隔离 | L0 | S13 | REF-01 |
 | SEC-07 | Network Sandbox | Domain/Port Policy | L0 | S13 | REF-01 |
 | SEC-08 | Container Backend | 隔离执行环境 | L0 | S13 | REF-01 |
-| SEC-09 | Prompt Injection Defense | 不可信仓库测试 | L0 | S05/S13 | REF-02 |
+| SEC-09 | Prompt Injection Defense | 不可信仓库测试 | L2 | S05/S13 | REF-02 |
 | SEC-10 | Secret Redaction | Event/Log/Tool Result | L1 | S03/S14 | REF-01 |
 | SEC-11 | Plugin Supply Chain | 签名、信任和隔离 | L0 | S11/S13 | REF-03 |
 | SEC-12 | Security Regression Suite | 攻击性 Fixture | L0 | S13 | REF-01 |
@@ -603,6 +601,16 @@ Git Diff”的真实 Pipeline 闭环，`EVAL-01` 达到单 Seed Task 的 L1。S1
 与最终退出结论见 [S04 Stage Exit 证据](./evidence/S04-stage-exit-2026-07-30.md)。
 
 ### S05：Permission Pipeline
+
+G0-G5 工作树证据已通过，见
+[ADR-038](./adr/ADR-038-s05-authorized-permission-study.md)、
+[ADR-039](./adr/ADR-039-s05-permission-pipeline.md)、
+[S05 Demo](./demos/S05-permission-pipeline.md)与
+[S05 Stage Evidence](./evidence/S05-permission-pipeline-2026-08-03.md)。本轮范围
+`BOOT-03`、`CLI-05`、`LOOP-13`、`TOOL-03`、`PERM-01/03/04/06/07/08/09/10/11/13`、
+`HOOK-01`、`SEC-09` 已达到 L2；G6 等待 Commit-scoped 对账和维护者验收。`PERM-12`
+分层持久来源留到 S08/S13，真实 Hook/MCP/Plugin/Sub-Agent 与 Sandbox 仍按后续 Stage
+推进。
 
 完成条件：
 

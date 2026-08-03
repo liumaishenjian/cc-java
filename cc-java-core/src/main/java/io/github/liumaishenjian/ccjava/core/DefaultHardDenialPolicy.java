@@ -1,0 +1,83 @@
+package io.github.liumaishenjian.ccjava.core;
+
+import io.github.liumaishenjian.ccjava.domain.PermissionSelector;
+import io.github.liumaishenjian.ccjava.domain.ToolDefinition;
+import io.github.liumaishenjian.ccjava.domain.ToolEffect;
+import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.function.Predicate;
+
+/**
+ * S05 默认 Hard Denial 策略。
+ *
+ * <p>Network/System Effect 永久拒绝；文件写入 selector 必须具体且不得命中 Git 元数据、
+ * Provider 本地配置或常见 Secret 文件。绝对路径、Traversal 与不可解释范围会被
+ * selector resolver 收敛为 Tool-wide，并在写入/命令范围上拒绝。</p>
+ *
+ * @since 0.5.0
+ */
+public final class DefaultHardDenialPolicy implements HardDenialPolicy {
+
+    private static final List<String> SECRET_NAMES = List.of(
+            ".env", ".npmrc", ".pypirc", ".netrc", "id_rsa", "id_ed25519");
+
+    private final Predicate<PermissionSelector> workspaceDenials;
+
+    /** 创建只使用词法保护路径的 S05 固定安全策略。 */
+    public DefaultHardDenialPolicy() {
+        this(selector -> false);
+    }
+
+    /**
+     * 创建可叠加 Workspace realpath/Junction/Symlink 预检的安全策略。
+     *
+     * <p>Predicate 只接收不含正文的规范化 selector；抛出异常时按拒绝处理。Composition
+     * Root 可用 WorkspaceGuard 实现该谓词，Core 不因此依赖文件系统 Adapter。</p>
+     *
+     * @param workspaceDenials 额外 Workspace 写入拒绝条件
+     */
+    public DefaultHardDenialPolicy(Predicate<PermissionSelector> workspaceDenials) {
+        this.workspaceDenials = Objects.requireNonNull(
+                workspaceDenials, "workspaceDenials 不能为空");
+    }
+
+    @Override
+    public boolean denies(
+            ToolInvocation invocation,
+            ToolDefinition definition,
+            PermissionSelector selector) {
+        Objects.requireNonNull(invocation, "invocation 不能为空");
+        Objects.requireNonNull(definition, "definition 不能为空");
+        Objects.requireNonNull(selector, "selector 不能为空");
+        ToolEffect effect = definition.effect();
+        if (effect == ToolEffect.NETWORK_OR_REMOTE
+                || effect == ToolEffect.SYSTEM_OR_DESTRUCTIVE) {
+            return true;
+        }
+        if (effect != ToolEffect.WRITE_WORKSPACE) {
+            return false;
+        }
+        if (selector.toolWide()) {
+            return true;
+        }
+        try {
+            if (workspaceDenials.test(selector)) {
+                return true;
+            }
+        } catch (RuntimeException exception) {
+            return true;
+        }
+        String path = selector.value().replace('\\', '/').toLowerCase(Locale.ROOT);
+        if (path.equals(".git") || path.startsWith(".git/")) {
+            return true;
+        }
+        if (path.equals("config/provider.local.properties")
+                || path.startsWith("config/provider.local.properties/")) {
+            return true;
+        }
+        String fileName = path.substring(path.lastIndexOf('/') + 1);
+        return SECRET_NAMES.stream().anyMatch(secret ->
+                fileName.equals(secret) || fileName.startsWith(secret + "."));
+    }
+}

@@ -3,6 +3,24 @@ import type {ProtocolEvent} from './protocol.js';
 export type RunStatus = 'running' | 'completed' | 'cancelled' | 'failed';
 export type ClientPhase = 'connecting' | 'ready' | 'running' | 'closing' | 'closed' | 'failed';
 export type SearchMode = 'content' | 'files' | 'count';
+export type ModelFailureCategory =
+  | 'provider_unavailable'
+  | 'rate_limited'
+  | 'request_timeout'
+  | 'request_conflict'
+  | 'authentication_failed'
+  | 'invalid_request'
+  | 'network_error'
+  | 'incomplete_stream'
+  | 'invalid_response'
+  | 'provider_error';
+
+export interface ModelFailureView {
+  readonly category: ModelFailureCategory;
+  readonly statusClass: '4xx' | '5xx' | undefined;
+  readonly attempts: number;
+  readonly receivedOutput: boolean;
+}
 
 export interface ApprovalView {
   readonly approvalId: string;
@@ -42,6 +60,7 @@ export interface RunView {
   readonly pendingApproval?: ApprovalView | undefined;
   readonly status: RunStatus;
   readonly stopReason: string | undefined;
+  readonly modelFailure?: ModelFailureView | undefined;
   readonly modelTurns: number | undefined;
   readonly toolCalls: number | undefined;
 }
@@ -97,6 +116,7 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
             pendingApproval: undefined,
             status: 'running',
             stopReason: undefined,
+            modelFailure: undefined,
             modelTurns: undefined,
             toolCalls: undefined,
           },
@@ -288,6 +308,7 @@ function finishRun(
     status,
     pendingApproval: undefined,
     stopReason: terminalText(event.payload.stopReason),
+    modelFailure: modelFailureView(event.payload.modelFailure),
     modelTurns: terminalCount(event.payload.modelTurns),
     toolCalls: terminalCount(event.payload.toolCalls),
   }));
@@ -295,6 +316,20 @@ function finishRun(
     ...updated,
     phase: 'ready',
     activeRunId: undefined,
+  };
+}
+
+function modelFailureView(value: unknown): ModelFailureView | undefined {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const failure = value as Record<string, unknown>;
+  return {
+    category: failure.category as ModelFailureCategory,
+    statusClass: failure.statusClass === '4xx' || failure.statusClass === '5xx'
+      ? failure.statusClass : undefined,
+    attempts: Number(failure.attempts),
+    receivedOutput: failure.receivedOutput === true,
   };
 }
 

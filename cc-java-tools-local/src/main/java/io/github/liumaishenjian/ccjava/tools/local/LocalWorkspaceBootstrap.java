@@ -24,12 +24,14 @@ import java.util.Optional;
  * @param tools 按稳定协议顺序排列的五个只读、两个写入和一个命令 Tool
  * @param projectInstructions 可选根 AGENTS.md 正文
  * @param snapshot 非 Secret Git 摘要
+ * @param workspaceGuard 与文件 Tool 共享的真实路径安全边界
  * @since 0.3.0
  */
 public record LocalWorkspaceBootstrap(
         List<AgentTool> tools,
         Optional<String> projectInstructions,
-        WorkspaceSnapshot snapshot) {
+        WorkspaceSnapshot snapshot,
+        WorkspaceGuard workspaceGuard) {
 
     /** 冻结 Bootstrap 输出。 */
     public LocalWorkspaceBootstrap {
@@ -37,6 +39,7 @@ public record LocalWorkspaceBootstrap(
         projectInstructions = Objects.requireNonNull(
                 projectInstructions, "projectInstructions 不能为空");
         snapshot = Objects.requireNonNull(snapshot, "snapshot 不能为空");
+        workspaceGuard = Objects.requireNonNull(workspaceGuard, "workspaceGuard 不能为空");
     }
 
     /**
@@ -58,6 +61,7 @@ public record LocalWorkspaceBootstrap(
         return new LocalWorkspaceBootstrap(
                 tools,
                 new RootInstructionLoader(guard).load(),
-                WorkspaceSnapshot.capture(git));
+                WorkspaceSnapshot.capture(git),
+                guard);
     }
 }

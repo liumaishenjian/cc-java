@@ -2,7 +2,7 @@ import {useEffect, useReducer, useRef, useState} from 'react';
 import {Box, Text, useApp, useInput, usePaste, useWindowSize} from 'ink';
 import {initialTuiState, reduceTuiState} from './state.js';
 import type {ProtocolEvent} from './protocol.js';
-import type {ApprovalView, RunView} from './state.js';
+import type {ApprovalView, ModelFailureView, RunView} from './state.js';
 import {AssistantMarkdown} from './assistant-markdown.js';
 import {ToolActivityGroup} from './tool-activity.js';
 
@@ -17,7 +17,10 @@ export interface AgentClient {
   initialize(): string;
   startRun(prompt: string): string;
   cancelRun(): string;
-  resolveApproval(approvalId: string, decision: 'allow_once' | 'deny'): string;
+  resolveApproval(
+    approvalId: string,
+    decision: 'allow_once' | 'allow_session' | 'deny',
+  ): string;
   shutdown(): Promise<void>;
   terminate(): void;
 }
@@ -159,7 +162,7 @@ export function AgentView({state, input, columns}: AgentViewProps) {
     <Box flexDirection="column" width={width}>
       <Box>
         <Text bold color="cyan">cc-java</Text>
-        <Text color="blue">  S04</Text>
+        <Text color="blue">  S05</Text>
         <Text dimColor>  {phaseLabel(state.phase)}</Text>
       </Box>
       {state.runs.map(run => (
@@ -190,6 +193,11 @@ export function AgentView({state, input, columns}: AgentViewProps) {
             </Box>
           )}
           <RunTerminal run={run} />
+          {run.modelFailure === undefined ? null : (
+            <Box marginLeft={4}>
+              <Text color="red">{formatModelFailure(run.modelFailure)}</Text>
+            </Box>
+          )}
         </Box>
       ))}
       {state.notice === undefined ? null : (
@@ -258,7 +266,7 @@ function ApprovalPrompt({approval}: {readonly approval: ApprovalView}) {
       <Text dimColor>
         {approval.submitted
           ? '决定已发送，等待 Java 确认'
-          : 'Y 允许本次　N 拒绝　Ctrl+C 取消 Run'}
+          : 'Y 允许本次　A 当前会话允许　N 拒绝　Ctrl+C 取消 Run'}
       </Text>
     </Box>
   );
@@ -281,6 +289,33 @@ export function formatRunTerminal(run: RunView): string {
   const reason = run.stopReason === undefined ? '' : ` · ${run.stopReason}`;
   return `${runStatusLabel(run.status)}${reason}`
     + (counts.length === 0 ? '' : ` · ${counts.join(' · ')}`);
+}
+
+export function formatModelFailure(summary: ModelFailureView): string {
+  const base = (() => {
+    switch (summary.category) {
+      case 'provider_unavailable': return '模型服务暂时不可用';
+      case 'rate_limited': return '模型服务请求过于频繁';
+      case 'request_timeout': return '模型请求超时';
+      case 'request_conflict': return '模型服务暂时无法处理该请求';
+      case 'authentication_failed': return '模型服务鉴权失败';
+      case 'invalid_request': return '模型服务拒绝了请求';
+      case 'network_error': return '无法连接模型服务';
+      case 'incomplete_stream': return '模型输出流未完整结束';
+      case 'invalid_response': return '模型服务返回了无效响应';
+      case 'provider_error': return '模型服务调用失败';
+    }
+  })();
+  const status = summary.statusClass === undefined ? '' : `（${summary.statusClass}）`;
+  const attempts = summary.attempts > 1 ? `，已尝试 ${summary.attempts} 次` : '';
+  const action = summary.category === 'authentication_failed'
+    ? '；请检查 Provider 凭证或权限'
+    : summary.category === 'invalid_request'
+      ? '；请检查模型与请求配置'
+      : summary.category === 'invalid_response' || summary.category === 'provider_error'
+        ? '；请检查 Provider 状态'
+        : '；请稍后重试';
+  return base + status + attempts + action;
 }
 
 function RunTerminal({run}: {readonly run: RunView}) {
@@ -325,10 +360,13 @@ function inputHint(phase: ReturnType<typeof reduceTuiState>['phase']): string {
 
 export function approvalDecision(
   text: string,
-): 'allow_once' | 'deny' | undefined {
+): 'allow_once' | 'allow_session' | 'deny' | undefined {
   const normalized = text.toLowerCase();
   if (normalized === 'y') {
     return 'allow_once';
+  }
+  if (normalized === 'a') {
+    return 'allow_session';
   }
   if (normalized === 'n') {
     return 'deny';

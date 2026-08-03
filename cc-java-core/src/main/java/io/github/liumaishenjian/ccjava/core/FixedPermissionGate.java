@@ -2,6 +2,9 @@ package io.github.liumaishenjian.ccjava.core;
 
 import io.github.liumaishenjian.ccjava.domain.PermissionDecision;
 import io.github.liumaishenjian.ccjava.domain.PermissionMode;
+import io.github.liumaishenjian.ccjava.domain.PermissionOutcome;
+import io.github.liumaishenjian.ccjava.domain.PermissionReason;
+import io.github.liumaishenjian.ccjava.domain.PermissionSelector;
 import io.github.liumaishenjian.ccjava.domain.ToolDefinition;
 import io.github.liumaishenjian.ccjava.domain.ToolEffect;
 import java.util.Objects;
@@ -36,20 +39,33 @@ public final class FixedPermissionGate implements PermissionGate {
      * @return Read 为 Allow；DEFAULT 的 Write/Process 为 Ask；其余为 Deny
      */
     @Override
-    public PermissionDecision evaluate(
+    public PermissionOutcome evaluate(
             ToolInvocation invocation,
             ToolDefinition definition) {
         Objects.requireNonNull(invocation, "invocation 不能为空");
-        ToolEffect effect = Objects.requireNonNull(
-                definition, "definition 不能为空").effect();
+        ToolDefinition checked = Objects.requireNonNull(definition, "definition 不能为空");
+        ToolEffect effect = checked.effect();
+        PermissionSelector selector = PermissionSelector.toolWide(
+                checked.name(), checked.source());
         if (effect == ToolEffect.READ_WORKSPACE) {
-            return PermissionDecision.ALLOW;
+            return PermissionOutcome.of(
+                    PermissionDecision.ALLOW,
+                    PermissionReason.EFFECT_DEFAULT,
+                    selector);
         }
         if (mode == PermissionMode.DEFAULT
                 && (effect == ToolEffect.WRITE_WORKSPACE
                 || effect == ToolEffect.EXECUTE_PROCESS)) {
-            return PermissionDecision.ASK;
+            return PermissionOutcome.of(
+                    PermissionDecision.ASK,
+                    PermissionReason.EFFECT_DEFAULT,
+                    selector);
         }
-        return PermissionDecision.DENY;
+        return PermissionOutcome.of(
+                PermissionDecision.DENY,
+                mode == PermissionMode.PLAN
+                        ? PermissionReason.PLAN_RESTRICTION
+                        : PermissionReason.HARD_DENIAL,
+                selector);
     }
 }

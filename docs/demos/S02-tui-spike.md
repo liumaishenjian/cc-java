@@ -3,6 +3,20 @@
 该 Demo 默认启动真实 Java Headless、`AgentRuntime` 与本地配置的
 OpenAI-compatible Provider。测试专用 Java Fake Server 仍只用于自动化协议负例。
 
+## 日常开发入口
+
+`RunS02TuiSpike.ps1` 保留为 S02/S03/S04 证据复验入口，未传 `-Workspace` 时仍固定使用
+cc-java 仓库。日常使用推荐先按根 README 安装 `codej`，然后从目标项目目录直接执行：
+
+```powershell
+codej
+codej --doctor
+codej --print "介绍一下这个项目"
+```
+
+日常入口默认以调用目录为 Workspace，并用内容摘要判断是否复用 Java 构建；`--rebuild`
+可以强制构建。该源码开发 shim 不是 S14 正式发行安装器。
+
 ## 前置条件
 
 - JDK 21；

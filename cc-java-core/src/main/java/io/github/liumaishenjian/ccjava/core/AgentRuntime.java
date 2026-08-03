@@ -178,7 +178,7 @@ public final class AgentRuntime {
                 if (activeRun.cancellation().token().isCancellationRequested()) {
                     return stopForCancellation(state, activeRun);
                 }
-                return state.stop(stopReasonFor(exception));
+                return state.stop(stopReasonFor(exception), exception.summary());
             } catch (RuntimeException exception) {
                 if (activeRun.cancellation().token().isCancellationRequested()) {
                     return stopForCancellation(state, activeRun);

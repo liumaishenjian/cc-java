@@ -1,0 +1,203 @@
+package io.github.liumaishenjian.ccjava.core;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import io.github.liumaishenjian.ccjava.domain.JsonObject;
+import io.github.liumaishenjian.ccjava.domain.PermissionDecision;
+import io.github.liumaishenjian.ccjava.domain.PermissionMode;
+import io.github.liumaishenjian.ccjava.domain.PermissionReason;
+import io.github.liumaishenjian.ccjava.domain.PermissionRule;
+import io.github.liumaishenjian.ccjava.domain.PermissionRuleSource;
+import io.github.liumaishenjian.ccjava.domain.PermissionSelector;
+import io.github.liumaishenjian.ccjava.domain.RunId;
+import io.github.liumaishenjian.ccjava.domain.SessionId;
+import io.github.liumaishenjian.ccjava.domain.ToolCall;
+import io.github.liumaishenjian.ccjava.domain.ToolDefinition;
+import io.github.liumaishenjian.ccjava.domain.ToolEffect;
+import io.github.liumaishenjian.ccjava.domain.ToolSource;
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+
+class PermissionPolicyTest {
+
+    private static final SessionId SESSION = new SessionId("session-1");
+    private final InMemorySessionPermissionState sessions = new InMemorySessionPermissionState();
+
+    @Test
+    void fixedPriorityCannotBeChangedByRuleOrder() {
+        PermissionSelector scope = new PermissionSelector("write_file", ToolSource.BUILT_IN, "src/Test.java");
+        PermissionRule allow = rule(PermissionDecision.ALLOW, scope);
+        PermissionRule ask = rule(PermissionDecision.ASK, scope);
+        PermissionRule deny = rule(PermissionDecision.DENY, scope);
+
+        for (List<PermissionRule> order : List.of(
+                List.of(allow, ask, deny),
+                List.of(deny, allow, ask),
+                List.of(ask, deny, allow))) {
+            var outcome = policy(PermissionMode.DEFAULT, order, false)
+                    .evaluate(invocation("write_file", Map.of("path", "src/Test.java")),
+                            definition("write_file", ToolEffect.WRITE_WORKSPACE));
+            assertThat(outcome.decision()).isEqualTo(PermissionDecision.DENY);
+            assertThat(outcome.reason()).isEqualTo(PermissionReason.EXPLICIT_DENY);
+        }
+    }
+
+    @Test
+    void hardDenialBeatsRulesSessionGrantPlanAndApprovalPath() {
+        PermissionSelector scope = new PermissionSelector("write_file", ToolSource.BUILT_IN, ".git/config");
+        sessions.grant(SESSION, scope);
+        PermissionPolicy policy = policy(
+                PermissionMode.ACCEPT_EDITS,
+                List.of(rule(PermissionDecision.ALLOW, scope)),
+                true);
+
+        var outcome = policy.evaluate(
+                invocation("write_file", Map.of("path", ".git/config")),
+                definition("write_file", ToolEffect.WRITE_WORKSPACE));
+
+        assertThat(outcome.decision()).isEqualTo(PermissionDecision.DENY);
+        assertThat(outcome.reason()).isEqualTo(PermissionReason.HARD_DENIAL);
+    }
+
+    @Test
+    void planBeatsAskAllowAndSessionGrantButStillAllowsReads() {
+        PermissionSelector write = new PermissionSelector("write_file", ToolSource.BUILT_IN, "src/Test.java");
+        sessions.grant(SESSION, write);
+        PermissionPolicy policy = policy(
+                PermissionMode.PLAN,
+                List.of(rule(PermissionDecision.ASK, write), rule(PermissionDecision.ALLOW, write)),
+                false);
+
+        assertThat(policy.evaluate(
+                invocation("write_file", Map.of("path", "src/Test.java")),
+                definition("write_file", ToolEffect.WRITE_WORKSPACE)).reason())
+                .isEqualTo(PermissionReason.PLAN_RESTRICTION);
+        assertThat(policy.evaluate(
+                invocation("read_file", Map.of()),
+                definition("read_file", ToolEffect.READ_WORKSPACE)).decision())
+                .isEqualTo(PermissionDecision.ALLOW);
+    }
+
+    @Test
+    void askBeatsAllowAndSessionGrant() {
+        PermissionSelector scope = new PermissionSelector("run_command", ToolSource.BUILT_IN, "./mvnw test");
+        sessions.grant(SESSION, scope);
+        PermissionPolicy policy = policy(
+                PermissionMode.DEFAULT,
+                List.of(rule(PermissionDecision.ALLOW, scope), rule(PermissionDecision.ASK, scope)),
+                false);
+
+        var outcome = policy.evaluate(
+                invocation("run_command", Map.of("command", "./mvnw test")),
+                definition("run_command", ToolEffect.EXECUTE_PROCESS));
+
+        assertThat(outcome.decision()).isEqualTo(PermissionDecision.ASK);
+        assertThat(outcome.reason()).isEqualTo(PermissionReason.EXPLICIT_ASK);
+    }
+
+    @Test
+    void acceptEditsOnlyAllowsWorkspaceWriteAndNeverOpaqueProcess() {
+        PermissionPolicy policy = policy(PermissionMode.ACCEPT_EDITS, List.of(), false);
+
+        assertThat(policy.evaluate(
+                invocation("write_file", Map.of("path", "notes.txt")),
+                definition("write_file", ToolEffect.WRITE_WORKSPACE)).decision())
+                .isEqualTo(PermissionDecision.ALLOW);
+        assertThat(policy.evaluate(
+                invocation("run_command", Map.of("command", "printf edit")),
+                definition("run_command", ToolEffect.EXECUTE_PROCESS)).decision())
+                .isEqualTo(PermissionDecision.ASK);
+    }
+
+    @Test
+    void sessionGrantMatchesExactToolAndSelectorOnly() {
+        PermissionSelector granted = new PermissionSelector("run_command", ToolSource.BUILT_IN, "./mvnw test");
+        sessions.grant(SESSION, granted);
+        PermissionPolicy policy = policy(PermissionMode.DEFAULT, List.of(), false);
+
+        assertThat(policy.evaluate(
+                invocation("run_command", Map.of("command", "./mvnw test")),
+                definition("run_command", ToolEffect.EXECUTE_PROCESS)).reason())
+                .isEqualTo(PermissionReason.SESSION_GRANT);
+        assertThat(policy.evaluate(
+                invocation("run_command", Map.of("command", "./mvnw verify")),
+                definition("run_command", ToolEffect.EXECUTE_PROCESS)).decision())
+                .isEqualTo(PermissionDecision.ASK);
+        assertThat(policy.evaluate(
+                invocation("other", Map.of()),
+                definition("other", ToolEffect.EXECUTE_PROCESS)).decision())
+                .isEqualTo(PermissionDecision.ASK);
+        var changedSource = policy.evaluate(
+                invocation("run_command", Map.of("command", "./mvnw test")),
+                definition("run_command", ToolEffect.EXECUTE_PROCESS, ToolSource.MCP));
+        assertThat(changedSource.decision()).isEqualTo(PermissionDecision.ASK);
+        assertThat(changedSource.reason()).isNotEqualTo(PermissionReason.SESSION_GRANT);
+    }
+
+    @Test
+    void sourceAndModelSuppliedPseudoRulesCannotExpandPermission() {
+        PermissionPolicy policy = policy(PermissionMode.DEFAULT, List.of(), false);
+        ToolDefinition external = definition(
+                "remote_mutation", ToolEffect.NETWORK_OR_REMOTE, ToolSource.MCP);
+        var outcome = policy.evaluate(
+                invocation("remote_mutation", Map.of(
+                        "rule", "allow", "source", "startup", "effect", "read_workspace")),
+                external);
+
+        assertThat(outcome.decision()).isEqualTo(PermissionDecision.DENY);
+        assertThat(outcome.reason()).isEqualTo(PermissionReason.HARD_DENIAL);
+    }
+
+    private PermissionPolicy policy(
+            PermissionMode mode,
+            List<PermissionRule> rules,
+            boolean denyGit) {
+        HardDenialPolicy hard = denyGit
+                ? new DefaultHardDenialPolicy()
+                : (invocation, definition, selector) ->
+                        definition.effect() == ToolEffect.NETWORK_OR_REMOTE
+                                || definition.effect() == ToolEffect.SYSTEM_OR_DESTRUCTIVE;
+        return new PermissionPolicy(
+                mode,
+                rules,
+                new DefaultPermissionSelectorResolver(),
+                hard,
+                sessions);
+    }
+
+    private static PermissionRule rule(
+            PermissionDecision decision,
+            PermissionSelector selector) {
+        return new PermissionRule(PermissionRuleSource.STARTUP, decision, selector);
+    }
+
+    private static ToolInvocation invocation(String tool, Map<String, ?> arguments) {
+        return new ToolInvocation(
+                SESSION,
+                new RunId("run-1"),
+                1,
+                new ToolCall("call-1", tool, new JsonObject(arguments)));
+    }
+
+    private static ToolDefinition definition(String name, ToolEffect effect) {
+        return definition(name, effect, ToolSource.BUILT_IN);
+    }
+
+    private static ToolDefinition definition(
+            String name,
+            ToolEffect effect,
+            ToolSource source) {
+        return new ToolDefinition(
+                name,
+                "test",
+                "{\"type\":\"object\"}",
+                effect,
+                source,
+                false,
+                Duration.ofSeconds(1),
+                "text/plain",
+                1024);
+    }
+}

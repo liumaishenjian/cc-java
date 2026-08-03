@@ -17,10 +17,15 @@ import io.github.liumaishenjian.ccjava.domain.ModelTurn;
 import io.github.liumaishenjian.ccjava.domain.ModelTurnMetadata;
 import io.github.liumaishenjian.ccjava.domain.ModelUsage;
 import io.github.liumaishenjian.ccjava.domain.PermissionDecision;
+import io.github.liumaishenjian.ccjava.domain.PermissionMode;
+import io.github.liumaishenjian.ccjava.domain.PermissionRule;
+import io.github.liumaishenjian.ccjava.domain.PermissionRuleSource;
+import io.github.liumaishenjian.ccjava.domain.PermissionSelector;
 import io.github.liumaishenjian.ccjava.domain.StopReason;
 import io.github.liumaishenjian.ccjava.domain.SystemMessage;
 import io.github.liumaishenjian.ccjava.domain.ToolCall;
 import io.github.liumaishenjian.ccjava.domain.ToolResultMessage;
+import io.github.liumaishenjian.ccjava.domain.ToolSource;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
 import java.io.IOException;
@@ -277,6 +282,55 @@ class HeadlessRuntimeSessionTest {
     }
 
     @Test
+    void startupAllowExecutesRealPatchWithoutInteractiveApproval() throws Exception {
+        Path file = Files.writeString(temporaryWorkspace.resolve("sample.txt"), "old\n");
+        CopyOnWriteArrayList<ModelRequest> requests = new CopyOnWriteArrayList<>();
+        ModelGateway model = request -> {
+            requests.add(request);
+            if (requests.size() == 1) {
+                return new ModelTurn(
+                        AssistantMessage.tools(java.util.List.of(new ToolCall(
+                                "call-patch",
+                                "apply_patch",
+                                new JsonObject(Map.of(
+                                        "path", "sample.txt",
+                                        "oldText", "old",
+                                        "newText", "new"))))),
+                        ModelTurnMetadata.unknown());
+            }
+            return ModelTurn.text("patched");
+        };
+        PermissionRule allow = new PermissionRule(
+                PermissionRuleSource.STARTUP,
+                PermissionDecision.ALLOW,
+                new PermissionSelector("apply_patch", ToolSource.BUILT_IN, "sample.txt"));
+
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                model,
+                AgentEventSink.noop(),
+                new HeadlessRuntimeOptions(
+                        temporaryWorkspace,
+                        "fake-model",
+                        Duration.ofSeconds(3),
+                        PermissionMode.DEFAULT,
+                        java.util.List.of(allow)),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) -> {
+                    throw new AssertionError("匹配 Startup Allow 时不应请求交互审批");
+                })) {
+            application.open();
+            application.run("patch with startup allow");
+        }
+
+        assertThat(Files.readString(file)).isEqualTo("new\n");
+        ToolResultMessage result = requests.getLast().messages().stream()
+                .filter(ToolResultMessage.class::isInstance)
+                .map(ToolResultMessage.class::cast)
+                .findFirst().orElseThrow();
+        assertThat(result.result().status())
+                .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS);
+    }
+
+    @Test
     void explicitAllowOnceExecutesRealPatchThroughCanonicalPipeline() throws Exception {
         Path file = Files.writeString(temporaryWorkspace.resolve("sample.txt"), "old\n");
         CopyOnWriteArrayList<ModelRequest> requests = new CopyOnWriteArrayList<>();
@@ -301,7 +355,8 @@ class HeadlessRuntimeSessionTest {
                 AgentEventSink.noop(),
                 new HeadlessRuntimeOptions(
                         temporaryWorkspace, "fake-model", Duration.ofSeconds(3)),
-                (ignoredInvocation, ignoredDefinition) -> PermissionDecision.ALLOW)) {
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.allowOnce())) {
             application.open();
             application.run("patch once");
         }
@@ -313,6 +368,118 @@ class HeadlessRuntimeSessionTest {
                 .findFirst().orElseThrow();
         assertThat(result.result().content())
                 .contains("path: sample.txt", "operation: modified");
+    }
+
+    @Test
+    void hardDenialBlocksProtectedPathDespiteStartupAllowAndApproval() throws Exception {
+        Files.createDirectories(temporaryWorkspace.resolve(".git"));
+        Path protectedFile = Files.writeString(
+                temporaryWorkspace.resolve(".git/config"), "protected\n");
+        CopyOnWriteArrayList<ModelRequest> requests = new CopyOnWriteArrayList<>();
+        ModelGateway model = request -> {
+            requests.add(request);
+            if (requests.size() == 1) {
+                return new ModelTurn(
+                        AssistantMessage.tools(java.util.List.of(new ToolCall(
+                                "call-protected",
+                                "apply_patch",
+                                new JsonObject(Map.of(
+                                        "path", ".git/config",
+                                        "oldText", "protected",
+                                        "newText", "tampered"))))),
+                        ModelTurnMetadata.unknown());
+            }
+            return ModelTurn.text("denied");
+        };
+        PermissionRule allow = new PermissionRule(
+                PermissionRuleSource.STARTUP,
+                PermissionDecision.ALLOW,
+                new PermissionSelector("apply_patch", ToolSource.BUILT_IN, ".git/config"));
+
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                model,
+                AgentEventSink.noop(),
+                new HeadlessRuntimeOptions(
+                        temporaryWorkspace,
+                        "fake-model",
+                        Duration.ofSeconds(3),
+                        PermissionMode.ACCEPT_EDITS,
+                        java.util.List.of(allow)),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) -> {
+                    throw new AssertionError("Hard Denial 不应进入审批");
+                })) {
+            application.open();
+            application.run("try protected patch");
+        }
+
+        assertThat(Files.readString(protectedFile)).isEqualTo("protected\n");
+        ToolResultMessage result = requests.getLast().messages().stream()
+                .filter(ToolResultMessage.class::isInstance)
+                .map(ToolResultMessage.class::cast)
+                .findFirst().orElseThrow();
+        assertThat(result.result().status())
+                .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolResultStatus.DENIED);
+    }
+
+    @Test
+    void hardDenialBlocksExternalSymlinkBeforeApprovalWhenPlatformAllowsCreation()
+            throws Exception {
+        Path outside = Files.writeString(
+                temporaryWorkspace.getParent().resolve("outside-" + temporaryWorkspace.getFileName()),
+                "outside\n");
+        Path link = temporaryWorkspace.resolve("linked.txt");
+        try {
+            Files.createSymbolicLink(link, outside);
+        } catch (UnsupportedOperationException | IOException exception) {
+            Assumptions.abort(
+                    "当前环境不能创建 Symlink: " + exception.getClass().getSimpleName());
+        }
+        CopyOnWriteArrayList<ModelRequest> requests = new CopyOnWriteArrayList<>();
+        ModelGateway model = request -> {
+            requests.add(request);
+            if (requests.size() == 1) {
+                return new ModelTurn(
+                        AssistantMessage.tools(java.util.List.of(new ToolCall(
+                                "call-link",
+                                "apply_patch",
+                                new JsonObject(Map.of(
+                                        "path", "linked.txt",
+                                        "oldText", "outside",
+                                        "newText", "tampered"))))),
+                        ModelTurnMetadata.unknown());
+            }
+            return ModelTurn.text("denied");
+        };
+        PermissionRule allow = new PermissionRule(
+                PermissionRuleSource.STARTUP,
+                PermissionDecision.ALLOW,
+                new PermissionSelector("apply_patch", ToolSource.BUILT_IN, "linked.txt"));
+
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                model,
+                AgentEventSink.noop(),
+                new HeadlessRuntimeOptions(
+                        temporaryWorkspace,
+                        "fake-model",
+                        Duration.ofSeconds(3),
+                        PermissionMode.ACCEPT_EDITS,
+                        java.util.List.of(allow)),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) -> {
+                    throw new AssertionError("链接逃逸 Hard Denial 不应进入审批");
+                })) {
+            application.open();
+            application.run("try linked patch");
+        } finally {
+            Files.deleteIfExists(link);
+            Files.deleteIfExists(outside);
+        }
+
+        ToolResultMessage result = requests.getLast().messages().stream()
+                .filter(ToolResultMessage.class::isInstance)
+                .map(ToolResultMessage.class::cast)
+                .findFirst().orElseThrow();
+        assertThat(result.result().status())
+                .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolResultStatus.DENIED);
     }
 
     @Test

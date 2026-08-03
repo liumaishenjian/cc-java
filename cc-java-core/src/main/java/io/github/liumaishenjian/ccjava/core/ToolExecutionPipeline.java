@@ -1,8 +1,11 @@
 package io.github.liumaishenjian.ccjava.core;
 
+import io.github.liumaishenjian.ccjava.domain.ApprovalResponse;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
 import io.github.liumaishenjian.ccjava.domain.LifecycleEvent;
 import io.github.liumaishenjian.ccjava.domain.PermissionDecision;
+import io.github.liumaishenjian.ccjava.domain.PermissionOutcome;
+import io.github.liumaishenjian.ccjava.domain.PermissionReason;
 import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.domain.ToolCall;
 import io.github.liumaishenjian.ccjava.domain.ToolDefinition;
@@ -35,6 +38,7 @@ public final class ToolExecutionPipeline {
     private final ToolRegistry registry;
     private final PermissionGate permissionGate;
     private final ApprovalHandler approvalHandler;
+    private final SessionPermissionState permissionState;
     private final LifecycleDispatcher lifecycle;
 
     /**
@@ -50,11 +54,37 @@ public final class ToolExecutionPipeline {
             PermissionGate permissionGate,
             ApprovalHandler approvalHandler,
             LifecycleDispatcher lifecycle) {
+        this(
+                registry,
+                permissionGate,
+                approvalHandler,
+                new InMemorySessionPermissionState(),
+                lifecycle);
+    }
+
+    /**
+     * 创建共享 S05 Session Permission 状态的 Tool 管线。
+     *
+     * @param registry 唯一 Tool Registry
+     * @param permissionGate 类型化 Policy Kernel
+     * @param approvalHandler ASK 审批端口
+     * @param permissionState 与 Policy 共享的当前 Session 内存状态
+     * @param lifecycle 生命周期分发器
+     */
+    public ToolExecutionPipeline(
+            ToolRegistry registry,
+            PermissionGate permissionGate,
+            ApprovalHandler approvalHandler,
+            SessionPermissionState permissionState,
+            LifecycleDispatcher lifecycle) {
         this.registry = Objects.requireNonNull(registry, "registry 不能为空");
         this.permissionGate = Objects.requireNonNull(permissionGate, "permissionGate 不能为空");
         this.approvalHandler = Objects.requireNonNull(
                 approvalHandler,
                 "approvalHandler 不能为空");
+        this.permissionState = Objects.requireNonNull(
+                permissionState,
+                "permissionState 不能为空");
         this.lifecycle = Objects.requireNonNull(lifecycle, "lifecycle 不能为空");
     }
 
@@ -148,49 +178,52 @@ public final class ToolExecutionPipeline {
 
         lifecycle.dispatch(session, runId, new LifecycleEvent.BeforeTool(ordinal, call));
         ToolDefinition definition = tool.definition();
+        LifecycleEvent.PermissionCallSummary permissionCall = permissionCall(call, definition);
         lifecycle.dispatch(
                 session,
                 runId,
-                new LifecycleEvent.PermissionRequested(call, definition.effect()));
-        PermissionDecision decision;
+                new LifecycleEvent.PermissionEvaluationStarted(permissionCall));
+        PermissionOutcome outcome;
         try {
-            decision = Objects.requireNonNull(
+            outcome = Objects.requireNonNull(
                     permissionGate.evaluate(invocation, definition),
                     "PermissionGate 返回 null");
-            if (decision == PermissionDecision.ASK) {
-                decision = Objects.requireNonNull(
-                        approvalHandler.requestApproval(invocation, definition),
-                        "ApprovalHandler 返回 null");
-            }
         } catch (RuntimeException exception) {
-            return finish(
-                    session,
-                    runId,
-                    ordinal,
-                    ToolResult.failure(
-                            call.id(),
-                            call.name(),
-                            ToolError.of(
-                                    ToolErrorCode.INTERNAL_ERROR,
-                                    "权限决策失败")));
-        }
-        if (decision == PermissionDecision.ASK) {
-            return finish(
-                    session,
-                    runId,
-                    ordinal,
-                    ToolResult.failure(
-                            call.id(),
-                            call.name(),
-                            ToolError.of(
-                                    ToolErrorCode.INTERNAL_ERROR,
-                                    "ApprovalHandler 必须返回最终 ALLOW 或 DENY")));
+            outcome = policyFailureOutcome(call, definition);
         }
         lifecycle.dispatch(
                 session,
                 runId,
-                new LifecycleEvent.PermissionDecided(call, decision));
-        if (decision == PermissionDecision.DENY) {
+                new LifecycleEvent.PermissionEvaluated(
+                        permissionCall,
+                        permissionSummary(outcome, outcome.decision() == PermissionDecision.ASK)));
+        if (outcome.decision() == PermissionDecision.ASK) {
+            if (permissionState.denialCount(session.id(), outcome.selector()) >= 2) {
+                outcome = PermissionOutcome.of(
+                        PermissionDecision.DENY,
+                        PermissionReason.REPEATED_DENIAL,
+                        outcome.selector());
+            } else {
+                lifecycle.dispatch(
+                        session,
+                        runId,
+                        new LifecycleEvent.ApprovalRequested(
+                                permissionCall,
+                                permissionSummary(outcome, true)));
+                outcome = requestApprovalFailClosed(
+                        session, invocation, definition, outcome);
+            }
+        }
+        lifecycle.dispatch(
+                session,
+                runId,
+                new LifecycleEvent.PermissionDecided(
+                        permissionCall,
+                        permissionSummary(outcome, false)));
+        if (outcome.decision() == PermissionDecision.DENY) {
+            if (outcome.reason() != PermissionReason.POLICY_EVALUATION_FAILED_CLOSED) {
+                permissionState.recordDenialUpTo(session.id(), outcome.selector(), 3);
+            }
             return finish(
                     session,
                     runId,
@@ -198,13 +231,17 @@ public final class ToolExecutionPipeline {
                     ToolResult.denied(call.id(), call.name(), "Tool 调用未获授权"));
         }
 
+        PermissionOutcome finalOutcome = outcome;
         try {
-            ToolExecutionOutcome outcome = Objects.requireNonNull(
+            ToolExecutionOutcome execution = Objects.requireNonNull(
                     tool.execute(invocation),
                     "Tool execute 返回 null");
-            ToolResult result = outcome.successful()
-                    ? normalizeSuccess(call, definition, outcome)
-                    : ToolResult.failure(call.id(), call.name(), outcome.error().orElseThrow());
+            ToolResult result = execution.successful()
+                    ? normalizeSuccess(call, definition, execution)
+                    : ToolResult.failure(call.id(), call.name(), execution.error().orElseThrow());
+            if (result.status() == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS) {
+                permissionState.clearDenials(session.id(), finalOutcome.selector());
+            }
             return finish(session, runId, ordinal, result);
         } catch (Exception exception) {
             return finish(
@@ -218,6 +255,81 @@ public final class ToolExecutionPipeline {
                                     ToolErrorCode.EXECUTION_FAILED,
                                     "Tool 执行失败")));
         }
+    }
+
+    private static PermissionOutcome policyFailureOutcome(
+            ToolCall call,
+            ToolDefinition definition) {
+        return PermissionOutcome.of(
+                PermissionDecision.DENY,
+                PermissionReason.POLICY_EVALUATION_FAILED_CLOSED,
+                io.github.liumaishenjian.ccjava.domain.PermissionSelector.toolWide(
+                        call.name(), definition.source()));
+    }
+
+    private static LifecycleEvent.PermissionCallSummary permissionCall(
+            ToolCall call,
+            ToolDefinition definition) {
+        return new LifecycleEvent.PermissionCallSummary(
+                call.id(),
+                call.name(),
+                definition.effect());
+    }
+
+    private static LifecycleEvent.PermissionDecisionSummary permissionSummary(
+            PermissionOutcome outcome,
+            boolean interactive) {
+        return new LifecycleEvent.PermissionDecisionSummary(
+                outcome.decision(),
+                outcome.reason(),
+                outcome.ruleSource(),
+                interactive,
+                !outcome.selector().toolWide());
+    }
+
+    private PermissionOutcome requestApprovalFailClosed(
+            AgentSession session,
+            ToolInvocation invocation,
+            ToolDefinition definition,
+            PermissionOutcome initial) {
+        try {
+            ApprovalResponse response = Objects.requireNonNull(
+                    approvalHandler.requestApproval(invocation, definition, initial),
+                    "ApprovalHandler 返回 null");
+            return resolveApproval(session, initial, response);
+        } catch (RuntimeException exception) {
+            return PermissionOutcome.of(
+                    PermissionDecision.DENY,
+                    PermissionReason.APPROVAL_FAILED_CLOSED,
+                    initial.selector());
+        }
+    }
+
+    private PermissionOutcome resolveApproval(
+            AgentSession session,
+            PermissionOutcome initial,
+            ApprovalResponse response) {
+        return switch (response.action()) {
+            case ALLOW_ONCE -> PermissionOutcome.of(
+                    PermissionDecision.ALLOW,
+                    PermissionReason.USER_ALLOW_ONCE,
+                    initial.selector());
+            case ALLOW_SESSION -> {
+                var scope = response.scope().orElseThrow();
+                if (!scope.equals(initial.selector()) || scope.toolWide()) {
+                    throw new IllegalArgumentException("Session approval scope 与请求不匹配");
+                }
+                permissionState.grant(session.id(), scope);
+                yield PermissionOutcome.of(
+                        PermissionDecision.ALLOW,
+                        PermissionReason.USER_ALLOW_SESSION,
+                        initial.selector());
+            }
+            case DENY -> PermissionOutcome.of(
+                    PermissionDecision.DENY,
+                    PermissionReason.USER_DENY,
+                    initial.selector());
+        };
     }
 
     private ToolResult normalizeSuccess(

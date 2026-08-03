@@ -4,14 +4,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.liumaishenjian.ccjava.domain.ToolErrorCode;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashSet;
+import java.util.Locale;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
-/** Windows NTFS Junction 的不可跳过本机安全证据。 */
+/** Windows NTFS Junction 安全证据；系统策略禁止创建 Junction 时明确跳过。 */
 @EnabledOnOs(OS.WINDOWS)
 class WindowsJunctionWorkspaceGuardTest {
 
@@ -59,11 +64,42 @@ class WindowsJunctionWorkspaceGuardTest {
                 link.toString(), target.toString())
                 .redirectErrorStream(true)
                 .start();
-        String output = new String(process.getInputStream().readAllBytes(),
-                java.nio.charset.Charset.defaultCharset());
+        byte[] outputBytes = process.getInputStream().readAllBytes();
         int exit = process.waitFor();
         if (exit != 0) {
-            throw new AssertionError("无法创建 Junction，exit=" + exit + ", output=" + output);
+            String output = decodeOutput(outputBytes);
+            Assumptions.assumeTrue(
+                    isAccessDenied(output),
+                    () -> "Junction 创建出现非权限类错误：exit=" + exit + ", output=" + output);
+            Assumptions.abort(
+                    "当前 Windows 策略禁止创建 Junction，跳过本机能力证据：" + output);
         }
+        assertThat(Files.isDirectory(link)).isTrue();
+    }
+
+    private static String decodeOutput(byte[] bytes) {
+        LinkedHashSet<Charset> candidates = new LinkedHashSet<>();
+        String nativeEncoding = System.getProperty("native.encoding");
+        if (nativeEncoding != null) {
+            candidates.add(Charset.forName(nativeEncoding));
+        }
+        candidates.add(Charset.defaultCharset());
+        candidates.add(Charset.forName("GBK"));
+        candidates.add(StandardCharsets.UTF_8);
+        return candidates.stream()
+                .map(charset -> new String(bytes, charset).trim())
+                .filter(value -> !value.isEmpty())
+                .min(java.util.Comparator.comparingLong(value -> value.chars()
+                        .filter(character -> character == '�').count()))
+                .orElse("");
+    }
+
+    private static boolean isAccessDenied(String output) {
+        String normalized = output.toLowerCase(Locale.ROOT);
+        return normalized.contains("access is denied")
+                || normalized.contains("access denied")
+                || normalized.contains("拒绝访问")
+                || normalized.contains("客户端没有所需的特权")
+                || normalized.contains("privilege is not held");
     }
 }

@@ -1,5 +1,10 @@
 package io.github.liumaishenjian.ccjava.core;
 
+import io.github.liumaishenjian.ccjava.domain.ModelFailureSummary;
+
+import java.util.Objects;
+import java.util.Optional;
+
 /**
  * 表示模型 Provider 或 Adapter 在一个回合内调用失败。
  *
@@ -13,6 +18,8 @@ public final class ModelGatewayException extends Exception {
 
     /** 不依赖 Provider 类型的稳定失败分类。 */
     private final FailureKind kind;
+    /** 仅由固定枚举和受限数值组成的可选 Surface 摘要。 */
+    private final Optional<ModelFailureSummary> summary;
 
     /**
      * 使用错误说明创建异常。
@@ -40,8 +47,21 @@ public final class ModelGatewayException extends Exception {
      * @param message 不包含敏感内容的固定诊断
      */
     public ModelGatewayException(FailureKind kind, String message) {
-        super(message);
-        this.kind = java.util.Objects.requireNonNull(kind, "kind 不能为空");
+        this(kind, message, Optional.empty(), null);
+    }
+
+    /**
+     * 使用明确失败分类和脱敏摘要创建异常。
+     *
+     * @param kind Provider-neutral 控制分类
+     * @param message 不包含敏感内容的固定诊断
+     * @param summary 可进入 Run 终态的类型化摘要
+     */
+    public ModelGatewayException(
+            FailureKind kind,
+            String message,
+            ModelFailureSummary summary) {
+        this(kind, message, Optional.of(Objects.requireNonNull(summary, "summary 不能为空")), null);
     }
 
     /**
@@ -52,8 +72,37 @@ public final class ModelGatewayException extends Exception {
      * @param cause Adapter 底层异常；不得依赖其消息对外展示
      */
     public ModelGatewayException(FailureKind kind, String message, Throwable cause) {
+        this(kind, message, Optional.empty(), cause);
+    }
+
+    /**
+     * 使用控制分类、脱敏摘要和底层原因创建异常。
+     *
+     * @param kind Provider-neutral 控制分类
+     * @param message 不包含敏感内容的固定诊断
+     * @param summary 可进入 Run 终态的类型化摘要
+     * @param cause Adapter 底层异常；不得依赖其消息对外展示
+     */
+    public ModelGatewayException(
+            FailureKind kind,
+            String message,
+            ModelFailureSummary summary,
+            Throwable cause) {
+        this(
+                kind,
+                message,
+                Optional.of(Objects.requireNonNull(summary, "summary 不能为空")),
+                cause);
+    }
+
+    private ModelGatewayException(
+            FailureKind kind,
+            String message,
+            Optional<ModelFailureSummary> summary,
+            Throwable cause) {
         super(message, cause);
-        this.kind = java.util.Objects.requireNonNull(kind, "kind 不能为空");
+        this.kind = Objects.requireNonNull(kind, "kind 不能为空");
+        this.summary = Objects.requireNonNull(summary, "summary 不能为空");
     }
 
     /**
@@ -63,6 +112,15 @@ public final class ModelGatewayException extends Exception {
      */
     public FailureKind kind() {
         return kind;
+    }
+
+    /**
+     * 返回可安全投影到 Run 终态的失败摘要。
+     *
+     * @return 固定枚举和有界数值组成的可选摘要
+     */
+    public Optional<ModelFailureSummary> summary() {
+        return summary;
     }
 
     /**

@@ -4,7 +4,6 @@ import io.github.liumaishenjian.ccjava.core.AgentEventSink;
 import io.github.liumaishenjian.ccjava.core.AgentRuntime;
 import io.github.liumaishenjian.ccjava.core.ApprovalHandler;
 import io.github.liumaishenjian.ccjava.core.DefaultContextAssembler;
-import io.github.liumaishenjian.ccjava.core.FixedPermissionGate;
 import io.github.liumaishenjian.ccjava.core.InMemorySessionStore;
 import io.github.liumaishenjian.ccjava.core.LifecycleDispatcher;
 import io.github.liumaishenjian.ccjava.core.ModelGateway;
@@ -20,8 +19,6 @@ import io.github.liumaishenjian.ccjava.domain.AgentLimits;
 import io.github.liumaishenjian.ccjava.domain.AgentRunRequest;
 import io.github.liumaishenjian.ccjava.domain.AgentRunResult;
 import io.github.liumaishenjian.ccjava.domain.LifecycleEvent;
-import io.github.liumaishenjian.ccjava.domain.PermissionDecision;
-import io.github.liumaishenjian.ccjava.domain.PermissionMode;
 import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
 import io.github.liumaishenjian.ccjava.domain.SessionSpec;
@@ -73,6 +70,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private final HeadlessRuntimeOptions options;
     private final RunTelemetryCollector telemetry;
     private final AtomicReference<RunId> activeRunId = new AtomicReference<>();
+    private final io.github.liumaishenjian.ccjava.core.SessionPermissionState permissionState;
     private final LocalWorkspaceBootstrap workspaceBootstrap;
     private io.github.liumaishenjian.ccjava.core.AgentSession session;
 
@@ -109,7 +107,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 settings,
                 eventSink,
                 options,
-                (ignoredInvocation, ignoredDefinition) -> PermissionDecision.DENY);
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny());
     }
 
     /**
@@ -173,7 +172,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 model,
                 eventSink,
                 options,
-                (ignoredInvocation, ignoredDefinition) -> PermissionDecision.DENY);
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny());
     }
 
     /**
@@ -213,10 +213,21 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 });
         sessions = new InMemorySessionStore(ids, lifecycle);
         ToolRegistry tools = new ToolRegistry(workspaceBootstrap.tools());
+        permissionState = new io.github.liumaishenjian.ccjava.core.InMemorySessionPermissionState();
+        var policy = new io.github.liumaishenjian.ccjava.core.PermissionPolicy(
+                this.options.permissionMode(),
+                this.options.startupPermissionRules(),
+                new io.github.liumaishenjian.ccjava.core.DefaultPermissionSelectorResolver(),
+                new io.github.liumaishenjian.ccjava.core.DefaultHardDenialPolicy(
+                        new io.github.liumaishenjian.ccjava.tools.local.workspace
+                                .WorkspaceWriteHardDenial(
+                                        workspaceBootstrap.workspaceGuard())),
+                permissionState);
         ToolExecutionPipeline pipeline = new ToolExecutionPipeline(
                 tools,
-                new FixedPermissionGate(PermissionMode.DEFAULT),
+                policy,
                 approvals,
+                permissionState,
                 lifecycle);
         runtime = new AgentRuntime(
                 sessions,
@@ -351,6 +362,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     public void close() {
         if (session != null && !session.isClosed()) {
             sessions.close(session.id());
+            permissionState.clear(session.id());
         }
     }
 }

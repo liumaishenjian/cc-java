@@ -130,7 +130,7 @@ export class StdioClient {
    */
   public resolveApproval(
     approvalId: string,
-    decision: 'allow_once' | 'deny',
+    decision: 'allow_once' | 'allow_session' | 'deny',
   ): string {
     if (this.#sessionId === undefined || this.#activeRunId === undefined) {
       throw new Error('当前没有可以审批的 Run');

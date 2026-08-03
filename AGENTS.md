@@ -25,6 +25,10 @@
    [ADR-032](./docs/adr/ADR-032-s03-read-tools-security-contract.md)、
    [ADR-033](./docs/adr/ADR-033-s03-ripgrep-search-backend.md)、
    [ADR-035](./docs/adr/ADR-035-s04-approval-spine.md)、
+   [ADR-036](./docs/adr/ADR-036-codej-development-launcher.md)、
+   [ADR-037](./docs/adr/ADR-037-privacy-safe-model-failure-summary.md)、
+   [ADR-038](./docs/adr/ADR-038-s05-authorized-permission-study.md)、
+   [ADR-039](./docs/adr/ADR-039-s05-permission-pipeline.md)、
    [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)、
    [ADR-018](./docs/adr/ADR-018-authorized-reference-study.md)、
    [ADR-019](./docs/adr/ADR-019-s07-progressive-context-reduction.md)与
@@ -51,7 +55,10 @@ stdio 协议和 React/Ink 审批面板。真实 Patch/Write L1 切片已实现�
 Shell/Workspace、准确命令审批、最小环境、
 stdout/stderr 事件、输出上限、timeout/cancel 与 Windows 进程树清理；完整编码闭环
 已通过公开 `Calculator.divide` Fixture 验证越权拒绝、测试失败、再次 Patch、成功
-测试和 Git Diff。当前下一阶段为 **S05 Permission Pipeline 启动 Gate**。
+测试和 Git Diff。**S05 Permission Pipeline** 已完成工作树生产实现和 G3-G5 验证：ADR-038 固定参考结论
+采纳边界，ADR-039 固定三模式、规则优先级、绑定可信 ToolSource 的 Session Grant、Hard
+Denial、Permission Lifecycle、拒绝恢复与 Fake External Tool 测试契约；所列 S05 Feature
+已提升到 L2。Stage 仍为 In Progress，G6 等待 Commit-scoped 全量对账和维护者验收。
 
 当前允许并要求：
 
@@ -66,17 +73,19 @@ stdout/stderr 事件、输出上限、timeout/cancel 与 Windows 进程树清理
   `10c7873`，不得继续扩展其中的 JLine Renderer；
 - S03 的只读安全边界和搜索回归必须继续通过；
 - S04 的 Approval → Patch/Write → Command → Mini Coding Agent E2E 回归必须继续通过；
-- S05 必须先在授权参考快照中受控研究规则来源、优先级、Session Allow、Hard Denial、
-  拒绝恢复和外部 Tool 统一管线，再固定 ADR、目标等级与可证伪测试，之后才能开始生产实现；
+- S05 的授权研究、独立生产实现和工作树 G3-G5 证据必须继续通过；任何后续修改不得破坏
+  固定优先级、ToolSource-bound Session scope、Hard Denial、拒绝恢复或 Fake External Tool
+  统一入口；Stage Exit 只有在聚焦 Commit 的 G6 复验和维护者验收后才能 Accepted；
 - Patch/Write 的精确上下文、新文件父目录 realpath、原子替换、敏感路径和脏工作区保护
   回归必须保持通过；Command 的固定 Shell、精确预览、最小环境、输出上限、
   timeout/cancel 和 Windows 进程树清理回归也必须保持通过；
-- S04 只支持 Allow Once/Deny；Session Allow、可配置规则和 Hard Denial 属于 S05；
+- 当前生产代码支持 Allow Once/Session/Deny、声明性 Startup/Session 规则与 Hard Denial；
+  但分层持久 Settings、真实外部 Tool Adapter、外部 Hook 和 OS Sandbox 不得描述为可用；
 - 当前没有 OS Sandbox；不得把应用层 Permission 或进程清理描述成 S13 隔离能力；
 - S06 的持久化/Checkpoint、S07 的 Context 压缩及后续能力继续保持未实现状态。
 
-不得仅因为 S04 已退出就宣称 S05 完整 Permission、S13 OS Sandbox 或更后阶段能力
-已经可用。
+不得仅因为 S05 工作树 G3-G5 已通过就宣称 Stage Exit Accepted、S08 分层持久
+Permission、S13 OS Sandbox 或更后阶段能力已经可用。
 
 ## 3. 项目定位
 

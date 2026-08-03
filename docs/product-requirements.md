@@ -257,8 +257,8 @@ FixBug 可以在 S11 后实现为 Skill 或独立应用，也可以作为 S04 �
 - 设置进程超时、输出上限和取消传播；
 - 修改后展示 Git Diff；
 - Agent 可以运行构建或测试并形成最终总结。
-- 提供固定的安全 `PLAN` 行为：允许调查，拒绝写文件和有副作用命令；可配置规则和
-  Session Allow 仍属于 S05。
+- 提供固定的安全 `PLAN` 行为：允许调查，拒绝写文件和有副作用命令；S05 已补充
+  可配置模式、可信 Startup Rules 和 Session Allow。
 
 S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后继续按矩阵学习可靠性和扩展能力。
 
@@ -307,14 +307,19 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
 
 ### 11.5 Permission
 
-- FR-PERM-001：S04 提供固定 `DEFAULT` 和安全 `PLAN` 行为；S05 再实现完整、可配置的
-  Permission Mode。
+- FR-PERM-001：S05 提供可由 CLI/Composition Root 选择的 `DEFAULT`、安全 `PLAN` 和
+  `ACCEPT_EDITS`；模式在一次 Headless Session 装配时固定。
 - FR-PERM-002：`DEFAULT` 自动允许普通读取，修改和 Shell 默认询问。
 - FR-PERM-003：`PLAN` 禁止修改文件和执行有副作用的命令。
-- FR-PERM-004：S04 审批至少支持允许一次和拒绝；当前会话允许、持久规则和优先级在
-  S05 完成。
+- FR-PERM-004：审批支持允许一次、按可信 Tool/ToolSource/selector 当前会话允许和拒绝；
+  持久规则与分层 Settings 仍属于 S08。
 - FR-PERM-005：硬拒绝优先于模式、规则和用户会话允许。
-- FR-PERM-006：Print 模式遇到需要交互的操作时，若无预授权规则则拒绝。
+- FR-PERM-006：Print 模式遇到需要交互的操作时，若无可信 Startup Allow 则拒绝；
+  Startup Allow 仍不能覆盖 Hard Denial 或 Tool Adapter 安全校验。
+- FR-PERM-007：规则优先级固定为 Hard Denial → Deny → PLAN → Ask → Allow → Mode/
+  Effect Default，不受规则列表顺序影响。
+- FR-PERM-008：相同 Session 与 selector 连续两次拒绝后，第三次及以后固定拒绝且不再弹窗；
+  新 selector 仍可正常评估。
 
 ### 11.6 Context
 
@@ -365,11 +370,17 @@ S04 完成必须满足：
 
 ### S05：Permission Pipeline
 
-- `ALLOW / ASK / DENY` 决策和 deny 优先规则；
-- Tool 参数匹配、会话级批准和非交互模式策略；
-- 审批、执行、裁剪、脱敏和生命周期事件全部经过统一 Pipeline；
-- 用 Fake External Tool / Tool Provider 证明任何来源都不能绕过权限；S10 和 S11
-  再分别验证真实 MCP 与 Plugin Adapter。
+- `DEFAULT / PLAN / ACCEPT_EDITS` 三种模式；Accept Edits 只自动批准已经通过安全校验的
+  Workspace Write，不把不透明 Shell 当作编辑；
+- `ALLOW / ASK / DENY` 声明性规则、Tool/规范化参数 selector、进程内 Startup/Session
+  来源和非交互策略；User/Project/Managed 持久来源留到 S08/S13；
+- Hard Denial、显式 Deny 和 PLAN 限制优先于 Ask/Allow、Session Grant 与人工批准；
+- `ALLOW_ONCE / ALLOW_SESSION / DENY` 使用有界 scope，命令 Session Allow 不能含糊地
+  变成允许所有 Shell；
+- 权限评估、审批、执行、裁剪、脱敏和内部生命周期事件全部经过统一 Pipeline；
+- 拒绝结果回传模型，相同 scope 的重复请求有确定性去循环策略；
+- 用 Fake MCP/Plugin/Sub-Agent Tool 证明任何来源都不能绕过权限；S10-S12 再验证真实
+  Adapter。完整契约见 ADR-039。
 
 ### S06：Session 与 Checkpoint
 

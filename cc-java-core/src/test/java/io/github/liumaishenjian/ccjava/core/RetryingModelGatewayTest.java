@@ -1,5 +1,8 @@
 package io.github.liumaishenjian.ccjava.core;
 
+import io.github.liumaishenjian.ccjava.domain.ModelFailureCategory;
+import io.github.liumaishenjian.ccjava.domain.ModelFailureSummary;
+import io.github.liumaishenjian.ccjava.domain.ModelHttpStatusClass;
 import io.github.liumaishenjian.ccjava.domain.ModelRequest;
 import io.github.liumaishenjian.ccjava.domain.ModelTurn;
 import io.github.liumaishenjian.ccjava.domain.RunId;
@@ -79,7 +82,14 @@ class RetryingModelGatewayTest {
         AtomicInteger attempts = new AtomicInteger();
         StreamingModelGateway delegate = (request, observer, cancellation) -> {
             attempts.incrementAndGet();
-            throw new ModelGatewayException(RETRYABLE, "busy");
+            throw new ModelGatewayException(
+                    RETRYABLE,
+                    "busy SECRET_PROVIDER_TEXT",
+                    new ModelFailureSummary(
+                            ModelFailureCategory.PROVIDER_UNAVAILABLE,
+                            java.util.Optional.of(ModelHttpStatusClass.SERVER_ERROR),
+                            1,
+                            false));
         };
         RetryingModelGateway gateway = new RetryingModelGateway(
                 delegate,
@@ -91,9 +101,17 @@ class RetryingModelGatewayTest {
                 },
                 CancellationToken.none()))
                 .isInstanceOf(ModelGatewayException.class)
-                .satisfies(failure -> assertThat(
-                        ((ModelGatewayException) failure).kind())
-                        .isEqualTo(RETRY_EXHAUSTED));
+                .satisfies(failure -> {
+                    ModelGatewayException modelFailure = (ModelGatewayException) failure;
+                    assertThat(modelFailure.kind()).isEqualTo(RETRY_EXHAUSTED);
+                    assertThat(modelFailure.summary()).contains(new ModelFailureSummary(
+                            ModelFailureCategory.PROVIDER_UNAVAILABLE,
+                            java.util.Optional.of(ModelHttpStatusClass.SERVER_ERROR),
+                            3,
+                            false));
+                    assertThat(modelFailure.summary().orElseThrow().toString())
+                            .doesNotContain("SECRET_PROVIDER_TEXT");
+                });
         assertThat(attempts).hasValue(3);
     }
 

@@ -11,6 +11,7 @@ import java.util.Optional;
  * @param status      高层完成状态
  * @param stopReason  精确终止原因
  * @param finalText   正常完成时的最终 Assistant 文本
+ * @param modelFailure 模型失败时的可选脱敏摘要
  * @param modelTurns  已实际请求的模型回合数
  * @param toolCalls   已交给 Pipeline 处理的 Tool Call 数
  * @since 0.1.0
@@ -21,6 +22,7 @@ public record AgentRunResult(
         RunStatus status,
         StopReason stopReason,
         Optional<String> finalText,
+        Optional<ModelFailureSummary> modelFailure,
         int modelTurns,
         int toolCalls) {
 
@@ -43,6 +45,7 @@ public record AgentRunResult(
         status = Objects.requireNonNull(status, "status 不能为空");
         stopReason = Objects.requireNonNull(stopReason, "stopReason 不能为空");
         finalText = Objects.requireNonNull(finalText, "finalText 不能为空");
+        modelFailure = Objects.requireNonNull(modelFailure, "modelFailure 不能为空");
         if (modelTurns < 0) {
             throw new IllegalArgumentException("modelTurns 不能小于 0");
         }
@@ -69,6 +72,12 @@ public record AgentRunResult(
         if (stopReason != StopReason.COMPLETED && finalText.isPresent()) {
             throw new IllegalArgumentException("非正常完成不能包含 finalText");
         }
+        boolean modelFailureReason = stopReason == StopReason.MODEL_ERROR
+                || stopReason == StopReason.MODEL_RETRY_EXHAUSTED
+                || stopReason == StopReason.INCOMPLETE_MODEL_STREAM;
+        if (modelFailure.isPresent() && !modelFailureReason) {
+            throw new IllegalArgumentException("只有模型失败终态可以包含 modelFailure");
+        }
     }
 
     /**
@@ -93,6 +102,7 @@ public record AgentRunResult(
                 RunStatus.COMPLETED,
                 StopReason.COMPLETED,
                 Optional.of(Objects.requireNonNull(finalText, "finalText 不能为空")),
+                Optional.empty(),
                 modelTurns,
                 toolCalls);
     }
@@ -113,6 +123,27 @@ public record AgentRunResult(
             StopReason reason,
             int modelTurns,
             int toolCalls) {
+        return stopped(sessionId, runId, reason, Optional.empty(), modelTurns, toolCalls);
+    }
+
+    /**
+     * 创建可携带类型化模型失败摘要的停止结果。
+     *
+     * @param sessionId Session ID
+     * @param runId Run ID
+     * @param reason 非 {@code COMPLETED} 的停止原因
+     * @param modelFailure 可选脱敏模型失败摘要
+     * @param modelTurns 模型回合数
+     * @param toolCalls Tool Call 数
+     * @return 终止摘要
+     */
+    public static AgentRunResult stopped(
+            SessionId sessionId,
+            RunId runId,
+            StopReason reason,
+            Optional<ModelFailureSummary> modelFailure,
+            int modelTurns,
+            int toolCalls) {
         Objects.requireNonNull(reason, "reason 不能为空");
         if (reason == StopReason.COMPLETED) {
             throw new IllegalArgumentException("stopped 不能使用 COMPLETED");
@@ -129,6 +160,7 @@ public record AgentRunResult(
                 status,
                 reason,
                 Optional.empty(),
+                Objects.requireNonNull(modelFailure, "modelFailure 不能为空"),
                 modelTurns,
                 toolCalls);
     }
