@@ -97,6 +97,15 @@ $childCommand = @(
 if (-not [string]::IsNullOrWhiteSpace($options.Model)) {
     $childCommand += @('--model', $options.Model)
 }
+if ($options.Continue) {
+    $childCommand += '--continue'
+}
+elseif (-not [string]::IsNullOrWhiteSpace($options.Resume)) {
+    $childCommand += @('--resume', $options.Resume)
+}
+elseif (-not [string]::IsNullOrWhiteSpace($options.Fork)) {
+    $childCommand += @('--fork', $options.Fork)
+}
 $childCommand += '--stdio'
 $commandJson = ConvertTo-Json -Compress -InputObject $childCommand
 $env:CC_JAVA_SPIKE_COMMAND_BASE64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($commandJson))

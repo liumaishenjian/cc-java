@@ -7,6 +7,7 @@ import io.github.liumaishenjian.ccjava.core.AgentEventSink;
 import io.github.liumaishenjian.ccjava.core.ModelGateway;
 import io.github.liumaishenjian.ccjava.core.RunTelemetry;
 import io.github.liumaishenjian.ccjava.core.TokenUsageTotals;
+import io.github.liumaishenjian.ccjava.cli.session.SessionOpenRequest;
 import io.github.liumaishenjian.ccjava.domain.AgentEventEnvelope;
 import io.github.liumaishenjian.ccjava.domain.AgentRunResult;
 import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
@@ -37,12 +38,19 @@ import java.time.Duration;
 import java.util.Comparator;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.io.TempDir;
 
 class HeadlessRuntimeSessionTest {
+
+    @TempDir
+    Path sessionStoreRoot;
 
     Path temporaryWorkspace;
 
@@ -96,7 +104,10 @@ class HeadlessRuntimeSessionTest {
 
         AgentRunResult result;
         try (HeadlessRuntimeSession application =
-                     new HeadlessRuntimeSession(model, AgentEventSink.noop())) {
+                     new HeadlessRuntimeSession(
+                             model,
+                             AgentEventSink.noop(),
+                             testOptions(temporaryWorkspace, Duration.ofMinutes(5)))) {
             application.open();
             result = application.run("hello");
         }
@@ -114,7 +125,10 @@ class HeadlessRuntimeSessionTest {
         };
 
         try (HeadlessRuntimeSession application =
-                     new HeadlessRuntimeSession(model, AgentEventSink.noop())) {
+                     new HeadlessRuntimeSession(
+                             model,
+                             AgentEventSink.noop(),
+                             testOptions(temporaryWorkspace, Duration.ofMinutes(5)))) {
             application.open();
 
             assertThatThrownBy(() -> application.run("  "))
@@ -126,10 +140,10 @@ class HeadlessRuntimeSessionTest {
     }
 
     @Test
-    void recordsTypedOverridesInSessionMetadata() {
+    void recordsTypedPrivacySafeOverridesInSessionMetadata() {
         CopyOnWriteArrayList<AgentEventEnvelope> events = new CopyOnWriteArrayList<>();
-        Path workspace = Path.of("").toAbsolutePath().normalize();
-        HeadlessRuntimeOptions options = new HeadlessRuntimeOptions(
+        Path workspace = temporaryWorkspace;
+        HeadlessRuntimeOptions options = testOptions(
                 workspace,
                 "override-model",
                 Duration.ofSeconds(3));
@@ -150,9 +164,10 @@ class HeadlessRuntimeSessionTest {
                     LifecycleEvent.SessionStarted started =
                             (LifecycleEvent.SessionStarted) event;
                     assertThat(started.spec().runtimeMetadata())
-                            .containsEntry("workspace", workspace.toString())
+                            .doesNotContainKey("workspace")
                             .containsEntry("model", "override-model")
-                            .containsEntry("timeout", "PT3S");
+                            .containsEntry("timeout", "PT3S")
+                            .containsEntry("permissionMode", "DEFAULT");
                 });
     }
 
@@ -165,7 +180,10 @@ class HeadlessRuntimeSessionTest {
         };
 
         try (HeadlessRuntimeSession application =
-                     new HeadlessRuntimeSession(model, AgentEventSink.noop())) {
+                     new HeadlessRuntimeSession(
+                             model,
+                             AgentEventSink.noop(),
+                             testOptions(temporaryWorkspace, Duration.ofMinutes(5)))) {
             application.open();
             application.run("first question");
             application.run("second question");
@@ -208,8 +226,7 @@ class HeadlessRuntimeSessionTest {
             }
             return ModelTurn.text("done");
         };
-        HeadlessRuntimeOptions options = new HeadlessRuntimeOptions(
-                temporaryWorkspace, "fake-model", Duration.ofSeconds(3));
+        HeadlessRuntimeOptions options = testOptions(temporaryWorkspace, Duration.ofSeconds(3));
 
         AgentRunResult result;
         try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
@@ -266,8 +283,7 @@ class HeadlessRuntimeSessionTest {
         try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
                 model,
                 AgentEventSink.noop(),
-                new HeadlessRuntimeOptions(
-                        temporaryWorkspace, "fake-model", Duration.ofSeconds(3)))) {
+                testOptions(temporaryWorkspace, Duration.ofSeconds(3)))) {
             application.open();
             application.run("try patch");
         }
@@ -308,9 +324,8 @@ class HeadlessRuntimeSessionTest {
         try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
                 model,
                 AgentEventSink.noop(),
-                new HeadlessRuntimeOptions(
+                testOptions(
                         temporaryWorkspace,
-                        "fake-model",
                         Duration.ofSeconds(3),
                         PermissionMode.DEFAULT,
                         java.util.List.of(allow)),
@@ -353,8 +368,7 @@ class HeadlessRuntimeSessionTest {
         try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
                 model,
                 AgentEventSink.noop(),
-                new HeadlessRuntimeOptions(
-                        temporaryWorkspace, "fake-model", Duration.ofSeconds(3)),
+                testOptions(temporaryWorkspace, Duration.ofSeconds(3)),
                 (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
                         io.github.liumaishenjian.ccjava.domain.ApprovalResponse.allowOnce())) {
             application.open();
@@ -368,6 +382,172 @@ class HeadlessRuntimeSessionTest {
                 .findFirst().orElseThrow();
         assertThat(result.result().content())
                 .contains("path: sample.txt", "operation: modified");
+    }
+
+    @Test
+    void resumeAndForkReplayIdenticalCanonicalHistoryIntoModel() throws Exception {
+        CopyOnWriteArrayList<ModelRequest> sourceRequests = new CopyOnWriteArrayList<>();
+        ModelGateway sourceModel = request -> {
+            sourceRequests.add(request);
+            if (sourceRequests.size() == 1) {
+                return new ModelTurn(
+                        AssistantMessage.tools(java.util.List.of(new ToolCall(
+                                "call-replay-read",
+                                "read_file",
+                                new JsonObject(Map.of("path", "AGENTS.md"))))),
+                        ModelTurnMetadata.unknown());
+            }
+            return ModelTurn.text("source complete");
+        };
+        io.github.liumaishenjian.ccjava.domain.SessionId sourceId;
+        try (HeadlessRuntimeSession source = new HeadlessRuntimeSession(
+                sourceModel,
+                AgentEventSink.noop(),
+                testOptions(temporaryWorkspace, Duration.ofSeconds(5)))) {
+            sourceId = source.open();
+            assertThat(source.run("build replay history").stopReason())
+                    .isEqualTo(StopReason.COMPLETED);
+        }
+
+        AtomicReference<ModelRequest> forkRequest = new AtomicReference<>();
+        ModelGateway forkModel = request -> {
+            forkRequest.compareAndSet(null, request);
+            return ModelTurn.text("fork replay complete");
+        };
+        try (HeadlessRuntimeSession fork = new HeadlessRuntimeSession(
+                forkModel,
+                AgentEventSink.noop(),
+                sessionOptions(
+                        io.github.liumaishenjian.ccjava.cli.session.SessionOpenMode.FORK,
+                        sourceId))) {
+            fork.open();
+            assertThat(fork.run("replay next step").stopReason()).isEqualTo(StopReason.COMPLETED);
+            assertThat(fork.sessionOpenResult().parentSessionId()).contains(sourceId);
+        }
+
+        AtomicReference<ModelRequest> resumeRequest = new AtomicReference<>();
+        ModelGateway resumeModel = request -> {
+            resumeRequest.compareAndSet(null, request);
+            return ModelTurn.text("resume replay complete");
+        };
+        try (HeadlessRuntimeSession resume = new HeadlessRuntimeSession(
+                resumeModel,
+                AgentEventSink.noop(),
+                sessionOptions(
+                        io.github.liumaishenjian.ccjava.cli.session.SessionOpenMode.RESUME,
+                        sourceId))) {
+            assertThat(resume.open()).isEqualTo(sourceId);
+            assertThat(resume.run("replay next step").stopReason()).isEqualTo(StopReason.COMPLETED);
+        }
+
+        assertThat(forkRequest.get()).isNotNull();
+        assertThat(resumeRequest.get()).isNotNull();
+        assertThat(forkRequest.get().messages()).isEqualTo(resumeRequest.get().messages());
+        assertThat(forkRequest.get().messages())
+                .filteredOn(ToolResultMessage.class::isInstance)
+                .singleElement()
+                .satisfies(message -> assertThat(
+                        ((ToolResultMessage) message).result().callId())
+                        .isEqualTo("call-replay-read"));
+        assertThat(forkRequest.get().messages().getLast())
+                .isEqualTo(new UserMessage("replay next step"));
+    }
+
+    @Test
+    void realActiveRunBlocksCheckpointUndoUntilBlockingModelReturns() throws Exception {
+        Path file = Files.writeString(temporaryWorkspace.resolve("sample.txt"), "old\n");
+        AtomicReference<Integer> modelCalls = new AtomicReference<>(0);
+        ModelGateway patchModel = request -> {
+            int call = modelCalls.updateAndGet(value -> value + 1);
+            if (call == 1) {
+                return new ModelTurn(
+                        AssistantMessage.tools(java.util.List.of(new ToolCall(
+                                "call-patch-active-run",
+                                "apply_patch",
+                                new JsonObject(Map.of(
+                                        "path", "sample.txt",
+                                        "oldText", "old",
+                                        "newText", "new"))))),
+                        ModelTurnMetadata.unknown());
+            }
+            return ModelTurn.text("patched");
+        };
+        PermissionRule allow = new PermissionRule(
+                PermissionRuleSource.STARTUP,
+                PermissionDecision.ALLOW,
+                new PermissionSelector("apply_patch", ToolSource.BUILT_IN, "sample.txt"));
+        io.github.liumaishenjian.ccjava.domain.CheckpointId checkpointId;
+
+        try (HeadlessRuntimeSession creator = new HeadlessRuntimeSession(
+                patchModel,
+                AgentEventSink.noop(),
+                testOptions(
+                        temporaryWorkspace,
+                        Duration.ofSeconds(5),
+                        PermissionMode.DEFAULT,
+                        java.util.List.of(allow)))) {
+            creator.open();
+            creator.run("create checkpoint");
+            checkpointId = creator.checkpoints().getFirst().id();
+        }
+        assertThat(Files.readString(file)).isEqualTo("new\n");
+
+        CountDownLatch modelEntered = new CountDownLatch(1);
+        CountDownLatch releaseModel = new CountDownLatch(1);
+        ModelGateway blockingModel = request -> {
+            modelEntered.countDown();
+            try {
+                if (!releaseModel.await(5, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("blocking model timed out");
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("blocking model interrupted", interrupted);
+            }
+            return ModelTurn.text("done");
+        };
+        HeadlessRuntimeOptions resumeOptions = new HeadlessRuntimeOptions(
+                temporaryWorkspace,
+                "fake-model",
+                Duration.ofSeconds(10),
+                PermissionMode.DEFAULT,
+                java.util.List.of(),
+                new SessionOpenRequest(
+                        io.github.liumaishenjian.ccjava.cli.session.SessionOpenMode.RESUME,
+                        Optional.of(findOnlySessionId())),
+                sessionStoreRoot);
+        AtomicReference<Throwable> runFailure = new AtomicReference<>();
+
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                blockingModel,
+                AgentEventSink.noop(),
+                resumeOptions)) {
+            application.open();
+            Thread runThread = Thread.ofPlatform().start(() -> {
+                try {
+                    application.run("hold active run");
+                } catch (Throwable failure) {
+                    runFailure.set(failure);
+                }
+            });
+            assertThat(modelEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            try {
+                assertThatThrownBy(() -> application.undoCheckpoint(checkpointId, true))
+                        .isInstanceOfSatisfying(
+                                io.github.liumaishenjian.ccjava.cli.session.SessionOpenException.class,
+                                failure -> assertThat(failure.code())
+                                        .isEqualTo("SESSION_ACTIVE_RUN"));
+                assertThat(Files.readString(file)).isEqualTo("new\n");
+            } finally {
+                releaseModel.countDown();
+                runThread.join(5_000);
+            }
+            assertThat(runThread.isAlive()).isFalse();
+            assertThat(runFailure.get()).isNull();
+            assertThat(application.undoCheckpoint(checkpointId, true).status())
+                    .isEqualTo(io.github.liumaishenjian.ccjava.domain.CheckpointUndoResult.Status.RESTORED);
+            assertThat(Files.readString(file)).isEqualTo("old\n");
+        }
     }
 
     @Test
@@ -399,9 +579,8 @@ class HeadlessRuntimeSessionTest {
         try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
                 model,
                 AgentEventSink.noop(),
-                new HeadlessRuntimeOptions(
+                testOptions(
                         temporaryWorkspace,
-                        "fake-model",
                         Duration.ofSeconds(3),
                         PermissionMode.ACCEPT_EDITS,
                         java.util.List.of(allow)),
@@ -458,9 +637,8 @@ class HeadlessRuntimeSessionTest {
         try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
                 model,
                 AgentEventSink.noop(),
-                new HeadlessRuntimeOptions(
+                testOptions(
                         temporaryWorkspace,
-                        "fake-model",
                         Duration.ofSeconds(3),
                         PermissionMode.ACCEPT_EDITS,
                         java.util.List.of(allow)),
@@ -515,8 +693,7 @@ class HeadlessRuntimeSessionTest {
         try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
                 model,
                 AgentEventSink.noop(),
-                new HeadlessRuntimeOptions(
-                        temporaryWorkspace, "fake-model", Duration.ofSeconds(30)))) {
+                testOptions(temporaryWorkspace, Duration.ofSeconds(30)))) {
             application.open();
             result = application.run("inspect repository");
         }
@@ -587,8 +764,7 @@ class HeadlessRuntimeSessionTest {
         try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
                 model,
                 AgentEventSink.noop(),
-                new HeadlessRuntimeOptions(
-                        temporaryWorkspace, "fake-model", Duration.ofSeconds(10)))) {
+                testOptions(temporaryWorkspace, Duration.ofSeconds(10)))) {
             application.open();
             run = application.run("exercise advanced search");
         }
@@ -635,8 +811,7 @@ class HeadlessRuntimeSessionTest {
         try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
                 model,
                 AgentEventSink.noop(),
-                new HeadlessRuntimeOptions(
-                        temporaryWorkspace, "fake-model", Duration.ofSeconds(3)))) {
+                testOptions(temporaryWorkspace, Duration.ofSeconds(3)))) {
             application.open();
             application.run("follow repository instructions");
         }
@@ -648,6 +823,64 @@ class HeadlessRuntimeSessionTest {
         assertThat(result.result().error().orElseThrow().code())
                 .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolErrorCode.SENSITIVE_PATH);
         assertThat(result.result().toString()).doesNotContain("TOP_SECRET", temporaryWorkspace.toString());
+    }
+
+    private HeadlessRuntimeOptions sessionOptions(
+            io.github.liumaishenjian.ccjava.cli.session.SessionOpenMode mode,
+            io.github.liumaishenjian.ccjava.domain.SessionId sessionId) {
+        return new HeadlessRuntimeOptions(
+                temporaryWorkspace,
+                "fake-model",
+                Duration.ofSeconds(5),
+                PermissionMode.DEFAULT,
+                java.util.List.of(),
+                new SessionOpenRequest(mode, Optional.of(sessionId)),
+                sessionStoreRoot);
+    }
+
+    private io.github.liumaishenjian.ccjava.domain.SessionId findOnlySessionId()
+            throws IOException {
+        try (var sessions = Files.list(sessionStoreRoot)) {
+            String value = sessions
+                    .filter(path -> Files.isDirectory(path))
+                    .map(path -> path.getFileName().toString())
+                    .findFirst()
+                    .orElseThrow();
+            return new io.github.liumaishenjian.ccjava.domain.SessionId(value);
+        }
+    }
+
+    private HeadlessRuntimeOptions testOptions(Path workspace, Duration timeout) {
+        return testOptions(workspace, "fake-model", timeout);
+    }
+
+    private HeadlessRuntimeOptions testOptions(
+            Path workspace,
+            String model,
+            Duration timeout) {
+        return new HeadlessRuntimeOptions(
+                workspace,
+                model,
+                timeout,
+                PermissionMode.DEFAULT,
+                java.util.List.of(),
+                SessionOpenRequest.create(),
+                sessionStoreRoot);
+    }
+
+    private HeadlessRuntimeOptions testOptions(
+            Path workspace,
+            Duration timeout,
+            PermissionMode permissionMode,
+            java.util.List<PermissionRule> rules) {
+        return new HeadlessRuntimeOptions(
+                workspace,
+                "fake-model",
+                timeout,
+                permissionMode,
+                rules,
+                SessionOpenRequest.create(),
+                sessionStoreRoot);
     }
 
     private static void runGit(Path directory, String... arguments) throws Exception {
@@ -687,7 +920,10 @@ class HeadlessRuntimeSessionTest {
                         Optional.of("provider-model")));
 
         try (HeadlessRuntimeSession application =
-                     new HeadlessRuntimeSession(model, AgentEventSink.noop())) {
+                     new HeadlessRuntimeSession(
+                             model,
+                             AgentEventSink.noop(),
+                             testOptions(temporaryWorkspace, Duration.ofMinutes(5)))) {
             application.open();
             AgentRunResult result = application.run("private prompt");
 

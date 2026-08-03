@@ -7,6 +7,8 @@ import io.github.liumaishenjian.ccjava.core.ToolCallTelemetry;
 import io.github.liumaishenjian.ccjava.core.ModelGateway;
 import io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeSession;
 import io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeOptions;
+import io.github.liumaishenjian.ccjava.cli.session.SessionOpenRequest;
+import io.github.liumaishenjian.ccjava.cli.session.SessionStorage;
 import io.github.liumaishenjian.ccjava.domain.AgentEventEnvelope;
 import io.github.liumaishenjian.ccjava.domain.AgentRunResult;
 import io.github.liumaishenjian.ccjava.domain.ApprovalResponse;
@@ -91,6 +93,24 @@ public final class RuntimeStdioCommandHandler
             Path workspace,
             Duration timeout,
             PermissionMode permissionMode) {
+        this(settings, workspace, timeout, permissionMode, SessionOpenRequest.create());
+    }
+
+    /**
+     * 使用 CLI 已解析的持久 Session 选择装配 Headless Runtime。
+     *
+     * @param settings 已应用模型覆盖的 Provider 设置
+     * @param workspace 已解析的真实 Workspace
+     * @param timeout 每个 Run 的墙钟限制
+     * @param permissionMode 当前 Permission Mode
+     * @param sessionOpenRequest Create/Continue/Resume/Fork 选择
+     */
+    public RuntimeStdioCommandHandler(
+            OpenAiCompatibleSettings settings,
+            Path workspace,
+            Duration timeout,
+            PermissionMode permissionMode,
+            SessionOpenRequest sessionOpenRequest) {
         approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
         application = new HeadlessRuntimeSession(
                 Objects.requireNonNull(settings, "settings 不能为空"),
@@ -100,7 +120,9 @@ public final class RuntimeStdioCommandHandler
                         settings.model(),
                         timeout,
                         permissionMode,
-                        java.util.List.of()),
+                        java.util.List.of(),
+                        Objects.requireNonNull(sessionOpenRequest, "sessionOpenRequest 不能为空"),
+                        SessionStorage.defaultRoot()),
                 approvals);
     }
 
@@ -144,6 +166,9 @@ public final class RuntimeStdioCommandHandler
             case "run.start" -> startRun(command, events);
             case "run.cancel" -> cancelRun(command);
             case "approval.resolve" -> resolveApproval(command);
+            case "checkpoint.list" -> listCheckpoints(command, events);
+            case "checkpoint.diff" -> checkpointDiff(command, events);
+            case "checkpoint.undo" -> checkpointUndo(command, events);
             case "shutdown" -> shutdown();
             default -> throw protocolError(
                     "UNKNOWN_COMMAND",
@@ -168,6 +193,15 @@ public final class RuntimeStdioCommandHandler
         }
         ObjectNode payload = codec.objectNode();
         payload.put("protocolVersion", StdioProtocol.VERSION);
+        var sessionOpen = application.sessionOpenResult();
+        payload.put("openMode", sessionOpen.mode().name().toLowerCase(Locale.ROOT));
+        payload.put("readOnly", sessionOpen.readOnly());
+        sessionOpen.parentSessionId().ifPresent(parent ->
+                payload.put("parentSessionId", parent.value()));
+        ArrayNode warnings = codec.arrayNode();
+        sessionOpen.issues().forEach(issue ->
+                warnings.add(issue.kind().name().toLowerCase(Locale.ROOT)));
+        payload.set("warnings", warnings);
         events.emit(
                 "initialized",
                 command.requestId(),
@@ -196,6 +230,95 @@ public final class RuntimeStdioCommandHandler
             state = State.RUNNING;
         }
         executor.submit(() -> executeRun(run, prompt));
+        return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    private StdioProtocol.Disposition listCheckpoints(
+            StdioProtocol.Command command,
+            StdioProtocol.EventEmitter events) throws StdioProtocolException {
+        synchronized (lock) {
+            ensureState(State.READY, command);
+            requireSession(command);
+            requireNoRunId(command);
+        }
+        ArrayNode items = codec.arrayNode();
+        for (var summary : application.checkpoints()) {
+            ObjectNode item = codec.objectNode();
+            item.put("checkpointId", summary.id().value());
+            item.put("callId", summary.callId());
+            item.put("toolName", summary.toolName());
+            item.put("target", summary.target());
+            item.put("existedBefore", summary.existedBefore());
+            item.put("phase", summary.phase().name().toLowerCase(Locale.ROOT));
+            item.put("undoable", summary.undoable());
+            items.add(item);
+        }
+        ObjectNode payload = codec.objectNode();
+        payload.set("checkpoints", items);
+        events.emit(
+                "checkpoint.listed",
+                command.requestId(),
+                Optional.of(application.sessionId().value()),
+                Optional.empty(),
+                payload);
+        return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    private StdioProtocol.Disposition checkpointDiff(
+            StdioProtocol.Command command,
+            StdioProtocol.EventEmitter events) throws StdioProtocolException {
+        String checkpointId;
+        synchronized (lock) {
+            ensureState(State.READY, command);
+            requireSession(command);
+            requireNoRunId(command);
+            checkpointId = requiredCheckpointId(command);
+        }
+        var diff = application.checkpointDiff(
+                new io.github.liumaishenjian.ccjava.domain.CheckpointId(checkpointId));
+        ObjectNode payload = codec.objectNode();
+        payload.put("checkpointId", diff.checkpointId().value());
+        payload.put("target", diff.target());
+        payload.put("status", diff.status().name().toLowerCase(Locale.ROOT));
+        payload.put("text", diff.text());
+        payload.put("truncated", diff.truncated());
+        events.emit(
+                "checkpoint.diffed",
+                command.requestId(),
+                Optional.of(application.sessionId().value()),
+                Optional.empty(),
+                payload);
+        return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    private StdioProtocol.Disposition checkpointUndo(
+            StdioProtocol.Command command,
+            StdioProtocol.EventEmitter events) throws StdioProtocolException {
+        String checkpointId;
+        JsonNode confirmed = command.payload().get("confirmed");
+        synchronized (lock) {
+            ensureState(State.READY, command);
+            requireSession(command);
+            requireNoRunId(command);
+            checkpointId = requiredCheckpointId(command);
+            if (confirmed == null || !confirmed.isBoolean()) {
+                throw protocolError("INVALID_PAYLOAD", command, "checkpoint.undo.confirmed 必须是布尔值");
+            }
+        }
+        var result = application.undoCheckpoint(
+                new io.github.liumaishenjian.ccjava.domain.CheckpointId(checkpointId),
+                confirmed.booleanValue());
+        ObjectNode payload = codec.objectNode();
+        payload.put("checkpointId", result.checkpointId().value());
+        payload.put("target", result.target());
+        payload.put("status", result.status().name().toLowerCase(Locale.ROOT));
+        payload.put("message", result.message());
+        events.emit(
+                "checkpoint.undone",
+                command.requestId(),
+                Optional.of(application.sessionId().value()),
+                Optional.empty(),
+                payload);
         return StdioProtocol.Disposition.CONTINUE;
     }
 
@@ -561,6 +684,30 @@ public final class RuntimeStdioCommandHandler
                     "INVALID_STATE",
                     command,
                     "命令 Session 与当前连接不匹配");
+        }
+    }
+
+    private void requireNoRunId(StdioProtocol.Command command) throws StdioProtocolException {
+        if (command.runId().isPresent()) {
+            throw protocolError("INVALID_STATE", command, "Checkpoint 命令不能携带 Run ID");
+        }
+    }
+
+    private String requiredCheckpointId(StdioProtocol.Command command)
+            throws StdioProtocolException {
+        JsonNode value = command.payload().get("checkpointId");
+        if (value == null
+                || !value.isString()
+                || value.stringValue().isBlank()
+                || value.stringValue().length() > 128) {
+            throw protocolError("INVALID_PAYLOAD", command, "checkpointId 为空或超过长度限制");
+        }
+        try {
+            return new io.github.liumaishenjian.ccjava.domain.CheckpointId(
+                            value.stringValue())
+                    .value();
+        } catch (IllegalArgumentException invalid) {
+            throw protocolError("INVALID_PAYLOAD", command, "checkpointId 格式无效");
         }
     }
 

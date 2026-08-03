@@ -84,6 +84,13 @@ try {
     Assert-Throws { ConvertFrom-CodejArguments -Arguments @('--unknown') -InvocationDirectory $temp } '未知参数'
     Assert-Throws { ConvertFrom-CodejArguments -Arguments @('--', 'tail') -InvocationDirectory $temp } '暂不支持'
     Assert-Throws { ConvertFrom-CodejArguments -Arguments @('--doctor', '--rebuild') -InvocationDirectory $temp } '不能与'
+    $continued = ConvertFrom-CodejArguments -Arguments @('--continue') -InvocationDirectory $temp
+    Assert-True ($continued.Continue -and $null -eq $continued.Resume -and $null -eq $continued.Fork) 'continue session selection'
+    $resumed = ConvertFrom-CodejArguments -Arguments @('--resume', 'session-resume-1') -InvocationDirectory $temp
+    Assert-True (-not $resumed.Continue -and $resumed.Resume -eq 'session-resume-1') 'resume session selection'
+    $forked = ConvertFrom-CodejArguments -Arguments @('--fork=session-fork-1') -InvocationDirectory $temp
+    Assert-True ($forked.Fork -eq 'session-fork-1') 'fork session selection'
+    Assert-Throws { ConvertFrom-CodejArguments -Arguments @('--continue', '--resume', 'session-1') -InvocationDirectory $temp } '只能选择一个'
 
     $repo = Join-Path $temp 'repo'
     Initialize-FakeRepository -Path $repo

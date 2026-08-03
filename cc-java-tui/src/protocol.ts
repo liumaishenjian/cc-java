@@ -1,6 +1,31 @@
 export const PROTOCOL_VERSION = 0;
 export const MAX_LINE_BYTES = 64 * 1024;
 export const MAX_IDENTIFIER_CHARS = 128;
+export const MAX_CHECKPOINTS = 1_000;
+export const MAX_CHECKPOINT_TARGET_CHARS = 1_024;
+export const MAX_CHECKPOINT_DIFF_CHARS = 16 * 1_024;
+export const MAX_CHECKPOINT_MESSAGE_CHARS = 1_024;
+
+const CHECKPOINT_ID = /^checkpoint-[A-Za-z0-9-]+$/;
+const CHECKPOINT_PHASES = new Set([
+  'create_prepared',
+  'create_journal_uncertain',
+  'created',
+  'post_prepared',
+  'post_journal_uncertain',
+  'completed_present',
+  'completed_absent',
+  'undo_prepared',
+  'undo_applied',
+  'undo_journal_uncertain',
+  'undone',
+]);
+const CHECKPOINT_DIFF_STATUSES = new Set([
+  'unchanged', 'changed', 'absent', 'conflict',
+]);
+const CHECKPOINT_UNDO_STATUSES = new Set([
+  'restored', 'already_restored', 'conflict',
+]);
 
 const EVENT_TYPES = new Set([
   'initialized',
@@ -14,6 +39,9 @@ const EVENT_TYPES = new Set([
   'run.completed',
   'run.failed',
   'run.cancelled',
+  'checkpoint.listed',
+  'checkpoint.diffed',
+  'checkpoint.undone',
   'protocol.error',
 ]);
 
@@ -29,6 +57,9 @@ export type EventType =
   | 'run.completed'
   | 'run.failed'
   | 'run.cancelled'
+  | 'checkpoint.listed'
+  | 'checkpoint.diffed'
+  | 'checkpoint.undone'
   | 'protocol.error';
 
 export interface ProtocolEvent {
@@ -48,6 +79,9 @@ export interface ProtocolCommand {
     | 'run.start'
     | 'run.cancel'
     | 'approval.resolve'
+    | 'checkpoint.list'
+    | 'checkpoint.diff'
+    | 'checkpoint.undo'
     | 'shutdown';
   readonly requestId: string;
   readonly sessionId?: string;
@@ -128,6 +162,21 @@ function validateEventShape(
     throw new ProtocolViolation('initialized 缺少 sessionId');
   }
   if (
+    (type === 'checkpoint.listed'
+      || type === 'checkpoint.diffed'
+      || type === 'checkpoint.undone')
+    && (sessionId === undefined || runId !== undefined)
+  ) {
+    throw new ProtocolViolation(`${type} 必须携带 sessionId 且不能携带 runId`);
+  }
+  if (type === 'checkpoint.listed') {
+    validateCheckpointList(payload);
+  } else if (type === 'checkpoint.diffed') {
+    validateCheckpointDiff(payload);
+  } else if (type === 'checkpoint.undone') {
+    validateCheckpointUndo(payload);
+  }
+  if (
     (type === 'run.started'
       || type === 'model.text.delta'
       || type === 'approval.requested'
@@ -199,6 +248,118 @@ function validateEventShape(
     validateOptionalTerminalCount(type, payload, 'toolCalls');
     validateOptionalModelFailure(type, payload);
   }
+}
+
+function validateCheckpointList(
+  payload: Readonly<Record<string, unknown>>,
+): void {
+  if (
+    Object.keys(payload).some(key => key !== 'checkpoints')
+    || !Array.isArray(payload.checkpoints)
+    || payload.checkpoints.length > MAX_CHECKPOINTS
+  ) {
+    throw new ProtocolViolation('checkpoint.listed 包含无效列表');
+  }
+  for (const checkpoint of payload.checkpoints) {
+    if (!isRecord(checkpoint)) {
+      throw new ProtocolViolation('checkpoint.listed 包含无效条目');
+    }
+    const allowedFields = new Set([
+      'checkpointId', 'callId', 'toolName', 'target', 'existedBefore', 'phase', 'undoable',
+    ]);
+    if (
+      Object.keys(checkpoint).some(key => !allowedFields.has(key))
+      || Object.keys(checkpoint).length !== allowedFields.size
+      || !isCheckpointId(checkpoint.checkpointId)
+      || !isBoundedIdentifier(checkpoint.callId)
+      || !isBoundedIdentifier(checkpoint.toolName)
+      || !isSafeRelativeTarget(checkpoint.target)
+      || typeof checkpoint.existedBefore !== 'boolean'
+      || typeof checkpoint.phase !== 'string'
+      || !CHECKPOINT_PHASES.has(checkpoint.phase)
+      || typeof checkpoint.undoable !== 'boolean'
+      || checkpoint.undoable !== (
+        checkpoint.phase === 'completed_present'
+        || checkpoint.phase === 'completed_absent'
+      )
+    ) {
+      throw new ProtocolViolation('checkpoint.listed 包含无效条目');
+    }
+  }
+}
+
+function validateCheckpointDiff(
+  payload: Readonly<Record<string, unknown>>,
+): void {
+  const allowedFields = new Set([
+    'checkpointId', 'target', 'status', 'text', 'truncated',
+  ]);
+  if (
+    Object.keys(payload).some(key => !allowedFields.has(key))
+    || Object.keys(payload).length !== allowedFields.size
+    || !isCheckpointId(payload.checkpointId)
+    || !isSafeRelativeTarget(payload.target)
+    || typeof payload.status !== 'string'
+    || !CHECKPOINT_DIFF_STATUSES.has(payload.status)
+    || !isSafeDisplayText(payload.text, MAX_CHECKPOINT_DIFF_CHARS, true)
+    || typeof payload.truncated !== 'boolean'
+  ) {
+    throw new ProtocolViolation('checkpoint.diffed 包含无效有界结果');
+  }
+}
+
+function validateCheckpointUndo(
+  payload: Readonly<Record<string, unknown>>,
+): void {
+  const allowedFields = new Set([
+    'checkpointId', 'target', 'status', 'message',
+  ]);
+  if (
+    Object.keys(payload).some(key => !allowedFields.has(key))
+    || Object.keys(payload).length !== allowedFields.size
+    || !isCheckpointId(payload.checkpointId)
+    || !isSafeRelativeTarget(payload.target)
+    || typeof payload.status !== 'string'
+    || !CHECKPOINT_UNDO_STATUSES.has(payload.status)
+    || !isSafeDisplayText(payload.message, MAX_CHECKPOINT_MESSAGE_CHARS, false)
+  ) {
+    throw new ProtocolViolation('checkpoint.undone 包含无效结果');
+  }
+}
+
+function isCheckpointId(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length <= MAX_IDENTIFIER_CHARS
+    && CHECKPOINT_ID.test(value);
+}
+
+function isBoundedIdentifier(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.trim().length > 0
+    && value.length <= MAX_IDENTIFIER_CHARS
+    && !/[\u0000-\u001f\u007f]/u.test(value);
+}
+
+function isSafeRelativeTarget(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= MAX_CHECKPOINT_TARGET_CHARS
+    && !/[\u0000-\u001f\u007f]/u.test(value)
+    && !value.startsWith('/')
+    && !value.startsWith('\\')
+    && !/^[A-Za-z]:/.test(value)
+    && !value.split(/[\\/]/).includes('..');
+}
+
+function isSafeDisplayText(
+  value: unknown,
+  maxCharacters: number,
+  allowEmpty: boolean,
+): value is string {
+  return typeof value === 'string'
+    && (allowEmpty || value.length > 0)
+    && Array.from(value).length <= maxCharacters
+    && !/[\u0000\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value);
 }
 
 function validateApprovalPreview(

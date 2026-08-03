@@ -38,6 +38,109 @@ describe('decodeEvent', () => {
     }), 1)).toThrowError(/runId/);
   });
 
+  it('接受无 Run 的 Checkpoint 投影并拒绝伪造 Run 关联', () => {
+    const event = decodeEvent(JSON.stringify({
+      version: 0,
+      type: 'checkpoint.listed',
+      requestId: 'req-checkpoint',
+      sessionId: 'session-1',
+      sequence: 1,
+      payload: {
+        checkpoints: [{
+          checkpointId: 'checkpoint-run-1-1',
+          callId: 'call-1',
+          toolName: 'apply_patch',
+          target: 'src/App.java',
+          existedBefore: true,
+          phase: 'completed_present',
+          undoable: true,
+        }],
+      },
+    }), 1);
+
+    expect(event.payload.checkpoints).toBeDefined();
+    expect(() => decodeEvent(JSON.stringify({
+      ...event,
+      runId: 'run-forged',
+    }), 1)).toThrowError(/不能携带 runId/);
+  });
+
+  it('严格校验 Checkpoint 列表的 phase、相对路径、字段和数量', () => {
+    const base = {
+      version: 0,
+      type: 'checkpoint.listed',
+      requestId: 'req-checkpoint',
+      sessionId: 'session-1',
+      sequence: 1,
+      payload: {
+        checkpoints: [{
+          checkpointId: 'checkpoint-run-1-1',
+          callId: 'call-1',
+          toolName: 'apply_patch',
+          target: 'src/App.java',
+          existedBefore: true,
+          phase: 'completed_present',
+          undoable: true,
+        }],
+      },
+    };
+    expect(decodeEvent(JSON.stringify(base), 1).payload.checkpoints).toHaveLength(1);
+
+    for (const payload of [
+      {...base.payload, checkpoints: [{...base.payload.checkpoints[0], phase: 'unknown'}]},
+      {...base.payload, checkpoints: [{...base.payload.checkpoints[0], target: 'C:\\secret.txt'}]},
+      {...base.payload, checkpoints: [{...base.payload.checkpoints[0], undoable: false}]},
+      {...base.payload, checkpoints: [{...base.payload.checkpoints[0], secret: 'leak'}]},
+      {checkpoints: Array.from({length: 1_001}, () => base.payload.checkpoints[0])},
+    ]) {
+      expect(() => decodeEvent(JSON.stringify({...base, payload}), 1))
+        .toThrowError(/checkpoint\.listed/);
+    }
+  });
+
+  it('严格校验 Checkpoint Diff 和 Undo 的有界安全投影', () => {
+    const diff = {
+      version: 0,
+      type: 'checkpoint.diffed',
+      requestId: 'req-diff',
+      sessionId: 'session-1',
+      sequence: 1,
+      payload: {
+        checkpointId: 'checkpoint-run-1-1',
+        target: 'src/App.java',
+        status: 'changed',
+        text: '-old\n+new\n',
+        truncated: false,
+      },
+    };
+    expect(decodeEvent(JSON.stringify(diff), 1).payload.status).toBe('changed');
+    expect(() => decodeEvent(JSON.stringify({
+      ...diff,
+      payload: {...diff.payload, text: 'x'.repeat(16 * 1_024 + 1)},
+    }), 1)).toThrowError(/checkpoint\.diffed/);
+    expect(() => decodeEvent(JSON.stringify({
+      ...diff,
+      payload: {...diff.payload, status: 'restored'},
+    }), 1)).toThrowError(/checkpoint\.diffed/);
+
+    const undo = {
+      ...diff,
+      type: 'checkpoint.undone',
+      requestId: 'req-undo',
+      payload: {
+        checkpointId: 'checkpoint-run-1-1',
+        target: 'src/App.java',
+        status: 'restored',
+        message: 'Checkpoint 已恢复',
+      },
+    };
+    expect(decodeEvent(JSON.stringify(undo), 1).payload.status).toBe('restored');
+    expect(() => decodeEvent(JSON.stringify({
+      ...undo,
+      payload: {...undo.payload, providerText: 'secret'},
+    }), 1)).toThrowError(/checkpoint\.undone/);
+  });
+
   it('拒绝包含控制字符的终止原因', () => {
     expect(() => decodeEvent(JSON.stringify({
       version: 0,

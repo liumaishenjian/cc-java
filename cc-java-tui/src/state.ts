@@ -65,17 +65,64 @@ export interface RunView {
   readonly toolCalls: number | undefined;
 }
 
+export type CheckpointPhase =
+  | 'create_prepared'
+  | 'create_journal_uncertain'
+  | 'created'
+  | 'post_prepared'
+  | 'post_journal_uncertain'
+  | 'completed_present'
+  | 'completed_absent'
+  | 'undo_prepared'
+  | 'undo_applied'
+  | 'undo_journal_uncertain'
+  | 'undone';
+
+export interface CheckpointView {
+  readonly checkpointId: string;
+  readonly callId: string;
+  readonly toolName: string;
+  readonly target: string;
+  readonly existedBefore: boolean;
+  readonly phase: CheckpointPhase;
+  readonly undoable: boolean;
+}
+
+export interface CheckpointDiffView {
+  readonly checkpointId: string;
+  readonly target: string;
+  readonly status: 'unchanged' | 'changed' | 'absent' | 'conflict';
+  readonly text: string;
+  readonly truncated: boolean;
+}
+
+export interface CheckpointUndoView {
+  readonly checkpointId: string;
+  readonly target: string;
+  readonly status: 'restored' | 'already_restored' | 'conflict';
+  readonly message: string;
+}
+
 export interface TuiState {
   readonly phase: ClientPhase;
   readonly sessionId: string | undefined;
   readonly activeRunId: string | undefined;
   readonly runs: readonly RunView[];
+  readonly checkpoints: readonly CheckpointView[];
+  readonly checkpointPanelOpen: boolean;
+  readonly selectedCheckpointId: string | undefined;
+  readonly checkpointDiff: CheckpointDiffView | undefined;
+  readonly pendingUndoCheckpointId: string | undefined;
+  readonly checkpointUndo: CheckpointUndoView | undefined;
   readonly notice: string | undefined;
 }
 
 export type TuiAction =
   | {readonly type: 'run.submitted'; readonly requestId: string; readonly prompt: string}
   | {readonly type: 'approval.submitted'; readonly approvalId: string}
+  | {readonly type: 'checkpoint.selected'; readonly checkpointId: string}
+  | {readonly type: 'checkpoint.undo.requested'; readonly checkpointId: string}
+  | {readonly type: 'checkpoint.undo.cancelled'}
   | {readonly type: 'event.received'; readonly event: ProtocolEvent}
   | {readonly type: 'transport.failed'; readonly message: string}
   | {readonly type: 'closing'}
@@ -86,6 +133,12 @@ export const initialTuiState: TuiState = {
   sessionId: undefined,
   activeRunId: undefined,
   runs: [],
+  checkpoints: [],
+  checkpointPanelOpen: false,
+  selectedCheckpointId: undefined,
+  checkpointDiff: undefined,
+  pendingUndoCheckpointId: undefined,
+  checkpointUndo: undefined,
   notice: undefined,
 };
 
@@ -132,6 +185,23 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
             }
           : run),
       };
+    case 'checkpoint.selected':
+      return state.checkpoints.some(item => item.checkpointId === action.checkpointId)
+        ? {
+            ...state,
+            selectedCheckpointId: action.checkpointId,
+            checkpointDiff: undefined,
+            checkpointUndo: undefined,
+            notice: undefined,
+          }
+        : state;
+    case 'checkpoint.undo.requested':
+      return state.checkpoints.some(item => item.checkpointId === action.checkpointId
+        && item.undoable)
+        ? {...state, pendingUndoCheckpointId: action.checkpointId, notice: undefined}
+        : {...state, notice: '当前 Checkpoint 不可 Undo'};
+    case 'checkpoint.undo.cancelled':
+      return {...state, pendingUndoCheckpointId: undefined};
     case 'event.received':
       return applyEvent(state, action.event);
     case 'transport.failed':
@@ -204,12 +274,92 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
       return finishRun(state, event, 'cancelled');
     case 'run.failed':
       return finishRun(state, event, 'failed');
+    case 'checkpoint.listed': {
+      const checkpoints = checkpointList(event.payload);
+      const selection = checkpoints.some(item => item.checkpointId === state.selectedCheckpointId)
+        ? state.selectedCheckpointId
+        : checkpoints[0]?.checkpointId;
+      return {
+        ...state,
+        checkpoints,
+        checkpointPanelOpen: true,
+        selectedCheckpointId: selection,
+        checkpointDiff: selection === state.selectedCheckpointId
+          ? state.checkpointDiff : undefined,
+        pendingUndoCheckpointId: undefined,
+        notice: checkpointListNotice(checkpoints),
+      };
+    }
+    case 'checkpoint.diffed':
+      return {
+        ...state,
+        selectedCheckpointId: String(event.payload.checkpointId),
+        checkpointDiff: checkpointDiffView(event.payload),
+        checkpointUndo: undefined,
+        notice: undefined,
+      };
+    case 'checkpoint.undone':
+      return {
+        ...state,
+        checkpoints: state.checkpoints.map(item =>
+          item.checkpointId === event.payload.checkpointId
+            ? {...item, phase: 'undone', undoable: false}
+            : item),
+        checkpointUndo: checkpointUndoView(event.payload),
+        pendingUndoCheckpointId: undefined,
+        notice: undefined,
+      };
     case 'protocol.error':
       return {
         ...state,
         notice: safeProtocolMessage(event.payload),
       };
   }
+}
+
+function checkpointList(
+  payload: Readonly<Record<string, unknown>>,
+): readonly CheckpointView[] {
+  return (payload.checkpoints as readonly Readonly<Record<string, unknown>>[]).map(item => ({
+    checkpointId: String(item.checkpointId),
+    callId: String(item.callId),
+    toolName: String(item.toolName),
+    target: String(item.target),
+    existedBefore: item.existedBefore === true,
+    phase: item.phase as CheckpointPhase,
+    undoable: item.undoable === true,
+  }));
+}
+
+function checkpointDiffView(
+  payload: Readonly<Record<string, unknown>>,
+): CheckpointDiffView {
+  return {
+    checkpointId: String(payload.checkpointId),
+    target: String(payload.target),
+    status: payload.status as CheckpointDiffView['status'],
+    text: String(payload.text),
+    truncated: payload.truncated === true,
+  };
+}
+
+function checkpointUndoView(
+  payload: Readonly<Record<string, unknown>>,
+): CheckpointUndoView {
+  return {
+    checkpointId: String(payload.checkpointId),
+    target: String(payload.target),
+    status: payload.status as CheckpointUndoView['status'],
+    message: String(payload.message),
+  };
+}
+
+function checkpointListNotice(checkpoints: readonly CheckpointView[]): string {
+  const uncertain = checkpoints.filter(item => !item.undoable
+    && item.phase !== 'undone').length;
+  return checkpoints.length === 0
+    ? '当前 Session 没有 Checkpoint'
+    : `Checkpoint：${checkpoints.length} 个，${uncertain} 个不可 Undo/需检查`;
 }
 
 function optionalText(value: unknown): string | undefined {

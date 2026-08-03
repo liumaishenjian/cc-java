@@ -183,6 +183,14 @@ class ToolExecutionPipelineTest {
             }
 
             @Override
+            public java.util.Optional<io.github.liumaishenjian.ccjava.domain.CheckpointTarget>
+                    checkpointTarget(ToolInvocation invocation) {
+                return java.util.Optional.of(
+                        new io.github.liumaishenjian.ccjava.domain.CheckpointTarget(
+                                "fixture/fake-write.txt", false));
+            }
+
+            @Override
             public ToolExecutionOutcome execute(ToolInvocation invocation) {
                 sideEffect.set(true);
                 return ToolExecutionOutcome.success("fake write completed");

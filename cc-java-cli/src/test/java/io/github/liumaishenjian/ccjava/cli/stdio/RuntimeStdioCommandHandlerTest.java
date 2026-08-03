@@ -1,6 +1,7 @@
 package io.github.liumaishenjian.ccjava.cli.stdio;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
 import io.github.liumaishenjian.ccjava.core.ModelGatewayException;
@@ -14,6 +15,8 @@ import io.github.liumaishenjian.ccjava.domain.ModelUsage;
 import io.github.liumaishenjian.ccjava.domain.ToolCall;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
 import io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeOptions;
+import io.github.liumaishenjian.ccjava.cli.session.SessionOpenRequest;
+import io.github.liumaishenjian.ccjava.domain.PermissionMode;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -28,7 +31,28 @@ import io.github.liumaishenjian.ccjava.tools.local.command.CommandShell;
 class RuntimeStdioCommandHandlerTest {
 
     @TempDir
-    Path workspace;
+    Path temporaryRoot;
+
+    private Path workspace() throws java.io.IOException {
+        Path workspace = temporaryRoot.resolve("workspace");
+        Files.createDirectories(workspace);
+        return workspace;
+    }
+
+    private HeadlessRuntimeOptions testOptions() throws java.io.IOException {
+        return testOptions(Duration.ofSeconds(3));
+    }
+
+    private HeadlessRuntimeOptions testOptions(Duration timeout) throws java.io.IOException {
+        return new HeadlessRuntimeOptions(
+                workspace(),
+                "fake-model",
+                timeout,
+                PermissionMode.DEFAULT,
+                List.of(),
+                SessionOpenRequest.create(),
+                temporaryRoot.resolve("sessions"));
+    }
 
     @Test
     void terminalContainsProviderUsageAndPrivacySafeTimingProjection()
@@ -44,7 +68,8 @@ class RuntimeStdioCommandHandlerTest {
                         new ModelTurnMetadata(
                                 ModelFinishReason.STOP,
                                 Optional.of(new ModelUsage(12, 3, 15)),
-                                Optional.of("MODEL_SENTINEL"))))) {
+                                Optional.of("MODEL_SENTINEL"))),
+                testOptions())) {
             handler.handle(
                     codec.decodeCommand(
                             "{\"version\":0,\"type\":\"initialize\","
@@ -104,7 +129,7 @@ class RuntimeStdioCommandHandlerTest {
                     ModelGatewayException.FailureKind.RETRYABLE,
                     "SECRET_PROVIDER_RESPONSE https://secret.invalid sk-secret",
                     summary);
-        })) {
+        }, testOptions())) {
             handler.handle(codec.decodeCommand(
                     "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
             String sessionId = events.getFirst().sessionId().orElseThrow();
@@ -145,7 +170,7 @@ class RuntimeStdioCommandHandlerTest {
                         ModelTurnMetadata.unknown());
             }
             return ModelTurn.text("done");
-        })) {
+        }, testOptions())) {
             handler.handle(codec.decodeCommand(
                     "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
             String sessionId = events.getFirst().sessionId().orElseThrow();
@@ -203,7 +228,7 @@ class RuntimeStdioCommandHandlerTest {
     @Test
     void approvalEventShowsSafePatchSummaryAndMatchingAllowWritesFile()
             throws Exception {
-        Path file = Files.writeString(workspace.resolve("sample.txt"), "old\n");
+        Path file = Files.writeString(workspace().resolve("sample.txt"), "old\n");
         StdioProtocolCodec codec = new StdioProtocolCodec();
         CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
         StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
@@ -222,8 +247,7 @@ class RuntimeStdioCommandHandlerTest {
                                                 "newText", "new"))))),
                                 ModelTurnMetadata.unknown())
                         : ModelTurn.text("done"),
-                new HeadlessRuntimeOptions(
-                        workspace, "fake-model", Duration.ofSeconds(3)))) {
+                testOptions())) {
             handler.handle(codec.decodeCommand(
                     "{\"version\":0,\"type\":\"initialize\","
                             + "\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
@@ -257,7 +281,7 @@ class RuntimeStdioCommandHandlerTest {
 
     @Test
     void allowSessionSkipsSecondApprovalForSameScope() throws Exception {
-        Path file = Files.writeString(workspace.resolve("sample.txt"), "old\n");
+        Path file = Files.writeString(workspace().resolve("sample.txt"), "old\n");
         StdioProtocolCodec codec = new StdioProtocolCodec();
         CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
         StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
@@ -286,8 +310,7 @@ class RuntimeStdioCommandHandlerTest {
                             ModelTurnMetadata.unknown());
                     default -> ModelTurn.text("done");
                 },
-                new HeadlessRuntimeOptions(
-                        workspace, "fake-model", Duration.ofSeconds(3)))) {
+                testOptions())) {
             handler.handle(codec.decodeCommand(
                     "{\"version\":0,\"type\":\"initialize\","
                             + "\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
@@ -317,6 +340,81 @@ class RuntimeStdioCommandHandlerTest {
     }
 
     @Test
+    void exposesCheckpointListDiffAndExplicitUndoThroughStdio() throws Exception {
+        Path file = Files.writeString(workspace().resolve("sample.txt"), "old\n");
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        java.util.concurrent.atomic.AtomicInteger turns = new java.util.concurrent.atomic.AtomicInteger();
+
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(
+                request -> turns.incrementAndGet() == 1
+                        ? new ModelTurn(
+                                AssistantMessage.tools(List.of(new ToolCall(
+                                        "call-patch",
+                                        "apply_patch",
+                                        new JsonObject(java.util.Map.of(
+                                                "path", "sample.txt",
+                                                "oldText", "old",
+                                                "newText", "new"))))),
+                                ModelTurnMetadata.unknown())
+                        : ModelTurn.text("done"),
+                testOptions())) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\","
+                            + "\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"run.start\","
+                    + "\"requestId\":\"run\",\"sessionId\":\"%s\",\"sequence\":2,"
+                    + "\"payload\":{\"prompt\":\"patch\"}}").formatted(sessionId)), emitter);
+            CapturedEvent approval = awaitEvent(events, "approval.requested");
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"approval.resolve\","
+                    + "\"requestId\":\"approve\",\"sessionId\":\"%s\",\"runId\":\"%s\","
+                    + "\"sequence\":3,\"payload\":{\"approvalId\":\"%s\","
+                    + "\"decision\":\"allow_once\"}}").formatted(
+                            sessionId,
+                            approval.runId().orElseThrow(),
+                            approval.payload().get("approvalId").stringValue())), emitter);
+            awaitTerminal(events);
+
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"checkpoint.list\","
+                    + "\"requestId\":\"list\",\"sessionId\":\"%s\",\"sequence\":4,"
+                    + "\"payload\":{}}").formatted(sessionId)), emitter);
+            CapturedEvent listed = awaitEvent(events, "checkpoint.listed");
+            String checkpointId = listed.payload()
+                    .get("checkpoints").get(0).get("checkpointId").stringValue();
+            assertThat(listed.payload().toString())
+                    .contains("completed_present", "\"undoable\":true", "sample.txt")
+                    .doesNotContain(workspace().toString(), temporaryRoot.resolve("sessions").toString());
+
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"checkpoint.diff\","
+                    + "\"requestId\":\"diff\",\"sessionId\":\"%s\",\"sequence\":5,"
+                    + "\"payload\":{\"checkpointId\":\"%s\"}}").formatted(
+                            sessionId, checkpointId)), emitter);
+            CapturedEvent diffed = awaitEvent(events, "checkpoint.diffed");
+            assertThat(diffed.payload().toString())
+                    .contains("changed", "checkpoint/sample.txt", "workspace/sample.txt");
+
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand((
+                    "{\"version\":0,\"type\":\"checkpoint.undo\","
+                            + "\"requestId\":\"undo-denied\",\"sessionId\":\"%s\",\"sequence\":6,"
+                            + "\"payload\":{\"checkpointId\":\"%s\",\"confirmed\":false}}")
+                            .formatted(sessionId, checkpointId)), emitter))
+                    .isInstanceOf(io.github.liumaishenjian.ccjava.cli.session.SessionOpenException.class);
+            assertThat(Files.readString(file)).isEqualTo("new\n");
+
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"checkpoint.undo\","
+                    + "\"requestId\":\"undo\",\"sessionId\":\"%s\",\"sequence\":7,"
+                    + "\"payload\":{\"checkpointId\":\"%s\",\"confirmed\":true}}")
+                    .formatted(sessionId, checkpointId)), emitter);
+            CapturedEvent undone = awaitEvent(events, "checkpoint.undone");
+            assertThat(undone.payload().toString()).contains("restored", "sample.txt");
+            assertThat(Files.readString(file)).isEqualTo("old\n");
+        }
+    }
+
+    @Test
     void commandApprovalShowsExactExecutionAndStreamsOutput() throws Exception {
         String command = CommandShell.current() == CommandShell.WINDOWS_POWERSHELL
                 ? "Write-Output 'command-stream'; Set-Content -Path command.txt -Value ok"
@@ -338,8 +436,7 @@ class RuntimeStdioCommandHandlerTest {
                                                 "timeoutSeconds", 5))))),
                                 ModelTurnMetadata.unknown())
                         : ModelTurn.text("done"),
-                new HeadlessRuntimeOptions(
-                        workspace, "fake-model", Duration.ofSeconds(10)))) {
+                testOptions(Duration.ofSeconds(10)))) {
             handler.handle(codec.decodeCommand(
                     "{\"version\":0,\"type\":\"initialize\","
                             + "\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
@@ -366,11 +463,11 @@ class RuntimeStdioCommandHandlerTest {
             CapturedEvent output = awaitEvent(events, "tool.output");
             assertThat(output.payload().toString())
                     .contains("\"stream\":\"stdout\"", "command-stream")
-                    .doesNotContain(workspace.toString());
+                    .doesNotContain(workspace().toString());
             awaitTerminal(events);
         }
 
-        assertThat(Files.readString(workspace.resolve("command.txt"))).contains("ok");
+        assertThat(Files.readString(workspace().resolve("command.txt"))).contains("ok");
     }
 
     private CapturedEvent awaitTerminal(List<CapturedEvent> events)

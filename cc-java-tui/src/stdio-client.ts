@@ -110,6 +110,27 @@ export class StdioClient {
     return this.#send('run.start', {prompt}, this.#sessionId);
   }
 
+  public listCheckpoints(): string {
+    if (this.#sessionId === undefined || this.#activeRunId !== undefined) {
+      throw new Error('只有就绪 Session 可以列出 Checkpoint');
+    }
+    return this.#send('checkpoint.list', {}, this.#sessionId);
+  }
+
+  public checkpointDiff(checkpointId: string): string {
+    if (this.#sessionId === undefined || this.#activeRunId !== undefined) {
+      throw new Error('只有就绪 Session 可以比较 Checkpoint');
+    }
+    return this.#send('checkpoint.diff', {checkpointId}, this.#sessionId);
+  }
+
+  public undoCheckpoint(checkpointId: string, confirmed: boolean): string {
+    if (this.#sessionId === undefined || this.#activeRunId !== undefined) {
+      throw new Error('只有就绪 Session 可以执行 Undo');
+    }
+    return this.#send('checkpoint.undo', {checkpointId, confirmed}, this.#sessionId);
+  }
+
   public cancelRun(): string {
     if (this.#sessionId === undefined || this.#activeRunId === undefined) {
       throw new Error('当前没有可以取消的 Run');

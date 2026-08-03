@@ -4,11 +4,14 @@ import {
   AgentTui,
   AgentView,
   approvalDecision,
+  adjacentCheckpointId,
   appendInput,
   canEditInput,
+  checkpointAction,
   decideInterrupt,
   editInput,
   MAX_INPUT_CHARS,
+  undoConfirmation,
 } from '../src/app.js';
 import type {AgentClient} from '../src/app.js';
 import type {ProtocolEvent} from '../src/protocol.js';
@@ -21,6 +24,12 @@ describe('AgentView', () => {
       sessionId: 'session-1',
       activeRunId: undefined,
       notice: undefined,
+      checkpoints: [],
+      checkpointPanelOpen: false,
+      selectedCheckpointId: undefined,
+      checkpointDiff: undefined,
+      pendingUndoCheckpointId: undefined,
+      checkpointUndo: undefined,
       runs: [{
         requestId: 'req-1',
         prompt: '解释中文宽字符',
@@ -48,6 +57,12 @@ describe('AgentView', () => {
       sessionId: 'session-1',
       activeRunId: 'run-2',
       notice: undefined,
+      checkpoints: [],
+      checkpointPanelOpen: false,
+      selectedCheckpointId: undefined,
+      checkpointDiff: undefined,
+      pendingUndoCheckpointId: undefined,
+      checkpointUndo: undefined,
       runs: [{
         requestId: 'req-2',
         prompt: '继续',
@@ -85,6 +100,12 @@ describe('AgentView', () => {
       sessionId: 'session-1',
       activeRunId: 'run-write',
       notice: undefined,
+      checkpoints: [],
+      checkpointPanelOpen: false,
+      selectedCheckpointId: undefined,
+      checkpointDiff: undefined,
+      pendingUndoCheckpointId: undefined,
+      checkpointUndo: undefined,
       runs: [{
         requestId: 'req-write',
         prompt: '修改文件',
@@ -143,6 +164,12 @@ describe('AgentView', () => {
       sessionId: 'session-1',
       activeRunId: undefined,
       notice: undefined,
+      checkpoints: [],
+      checkpointPanelOpen: false,
+      selectedCheckpointId: undefined,
+      checkpointDiff: undefined,
+      pendingUndoCheckpointId: undefined,
+      checkpointUndo: undefined,
       runs: [{
         requestId: 'req-resize',
         prompt: '保留上下文',
@@ -170,6 +197,12 @@ describe('AgentView', () => {
       sessionId: 'session-1',
       activeRunId: undefined,
       notice: undefined,
+      checkpoints: [],
+      checkpointPanelOpen: false,
+      selectedCheckpointId: undefined,
+      checkpointDiff: undefined,
+      pendingUndoCheckpointId: undefined,
+      checkpointUndo: undefined,
       runs: [{
         requestId: 'req-failed',
         prompt: '分析 Agent Loop',
@@ -196,6 +229,79 @@ describe('AgentView', () => {
     expect(view.lastFrame()).toContain(
       '模型服务暂时不可用（5xx），已尝试 3 次；请稍后重试',
     );
+  });
+
+  it('Checkpoint 面板展示具体 phase、Diff 和二次确认目标', () => {
+    const state: TuiState = {
+      ...initialCheckpointState(),
+      checkpoints: [{
+        checkpointId: 'checkpoint-run-1-1',
+        callId: 'call-1',
+        toolName: 'apply_patch',
+        target: 'src/App.java',
+        existedBefore: true,
+        phase: 'post_journal_uncertain',
+        undoable: false,
+      }, {
+        checkpointId: 'checkpoint-run-1-2',
+        callId: 'call-2',
+        toolName: 'apply_patch',
+        target: 'src/Ready.java',
+        existedBefore: true,
+        phase: 'completed_present',
+        undoable: true,
+      }],
+      selectedCheckpointId: 'checkpoint-run-1-2',
+      checkpointDiff: {
+        checkpointId: 'checkpoint-run-1-2',
+        target: 'src/Ready.java',
+        status: 'changed',
+        text: '-old\n+new\n',
+        truncated: false,
+      },
+      pendingUndoCheckpointId: 'checkpoint-run-1-2',
+    };
+    const view = render(<AgentView state={state} input="" columns={100} />);
+
+    expect(view.lastFrame()).toContain('结果记录不确定');
+    expect(view.lastFrame()).toContain('Diff · src/Ready.java · changed');
+    expect(view.lastFrame()).toContain('确认 Undo 当前 Checkpoint');
+    expect(view.lastFrame()).toContain('checkpoint-run-1-2');
+    expect(view.lastFrame()).toContain('仅按 Shift+Y 执行');
+  });
+
+  it('Checkpoint 键位只把大写 Y 视作针对当前项的二次确认', () => {
+    const checkpoints = [{
+      checkpointId: 'checkpoint-run-1-1',
+      callId: 'call-1',
+      toolName: 'apply_patch',
+      target: 'src/App.java',
+      existedBefore: true,
+      phase: 'completed_present' as const,
+      undoable: true,
+    }, {
+      checkpointId: 'checkpoint-run-1-2',
+      callId: 'call-2',
+      toolName: 'write_file',
+      target: 'src/New.java',
+      existedBefore: false,
+      phase: 'completed_absent' as const,
+      undoable: true,
+    }];
+
+    expect(checkpointAction('c', {}, false)).toBeUndefined();
+    expect(checkpointAction('C', {}, false)).toBe('list');
+    expect(checkpointAction('D', {}, false)).toBeUndefined();
+    expect(checkpointAction('U', {}, false)).toBeUndefined();
+    expect(checkpointAction('', {downArrow: true}, false)).toBeUndefined();
+    expect(checkpointAction('D', {}, true)).toBe('diff');
+    expect(checkpointAction('U', {}, true)).toBe('undo');
+    expect(checkpointAction('', {downArrow: true}, true)).toBe('next');
+    expect(adjacentCheckpointId(checkpoints, 'checkpoint-run-1-1', 1))
+      .toBe('checkpoint-run-1-2');
+    expect(undoConfirmation('y')).toBeUndefined();
+    expect(undoConfirmation('Y')).toBe('confirm');
+    expect(undoConfirmation('N')).toBe('cancel');
   });
 
   it('Paste 按 Unicode Code Point 截断到输入上限', () => {
@@ -231,7 +337,98 @@ describe('AgentView', () => {
     expect(client.prompts).toEqual(['预输入任务']);
     view.unmount();
   });
+
+  it('真实 useInput 链路完整提交含小写 c/d/u 的普通输入且不触发 Checkpoint', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({
+      version: 0,
+      type: 'initialized',
+      requestId: 'tui-1',
+      sessionId: 'session-1',
+      sequence: 1,
+      payload: {protocolVersion: 0},
+    });
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+
+    view.stdin.write('coding');
+    await waitForFrame(() => view.lastFrame()?.includes('coding') === true);
+    view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 1);
+
+    expect(client.prompts).toEqual(['coding']);
+    expect(client.checkpointCommands).toEqual([]);
+    view.unmount();
+  });
+
+  it('真实 useInput 链路可达 list/diff/undo 且仅二次确认后发送 Undo', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({
+      version: 0,
+      type: 'initialized',
+      requestId: 'tui-1',
+      sessionId: 'session-1',
+      sequence: 1,
+      payload: {protocolVersion: 0},
+    });
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+
+    view.stdin.write('C');
+    await waitForFrame(() => client.checkpointCommands.length === 1);
+    expect(client.checkpointCommands).toEqual(['list']);
+    client.emit({
+      version: 0,
+      type: 'checkpoint.listed',
+      requestId: 'tui-checkpoint-list',
+      sessionId: 'session-1',
+      sequence: 2,
+      payload: {
+        checkpoints: [{
+          checkpointId: 'checkpoint-run-1-1',
+          callId: 'call-1',
+          toolName: 'apply_patch',
+          target: 'src/App.java',
+          existedBefore: true,
+          phase: 'completed_present',
+          undoable: true,
+        }],
+      },
+    });
+    await waitForFrame(() => view.lastFrame()?.includes('checkpoint-run-1-1') === true);
+
+    view.stdin.write('D');
+    await waitForFrame(() => client.checkpointCommands.length === 2);
+    expect(client.checkpointCommands[1]).toBe('diff:checkpoint-run-1-1');
+    view.stdin.write('U');
+    await waitForFrame(() => view.lastFrame()?.includes('确认 Undo 当前 Checkpoint') === true);
+    view.stdin.write('y');
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(client.checkpointCommands).toHaveLength(2);
+    view.stdin.write('Y');
+    await waitForFrame(() => client.checkpointCommands.length === 3);
+    expect(client.checkpointCommands[2]).toBe('undo:checkpoint-run-1-1:true');
+    view.unmount();
+  });
 });
+
+function initialCheckpointState(): TuiState {
+  return {
+    phase: 'ready',
+    sessionId: 'session-1',
+    activeRunId: undefined,
+    runs: [],
+    checkpoints: [],
+    checkpointPanelOpen: true,
+    selectedCheckpointId: undefined,
+    checkpointDiff: undefined,
+    pendingUndoCheckpointId: undefined,
+    checkpointUndo: undefined,
+    notice: undefined,
+  };
+}
 
 describe('approvalDecision', () => {
   it('把 Y/A/N 映射为单次允许、会话允许或拒绝', () => {
@@ -244,6 +441,7 @@ describe('approvalDecision', () => {
 
 class FakeAgentClient implements AgentClient {
   readonly prompts: string[] = [];
+  readonly checkpointCommands: string[] = [];
   initializeCalls = 0;
   readonly #eventListeners = new Set<(event: ProtocolEvent) => void>();
 
@@ -276,6 +474,21 @@ class FakeAgentClient implements AgentClient {
 
   public resolveApproval(): string {
     return 'tui-4';
+  }
+
+  public listCheckpoints(): string {
+    this.checkpointCommands.push('list');
+    return 'tui-checkpoint-list';
+  }
+
+  public checkpointDiff(checkpointId: string): string {
+    this.checkpointCommands.push(`diff:${checkpointId}`);
+    return 'tui-checkpoint-diff';
+  }
+
+  public undoCheckpoint(checkpointId: string, confirmed: boolean): string {
+    this.checkpointCommands.push(`undo:${checkpointId}:${confirmed}`);
+    return 'tui-checkpoint-undo';
   }
 
   public async shutdown(): Promise<void> {

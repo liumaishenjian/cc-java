@@ -9,9 +9,9 @@
 > 当前学习阶段：S01 Runtime Kernel 与 S02 Model + Streaming CLI 已 Accepted；S03
 > Read Tools 已在实现 Commit `71a2818` 上 Accepted
 >
-> 当前实现状态：S02 真实 Provider、Java Headless、stdio v0、React/Ink、Java Print、
-> 连续 Session、Deadline、取消与隐私安全 Telemetry 已通过；S03 五个只读 Tool、
-> WorkspaceGuard、类型化结果、根 `AGENTS.md` 与安全进度 Surface 已实现并通过专项离线验证
+> 当前实现状态：S01-S05 已 Accepted；S06 当前 WORKTREE 已完成 G0-G5，等待协调者
+> Commit-scoped G6。项目自有 JSONL、Session 打开/恢复/分叉、本机单 Writer、未完成 Tool Gate、
+> File Checkpoint/Diff/显式 Undo、Behavior Replay 与 CLI/stdio/TUI 接入已有专项离线证据。
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 
@@ -827,46 +827,55 @@ S07 再研究工具结果淘汰、完整协议回合保留、摘要、渐进压�
 
 ## 17. Session
 
-### 17.1 S01～S05 内存 Session
+### 17.1 Core Session 与持久 Adapter
 
-- S01 创建 Session ID 和 Run ID，并保存消息与核心事件；
-- S02 由一个持续存活的 Java Headless 进程维持连续对话，React/Ink TUI 是其 Client；
-- S04～S05 将权限 Session Allow 加入内存 Session；
-- 进程退出后不恢复；
-- `SessionStore` Port 仍在 core 中，以内存实现验证边界。
+- `AgentSession` 继续保存框架无关 canonical messages、Run ID、Tool Result ID、不变量和 fence；
+- `SessionJournal` 是必须成功的 durable Port，与可失败、可隔离的 `LifecycleDispatcher` 分离；
+- `FileSessionStore` 位于 CLI Adapter 边缘，使用项目自有 major 1 append-only semantic JSONL；Core/Domain 不依赖 JSON、Path、FileLock 或 Jackson；
+- JSONL 记录聚合 `session.created`、`run.started`（原子持有 User）、`assistant.appended`、`tool.resolved`、`tool.started`、`tool.completed`、`checkpoint.created/completed/undo.completed` 和唯一 `run.completed`，不逐 token/chunk 落盘；
+- 严格 UTF-8、重复字段检测、Schema major、单调 sequence、行/文件/记录/文本/集合/depth/node 上限在完整 materialize 前 Fail Closed。
 
-### 17.2 S06 持久 Session
+### 17.2 S06 打开、租约与恢复
 
-文件 Session Adapter 使用项目自有、版本化 JSONL Schema：
+- Session metadata 使用真实 Workspace 的本地 SHA-256 fingerprint，以及非 Secret model/mode/config/lineage 摘要；不持久 API Key、端点、Provider 原始响应或绝对路径；
+- Create 生成新 ID；Continue 选择同 Workspace 最近的 clean Session；Resume 复用指定 ID；Fork 复制 completed canonical history 到新 ID并保存 parent；Inspect 只读且 fenced；
+- 可写打开持有 Session 专属 OS `FileLock`，第二 Writer 返回 `SESSION_ACTIVE`；S06 L1 不实现 PID、heartbeat、stale reclaim、网络文件系统或多主机 lease；
+- JSONL 完整验证后才 hydrate Core；损坏中间记录、未知 major、Workspace mismatch 和超限拒绝，最后一个无换行的不完整 JSON 只作为 damaged-tail Inspect warning，不自动截断；
+- Assistant Tool Calls 必须先 durable。execute=0 的 Unknown/Invalid/Denied 使用 `tool.resolved`；副作用 Tool 只有 `tool.started` durable 后执行一次，结果只有 `tool.completed` durable 后进入内存历史；
+- Assistant Call 无 resolved/started 视为未执行中断；started 无 completed 视为未完成，其中 Write/Process/Network/System 产生潜在副作用 issue。恢复不伪造 Tool Result、不自动重放，并阻止 Resume/Fork/Continue 新 Run。
 
-- Message；
-- Tool Call / Result；
-- Permission Decision；
-- Lifecycle Event；
-- Run Stop；
-- Metadata。
+不兼容或解析商业产品内部 JSONL。稳定 Export、Retention、SQLite 与跨版本 Migration 属于 S14。
 
-支持：
+### 17.3 File Checkpoint、Diff 与 Undo
 
-- continue；
-- resume；
-- fork；
-- 未完成 Tool 和副作用检测；
-- File Checkpoint/Undo；
-- 基础 Schema Version。
+`FileCheckpointCoordinator` 通过统一 Tool Pipeline 在 `WRITE_WORKSPACE` 执行前接收 Tool 显式声明的
+`CheckpointTarget`；没有可信目标时 Fail Closed。当前 `apply_patch` 和 `write_file` 接入：
 
-不兼容或解析商业产品内部 JSONL。
+```text
+checkpoint pre-image + CREATE_PREPARED
+→ checkpoint.created durable
+→ CREATED
+→ tool.started durable
+→ execute once
+→ POST_PREPARED（Present(SHA-256) 或 Absent）
+→ checkpoint.completed durable
+→ COMPLETED_PRESENT / COMPLETED_ABSENT
+→ tool.completed durable
+```
 
-稳定外部 Export、Retention 和跨版本迁移兼容属于 S14，不作为 S06 退出条件。
+- Checkpoint 使用 Session 私有普通文件和有界 metadata，独立于 Git；目录名/metadata ID 必须匹配合法 ID，digest 只接受小写 64 位 SHA-256 hex，枚举上限 1,000；
+- metadata 与 JSONL 不能原子提交，所以 created/completed/undo 都保留 `*_PREPARED` 与 `*_JOURNAL_UNCERTAIN`；journal 抛错时保留 durable pre-image、不猜测提交结果并 fence；
+- Diff 只读取普通文件和已校验 pre-image，返回有界严格 UTF-8 相对路径文本，不调用 Git；
+- Undo 要求 Writer lease、Session 非 fenced、没有活动 Run、具体 Checkpoint 的独立显式确认，而且只有 clean `COMPLETED_PRESENT/ABSENT` 可进入；
+- 已存在文件先校验 current==post digest，再将 pre-image 写入同目录 staged file 并 `force(true)`；Move 前再次执行 NOFOLLOW/realpath/普通文件/digest 重检后原子替换；
+- Agent 新文件只有 current==post digest 时删除，Delete 前同样最终重检；用户修改、链接、类型变化、越界、敏感路径、未知 post-state 或备份损坏均 Fail Closed；
+- Undo 顺序为 `UNDO_PREPARED → Workspace apply → UNDO_APPLIED → checkpoint.undo.completed → UNDONE`；任何 prepared/applied/journal uncertain 重启后都产生 `CHECKPOINT_UNDO_UNCERTAIN`，绝不自动重试。
 
-### 17.3 Checkpoint
+stdio v0 提供有界 list/diff/undo；React/Ink 使用 `C`、方向键、`D`、`U` 并对具体 Checkpoint 仅接受
+大写 `Y` 二次确认。TUI 不直接读取 Session/Workspace 文件或执行恢复。
 
-S06 在写 Tool 执行前保存受影响文件快照：
-
-- 独立于 Git；
-- 仅覆盖 Agent 修改的普通文件；
-- 不恢复符号链接、远端系统或 Shell 副作用；
-- Undo 是显式操作，不自动 reset 用户工作区。
+Shell、进程、网络、远端、环境变量、权限和 Symlink/Junction 副作用不能由文件 Checkpoint 恢复；
+Permission、FileLock、Checkpoint 与进程清理都不是 OS Sandbox。完整契约见 ADR-040/041。
 
 ## 18. Lifecycle 与 Agent Event
 

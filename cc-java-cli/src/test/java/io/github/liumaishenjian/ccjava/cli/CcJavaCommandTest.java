@@ -2,6 +2,8 @@ package io.github.liumaishenjian.ccjava.cli;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.liumaishenjian.ccjava.cli.session.SessionOpenMode;
+import io.github.liumaishenjian.ccjava.domain.SessionId;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Path;
@@ -52,6 +54,59 @@ class CcJavaCommandTest {
                 .isEqualTo(Path.of("").toAbsolutePath().normalize());
         assertThat(runner.overrides.model()).contains("override-model");
         assertThat(runner.overrides.timeout()).isEqualTo(Duration.ofMillis(250));
+    }
+
+    @Test
+    void parsesMutuallyExclusiveSessionSelection() {
+        FakeCliModeRunner continueRunner = new FakeCliModeRunner(0, 0);
+        FakeCliModeRunner resumeRunner = new FakeCliModeRunner(0, 0);
+        FakeCliModeRunner forkRunner = new FakeCliModeRunner(0, 0);
+
+        assertThat(execute(continueRunner, "--continue", "--stdio").exitCode()).isZero();
+        assertThat(execute(
+                resumeRunner,
+                "--resume",
+                "session-resume-1",
+                "--print",
+                "hello").exitCode()).isZero();
+        assertThat(execute(
+                forkRunner,
+                "--fork",
+                "session-fork-1",
+                "--stdio").exitCode()).isZero();
+
+        assertThat(continueRunner.overrides.sessionOpenRequest().mode())
+                .isEqualTo(SessionOpenMode.CONTINUE);
+        assertThat(resumeRunner.overrides.sessionOpenRequest().mode())
+                .isEqualTo(SessionOpenMode.RESUME);
+        assertThat(resumeRunner.overrides.sessionOpenRequest().sessionId())
+                .contains(new SessionId("session-resume-1"));
+        assertThat(forkRunner.overrides.sessionOpenRequest().mode())
+                .isEqualTo(SessionOpenMode.FORK);
+        assertThat(forkRunner.overrides.sessionOpenRequest().sessionId())
+                .contains(new SessionId("session-fork-1"));
+    }
+
+    @Test
+    void rejectsConflictingOrInvalidSessionSelection() {
+        FakeCliModeRunner runner = new FakeCliModeRunner(0, 0);
+
+        Invocation conflicting = execute(
+                runner,
+                "--continue",
+                "--resume",
+                "session-valid-1",
+                "--stdio");
+        Invocation invalidId = execute(
+                runner,
+                "--resume",
+                "../outside",
+                "--stdio");
+
+        assertThat(conflicting.exitCode()).isEqualTo(CliExitCode.USAGE_OR_CONFIGURATION);
+        assertThat(invalidId.exitCode()).isEqualTo(CliExitCode.USAGE_OR_CONFIGURATION);
+        assertThat(runner.printPrompt).isNull();
+        assertThat(runner.stdioCalls).isZero();
     }
 
     @Test

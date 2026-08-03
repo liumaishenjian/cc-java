@@ -257,6 +257,82 @@ describe('reduceTuiState', () => {
     expect(state.phase).toBe('running');
   });
 
+  it('保留 Checkpoint phase、Diff 和 Undo 投影并逐项选择', () => {
+    let state = reduceTuiState(initialTuiState, {
+      type: 'event.received',
+      event: event('initialized', 1, {}, 'init', 'session-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('checkpoint.listed', 2, {
+        checkpoints: [{
+          checkpointId: 'checkpoint-run-1-1',
+          callId: 'call-1',
+          toolName: 'apply_patch',
+          target: 'src/App.java',
+          existedBefore: true,
+          phase: 'completed_present',
+          undoable: true,
+        }, {
+          checkpointId: 'checkpoint-run-1-2',
+          callId: 'call-2',
+          toolName: 'write_file',
+          target: 'src/New.java',
+          existedBefore: false,
+          phase: 'post_journal_uncertain',
+          undoable: false,
+        }],
+      }, 'checkpoint-list', 'session-1'),
+    });
+
+    expect(state.checkpointPanelOpen).toBe(true);
+    expect(state.selectedCheckpointId).toBe('checkpoint-run-1-1');
+    expect(state.checkpoints[1]).toEqual(expect.objectContaining({
+      phase: 'post_journal_uncertain',
+      undoable: false,
+    }));
+    state = reduceTuiState(state, {
+      type: 'checkpoint.selected', checkpointId: 'checkpoint-run-1-2',
+    });
+    expect(state.selectedCheckpointId).toBe('checkpoint-run-1-2');
+    state = reduceTuiState(state, {
+      type: 'checkpoint.undo.requested', checkpointId: 'checkpoint-run-1-2',
+    });
+    expect(state.pendingUndoCheckpointId).toBeUndefined();
+    expect(state.notice).toContain('不可 Undo');
+
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('checkpoint.diffed', 3, {
+        checkpointId: 'checkpoint-run-1-1',
+        target: 'src/App.java',
+        status: 'changed',
+        text: '-old\n+new\n',
+        truncated: false,
+      }, 'checkpoint-diff', 'session-1'),
+    });
+    expect(state.checkpointDiff).toEqual(expect.objectContaining({status: 'changed'}));
+
+    state = reduceTuiState(state, {
+      type: 'checkpoint.undo.requested', checkpointId: 'checkpoint-run-1-1',
+    });
+    expect(state.pendingUndoCheckpointId).toBe('checkpoint-run-1-1');
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('checkpoint.undone', 4, {
+        checkpointId: 'checkpoint-run-1-1',
+        target: 'src/App.java',
+        status: 'restored',
+        message: 'Checkpoint 已恢复',
+      }, 'checkpoint-undo', 'session-1'),
+    });
+    expect(state.pendingUndoCheckpointId).toBeUndefined();
+    expect(state.checkpoints[0]).toEqual(expect.objectContaining({
+      phase: 'undone',
+      undoable: false,
+    }));
+  });
+
   it('把命令输出追加到对应 Tool 且保持通道标记', () => {
     let state = reduceTuiState(initialTuiState, {
       type: 'event.received',

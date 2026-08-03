@@ -1,5 +1,8 @@
 package io.github.liumaishenjian.ccjava.cli;
 
+import io.github.liumaishenjian.ccjava.cli.session.SessionOpenMode;
+import io.github.liumaishenjian.ccjava.cli.session.SessionOpenRequest;
+import io.github.liumaishenjian.ccjava.domain.SessionId;
 import picocli.CommandLine.ArgGroup;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -60,6 +63,9 @@ final class CcJavaCommand implements Callable<Integer> {
             description = "Permission 模式：default、plan 或 accept-edits；默认 default")
     private PermissionMode permissionMode = PermissionMode.DEFAULT;
 
+    @ArgGroup(exclusive = true)
+    private SessionSelection sessionSelection;
+
     @Spec
     private CommandSpec commandSpec;
 
@@ -75,7 +81,8 @@ final class CcJavaCommand implements Callable<Integer> {
                     workspace,
                     Optional.ofNullable(model),
                     timeout,
-                    permissionMode);
+                    permissionMode,
+                    sessionOpenRequest());
         } catch (IllegalArgumentException exception) {
             throw new ParameterException(
                     commandSpec.commandLine(),
@@ -85,6 +92,54 @@ final class CcJavaCommand implements Callable<Integer> {
             return runner.runPrint(mode.printPrompt, overrides);
         }
         return runner.runStdio(overrides);
+    }
+
+    private SessionOpenRequest sessionOpenRequest() {
+        if (sessionSelection == null) {
+            return SessionOpenRequest.create();
+        }
+        if (sessionSelection.continueLatest) {
+            return SessionOpenRequest.continueLatest();
+        }
+        if (sessionSelection.resumeId != null) {
+            return new SessionOpenRequest(
+                    SessionOpenMode.RESUME,
+                    Optional.of(parseSessionId(sessionSelection.resumeId)));
+        }
+        return new SessionOpenRequest(
+                SessionOpenMode.FORK,
+                Optional.of(parseSessionId(sessionSelection.forkId)));
+    }
+
+    private SessionId parseSessionId(String value) {
+        if (value == null
+                || value.length() > 128
+                || !value.matches("session-[A-Za-z0-9-]+")) {
+            throw new ParameterException(
+                    commandSpec.commandLine(),
+                    "Session ID 格式无效");
+        }
+        return new SessionId(value);
+    }
+
+    private static final class SessionSelection {
+
+        @Option(
+                names = "--continue",
+                description = "继续当前 Workspace 最近的完整 Session")
+        private boolean continueLatest;
+
+        @Option(
+                names = "--resume",
+                paramLabel = "<session-id>",
+                description = "恢复指定 Session ID")
+        private String resumeId;
+
+        @Option(
+                names = "--fork",
+                paramLabel = "<session-id>",
+                description = "从指定 Session 历史创建新 Session")
+        private String forkId;
     }
 
     private static final class Mode {

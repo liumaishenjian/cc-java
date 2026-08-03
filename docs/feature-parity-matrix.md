@@ -6,11 +6,12 @@
 >
 > 最后更新：2026-08-03
 >
-> 当前代码状态：S01-S05 已 Accepted；S04 实现 Commit `16b4767` 与 S05 实现 Commit
-> `f7b7137081e2d85417fa5965835d4c014e514dac` 均已通过 Commit-scoped G0-G6。S05
-> Permission Pipeline 已完成三模式、固定规则优先级、绑定可信 ToolSource 的 Session Grant、
-> Hard Denial、隐私安全 Permission Lifecycle、拒绝恢复和 Fake External Tool 统一入口；所列
-> S05 Feature 已达到退出目标 L2。下一步进入 S06 授权研究与启动 Gate，不表示 S06 已实现。
+> 当前代码状态：S01-S05 已 Accepted；S06 Session + Checkpoint 已在当前 WORKTREE 完成 G0-G5，
+> 等待协调者 Commit-scoped G6 审查与提交。项目自有 append-only JSONL、Create/Continue/Resume/
+> Fork/Inspect、本机单 Writer、未完成 Tool Recovery Gate、ordinary-file Checkpoint/Diff/显式 Undo、
+> Behavior Replay 及 Java CLI/Print/stdio/TUI 生产接入已有可证伪证据；绝不自动重放有副作用操作。
+> `SESSION-08` 仅为 L1，其余所列 S06 Feature 达到退出目标 L2；不包含 S07 Context、S08 Settings、
+> S13 OS Sandbox 或 S14 稳定 Export/Retention/Migration。
 
 ## 1. 文档目的
 
@@ -154,12 +155,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 193 |
-| 当前阶段 | S05 Permission Pipeline（Accepted） |
-| Stage Exit | Accepted：实现 Commit `f7b7137081e2d85417fa5965835d4c014e514dac` 已通过 Commit-scoped G0-G6 |
-| 当前等级 | 45 项为 L2，31 项为 L1，117 项为 L0 |
+| 当前阶段 | S06 Session + Checkpoint（WORKTREE，G0-G5 Passed） |
+| Stage Exit | Pending：等待协调者完成 Commit-scoped G6 审查与提交 |
+| 当前等级 | 55 项为 L2，31 项为 L1，107 项为 L0 |
 | 默认最终目标 | 193 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 20.90%（193 项等权、目标 L3） |
-| 下一步 | 进入 S06 Session + Checkpoint 授权研究与启动 Gate；尚未实现持久化、resume/fork 或 Checkpoint/Undo |
+| 当前能力覆盖 | 24.35%（193 项等权、目标 L3） |
+| 下一步 | 完成 S06 Commit-scoped G6；验收后进入 S07 Context Engineering 授权研究与启动 Gate |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -274,7 +275,7 @@ Stage 完成项。
 | LOOP-11 | Context 溢出恢复 | Compact / Stop / Retry | L0 | S07 | REF-01/02 |
 | LOOP-12 | Model Fallback | Provider-aware Fallback | L0 | S14 | REF-01 |
 | LOOP-13 | 用户拒绝后继续推理 | Denied Tool Result 回传模型 | L2 | S05 | REF-04 |
-| LOOP-14 | 崩溃和未完成 Tool | Session Recovery Gate | L0 | S06 | REF-06 |
+| LOOP-14 | 崩溃和未完成 Tool | Session Recovery Gate | L2 | S06 | REF-06/AUTH-01 |
 
 ## 9. Model Runtime 对照
 
@@ -412,15 +413,15 @@ Stage 完成项。
 | --- | --- | --- | --- | --- | --- |
 | SESSION-01 | Session ID | Workspace-aware ID | L1 | S01 | REF-06 |
 | SESSION-02 | In-memory Session | 当前对话连续性 | L2 | S01/S02 | REF-06/AUTH-01 |
-| SESSION-03 | Append-only JSONL | 版本化事件存储 | L0 | S06 | REF-06 |
-| SESSION-04 | Continue | 最近 Session | L0 | S06 | REF-06 |
-| SESSION-05 | Resume | 选择 Session | L0 | S06 | REF-06 |
-| SESSION-06 | Fork | 新 ID 复制历史 | L0 | S06 | REF-06 |
-| SESSION-07 | Session Metadata | Model/Workspace/Config/Usage | L0 | S06 | REF-06 |
-| SESSION-08 | Concurrent Open Detection | 锁与只读恢复 | L0 | S06/S14 | REF-06 |
-| SESSION-09 | Incomplete Tool Recovery | 不自动重放副作用 | L0 | S06 | REF-06 |
-| SESSION-10 | File Checkpoint | 写入前快照 | L0 | S06 | REF-02 |
-| SESSION-11 | Rewind / Undo | 恢复 Agent 文件修改 | L0 | S06 | REF-02 |
+| SESSION-03 | Append-only JSONL | 版本化事件存储 | L2 | S06 | REF-06/AUTH-01 |
+| SESSION-04 | Continue | 最近 Session | L2 | S06 | REF-06/AUTH-01 |
+| SESSION-05 | Resume | 选择 Session | L2 | S06 | REF-06/AUTH-01 |
+| SESSION-06 | Fork | 新 ID 复制历史 | L2 | S06 | REF-06/AUTH-01 |
+| SESSION-07 | Session Metadata | Model/Workspace/Config/Usage | L2 | S06 | REF-06/AUTH-01 |
+| SESSION-08 | Concurrent Open Detection | 锁与只读恢复 | L1 | S06/S14 | REF-06/AUTH-01 |
+| SESSION-09 | Incomplete Tool Recovery | 不自动重放副作用 | L2 | S06 | REF-06/AUTH-01 |
+| SESSION-10 | File Checkpoint | 写入前快照 | L2 | S06 | REF-02/AUTH-01 |
+| SESSION-11 | Rewind / Undo | 恢复 Agent 文件修改 | L2 | S06 | REF-02/AUTH-01 |
 | SESSION-12 | Export | 稳定外部格式 | L0 | S14 | REF-06 |
 | SESSION-13 | Retention / Clear | 生命周期管理 | L0 | S14 | REF-06 |
 | SESSION-14 | SQLite Adapter | 大量 Session 索引 | L0 | S14 | REF-06 |
@@ -486,7 +487,7 @@ Stage 完成项。
 | OBS-05 | Privacy Controls | S02 最小化 Telemetry L2 → S14 Export Policy L3 | L2 | S02/S14 | REF-01/AUTH-01 |
 | OBS-06 | OpenTelemetry | 可选 Trace Export | L0 | S14 | REF-01 |
 | EVAL-01 | Seed Tasks | S04 单个公开 Scripted Java Fixture L1 → S14 任务集与指标 L3 | L1 | S04/S14 | REF-01 |
-| EVAL-02 | Behavior Replay | Fake Model 确定性回放 | L1 | S01/S06 | REF-01 |
+| EVAL-02 | Behavior Replay | Fake Model 确定性回放 | L2 | S01/S06 | REF-01/AUTH-01 |
 | EVAL-03 | Agent Success Metrics | 完成率、成本、工具轨迹 | L0 | S14 | REF-01 |
 | EVAL-04 | Security Eval | 越权与 Prompt Injection | L0 | S13 | REF-01 |
 | DIST-01 | Runnable Jar | 基础发行 | L0 | S04 | REF-02 |

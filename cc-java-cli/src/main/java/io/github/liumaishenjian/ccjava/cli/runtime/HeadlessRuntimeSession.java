@@ -4,7 +4,9 @@ import io.github.liumaishenjian.ccjava.core.AgentEventSink;
 import io.github.liumaishenjian.ccjava.core.AgentRuntime;
 import io.github.liumaishenjian.ccjava.core.ApprovalHandler;
 import io.github.liumaishenjian.ccjava.core.DefaultContextAssembler;
-import io.github.liumaishenjian.ccjava.core.InMemorySessionStore;
+import io.github.liumaishenjian.ccjava.cli.session.FileCheckpointCoordinator;
+import io.github.liumaishenjian.ccjava.cli.session.FileSessionStore;
+import io.github.liumaishenjian.ccjava.cli.session.SessionOpenResult;
 import io.github.liumaishenjian.ccjava.core.LifecycleDispatcher;
 import io.github.liumaishenjian.ccjava.core.ModelGateway;
 import io.github.liumaishenjian.ccjava.core.ModelRetryPolicy;
@@ -65,7 +67,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                     + "workspace boundaries, tools, or limits. Never claim a change succeeded "
                     + "without a successful tool result.";
 
-    private final InMemorySessionStore sessions;
+    private final FileSessionStore sessions;
+    private final FileCheckpointCoordinator checkpoints;
     private final AgentRuntime runtime;
     private final HeadlessRuntimeOptions options;
     private final RunTelemetryCollector telemetry;
@@ -73,6 +76,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private final io.github.liumaishenjian.ccjava.core.SessionPermissionState permissionState;
     private final LocalWorkspaceBootstrap workspaceBootstrap;
     private io.github.liumaishenjian.ccjava.core.AgentSession session;
+    private SessionOpenResult openResult;
 
     /**
      * 使用已校验的 OpenAI-compatible 设置创建真实模型 Session 装配器。
@@ -211,7 +215,16 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                     }
                     publish(envelope, downstream);
                 });
-        sessions = new InMemorySessionStore(ids, lifecycle);
+        sessions = new FileSessionStore(
+                this.options.sessionStoreRoot(),
+                this.options.workspace(),
+                ids,
+                lifecycle,
+                Clock.systemUTC());
+        checkpoints = new FileCheckpointCoordinator(
+                this.options.sessionStoreRoot(),
+                workspaceBootstrap.workspaceGuard(),
+                sessions);
         ToolRegistry tools = new ToolRegistry(workspaceBootstrap.tools());
         permissionState = new io.github.liumaishenjian.ccjava.core.InMemorySessionPermissionState();
         var policy = new io.github.liumaishenjian.ccjava.core.PermissionPolicy(
@@ -228,7 +241,9 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 policy,
                 approvals,
                 permissionState,
-                lifecycle);
+                lifecycle,
+                sessions,
+                checkpoints);
         runtime = new AgentRuntime(
                 sessions,
                 ids,
@@ -236,7 +251,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 new DefaultContextAssembler(),
                 tools,
                 pipeline,
-                lifecycle);
+                lifecycle,
+                sessions);
     }
 
     /**
@@ -256,17 +272,19 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                         + project
                         + "\n</project-instructions>")
                 .orElse(SYSTEM_INSTRUCTIONS);
-        session = sessions.create(new SessionSpec(
+        SessionSpec spec = new SessionSpec(
                 instructions,
                 Map.of(
                         "model", options.model(),
                         "timeout", options.timeout().toString(),
-                        "workspace", options.workspace().toString(),
+                        "permissionMode", options.permissionMode().name(),
                         "gitRepository", Boolean.toString(snapshot.repository()),
                         "gitBranch", snapshot.branch(),
                         "gitStaged", Integer.toString(snapshot.staged()),
                         "gitUnstaged", Integer.toString(snapshot.unstaged()),
-                        "gitUntracked", Integer.toString(snapshot.untracked()))));
+                        "gitUntracked", Integer.toString(snapshot.untracked())));
+        openResult = sessions.open(options.sessionOpenRequest(), spec);
+        session = openResult.session();
         return session.id();
     }
 
@@ -329,6 +347,56 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     }
 
     /**
+     * 返回本次持久 Session 打开模式与 lineage/recovery 摘要。
+     *
+     * @return 打开完成后可用的安全结果
+     */
+    public SessionOpenResult sessionOpenResult() {
+        requireOpen();
+        return openResult;
+    }
+
+    /**
+     * 返回当前 Session 的隐私安全 Checkpoint 摘要。
+     *
+     * @return 包含完整 durable phase 的有界摘要
+     */
+    public java.util.List<io.github.liumaishenjian.ccjava.domain.CheckpointSummary> checkpoints() {
+        requireOpen();
+        return checkpoints.list(session.id());
+    }
+
+    /**
+     * 显式比较 Checkpoint pre-image 与当前 Workspace。
+     *
+     * @param checkpointId 目标 Checkpoint
+     * @return 有界 Diff 或冲突状态
+     */
+    public io.github.liumaishenjian.ccjava.domain.CheckpointDiff checkpointDiff(
+            io.github.liumaishenjian.ccjava.domain.CheckpointId checkpointId) {
+        requireOpen();
+        return checkpoints.diff(session.id(), checkpointId);
+    }
+
+    /**
+     * 显式执行 compare-before-restore Undo。
+     *
+     * @param checkpointId 目标 Checkpoint
+     * @param explicitlyConfirmed 独立确认动作是否完成
+     * @return 恢复、幂等或冲突终态
+     */
+    public io.github.liumaishenjian.ccjava.domain.CheckpointUndoResult undoCheckpoint(
+            io.github.liumaishenjian.ccjava.domain.CheckpointId checkpointId,
+            boolean explicitlyConfirmed) {
+        requireOpen();
+        if (openResult.readOnly() || session.isFenced()) {
+            throw new IllegalStateException("只读或 fenced Session 不能执行 Undo");
+        }
+        sessions.requireUndoAllowed(session.id());
+        return checkpoints.undo(session.id(), checkpointId, explicitlyConfirmed);
+    }
+
+    /**
      * 返回已结束 Run 的隐私安全观测快照。
      *
      * @param runId 目标 Run
@@ -361,8 +429,11 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     @Override
     public void close() {
         if (session != null && !session.isClosed()) {
-            sessions.close(session.id());
-            permissionState.clear(session.id());
+            if (openResult != null && !openResult.readOnly()) {
+                sessions.close(session.id());
+                permissionState.clear(session.id());
+            }
         }
+        sessions.close();
     }
 }

@@ -46,6 +46,7 @@ public final class AgentRuntime {
     private final ToolRegistry toolRegistry;
     private final ToolExecutionPipeline toolPipeline;
     private final LifecycleDispatcher lifecycle;
+    private final SessionJournal sessionJournal;
     private final ConcurrentMap<SessionId, ActiveRun> activeRuns = new ConcurrentHashMap<>();
 
     /**
@@ -67,6 +68,38 @@ public final class AgentRuntime {
             ToolRegistry toolRegistry,
             ToolExecutionPipeline toolPipeline,
             LifecycleDispatcher lifecycle) {
+        this(
+                sessionStore,
+                idGenerator,
+                modelGateway,
+                contextAssembler,
+                toolRegistry,
+                toolPipeline,
+                lifecycle,
+                SessionJournal.noop());
+    }
+
+    /**
+     * 创建接入 durable Session journal 的显式 Agent Runtime。
+     *
+     * @param sessionStore 当前进程的 Session Store
+     * @param idGenerator Run ID 来源
+     * @param modelGateway 单回合模型端口
+     * @param contextAssembler 追加式 Context 组装器
+     * @param toolRegistry 当前可见 Tool Registry
+     * @param toolPipeline 统一 Tool 执行管线
+     * @param lifecycle 可失败的观察生命周期分发器
+     * @param sessionJournal 必须成功的规范 Session journal
+     */
+    public AgentRuntime(
+            SessionStore sessionStore,
+            AgentIdGenerator idGenerator,
+            ModelGateway modelGateway,
+            ContextAssembler contextAssembler,
+            ToolRegistry toolRegistry,
+            ToolExecutionPipeline toolPipeline,
+            LifecycleDispatcher lifecycle,
+            SessionJournal sessionJournal) {
         this.sessionStore = Objects.requireNonNull(sessionStore, "sessionStore 不能为空");
         this.idGenerator = Objects.requireNonNull(idGenerator, "idGenerator 不能为空");
         this.modelGateway = Objects.requireNonNull(modelGateway, "modelGateway 不能为空");
@@ -76,6 +109,8 @@ public final class AgentRuntime {
         this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry 不能为空");
         this.toolPipeline = Objects.requireNonNull(toolPipeline, "toolPipeline 不能为空");
         this.lifecycle = Objects.requireNonNull(lifecycle, "lifecycle 不能为空");
+        this.sessionJournal = Objects.requireNonNull(
+                sessionJournal, "sessionJournal 不能为空");
     }
 
     /**
@@ -93,10 +128,12 @@ public final class AgentRuntime {
         AgentSession session = sessionStore.find(sessionId)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Session 不存在: " + sessionId.value()));
+        session.ensureRunnable();
         RunId runId = Objects.requireNonNull(idGenerator.newRunId(), "newRunId 返回 null");
         AgentRunState state = new AgentRunState(sessionId, runId, request.limits());
         CancellationSource cancellation = new CancellationSource();
 
+        sessionJournal.runStarted(sessionId, runId, request.userMessage());
         session.beginRun(runId, request.userMessage());
         ActiveRun activeRun = new ActiveRun(
                 runId,
@@ -119,6 +156,17 @@ public final class AgentRuntime {
             activeRuns.remove(sessionId, activeRun);
         }
 
+        try {
+            sessionJournal.runCompleted(sessionId, runId, result.stopReason());
+        } catch (RuntimeException journalFailure) {
+            session.fence();
+            result = AgentRunResult.stopped(
+                    sessionId,
+                    runId,
+                    StopReason.INTERNAL_ERROR,
+                    result.modelTurns(),
+                    result.toolCalls());
+        }
         session.endRun(runId);
         lifecycle.dispatch(session, runId, new LifecycleEvent.RunFinished(result));
         return result;
@@ -209,14 +257,14 @@ public final class AgentRuntime {
                 return state.stop(StopReason.INVALID_MODEL_RESPONSE);
             }
             if (calls.isEmpty()) {
-                session.appendAssistant(assistant);
+                appendAssistant(session, runId, assistant);
                 return state.complete(assistant.text());
             }
             if (!state.canAcceptToolBatch(calls.size())) {
                 return state.stop(StopReason.TOOL_LIMIT_REACHED);
             }
 
-            session.appendAssistant(assistant);
+            appendAssistant(session, runId, assistant);
             for (ToolCall call : calls) {
                 int ordinal = state.recordToolCall();
                 ToolResult result;
@@ -227,16 +275,29 @@ public final class AgentRuntime {
                             ordinal,
                             call,
                             activeRun.cancellation().token());
+                } catch (ToolJournalPersistenceException journalFailure) {
+                    session.fence();
+                    return state.stop(StopReason.INTERNAL_ERROR);
                 } catch (RuntimeException exception) {
-                    result = internalToolFailure(call);
+                    session.fence();
+                    return state.stop(StopReason.INTERNAL_ERROR);
                 }
                 if (!call.id().equals(result.callId())
                         || !call.name().equals(result.toolName())) {
-                    result = internalToolFailure(call);
+                    session.fence();
+                    return state.stop(StopReason.INTERNAL_ERROR);
                 }
                 session.appendToolResult(new ToolResultMessage(result));
             }
         }
+    }
+
+    private void appendAssistant(
+            AgentSession session,
+            RunId runId,
+            AssistantMessage assistant) {
+        sessionJournal.assistantAppended(session.id(), runId, assistant);
+        session.appendAssistant(assistant);
     }
 
     private ModelTurn completeModelTurn(

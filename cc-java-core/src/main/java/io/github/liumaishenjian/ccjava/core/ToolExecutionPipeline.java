@@ -1,6 +1,8 @@
 package io.github.liumaishenjian.ccjava.core;
 
 import io.github.liumaishenjian.ccjava.domain.ApprovalResponse;
+import io.github.liumaishenjian.ccjava.domain.CheckpointId;
+import io.github.liumaishenjian.ccjava.domain.CheckpointTarget;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
 import io.github.liumaishenjian.ccjava.domain.LifecycleEvent;
 import io.github.liumaishenjian.ccjava.domain.PermissionDecision;
@@ -40,6 +42,8 @@ public final class ToolExecutionPipeline {
     private final ApprovalHandler approvalHandler;
     private final SessionPermissionState permissionState;
     private final LifecycleDispatcher lifecycle;
+    private final SessionJournal sessionJournal;
+    private final CheckpointCoordinator checkpoints;
 
     /**
      * 创建 Tool 执行管线。
@@ -59,7 +63,9 @@ public final class ToolExecutionPipeline {
                 permissionGate,
                 approvalHandler,
                 new InMemorySessionPermissionState(),
-                lifecycle);
+                lifecycle,
+                SessionJournal.noop(),
+                CheckpointCoordinator.noop());
     }
 
     /**
@@ -77,6 +83,62 @@ public final class ToolExecutionPipeline {
             ApprovalHandler approvalHandler,
             SessionPermissionState permissionState,
             LifecycleDispatcher lifecycle) {
+        this(
+                registry,
+                permissionGate,
+                approvalHandler,
+                permissionState,
+                lifecycle,
+                SessionJournal.noop(),
+                CheckpointCoordinator.noop());
+    }
+
+    /**
+     * 创建接入 durable Tool started/completed 边界的执行管线。
+     *
+     * @param registry 唯一 Tool Registry
+     * @param permissionGate 类型化 Policy Kernel
+     * @param approvalHandler ASK 审批端口
+     * @param permissionState 当前 Session Permission 状态
+     * @param lifecycle 可失败的观察生命周期
+     * @param sessionJournal 必须成功的 Session journal
+     */
+    public ToolExecutionPipeline(
+            ToolRegistry registry,
+            PermissionGate permissionGate,
+            ApprovalHandler approvalHandler,
+            SessionPermissionState permissionState,
+            LifecycleDispatcher lifecycle,
+            SessionJournal sessionJournal) {
+        this(
+                registry,
+                permissionGate,
+                approvalHandler,
+                permissionState,
+                lifecycle,
+                sessionJournal,
+                CheckpointCoordinator.noop());
+    }
+
+    /**
+     * 创建同时接入 durable Session journal 与普通文件 Checkpoint 的执行管线。
+     *
+     * @param registry 唯一 Tool Registry
+     * @param permissionGate 类型化 Policy Kernel
+     * @param approvalHandler ASK 审批端口
+     * @param permissionState 当前 Session Permission 状态
+     * @param lifecycle 可失败的观察生命周期
+     * @param sessionJournal 必须成功的 Session journal
+     * @param checkpoints 写 Tool 的 durable Checkpoint 协调器
+     */
+    public ToolExecutionPipeline(
+            ToolRegistry registry,
+            PermissionGate permissionGate,
+            ApprovalHandler approvalHandler,
+            SessionPermissionState permissionState,
+            LifecycleDispatcher lifecycle,
+            SessionJournal sessionJournal,
+            CheckpointCoordinator checkpoints) {
         this.registry = Objects.requireNonNull(registry, "registry 不能为空");
         this.permissionGate = Objects.requireNonNull(permissionGate, "permissionGate 不能为空");
         this.approvalHandler = Objects.requireNonNull(
@@ -86,6 +148,9 @@ public final class ToolExecutionPipeline {
                 permissionState,
                 "permissionState 不能为空");
         this.lifecycle = Objects.requireNonNull(lifecycle, "lifecycle 不能为空");
+        this.sessionJournal = Objects.requireNonNull(
+                sessionJournal, "sessionJournal 不能为空");
+        this.checkpoints = Objects.requireNonNull(checkpoints, "checkpoints 不能为空");
     }
 
     /**
@@ -139,7 +204,7 @@ public final class ToolExecutionPipeline {
 
         AgentTool tool = registry.find(call.name()).orElse(null);
         if (tool == null) {
-            return finish(
+            return resolveWithoutExecution(
                     session,
                     runId,
                     ordinal,
@@ -148,7 +213,8 @@ public final class ToolExecutionPipeline {
                             call.name(),
                             ToolError.of(
                                     ToolErrorCode.UNKNOWN_TOOL,
-                                    "未注册 Tool: " + call.name())));
+                                    "未注册 Tool: " + call.name())),
+                    ToolResolutionReason.UNKNOWN_TOOL);
         }
 
         ToolValidationResult validation;
@@ -163,7 +229,7 @@ public final class ToolExecutionPipeline {
         if (!validation.valid()) {
             Map<String, Object> details = new LinkedHashMap<>();
             details.put("violations", validation.violations());
-            return finish(
+            return resolveWithoutExecution(
                     session,
                     runId,
                     ordinal,
@@ -173,7 +239,8 @@ public final class ToolExecutionPipeline {
                             new ToolError(
                                     ToolErrorCode.INVALID_ARGUMENTS,
                                     "Tool 参数校验失败",
-                            new JsonObject(details))));
+                            new JsonObject(details))),
+                    ToolResolutionReason.INVALID_ARGUMENTS);
         }
 
         lifecycle.dispatch(session, runId, new LifecycleEvent.BeforeTool(ordinal, call));
@@ -224,37 +291,80 @@ public final class ToolExecutionPipeline {
             if (outcome.reason() != PermissionReason.POLICY_EVALUATION_FAILED_CLOSED) {
                 permissionState.recordDenialUpTo(session.id(), outcome.selector(), 3);
             }
-            return finish(
+            return resolveWithoutExecution(
                     session,
                     runId,
                     ordinal,
-                    ToolResult.denied(call.id(), call.name(), "Tool 调用未获授权"));
+                    ToolResult.denied(call.id(), call.name(), "Tool 调用未获授权"),
+                    ToolResolutionReason.PERMISSION_DENIED);
         }
 
         PermissionOutcome finalOutcome = outcome;
+        CheckpointId checkpointId = null;
+        if (definition.effect() == io.github.liumaishenjian.ccjava.domain.ToolEffect.WRITE_WORKSPACE) {
+            CheckpointTarget target;
+            try {
+                target = tool.checkpointTarget(invocation)
+                        .orElseThrow(() -> new IllegalStateException(
+                                "WRITE_WORKSPACE Tool 未声明 Checkpoint 目标"));
+                checkpointId = checkpoints.create(invocation, target);
+            } catch (Exception checkpointFailure) {
+                throw new ToolJournalPersistenceException(
+                        "Checkpoint 创建失败，Tool 未执行",
+                        checkpointFailure);
+            }
+        }
+        try {
+            sessionJournal.toolStarted(
+                    session.id(),
+                    runId,
+                    ordinal,
+                    call.id(),
+                    call.name(),
+                    definition.effect());
+        } catch (RuntimeException journalFailure) {
+            throw new ToolJournalPersistenceException(
+                    "Tool 启动记录失败，调用未执行",
+                    journalFailure);
+        }
+
+        ToolResult result;
         try {
             ToolExecutionOutcome execution = Objects.requireNonNull(
                     tool.execute(invocation),
                     "Tool execute 返回 null");
-            ToolResult result = execution.successful()
+            result = execution.successful()
                     ? normalizeSuccess(call, definition, execution)
                     : ToolResult.failure(call.id(), call.name(), execution.error().orElseThrow());
-            if (result.status() == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS) {
-                permissionState.clearDenials(session.id(), finalOutcome.selector());
-            }
-            return finish(session, runId, ordinal, result);
         } catch (Exception exception) {
-            return finish(
-                    session,
-                    runId,
-                    ordinal,
-                    ToolResult.failure(
-                            call.id(),
-                            call.name(),
-                            ToolError.of(
-                                    ToolErrorCode.EXECUTION_FAILED,
-                                    "Tool 执行失败")));
+            result = ToolResult.failure(
+                    call.id(),
+                    call.name(),
+                    ToolError.of(
+                            ToolErrorCode.EXECUTION_FAILED,
+                            "Tool 执行失败"));
         }
+
+        if (checkpointId != null) {
+            try {
+                checkpoints.complete(invocation, checkpointId, result);
+            } catch (RuntimeException checkpointFailure) {
+                throw new ToolJournalPersistenceException(
+                        "Tool 已执行但 Checkpoint post-image 未可靠持久化",
+                        checkpointFailure);
+            }
+        }
+        try {
+            sessionJournal.toolCompleted(session.id(), runId, ordinal, result);
+        } catch (RuntimeException journalFailure) {
+            throw new ToolJournalPersistenceException(
+                    "Tool 已执行但完成记录未可靠持久化",
+                    journalFailure);
+        }
+        if (result.status() == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS) {
+            permissionState.clearDenials(session.id(), finalOutcome.selector());
+        }
+        return finish(session, runId, ordinal, result);
     }
 
     private static PermissionOutcome policyFailureOutcome(
@@ -370,6 +480,22 @@ public final class ToolExecutionPipeline {
         }
         int end = value.offsetByCodePoints(0, codePoints);
         return value.substring(0, end);
+    }
+
+    private ToolResult resolveWithoutExecution(
+            AgentSession session,
+            RunId runId,
+            int ordinal,
+            ToolResult result,
+            ToolResolutionReason reason) {
+        try {
+            sessionJournal.toolResolved(session.id(), runId, ordinal, result, reason);
+        } catch (RuntimeException journalFailure) {
+            throw new ToolJournalPersistenceException(
+                    "Tool 未执行结果未可靠持久化",
+                    journalFailure);
+        }
+        return finish(session, runId, ordinal, result);
     }
 
     private ToolResult finish(

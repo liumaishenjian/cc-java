@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.liumaishenjian.ccjava.core.AgentEventSink;
 import io.github.liumaishenjian.ccjava.core.ModelGateway;
+import io.github.liumaishenjian.ccjava.cli.session.SessionOpenRequest;
 import io.github.liumaishenjian.ccjava.domain.AgentRunResult;
 import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
@@ -11,6 +12,7 @@ import io.github.liumaishenjian.ccjava.domain.ModelRequest;
 import io.github.liumaishenjian.ccjava.domain.ModelTurn;
 import io.github.liumaishenjian.ccjava.domain.ModelTurnMetadata;
 import io.github.liumaishenjian.ccjava.domain.PermissionDecision;
+import io.github.liumaishenjian.ccjava.domain.PermissionMode;
 import io.github.liumaishenjian.ccjava.domain.StopReason;
 import io.github.liumaishenjian.ccjava.domain.ToolCall;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
@@ -31,6 +33,7 @@ import java.util.Objects;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * 以公开、确定性的最小 Java 仓库验证 S04 完整 Coding Loop。
@@ -44,6 +47,9 @@ class S04CodingLoopFixtureTest {
 
     private static final String FIXTURE = "fixtures/s04-coding-loop";
     private static final String TEST_COMMAND = "java src/Calculator.java --self-test";
+
+    @TempDir
+    Path sessionStoreRoot;
 
     private Path workspace;
 
@@ -107,7 +113,13 @@ class S04CodingLoopFixtureTest {
                 model,
                 AgentEventSink.noop(),
                 new HeadlessRuntimeOptions(
-                        workspace, "s04-scripted-fixture", Duration.ofSeconds(30)),
+                        workspace,
+                        "s04-scripted-fixture",
+                        Duration.ofSeconds(30),
+                        PermissionMode.DEFAULT,
+                        List.of(),
+                        SessionOpenRequest.create(),
+                        sessionStoreRoot),
                 (invocation, ignoredDefinition, ignoredOutcome) -> {
                     approvalCalls.add(invocation.call().id());
                     String path = invocation.call().arguments().string("path").orElse("");

@@ -333,7 +333,13 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
 
 - FR-SESSION-001：每次启动生成 Session ID。
 - FR-SESSION-002：S01-S04 在内存中保存当前会话消息和事件。
-- FR-SESSION-003：进程退出后恢复、fork 和 checkpoint 属于 S06。
+- FR-SESSION-003：S06 使用项目自有、版本化、append-only semantic JSONL 保存聚合规范历史，不逐 token 持久化，也不解析商业产品内部 JSONL。
+- FR-SESSION-004：Java CLI、Print、stdio 与 TUI 支持 Workspace-bound Create、Continue、Resume、Fork 与 Inspect；Fork 使用新 ID 和 parent lineage，Resume 复用指定 ID。
+- FR-SESSION-005：同一 Session 同时只有一个本机 Writer；并发 Writer 明确拒绝，Inspect 只读。S06 不承诺 heartbeat、stale reclaim、网络文件系统或多主机一致性。
+- FR-SESSION-006：Assistant Tool Calls、Tool resolved/started/completed 与 Run 唯一终态按 durable 顺序提交；恢复发现未完成 Tool 或潜在副作用时阻止可写 Run，绝不自动重放有副作用操作。
+- FR-SESSION-007：写 Tool 执行前创建独立于 Git 的普通文件 Checkpoint；Tool 完成后记录类型化 digest 或 known `ABSENT` post-state。
+- FR-SESSION-008：用户可以显式 list/diff/undo 单个 Checkpoint；Undo 必须持有 Writer、Session 非 fenced、没有活动 Run、收到针对具体 Checkpoint 的独立确认，并在最终 Move/Delete 前重检 NOFOLLOW、realpath 与 post digest。
+- FR-SESSION-009：Checkpoint 仅恢复受支持的普通文件，不恢复 Symlink/Junction、Shell、进程、网络、远端或权限副作用；Permission、lease 与 Checkpoint 都不是 OS Sandbox。
 - FR-EVENT-001：Runtime 发布 Session、Turn、Model、Tool、Permission 和 Stop 事件。
 - FR-EVENT-002：终端只消费事件，不直接读取 Runtime 内部状态。
 - FR-EVENT-003：默认事件不包含 API Key 或未经裁剪的敏感内容。
@@ -384,12 +390,16 @@ S04 完成必须满足：
 
 ### S06：Session 与 Checkpoint
 
-- JSONL Transcript 和版本化 Session Schema；
-- `--continue`、`--resume` 和 fork session；
-- 文件修改前 Checkpoint、Diff 和 Undo；
-- 崩溃后识别未完成的 Tool Call，不自动重放有副作用操作。
+- 项目自有 major 1 append-only semantic JSONL，保存聚合规范消息、Tool durable 状态、Run 终态、Workspace-aware metadata 与 lineage；
+- Java CLI/Print/stdio/TUI 共用 Create、`--continue`、`--resume`、`--fork` 与只读 Inspect 组合根；
+- 本机 OS `FileLock` 单 Writer、并发打开检测和只读恢复；
+- 崩溃后识别未完成 Tool、损坏尾部与潜在副作用，阻止可写恢复并绝不自动重放；
+- `apply_patch`/`write_file` 执行前 ordinary-file Checkpoint、类型化 post-state、有界 Diff 和 compare-before-restore Undo；
+- React/Ink list/diff/逐项 Undo 确认只经受控 stdio，不直接读取 Session 或 Workspace 文件；
+- Scripted Fake Model 验证 Resume/Fork canonical history、Call ID 配对与停止语义的 Behavior Replay。
 
-S06 不承诺稳定外部 Export、Retention 或跨版本迁移；这些兼容性能力属于 S14。
+S06 不兼容商业产品内部 JSONL，也不承诺稳定外部 Export、Retention、SQLite、跨版本迁移、
+heartbeat/stale reclaim 或 OS Sandbox；这些兼容性和隔离能力属于 S13/S14。完整契约见 ADR-040/041。
 
 ### S07：Context Engineering
 

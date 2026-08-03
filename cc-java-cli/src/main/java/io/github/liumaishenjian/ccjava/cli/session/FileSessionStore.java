@@ -1,0 +1,796 @@
+package io.github.liumaishenjian.ccjava.cli.session;
+
+import io.github.liumaishenjian.ccjava.core.AgentIdGenerator;
+import io.github.liumaishenjian.ccjava.core.AgentSession;
+import io.github.liumaishenjian.ccjava.core.LifecycleDispatcher;
+import io.github.liumaishenjian.ccjava.core.SessionJournal;
+import io.github.liumaishenjian.ccjava.core.SessionRecoverySnapshot;
+import io.github.liumaishenjian.ccjava.core.SessionStore;
+import io.github.liumaishenjian.ccjava.core.SessionStoreAccess;
+import io.github.liumaishenjian.ccjava.core.ToolResolutionReason;
+import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
+import io.github.liumaishenjian.ccjava.domain.LifecycleEvent;
+import io.github.liumaishenjian.ccjava.domain.RunId;
+import io.github.liumaishenjian.ccjava.domain.SessionId;
+import io.github.liumaishenjian.ccjava.domain.SessionSpec;
+import io.github.liumaishenjian.ccjava.domain.StopReason;
+import io.github.liumaishenjian.ccjava.domain.ToolEffect;
+import io.github.liumaishenjian.ccjava.domain.ToolResult;
+import io.github.liumaishenjian.ccjava.domain.UserMessage;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import tools.jackson.databind.node.ObjectNode;
+
+/**
+ * 使用项目自有 append-only JSONL 和本机 exclusive file lock 的 S06 Session Store。
+ *
+ * <p>Store root 必须位于 Workspace 外部。每个可写打开持有 Session 专属 lock channel；journal 每条
+ * 记录在返回前 {@link FileChannel#force(boolean)}。损坏读取、未知版本和 Workspace 错配均 Fail
+ * Closed，Store 不自动截断或修复原文件。</p>
+ *
+ * @since 0.6.0
+ */
+public final class FileSessionStore implements SessionStore, SessionJournal, AutoCloseable {
+
+    private final Path root;
+    private final Path workspace;
+    private final String workspaceIdentity;
+    private final AgentIdGenerator ids;
+    private final LifecycleDispatcher lifecycle;
+    private final JsonlSessionCodec codec = new JsonlSessionCodec();
+    private final Map<SessionId, OpenSession> writerSessions = new LinkedHashMap<>();
+    private final List<OpenSession> inspectedSessions = new ArrayList<>();
+
+    /**
+     * 创建可注入 root 的持久 Store。
+     *
+     * @param root Workspace 外的本地私有存储根
+     * @param workspace 已解析真实 Workspace
+     * @param ids Session ID 来源
+     * @param lifecycle 观察事件分发器
+     * @param clock 时间来源
+     */
+    public FileSessionStore(
+            Path root,
+            Path workspace,
+            AgentIdGenerator ids,
+            LifecycleDispatcher lifecycle,
+            Clock clock) {
+        this.root = Objects.requireNonNull(root, "root 不能为空")
+                .toAbsolutePath().normalize();
+        Path checkedWorkspace = Objects.requireNonNull(workspace, "workspace 不能为空");
+        try {
+            this.workspace = checkedWorkspace.toRealPath();
+        } catch (IOException failure) {
+            throw new SessionOpenException("STORE_IO", "无法解析 Session Workspace");
+        }
+        this.workspaceIdentity = workspaceIdentity(this.workspace);
+        this.ids = Objects.requireNonNull(ids, "ids 不能为空");
+        this.lifecycle = Objects.requireNonNull(lifecycle, "lifecycle 不能为空");
+        Objects.requireNonNull(clock, "clock 不能为空");
+        initializeRoot(checkedWorkspace);
+    }
+
+    /**
+     * 按请求创建、继续、恢复、分叉或只读检查 Session。
+     *
+     * @param request 打开请求
+     * @param createSpec Create/Fork 使用的当前安全 Session 配置
+     * @return 打开结果
+     */
+    public synchronized SessionOpenResult open(
+            SessionOpenRequest request,
+            SessionSpec createSpec) {
+        Objects.requireNonNull(request, "request 不能为空");
+        Objects.requireNonNull(createSpec, "createSpec 不能为空");
+        return switch (request.mode()) {
+            case CREATE -> createResult(createSpec, Optional.empty(), SessionOpenMode.CREATE);
+            case CONTINUE -> resumeResult(latestSessionId(), SessionOpenMode.CONTINUE, false);
+            case RESUME -> resumeResult(request.sessionId().orElseThrow(), SessionOpenMode.RESUME, false);
+            case INSPECT -> resumeResult(request.sessionId().orElseThrow(), SessionOpenMode.INSPECT, true);
+            case FORK -> forkResult(request.sessionId().orElseThrow(), createSpec);
+        };
+    }
+
+    @Override
+    public synchronized AgentSession create(SessionSpec spec) {
+        return createResult(spec, Optional.empty(), SessionOpenMode.CREATE).session();
+    }
+
+    @Override
+    public synchronized Optional<AgentSession> find(SessionId id) {
+        OpenSession opened = writerSessions.get(Objects.requireNonNull(id, "id 不能为空"));
+        return opened == null ? Optional.empty() : Optional.of(opened.session);
+    }
+
+    @Override
+    public synchronized void close(SessionId id) {
+        OpenSession opened = writerSessions.remove(Objects.requireNonNull(id, "id 不能为空"));
+        if (opened == null) {
+            throw new IllegalArgumentException("Session 不存在: " + id.value());
+        }
+        try {
+            if (!opened.session.isClosed()) {
+                SessionStoreAccess.closeSession(opened.session, lifecycle);
+            }
+        } finally {
+            opened.release();
+        }
+    }
+
+    @Override
+    public synchronized void runStarted(SessionId sessionId, RunId runId, UserMessage message) {
+        OpenSession opened = writer(sessionId);
+        appendAndAdvance(opened, codec.encodeRunStarted(opened.nextSequence, runId, message));
+    }
+
+    @Override
+    public synchronized void assistantAppended(
+            SessionId sessionId,
+            RunId runId,
+            AssistantMessage message) {
+        OpenSession opened = writer(sessionId);
+        appendAndAdvance(opened, codec.encodeAssistant(opened.nextSequence, runId, message));
+    }
+
+    @Override
+    public synchronized void toolResolved(
+            SessionId sessionId,
+            RunId runId,
+            int ordinal,
+            ToolResult result,
+            ToolResolutionReason reason) {
+        OpenSession opened = writer(sessionId);
+        appendAndAdvance(opened, codec.encodeToolResolved(
+                opened.nextSequence, runId, ordinal, result, reason.name()));
+    }
+
+    @Override
+    public synchronized void toolStarted(
+            SessionId sessionId,
+            RunId runId,
+            int ordinal,
+            String callId,
+            String toolName,
+            ToolEffect effect) {
+        OpenSession opened = writer(sessionId);
+        appendAndAdvance(opened, codec.encodeToolStarted(
+                opened.nextSequence, runId, ordinal, callId, toolName, effect));
+    }
+
+    @Override
+    public synchronized void toolCompleted(
+            SessionId sessionId,
+            RunId runId,
+            int ordinal,
+            ToolResult result) {
+        OpenSession opened = writer(sessionId);
+        appendAndAdvance(opened, codec.encodeToolCompleted(
+                opened.nextSequence, runId, ordinal, result));
+    }
+
+    @Override
+    public synchronized void runCompleted(
+            SessionId sessionId,
+            RunId runId,
+            StopReason stopReason) {
+        OpenSession opened = writer(sessionId);
+        appendAndAdvance(opened, codec.encodeRunCompleted(
+                opened.nextSequence, runId, stopReason.name()));
+    }
+
+    /**
+     * 在 Tool started 前追加 durable Checkpoint 创建事实。
+     *
+     * @param sessionId 目标 Session
+     * @param runId 当前 Run
+     * @param ordinal Tool ordinal
+     * @param summary 安全 Checkpoint 摘要
+     * @param preDigest pre-image digest 或固定 {@code ABSENT}
+     */
+    public synchronized void checkpointCreated(
+            SessionId sessionId,
+            RunId runId,
+            int ordinal,
+            io.github.liumaishenjian.ccjava.domain.CheckpointSummary summary,
+            String preDigest) {
+        OpenSession opened = writer(sessionId);
+        appendAndAdvance(opened, codec.encodeCheckpointCreated(
+                opened.nextSequence, runId, ordinal, summary, preDigest));
+    }
+
+    /**
+     * 在 Tool completed 前追加类型化 post-state 事实。
+     *
+     * @param sessionId 目标 Session
+     * @param runId 当前 Run
+     * @param ordinal Tool ordinal
+     * @param checkpointId 对应 Checkpoint
+     * @param postDigest 普通文件 post-image digest
+     * @param postAbsent post-state 已知为不存在时为 {@code true}
+     */
+    public synchronized void checkpointCompleted(
+            SessionId sessionId,
+            RunId runId,
+            int ordinal,
+            io.github.liumaishenjian.ccjava.domain.CheckpointId checkpointId,
+            Optional<String> postDigest,
+            boolean postAbsent) {
+        OpenSession opened = writer(sessionId);
+        appendAndAdvance(opened, codec.encodeCheckpointCompleted(
+                opened.nextSequence,
+                runId,
+                ordinal,
+                checkpointId,
+                postDigest,
+                postAbsent));
+    }
+
+    /**
+     * 显式 Undo 成功后追加唯一 durable 事实。
+     *
+     * @param sessionId 目标 Session
+     * @param checkpointId 已恢复的 Checkpoint
+     */
+    public synchronized void checkpointUndoCompleted(
+            SessionId sessionId,
+            io.github.liumaishenjian.ccjava.domain.CheckpointId checkpointId) {
+        OpenSession opened = writer(sessionId);
+        appendAndAdvance(opened, codec.encodeCheckpointUndoCompleted(
+                opened.nextSequence, checkpointId));
+    }
+
+    /**
+     * 关闭所有本进程打开的 Session 并释放锁。
+     */
+    @Override
+    public synchronized void close() {
+        for (OpenSession session : new ArrayList<>(writerSessions.values())) {
+            try {
+                close(session.session.id());
+            } catch (RuntimeException ignored) {
+                session.release();
+            }
+        }
+        writerSessions.clear();
+        for (OpenSession inspected : new ArrayList<>(inspectedSessions)) {
+            if (!inspected.session.isClosed()) {
+                SessionStoreAccess.discardRecoveredSession(inspected.session);
+            }
+            inspected.release();
+        }
+        inspectedSessions.clear();
+    }
+
+    private SessionOpenResult createResult(
+            SessionSpec spec,
+            Optional<SessionId> parent,
+            SessionOpenMode mode) {
+        SessionId id = Objects.requireNonNull(ids.newSessionId(), "newSessionId 返回 null");
+        validateSessionId(id);
+        if (Files.exists(journalPath(id), LinkOption.NOFOLLOW_LINKS)) {
+            throw new SessionOpenException("DUPLICATE_ID", "Session ID 已存在");
+        }
+        OpenSession opened = acquireWriter(id, AgentSession.create(id, spec), 1);
+        try {
+            append(opened, codec.encodeSessionCreated(
+                    opened.nextSequence, id, spec, workspaceIdentity, parent));
+            opened.nextSequence++;
+            writerSessions.put(id, opened);
+            lifecycle.dispatch(opened.session, new LifecycleEvent.SessionStarted(spec));
+            return new SessionOpenResult(opened.session, mode, parent, false, List.of());
+        } catch (RuntimeException failure) {
+            opened.release();
+            deleteEmptyFiles(id);
+            throw failure;
+        }
+    }
+
+    private SessionOpenResult resumeResult(
+            SessionId id,
+            SessionOpenMode mode,
+            boolean readOnly) {
+        validateSessionId(id);
+        JournalRead read = readJournal(id);
+        SessionRecoverySnapshot snapshot = codec.replay(
+                read.lines, read.damagedTail, workspaceIdentity);
+        List<io.github.liumaishenjian.ccjava.core.SessionRecoveryIssue> checkpointIssues =
+                new FileCheckpointCoordinator(root, workspaceGuard(), this)
+                        .recoveryIssues(id);
+        if (!checkpointIssues.isEmpty()) {
+            List<io.github.liumaishenjian.ccjava.core.SessionRecoveryIssue> merged =
+                    new ArrayList<>(snapshot.issues());
+            merged.addAll(checkpointIssues);
+            snapshot = new SessionRecoverySnapshot(
+                    snapshot.sessionId(),
+                    snapshot.spec(),
+                    snapshot.messages(),
+                    snapshot.runIds(),
+                    snapshot.parentSessionId(),
+                    merged);
+        }
+        AgentSession session = AgentSession.restore(snapshot);
+        if (readOnly) {
+            List<io.github.liumaishenjian.ccjava.core.SessionRecoveryIssue> issues =
+                    inspectIssues(snapshot);
+            session = AgentSession.restore(new SessionRecoverySnapshot(
+                    snapshot.sessionId(),
+                    snapshot.spec(),
+                    snapshot.messages(),
+                    snapshot.runIds(),
+                    snapshot.parentSessionId(),
+                    issues));
+            OpenSession inspected = OpenSession.readOnly(session, read.nextSequence);
+            inspectedSessions.add(inspected);
+            return new SessionOpenResult(
+                    session,
+                    mode,
+                    snapshot.parentSessionId(),
+                    true,
+                    issues);
+        }
+        if (!snapshot.issues().isEmpty()) {
+            throw new SessionOpenException(
+                    "RECOVERY_REQUIRED",
+                    "Session 存在未完成或损坏记录，只能只读检查");
+        }
+        OpenSession opened = acquireWriter(id, session, read.nextSequence);
+        writerSessions.put(id, opened);
+        return new SessionOpenResult(
+                session, mode, snapshot.parentSessionId(), false, snapshot.issues());
+    }
+
+    private List<io.github.liumaishenjian.ccjava.core.SessionRecoveryIssue> inspectIssues(
+            SessionRecoverySnapshot snapshot) {
+        List<io.github.liumaishenjian.ccjava.core.SessionRecoveryIssue> issues =
+                new ArrayList<>(snapshot.issues());
+        issues.add(io.github.liumaishenjian.ccjava.core.SessionRecoveryIssue.session(
+                io.github.liumaishenjian.ccjava.core.SessionRecoveryIssueKind.READ_ONLY_INSPECT));
+        return List.copyOf(issues);
+    }
+
+    private SessionOpenResult forkResult(SessionId sourceId, SessionSpec createSpec) {
+        validateSessionId(sourceId);
+        JournalRead read = readJournal(sourceId);
+        SessionRecoverySnapshot source = codec.replay(
+                read.lines, read.damagedTail, workspaceIdentity);
+        List<io.github.liumaishenjian.ccjava.core.SessionRecoveryIssue> checkpointIssues =
+                new FileCheckpointCoordinator(root, workspaceGuard(), this)
+                        .recoveryIssues(sourceId);
+        if (!checkpointIssues.isEmpty()) {
+            List<io.github.liumaishenjian.ccjava.core.SessionRecoveryIssue> merged =
+                    new ArrayList<>(source.issues());
+            merged.addAll(checkpointIssues);
+            source = new SessionRecoverySnapshot(
+                    source.sessionId(),
+                    source.spec(),
+                    source.messages(),
+                    source.runIds(),
+                    source.parentSessionId(),
+                    merged);
+        }
+        if (!source.issues().isEmpty()) {
+            throw new SessionOpenException(
+                    "RECOVERY_REQUIRED", "存在恢复问题的 Session 不能直接 Fork");
+        }
+        SessionId targetId = Objects.requireNonNull(ids.newSessionId(), "newSessionId 返回 null");
+        validateSessionId(targetId);
+        if (Files.exists(journalPath(targetId), LinkOption.NOFOLLOW_LINKS)) {
+            throw new SessionOpenException("DUPLICATE_ID", "Session ID 已存在");
+        }
+        List<ObjectNode> records = codec.forkRecords(
+                read.lines,
+                targetId,
+                createSpec,
+                workspaceIdentity,
+                sourceId);
+        SessionRecoverySnapshot targetSnapshot = codec.replay(
+                records.stream().map(codec::encode).toList(),
+                false,
+                workspaceIdentity);
+        AgentSession targetSession = AgentSession.restore(targetSnapshot);
+        OpenSession target = acquireWriter(targetId, targetSession, 1);
+        try {
+            for (ObjectNode record : records) {
+                append(target, record);
+                target.nextSequence++;
+            }
+            writerSessions.put(targetId, target);
+            lifecycle.dispatch(targetSession, new LifecycleEvent.SessionStarted(createSpec));
+            return new SessionOpenResult(
+                    targetSession,
+                    SessionOpenMode.FORK,
+                    Optional.of(sourceId),
+                    false,
+                    List.of());
+        } catch (RuntimeException failure) {
+            target.release();
+            deleteEmptyFiles(targetId);
+            throw failure;
+        }
+    }
+
+    private OpenSession acquireWriter(
+            SessionId id,
+            AgentSession session,
+            long nextSequence) {
+        if (writerSessions.containsKey(id)) {
+            throw new SessionOpenException("SESSION_ACTIVE", "Session 已由当前 Store 的 Writer 打开");
+        }
+        FileChannel lockChannel = null;
+        FileLock lock = null;
+        FileChannel journalChannel = null;
+        try {
+            Files.createDirectories(sessionDirectory(id));
+            rejectLink(sessionDirectory(id));
+            lockChannel = FileChannel.open(
+                    lockPath(id),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE);
+            try {
+                lock = lockChannel.tryLock();
+            } catch (OverlappingFileLockException exception) {
+                lock = null;
+            }
+            if (lock == null) {
+                throw new SessionOpenException("SESSION_ACTIVE", "Session 已由另一个 Writer 打开");
+            }
+            journalChannel = FileChannel.open(
+                    journalPath(id),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.APPEND);
+            OpenSession opened = new OpenSession(
+                    session, false, nextSequence, journalChannel, lockChannel, lock);
+            journalChannel = null;
+            lockChannel = null;
+            lock = null;
+            return opened;
+        } catch (SessionOpenException known) {
+            releaseOpenResources(journalChannel, lock, lockChannel);
+            throw known;
+        } catch (IOException exception) {
+            releaseOpenResources(journalChannel, lock, lockChannel);
+            throw new SessionOpenException("STORE_IO", "无法安全打开 Session Store");
+        } catch (RuntimeException failure) {
+            releaseOpenResources(journalChannel, lock, lockChannel);
+            throw failure;
+        }
+    }
+
+    private static void releaseOpenResources(
+            FileChannel journalChannel,
+            FileLock lock,
+            FileChannel lockChannel) {
+        try {
+            if (journalChannel != null) {
+                journalChannel.close();
+            }
+        } catch (IOException ignored) {
+        }
+        try {
+            if (lock != null && lock.isValid()) {
+                lock.release();
+            }
+        } catch (IOException ignored) {
+        }
+        try {
+            if (lockChannel != null) {
+                lockChannel.close();
+            }
+        } catch (IOException ignored) {
+        }
+    }
+
+    private JournalRead readJournal(SessionId id) {
+        Path journal = journalPath(id);
+        rejectLink(sessionDirectory(id));
+        rejectLink(journal);
+        try {
+            if (!Files.isRegularFile(journal, LinkOption.NOFOLLOW_LINKS)) {
+                throw new SessionOpenException("SESSION_NOT_FOUND", "Session 不存在");
+            }
+            long size = Files.size(journal);
+            if (size > JsonlSessionCodec.MAX_FILE_BYTES) {
+                throw new SessionOpenException("LIMIT_EXCEEDED", "Session journal 超过大小上限");
+            }
+            byte[] bytes = Files.readAllBytes(journal);
+            String text;
+            try {
+                text = StandardCharsets.UTF_8.newDecoder()
+                        .onMalformedInput(CodingErrorAction.REPORT)
+                        .onUnmappableCharacter(CodingErrorAction.REPORT)
+                        .decode(ByteBuffer.wrap(bytes))
+                        .toString();
+            } catch (CharacterCodingException exception) {
+                throw new SessionOpenException("INVALID_UTF8", "Session journal 不是严格 UTF-8");
+            }
+            boolean endsWithNewline = bytes.length == 0 || bytes[bytes.length - 1] == '\n';
+            String[] raw = text.split("\\n", -1);
+            List<String> lines = new ArrayList<>();
+            boolean damagedTail = false;
+            int last = endsWithNewline ? raw.length - 1 : raw.length;
+            for (int index = 0; index < last; index++) {
+                String line = raw[index].endsWith("\r")
+                        ? raw[index].substring(0, raw[index].length() - 1)
+                        : raw[index];
+                if (line.isEmpty()) {
+                    throw new SessionOpenException("INVALID_RECORD", "Session journal 包含空记录");
+                }
+                if (line.getBytes(StandardCharsets.UTF_8).length > JsonlSessionCodec.MAX_LINE_BYTES) {
+                    throw new SessionOpenException("LIMIT_EXCEEDED", "Session record 超过行大小上限");
+                }
+                if (!endsWithNewline && index == last - 1) {
+                    try {
+                        codec.decode(line);
+                    } catch (SessionOpenException malformed) {
+                        damagedTail = true;
+                        break;
+                    }
+                }
+                lines.add(line);
+            }
+            long nextSequence = lines.size() + 1L;
+            return new JournalRead(lines, damagedTail, nextSequence);
+        } catch (SessionOpenException known) {
+            throw known;
+        } catch (IOException exception) {
+            throw new SessionOpenException("STORE_IO", "无法安全读取 Session journal");
+        }
+    }
+
+    private SessionId latestSessionId() {
+        try (var paths = Files.list(root)) {
+            return paths
+                    .filter(path -> Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS))
+                    .filter(path -> Files.isRegularFile(
+                            path.resolve("session.jsonl"), LinkOption.NOFOLLOW_LINKS))
+                    .sorted(Comparator.comparingLong(this::lastModified).reversed())
+                    .map(path -> new SessionId(path.getFileName().toString()))
+                    .filter(id -> {
+                        try {
+                            JournalRead read = readJournal(id);
+                            SessionRecoverySnapshot snapshot = codec.replay(
+                                    read.lines,
+                                    read.damagedTail,
+                                    workspaceIdentity);
+                            return snapshot.issues().isEmpty()
+                                    && new FileCheckpointCoordinator(root, workspaceGuard(), this)
+                                            .recoveryIssues(id)
+                                            .isEmpty();
+                        } catch (RuntimeException ignored) {
+                            return false;
+                        }
+                    })
+                    .findFirst()
+                    .orElseThrow(() -> new SessionOpenException(
+                            "SESSION_NOT_FOUND", "当前 Workspace 没有可继续 Session"));
+        } catch (IOException exception) {
+            throw new SessionOpenException("STORE_IO", "无法枚举 Session Store");
+        }
+    }
+
+    private long lastModified(Path path) {
+        try {
+            return Files.getLastModifiedTime(path.resolve("session.jsonl")).toMillis();
+        } catch (IOException exception) {
+            return Long.MIN_VALUE;
+        }
+    }
+
+    private io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceGuard workspaceGuard() {
+        try {
+            return new io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceGuard(workspace);
+        } catch (IOException failure) {
+            throw new SessionOpenException("STORE_IO", "无法验证 Session Workspace");
+        }
+    }
+
+    /**
+     * 在执行显式 Undo 前验证 Writer lease、fence 与活动 Run 互斥。
+     *
+     * @param id 目标 Session
+     */
+    public synchronized void requireUndoAllowed(SessionId id) {
+        OpenSession opened = writer(id);
+        if (SessionStoreAccess.hasActiveRun(opened.session)) {
+            throw new SessionOpenException("SESSION_ACTIVE_RUN", "存在活动 Run 时不能 Undo");
+        }
+    }
+
+    private OpenSession writer(SessionId id) {
+        OpenSession opened = writerSessions.get(Objects.requireNonNull(id, "id 不能为空"));
+        if (opened == null || opened.readOnly || opened.session.isFenced()) {
+            throw new SessionOpenException("SESSION_FENCED", "Session 没有可写 lease");
+        }
+        return opened;
+    }
+
+    private void appendAndAdvance(OpenSession opened, ObjectNode record) {
+        append(opened, record);
+        opened.nextSequence++;
+    }
+
+    private void append(OpenSession opened, ObjectNode record) {
+        byte[] bytes = (codec.encode(record) + "\n").getBytes(StandardCharsets.UTF_8);
+        if (bytes.length > JsonlSessionCodec.MAX_LINE_BYTES) {
+            throw new SessionOpenException("LIMIT_EXCEEDED", "Session record 超过行大小上限");
+        }
+        try {
+            if (opened.channel.size() + bytes.length > JsonlSessionCodec.MAX_FILE_BYTES) {
+                throw new SessionOpenException("LIMIT_EXCEEDED", "Session journal 超过大小上限");
+            }
+            ByteBuffer buffer = ByteBuffer.wrap(bytes);
+            while (buffer.hasRemaining()) {
+                opened.channel.write(buffer);
+            }
+            opened.channel.force(true);
+        } catch (SessionOpenException known) {
+            throw known;
+        } catch (IOException exception) {
+            throw new SessionOpenException("STORE_IO", "Session record 未可靠持久化");
+        }
+    }
+
+    private void initializeRoot(Path workspace) {
+        try {
+            Path realWorkspace = workspace.toRealPath();
+            Files.createDirectories(root);
+            rejectLink(root);
+            Path realRoot = root.toRealPath();
+            if (!Files.isDirectory(realRoot, LinkOption.NOFOLLOW_LINKS)) {
+                throw new SessionOpenException("INVALID_ROOT", "Session Store root 不是普通目录");
+            }
+            if (realRoot.startsWith(realWorkspace)) {
+                throw new SessionOpenException("INVALID_ROOT", "Session Store root 必须位于 Workspace 外");
+            }
+        } catch (SessionOpenException known) {
+            throw known;
+        } catch (IOException exception) {
+            throw new SessionOpenException("STORE_IO", "无法初始化 Session Store");
+        }
+    }
+
+    private Path sessionDirectory(SessionId id) {
+        Path path = root.resolve(id.value()).normalize();
+        if (!path.getParent().equals(root)) {
+            throw new SessionOpenException("INVALID_SESSION_ID", "Session ID 不能形成路径");
+        }
+        return path;
+    }
+
+    private Path journalPath(SessionId id) {
+        return sessionDirectory(id).resolve("session.jsonl");
+    }
+
+    private Path lockPath(SessionId id) {
+        return sessionDirectory(id).resolve("writer.lock");
+    }
+
+    private void validateSessionId(SessionId id) {
+        String value = Objects.requireNonNull(id, "id 不能为空").value();
+        if (value.length() > 128 || !value.matches("session-[A-Za-z0-9-]+")) {
+            throw new SessionOpenException("INVALID_SESSION_ID", "Session ID 格式无效");
+        }
+    }
+
+    private void rejectLink(Path path) {
+        if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
+            return;
+        }
+        if (Files.isSymbolicLink(path)) {
+            throw new SessionOpenException("LINK_NOT_ALLOWED", "Session Store 不接受链接");
+        }
+        boolean directory = Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS);
+        boolean regularFile = Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS);
+        if (!directory && !regularFile) {
+            throw new SessionOpenException("PATH_TYPE", "Session Store 路径类型不受支持");
+        }
+        try {
+            Path real = path.toRealPath();
+            if (!real.equals(path.toAbsolutePath().normalize())) {
+                throw new SessionOpenException("LINK_NOT_ALLOWED", "Session Store 不接受 Junction 或重解析路径");
+            }
+        } catch (SessionOpenException known) {
+            throw known;
+        } catch (IOException exception) {
+            throw new SessionOpenException("STORE_IO", "无法验证 Session Store 路径");
+        }
+    }
+
+    private void deleteEmptyFiles(SessionId id) {
+        try {
+            Files.deleteIfExists(journalPath(id));
+            Files.deleteIfExists(lockPath(id));
+            Files.deleteIfExists(sessionDirectory(id));
+        } catch (IOException ignored) {
+            // 后续打开会因缺少有效 header Fail Closed，不伪装清理成功。
+        }
+    }
+
+    private static String workspaceIdentity(Path workspace) {
+        try {
+            Path real = workspace.toRealPath();
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest(real.toString().getBytes(StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(bytes);
+        } catch (IOException | NoSuchAlgorithmException exception) {
+            throw new SessionOpenException("WORKSPACE_IDENTITY", "无法计算 Workspace identity");
+        }
+    }
+
+    private record JournalRead(List<String> lines, boolean damagedTail, long nextSequence) {
+        private JournalRead {
+            lines = List.copyOf(lines);
+        }
+    }
+
+    private static final class OpenSession {
+        private final AgentSession session;
+        private final boolean readOnly;
+        private long nextSequence;
+        private final FileChannel channel;
+        private final FileChannel lockChannel;
+        private final FileLock lock;
+
+        private OpenSession(
+                AgentSession session,
+                boolean readOnly,
+                long nextSequence,
+                FileChannel channel,
+                FileChannel lockChannel,
+                FileLock lock) {
+            this.session = session;
+            this.readOnly = readOnly;
+            this.nextSequence = nextSequence;
+            this.channel = channel;
+            this.lockChannel = lockChannel;
+            this.lock = lock;
+        }
+
+        private static OpenSession readOnly(AgentSession session, long nextSequence) {
+            return new OpenSession(session, true, nextSequence, null, null, null);
+        }
+
+        private void release() {
+            try {
+                if (lock != null && lock.isValid()) {
+                    lock.release();
+                }
+            } catch (IOException ignored) {
+            }
+            try {
+                if (channel != null) {
+                    channel.close();
+                }
+            } catch (IOException ignored) {
+            }
+            try {
+                if (lockChannel != null) {
+                    lockChannel.close();
+                }
+            } catch (IOException ignored) {
+            }
+        }
+    }
+}

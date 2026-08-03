@@ -27,6 +27,9 @@ public final class StdioProtocolCodec {
             "run.start",
             "run.cancel",
             "approval.resolve",
+            "checkpoint.list",
+            "checkpoint.diff",
+            "checkpoint.undo",
             "shutdown");
 
     private final ObjectMapper mapper;

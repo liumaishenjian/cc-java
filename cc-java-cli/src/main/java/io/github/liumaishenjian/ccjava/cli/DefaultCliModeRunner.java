@@ -2,6 +2,7 @@ package io.github.liumaishenjian.ccjava.cli;
 
 import io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeSession;
 import io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeOptions;
+import io.github.liumaishenjian.ccjava.cli.session.SessionStorage;
 import io.github.liumaishenjian.ccjava.cli.stdio.RuntimeStdioCommandHandler;
 import io.github.liumaishenjian.ccjava.cli.stdio.StdioProtocolServer;
 import io.github.liumaishenjian.ccjava.domain.AgentRunResult;
@@ -70,7 +71,9 @@ final class DefaultCliModeRunner implements CliModeRunner {
                                          prepared.settings().model(),
                                          overrides.timeout(),
                                          overrides.permissionMode(),
-                                         java.util.List.of()))) {
+                                         java.util.List.of(),
+                                         overrides.sessionOpenRequest(),
+                                         SessionStorage.defaultRoot()))) {
                 application.open();
                 Thread shutdownHook = Thread.ofPlatform()
                         .name("cc-java-print-cancel")
@@ -106,7 +109,8 @@ final class DefaultCliModeRunner implements CliModeRunner {
                     prepared.settings(),
                     prepared.workspace(),
                     overrides.timeout(),
-                    overrides.permissionMode());
+                    overrides.permissionMode(),
+                    overrides.sessionOpenRequest());
             StdioProtocolServer.ExitReason reason =
                     new StdioProtocolServer(input, output, handler).run();
             return reason == StdioProtocolServer.ExitReason.INTERNAL_ERROR

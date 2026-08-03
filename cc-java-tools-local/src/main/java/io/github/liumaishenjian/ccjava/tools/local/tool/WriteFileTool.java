@@ -4,6 +4,7 @@ import io.github.liumaishenjian.ccjava.core.AgentTool;
 import io.github.liumaishenjian.ccjava.core.ToolExecutionOutcome;
 import io.github.liumaishenjian.ccjava.core.ToolInvocation;
 import io.github.liumaishenjian.ccjava.core.ToolValidationResult;
+import io.github.liumaishenjian.ccjava.domain.CheckpointTarget;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
 import io.github.liumaishenjian.ccjava.domain.ToolDefinition;
 import io.github.liumaishenjian.ccjava.domain.ToolEffect;
@@ -79,6 +80,14 @@ public final class WriteFileTool implements AgentTool {
         } catch (IllegalArgumentException exception) {
             return ToolValidationResult.invalid(exception.getMessage());
         }
+    }
+
+    @Override
+    public java.util.Optional<CheckpointTarget> checkpointTarget(ToolInvocation invocation)
+            throws WorkspaceAccessException {
+        String path = ToolArguments.string(invocation.call().arguments(), "path", null);
+        ValidatedWorkspacePath validated = guard.requireNewFile(path);
+        return java.util.Optional.of(new CheckpointTarget(validated.protocolPath(), false));
     }
 
     @Override

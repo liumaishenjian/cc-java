@@ -41,10 +41,51 @@ public final class AgentSession {
     private long nextEventSequence = 1;
     private RunId activeRunId;
     private boolean closed;
+    private boolean fenced;
 
     AgentSession(SessionId id, SessionSpec spec) {
         this.id = Objects.requireNonNull(id, "id 不能为空");
         this.spec = Objects.requireNonNull(spec, "spec 不能为空");
+    }
+
+    /**
+     * 供架构边缘 SessionStore 创建尚未包含历史的新 Session。
+     *
+     * @param id Store 已验证且保证唯一的 Session ID
+     * @param spec 创建配置
+     * @return 空规范历史 Session
+     */
+    public static AgentSession create(SessionId id, SessionSpec spec) {
+        return new AgentSession(id, spec);
+    }
+
+    /**
+     * 从已经由 Session Adapter 完整验证的快照重建规范 Core 状态。
+     *
+     * <p>恢复仍逐条走与在线追加等价的 Call ID/Tool Result 校验，不能让文件 Adapter 直接填充
+     * 内部集合而绕过协议不变量。只有完整结束的 Run 消息可以进入快照。</p>
+     *
+     * @param snapshot 已校验恢复快照
+     * @return 没有活动 Run 的可继续 Session
+     */
+    public static AgentSession restore(SessionRecoverySnapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot 不能为空");
+        AgentSession session = new AgentSession(snapshot.sessionId(), snapshot.spec());
+        session.runIds.addAll(snapshot.runIds());
+        session.fenced = !snapshot.issues().isEmpty();
+        for (AgentMessage message : snapshot.messages()) {
+            if (message instanceof UserMessage) {
+                session.messages.add(message);
+            } else if (message instanceof AssistantMessage assistant) {
+                session.restoreAssistant(assistant);
+            } else if (message instanceof ToolResultMessage toolResult) {
+                session.restoreToolResult(toolResult);
+            } else {
+                throw new IllegalArgumentException(
+                        "恢复快照包含不支持的规范消息: " + message.getClass().getName());
+            }
+        }
+        return session;
     }
 
     /**
@@ -92,13 +133,35 @@ public final class AgentSession {
         return closed;
     }
 
-    void beginRun(RunId runId, UserMessage userMessage) {
+    /**
+     * 判断 Session 是否因 durable journal 不确定而被禁止继续执行。
+     *
+     * @return 只能 Inspect/恢复时为 {@code true}
+     */
+    public boolean isFenced() {
+        return fenced;
+    }
+
+    /**
+     * 判断是否存在正在执行的 Run，供显式恢复操作实施互斥 Gate。
+     *
+     * @return 活动 Run 尚未结束时为 {@code true}
+     */
+    public boolean hasActiveRun() {
+        return activeRunId != null;
+    }
+
+    void ensureRunnable() {
         ensureOpen();
-        Objects.requireNonNull(runId, "runId 不能为空");
-        Objects.requireNonNull(userMessage, "userMessage 不能为空");
         if (activeRunId != null) {
             throw new IllegalStateException("Session 已有正在执行的 Run: " + activeRunId.value());
         }
+    }
+
+    void beginRun(RunId runId, UserMessage userMessage) {
+        ensureRunnable();
+        Objects.requireNonNull(runId, "runId 不能为空");
+        Objects.requireNonNull(userMessage, "userMessage 不能为空");
         if (!runIds.add(runId)) {
             throw new IllegalStateException("Session 中出现重复 Run ID: " + runId.value());
         }
@@ -160,6 +223,20 @@ public final class AgentSession {
         closed = true;
     }
 
+    void closeRecoveredProjection() {
+        if (!fenced) {
+            throw new IllegalStateException("只能关闭 fenced 的恢复投影");
+        }
+        if (activeRunId != null) {
+            throw new IllegalStateException("存在活动 Run 时不能关闭 Session");
+        }
+        closed = true;
+    }
+
+    void fence() {
+        fenced = true;
+    }
+
     AgentEventEnvelope recordEvent(
             Instant occurredAt,
             Optional<RunId> runId,
@@ -178,9 +255,37 @@ public final class AgentSession {
         return toolNamesByCallId.containsKey(callId);
     }
 
+    private void restoreAssistant(AssistantMessage message) {
+        HashSet<String> batchIds = new HashSet<>();
+        for (ToolCall call : message.toolCalls()) {
+            if (!batchIds.add(call.id()) || toolNamesByCallId.containsKey(call.id())) {
+                throw new IllegalArgumentException(
+                        "恢复历史包含重复 Tool Call ID: " + call.id());
+            }
+        }
+        message.toolCalls().forEach(call -> toolNamesByCallId.put(call.id(), call.name()));
+        messages.add(message);
+    }
+
+    private void restoreToolResult(ToolResultMessage message) {
+        String expectedToolName = toolNamesByCallId.get(message.result().callId());
+        if (expectedToolName == null || !expectedToolName.equals(message.result().toolName())) {
+            throw new IllegalArgumentException(
+                    "恢复历史的 Tool Result 没有匹配的 Tool Call: " + message.result().callId());
+        }
+        if (!toolResultIds.add(message.result().callId())) {
+            throw new IllegalArgumentException(
+                    "恢复历史包含重复 Tool Result: " + message.result().callId());
+        }
+        messages.add(message);
+    }
+
     private void ensureOpen() {
         if (closed) {
             throw new IllegalStateException("Session 已关闭: " + id.value());
+        }
+        if (fenced) {
+            throw new IllegalStateException("Session 持久状态不确定，只能进入恢复检查: " + id.value());
         }
     }
 

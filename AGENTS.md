@@ -29,6 +29,8 @@
    [ADR-037](./docs/adr/ADR-037-privacy-safe-model-failure-summary.md)、
    [ADR-038](./docs/adr/ADR-038-s05-authorized-permission-study.md)、
    [ADR-039](./docs/adr/ADR-039-s05-permission-pipeline.md)、
+   [ADR-040](./docs/adr/ADR-040-s06-authorized-session-checkpoint-study.md)、
+   [ADR-041](./docs/adr/ADR-041-s06-session-checkpoint.md)、
    [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)、
    [ADR-018](./docs/adr/ADR-018-authorized-reference-study.md)、
    [ADR-019](./docs/adr/ADR-019-s07-progressive-context-reduction.md)与
@@ -59,7 +61,11 @@ stdout/stderr 事件、输出上限、timeout/cancel 与 Windows 进程树清理
 `f7b7137081e2d85417fa5965835d4c014e514dac` 上完成 G0-G6 与 Stage Exit：ADR-038 固定参考
 结论采纳边界，ADR-039 固定三模式、规则优先级、绑定可信 ToolSource 的 Session Grant、Hard
 Denial、隐私安全 Permission Lifecycle、拒绝恢复与 Fake External Tool 测试契约；所列 S05
-Feature 已达到 L2。
+Feature 已达到 L2。**S06 Session + Checkpoint** 已在当前 WORKTREE 完成 G0-G5，等待协调者
+Commit-scoped G6 审查与提交：ADR-040/041 固定授权研究边界、项目自有 append-only JSONL、
+Create/Continue/Resume/Fork/Inspect、本机单 Writer、未完成 Tool Recovery Gate、ordinary-file
+Checkpoint/Diff/显式 Undo、Behavior Replay 与 Java CLI/Print/stdio/TUI 生产接入；所列 Feature
+除 `SESSION-08` 达到 L1 外均达到退出目标 L2。
 
 当前允许并要求：
 
@@ -82,12 +88,17 @@ Feature 已达到 L2。
   timeout/cancel 和 Windows 进程树清理回归也必须保持通过；
 - 当前生产代码支持 Allow Once/Session/Deny、声明性 Startup/Session 规则与 Hard Denial；
   但分层持久 Settings、真实外部 Tool Adapter、外部 Hook 和 OS Sandbox 不得描述为可用；
-- 当前没有 OS Sandbox；不得把应用层 Permission 或进程清理描述成 S13 隔离能力；
-- S06 的持久化/Checkpoint、S07 的 Context 压缩及后续能力继续保持未实现状态。
+- S06 的 JSONL、恢复选择、Checkpoint phase、Recovery Gate 与 Undo 安全回归必须继续通过；
+  任何后续修改不得自动重放有副作用操作、解析商业产品内部 JSONL、绕过 Writer/fence/active-run/
+  显式确认 Gate，或把 Checkpoint 描述成 Git/OS Sandbox；
+- 当前没有 OS Sandbox；不得把应用层 Permission、FileLock、Checkpoint 或进程清理描述成 S13
+  隔离能力；
+- S07 的 Context 压缩、S08 分层 Settings、S14 稳定 Export/Retention/Migration 及后续能力继续
+  保持未实现状态。
 
-S05 Accepted 不表示 S06 持久 Session/Checkpoint、S08 分层持久 Permission、S13 OS
-Sandbox 或更后阶段能力已经可用。下一步只进入 S06 授权研究与启动 Gate，不得提前声称其
-生产能力已实现。
+S06 WORKTREE G0-G5 不表示 Stage 已完成 Commit-scoped G6，也不表示 S07 Context、S08 分层
+Permission、S13 OS Sandbox 或 S14 稳定持久化能力已经可用。协调者完成 S06 G6 后，下一步只进入
+S07 授权研究与启动 Gate。
 
 ## 3. 项目定位
 

@@ -2,7 +2,13 @@ import {useEffect, useReducer, useRef, useState} from 'react';
 import {Box, Text, useApp, useInput, usePaste, useWindowSize} from 'ink';
 import {initialTuiState, reduceTuiState} from './state.js';
 import type {ProtocolEvent} from './protocol.js';
-import type {ApprovalView, ModelFailureView, RunView} from './state.js';
+import type {
+  ApprovalView,
+  CheckpointPhase,
+  CheckpointView,
+  ModelFailureView,
+  RunView,
+} from './state.js';
 import {AssistantMarkdown} from './assistant-markdown.js';
 import {ToolActivityGroup} from './tool-activity.js';
 
@@ -21,6 +27,9 @@ export interface AgentClient {
     approvalId: string,
     decision: 'allow_once' | 'allow_session' | 'deny',
   ): string;
+  listCheckpoints?(): string;
+  checkpointDiff?(checkpointId: string): string;
+  undoCheckpoint?(checkpointId: string, confirmed: boolean): string;
   shutdown(): Promise<void>;
   terminate(): void;
 }
@@ -41,6 +50,15 @@ export function AgentTui({client}: AgentTuiProps) {
   const pendingApproval = state.runs.findLast(
     run => run.status === 'running',
   )?.pendingApproval;
+  const pendingUndo = state.checkpoints.find(
+    item => item.checkpointId === state.pendingUndoCheckpointId,
+  );
+  const selectedCheckpoint = state.checkpoints.find(
+    item => item.checkpointId === state.selectedCheckpointId,
+  );
+  const checkpointSupported = client.listCheckpoints !== undefined
+    && client.checkpointDiff !== undefined
+    && client.undoCheckpoint !== undefined;
   const {exit} = useApp();
   const {columns} = useWindowSize();
 
@@ -111,6 +129,48 @@ export function AgentTui({client}: AgentTuiProps) {
       }
       return;
     }
+    if (pendingUndo !== undefined) {
+      const decision = undoConfirmation(text);
+      if (decision === 'confirm') {
+        client.undoCheckpoint?.(pendingUndo.checkpointId, true);
+      } else if (decision === 'cancel') {
+        dispatch({type: 'checkpoint.undo.cancelled'});
+      }
+      return;
+    }
+    if (
+      state.phase === 'ready'
+      && checkpointSupported
+      && inputRef.current.length === 0
+    ) {
+      const action = checkpointAction(text, key, state.checkpointPanelOpen);
+      if (action === 'list') {
+        client.listCheckpoints?.();
+        return;
+      }
+      if (action === 'previous' || action === 'next') {
+        const checkpointId = adjacentCheckpointId(
+          state.checkpoints,
+          state.selectedCheckpointId,
+          action === 'previous' ? -1 : 1,
+        );
+        if (checkpointId !== undefined) {
+          dispatch({type: 'checkpoint.selected', checkpointId});
+        }
+        return;
+      }
+      if (action === 'diff' && selectedCheckpoint !== undefined) {
+        client.checkpointDiff?.(selectedCheckpoint.checkpointId);
+        return;
+      }
+      if (action === 'undo' && selectedCheckpoint?.undoable === true) {
+        dispatch({
+          type: 'checkpoint.undo.requested',
+          checkpointId: selectedCheckpoint.checkpointId,
+        });
+        return;
+      }
+    }
     if (!canEditInput(state.phase)) {
       return;
     }
@@ -162,7 +222,7 @@ export function AgentView({state, input, columns}: AgentViewProps) {
     <Box flexDirection="column" width={width}>
       <Box>
         <Text bold color="cyan">cc-java</Text>
-        <Text color="blue">  S05</Text>
+        <Text color="blue">  S06</Text>
         <Text dimColor>  {phaseLabel(state.phase)}</Text>
       </Box>
       {state.runs.map(run => (
@@ -200,11 +260,22 @@ export function AgentView({state, input, columns}: AgentViewProps) {
           )}
         </Box>
       ))}
+      <CheckpointPanel state={state} />
       {state.notice === undefined ? null : (
         <Box marginTop={1}>
-          <Text color="red">✗ {state.notice}</Text>
+          <Text color="yellow">• {state.notice}</Text>
         </Box>
       )}
+      {state.phase === 'ready' ? (
+        <Box marginTop={1} flexDirection="column">
+          <Text dimColor>
+            C 列表　↑/↓ 选择　D Diff　U 请求 Undo
+          </Text>
+          <Text dimColor>
+            Undo 必须针对当前 Checkpoint 二次确认，绝不自动重放。
+          </Text>
+        </Box>
+      ) : null}
       <Box
         marginTop={1}
         borderStyle="round"
@@ -223,6 +294,83 @@ export function AgentView({state, input, columns}: AgentViewProps) {
             : null}
       </Box>
     </Box>
+  );
+}
+
+function CheckpointPanel({state}: {readonly state: AgentViewProps['state']}) {
+  if (
+    !state.checkpointPanelOpen
+    && state.checkpointDiff === undefined
+    && state.checkpointUndo === undefined
+  ) {
+    return null;
+  }
+  const pendingUndo = state.checkpoints.find(
+    item => item.checkpointId === state.pendingUndoCheckpointId,
+  );
+  return (
+    <Box
+      marginTop={1}
+      flexDirection="column"
+      borderStyle="round"
+      borderColor={pendingUndo === undefined ? 'blue' : 'red'}
+      paddingX={1}
+    >
+      <Text bold color="blue">Session Checkpoints</Text>
+      {state.checkpoints.length === 0
+        ? <Text dimColor>当前 Session 没有 Checkpoint</Text>
+        : state.checkpoints.map(checkpoint => (
+          <CheckpointRow
+            key={checkpoint.checkpointId}
+            checkpoint={checkpoint}
+            selected={checkpoint.checkpointId === state.selectedCheckpointId}
+          />
+        ))}
+      {state.checkpointDiff === undefined ? null : (
+        <Box marginTop={1} flexDirection="column">
+          <Text color="cyan">
+            Diff · {state.checkpointDiff.target} · {state.checkpointDiff.status}
+            {state.checkpointDiff.truncated ? ' · 已裁剪' : ''}
+          </Text>
+          {state.checkpointDiff.text.length === 0
+            ? <Text dimColor>（无文本差异）</Text>
+            : <Text>{state.checkpointDiff.text}</Text>}
+        </Box>
+      )}
+      {state.checkpointUndo === undefined ? null : (
+        <Text color={state.checkpointUndo.status === 'conflict' ? 'red' : 'green'}>
+          Undo · {state.checkpointUndo.target} · {state.checkpointUndo.status}
+        </Text>
+      )}
+      {pendingUndo === undefined ? null : (
+        <Box marginTop={1} flexDirection="column">
+          <Text color="red" bold>
+            确认 Undo 当前 Checkpoint？
+          </Text>
+          <Text>{pendingUndo.checkpointId}</Text>
+          <Text>{pendingUndo.target}</Text>
+          <Text dimColor>
+            仅按 Shift+Y 执行；N 或 Esc 取消。此操作只恢复普通文件 Checkpoint。
+          </Text>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+function CheckpointRow({
+  checkpoint,
+  selected,
+}: {
+  readonly checkpoint: CheckpointView;
+  readonly selected: boolean;
+}) {
+  return (
+    <Text color={checkpoint.undoable ? 'green' : 'yellow'}>
+      {selected ? '❯' : ' '} {checkpoint.checkpointId} · {checkpoint.target}
+      {' · '}{checkpointPhaseLabel(checkpoint.phase)}
+      {checkpoint.undoable ? ' · 可 Undo' : ''}
+    </Text>
   );
 }
 
@@ -356,6 +504,69 @@ function runStatusLabel(status: Exclude<RunView['status'], 'running' | 'complete
 
 function inputHint(phase: ReturnType<typeof reduceTuiState>['phase']): string {
   return phase === 'connecting' ? '连接中，可以先输入任务' : '输入任务，Enter 发送';
+}
+
+export function checkpointAction(
+  text: string,
+  key: {readonly upArrow?: boolean; readonly downArrow?: boolean},
+  panelOpen: boolean,
+): 'list' | 'previous' | 'next' | 'diff' | 'undo' | undefined {
+  if (panelOpen && key.upArrow === true) {
+    return 'previous';
+  }
+  if (panelOpen && key.downArrow === true) {
+    return 'next';
+  }
+  switch (text) {
+    case 'C': return 'list';
+    case 'D': return panelOpen ? 'diff' : undefined;
+    case 'U': return panelOpen ? 'undo' : undefined;
+    default: return undefined;
+  }
+}
+
+export function adjacentCheckpointId(
+  checkpoints: readonly CheckpointView[],
+  selectedCheckpointId: string | undefined,
+  delta: -1 | 1,
+): string | undefined {
+  if (checkpoints.length === 0) {
+    return undefined;
+  }
+  const selected = checkpoints.findIndex(
+    item => item.checkpointId === selectedCheckpointId,
+  );
+  const origin = selected < 0 ? (delta > 0 ? -1 : 0) : selected;
+  const index = (origin + delta + checkpoints.length) % checkpoints.length;
+  return checkpoints[index]?.checkpointId;
+}
+
+export function undoConfirmation(
+  text: string,
+): 'confirm' | 'cancel' | undefined {
+  if (text === 'Y') {
+    return 'confirm';
+  }
+  if (text.toLowerCase() === 'n' || text === '') {
+    return 'cancel';
+  }
+  return undefined;
+}
+
+function checkpointPhaseLabel(phase: CheckpointPhase): string {
+  switch (phase) {
+    case 'create_prepared': return '创建准备中';
+    case 'create_journal_uncertain': return '创建记录不确定';
+    case 'created': return '等待 Tool 结果';
+    case 'post_prepared': return '结果准备中';
+    case 'post_journal_uncertain': return '结果记录不确定';
+    case 'completed_present': return '已完成（文件存在）';
+    case 'completed_absent': return '已完成（文件不存在）';
+    case 'undo_prepared': return 'Undo 状态不确定';
+    case 'undo_applied': return 'Undo 已应用待确认';
+    case 'undo_journal_uncertain': return 'Undo 记录不确定';
+    case 'undone': return '已 Undo';
+  }
 }
 
 export function approvalDecision(

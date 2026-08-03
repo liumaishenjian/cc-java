@@ -1,7 +1,9 @@
 package io.github.liumaishenjian.ccjava.core;
 
+import io.github.liumaishenjian.ccjava.domain.CheckpointTarget;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
 import io.github.liumaishenjian.ccjava.domain.ToolDefinition;
+import java.util.Optional;
 
 /**
  * 由统一 Tool Registry 注册、并且只能经 Pipeline 执行的 Tool 契约。
@@ -28,6 +30,21 @@ public interface AgentTool {
      */
     default ToolValidationResult validate(JsonObject arguments) {
         return ToolValidationResult.validResult();
+    }
+
+    /**
+     * 在 Permission 最终允许后声明可验证的普通文件 Checkpoint 目标。
+     *
+     * <p>默认没有可恢复文件目标。声明 {@code WRITE_WORKSPACE} 的实现必须显式重写该方法并
+     * 重用自身 WorkspaceGuard 规则；否则生产 Checkpoint Pipeline Fail Closed，不能用伪造路径
+     * 掩盖尚未接入恢复契约的写 Tool。</p>
+     *
+     * @param invocation 已通过参数校验和权限判断的调用
+     * @return 最多一个普通文件目标
+     * @throws Exception 目标状态无法安全验证时
+     */
+    default Optional<CheckpointTarget> checkpointTarget(ToolInvocation invocation) throws Exception {
+        return Optional.empty();
     }
 
     /**

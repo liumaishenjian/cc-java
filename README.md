@@ -43,8 +43,12 @@
 > 防循环，以及 Fake MCP/Plugin/Sub-Agent 的统一 Pipeline/64K 输出上限；所列 Capability
 > 已按 ADR-039 的退出目标达到 L2。
 >
-> Current status: S01-S05 accepted. S06 authorization research and startup gates are next;
-> Session persistence and Checkpoint are not implemented yet.
+> S06 Session + Checkpoint 已在当前 WORKTREE 完成 G0-G5，等待协调者 Commit-scoped G6 审查与
+> 提交。生产路径现已提供项目自有 append-only semantic JSONL、Create/Continue/Resume/Fork/Inspect、
+> Workspace-aware metadata、本机单 Writer、未完成 Tool Recovery Gate、写前 ordinary-file
+> Checkpoint、有界 Diff 与逐项显式 Undo；Java CLI/Print/stdio/TUI 共用同一 Runtime，Behavior Replay
+> 已验证 Resume/Fork canonical history。任何有副作用操作都绝不自动重放；`SESSION-08` 仅为 L1，
+> 当前仍没有 S07 Context Engineering、S08 分层 Settings、S13 OS Sandbox 或 S14 稳定迁移协议。
 
 ## 项目目标
 
@@ -172,7 +176,12 @@ Spring AI 只位于模型和集成适配层，React/Ink 只位于终端前端。
 22. [S05 启动 Gate 证据](./docs/evidence/S05-permission-gate-2026-08-02.md)：G0-G2 来源、目标和测试契约；
 23. [S05 Stage Exit 证据](./docs/evidence/S05-permission-pipeline-2026-08-03.md)：实现 Commit 的 G0-G6、测试、Demo、对账与剩余能力边界；
 24. [S05 Demo](./docs/demos/S05-permission-pipeline.md)：三模式、Session Grant、Hard Denial、拒绝恢复与 Fake External 可复现场景；
-25. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：仍有效的 Provider 与 Streaming 目标；
+25. [ADR-040](./docs/adr/ADR-040-s06-authorized-session-checkpoint-study.md)：S06 授权 Session/Checkpoint 机制的采纳与偏离；
+26. [ADR-041](./docs/adr/ADR-041-s06-session-checkpoint.md)：S06 JSONL、恢复 Gate、Checkpoint phase 与 Undo 契约；
+27. [S06 Gate 证据](./docs/evidence/S06-session-checkpoint-gate-2026-08-03.md)：G0-G6、自动验证、Demo、Gap 与退出对账；
+28. [S06 Demo](./docs/demos/S06-session-checkpoint.md)：Create/Resume/Fork、崩溃恢复、Behavior Replay、Diff/Undo 与 TUI 二次确认；
+29. [S06 差距报告](./docs/gap-reports/S06.md)：本机 lease、内部协议、普通文件恢复和后续 Stage 边界；
+30. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：仍有效的 Provider 与 Streaming 目标；
 26. [ADR-020（历史）](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)：此前暂停研究的审计记录；
 27. [Stage 证据包模板](./docs/templates/stage-evidence-package.md)：每个阶段统一的 G0-G6 Gate；
 26. [S01 Runtime Kernel ADR](./docs/adr/ADR-017-s01-runtime-kernel.md)：首个代码阶段的关键取舍；
@@ -218,7 +227,8 @@ OpenAI-compatible Provider；测试专用 Fake 仍用于离线协议、乱序与
 模式安全拒绝。S04 `run_command` 也已达到 L1：固定平台 Shell 和 Workspace，准确展示
 命令/Shell/cwd 后单次审批，过滤子进程环境，并支持 stdout/stderr 事件、输出上限、
 timeout、取消和 Windows 进程树清理。它仍运行在当前用户账户下，不是 OS Sandbox。
-项目仍不包含后台命令、完整权限策略或持久化。复现方法见
+项目仍不包含后台命令或 OS Sandbox；S05 完整权限策略与 S06 持久 Session/Checkpoint 已按各自
+Stage 边界实现。复现方法见 [S06 Session + Checkpoint Demo](./docs/demos/S06-session-checkpoint.md)、
 [S02 TUI Spike Demo](./docs/demos/S02-tui-spike.md)和
 [S02 Java Print Demo](./docs/demos/S02-java-print.md)，文件写入契约见
 [S04 Patch/Write Demo](./docs/demos/S04-patch-write.md)，命令契约见

@@ -76,7 +76,7 @@ function ConvertFrom-CodejArguments {
             }
         }
 
-        if ($name -in @('--rebuild', '--doctor', '--help')) {
+        if ($name -in @('--rebuild', '--doctor', '--help', '--continue')) {
             if ($hasInlineValue) {
                 throw "参数 $name 不接受值。"
             }
@@ -87,7 +87,7 @@ function ConvertFrom-CodejArguments {
             continue
         }
 
-        if ($name -notin @('--workspace', '--model', '--timeout', '--print')) {
+        if ($name -notin @('--workspace', '--model', '--timeout', '--print', '--resume', '--fork')) {
             throw "未知参数：$argument"
         }
         if ($values.ContainsKey($name)) {
@@ -117,6 +117,14 @@ function ConvertFrom-CodejArguments {
     if ($flags.ContainsKey('--doctor') -and ($values.ContainsKey('--print') -or $flags.ContainsKey('--rebuild'))) {
         throw '--doctor 不能与 --print 或 --rebuild 组合。'
     }
+    $sessionSelections = @(@(
+        $flags.ContainsKey('--continue'),
+        $values.ContainsKey('--resume'),
+        $values.ContainsKey('--fork')
+    ) | Where-Object { $_ })
+    if ($sessionSelections.Count -gt 1) {
+        throw '--continue、--resume 和 --fork 只能选择一个。'
+    }
 
     $workspace = if ($values.ContainsKey('--workspace')) {
         ConvertTo-CodejAbsolutePath -Path $values['--workspace'] -BasePath $InvocationDirectory
@@ -130,6 +138,9 @@ function ConvertFrom-CodejArguments {
         Model = if ($values.ContainsKey('--model')) { $values['--model'] } else { $null }
         Timeout = if ($values.ContainsKey('--timeout')) { $values['--timeout'] } else { '5m' }
         Print = if ($values.ContainsKey('--print')) { $values['--print'] } else { $null }
+        Continue = $flags.ContainsKey('--continue')
+        Resume = if ($values.ContainsKey('--resume')) { $values['--resume'] } else { $null }
+        Fork = if ($values.ContainsKey('--fork')) { $values['--fork'] } else { $null }
         Rebuild = $flags.ContainsKey('--rebuild')
         Doctor = $flags.ContainsKey('--doctor')
         Help = $flags.ContainsKey('--help')
@@ -141,8 +152,8 @@ function Get-CodejHelpText {
 codej - cc-java 源码开发启动器
 
 用法：
-  codej [--workspace <path>] [--model <name>] [--timeout <duration>]
-  codej --print <prompt> [--workspace <path>] [--model <name>] [--timeout <duration>]
+  codej [--workspace <path>] [--model <name>] [--timeout <duration>] [--continue | --resume <session-id> | --fork <session-id>]
+  codej --print <prompt> [--workspace <path>] [--model <name>] [--timeout <duration>] [--continue | --resume <session-id> | --fork <session-id>]
   codej --doctor [--workspace <path>]
   codej --rebuild [其他启动参数]
   codej --help
@@ -150,6 +161,7 @@ codej - cc-java 源码开发启动器
 说明：
   未指定 --workspace 时，使用执行 codej 时的当前目录。
   --print 是一次性非交互 Run；不表示进入 TUI 后预填消息。
+  --continue、--resume 和 --fork 选择同一 Workspace 下的持久 Session。
   --rebuild 忽略开发构建缓存并强制执行 Maven 增量构建。
 '@
 }
