@@ -1,11 +1,11 @@
 # cc-java 产品需求文档
 
-> 文档状态：Draft v0.8
+> 文档状态：Draft v0.9
 >
-> 最后更新：2026-07-30
+> 最后更新：2026-08-04
 >
-> 当前阶段：S01 Runtime Kernel 与 S02 Model + Streaming CLI 已 Accepted；S03 Read
-> Tools 已在实现 Commit `71a2818` 上完成独立实现、专项离线验证和 Commit-scoped 复验，Stage Exit Accepted
+> 当前阶段：S01-S06 已 Accepted；S07 Context Engineering 已完成 G0-G2 研究与设计冻结，
+> ADR-042/043/044 已接受，尚无生产实现、Capability Level 提升或 G3-G6 证据
 >
 > 产品负责人：项目维护者
 
@@ -323,11 +323,32 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
 
 ### 11.6 Context
 
-- FR-CTX-001：S03 加载 Workspace 根目录中的 `AGENTS.md` 作为项目指令。
-- FR-CTX-002：项目指令只影响模型行为，不能扩大工具权限。
+- FR-CTX-001：S03 加载 Workspace 根目录中的 `AGENTS.md` 作为项目指令；S08 前不引入用户/目录
+  分层 Instructions。
+- FR-CTX-002：项目指令、记忆、摘要和 Tool/模型输出都只作为不可信 Context，不能扩大工具权限、
+  Workspace 或解除 Hard Denial/Recovery Gate。
 - FR-CTX-003：工具输出具有类型化大小上限、明确的截断或外置标记。
-- FR-CTX-004：Context 维护当前会话消息；自动压缩策略在 S07 依据公开来源和独立实验学习。
-- FR-CTX-005：上下文接近模型限制时应安全停止或进行一次有界恢复，不能反复重试。
+- FR-CTX-004：S07 保持 S06 Canonical Transcript 不变，每次模型请求构造短生命周期 Context
+  Projection；压缩失败、取消或损坏输入不得回写规范 JSONL。
+- FR-CTX-005：上下文接近模型限制时按压力条件选择 C1 大载荷缩减、C2 旧 Tool 输出清理、C3
+  滚动记忆或 C4 全量摘要；C1-C4 不是固定串行四步，预算满足后立即停止。
+- FR-CTX-006：任意 Projection 必须保持完整 Tool Call/Result 配对和批次顺序，协议孤儿数为零；
+  活动或未完成 Tool 不进入可删除边界。
+- FR-CTX-007：Provider 明确 Overflow 时同一模型回合最多恢复一次；重复压力受 Thrashing Guard
+  限制，无法安全满足预算时以 `CONTEXT_LIMIT_REACHED` 停止。
+- FR-CTX-008：摘要为空、失败、取消、返回 Tool Call、来源 revision 变化或关键事实/约束缺失时，
+  不提交压缩边界。
+- FR-CTX-009：S07 内部 Context Usage View 按 System、Instructions、Transcript、Tool、Memory、
+  Reserved/Free 分类展示有界估算且不泄漏正文；完整 `/context` Slash Command UX 归 S08。
+- FR-CTX-010：项目级文件记忆默认位于 `~/.cc-java/projects/<repository-id>/memory`，入口为
+  `MEMORY.md`，分 M1 Storage、M2 Index、M3 Catalog、M4 Recall、M5 Projection；M2 最多 200 行
+  或 25KB，M3 最多 200 topic 文件。
+- FR-CTX-011：记忆类型只使用 `USER_PROFILE`、`WORKING_GUIDANCE`、`PROJECT_STATE`、
+  `REFERENCE_POINTER`；记忆是可修正、可删除、可重建的 Projection 输入，不是 Session 事实。
+- FR-CTX-012：相关记忆可以并行预取，但消费必须零等待：只使用消费时已完成且通过校验的结果；
+  未完成、失败、取消按空结果继续，迟到结果不得注入已发送请求。
+- FR-CTX-013：文件记忆拒绝绝对路径、Traversal、Symlink/Junction、非法 UTF-8、超限和 Secret
+  候选；repository-id 不得泄漏 Workspace 绝对路径。
 
 ### 11.7 Session 与事件
 
@@ -403,14 +424,20 @@ heartbeat/stale reclaim 或 OS Sandbox；这些兼容性和隔离能力属于 S1
 
 ### S07：Context Engineering
 
-- Context Usage 展示和模型容量预算；
-- 工具结果淘汰、完整协议回合保留和自动摘要；
-- 压缩失败不污染规范历史，同一次溢出只允许一次有界恢复；
-- 压缩前后事件、摘要质量测试和防重复压缩；
-- 建立长会话回放集，比较压缩前后的事实保持、任务完成度和 Token 降幅。
+G0-G2 已由 ADR-042/043/044 完成研究与设计冻结；当前没有生产实现或等级提升。G3-G6 验收范围：
 
-具体 Reducer、记忆机制、阈值和编排顺序不是当前已接受需求。S07 启动时必须依据公开
-来源、授权机制研究和独立实验重新决策；授权恢复不会自动恢复历史 ADR-019 的具体结论。
+- Canonical Transcript/Context Projection 分离、Model-aware 容量预算和可解释 Usage View；
+- C1 大载荷缩减、C2 旧 Tool 输出清理、C3 滚动记忆、C4 全量摘要按条件选择，保持完整 Tool
+  协议且满足预算后停止；
+- 摘要提交 Gate、同一次 Overflow 一次恢复、失败不污染规范历史和 Thrashing Guard；
+- `MEMORY.md` 入口及 M1 Storage、M2 Index、M3 Catalog、M4 Recall、M5 Projection；
+- `CTX-17` Auto Memory Index 与 `CTX-18` Relevant Memory Prefetch，后者采用 ready-only 零等待消费；
+- 长会话回放比较事实/约束保持、任务完成度和 Token 降幅，并证明慢预取不增加模型请求关键路径。
+
+S07 文件记忆只保存普通本地 Markdown 投影，不保存 Secret、完整 Prompt/源码或未经裁剪 Tool 输出。
+S08 负责分层 Instructions、Settings 和完整 Slash Command UX；S12 负责 Sub-Agent/后台任务；S14
+负责稳定 Export/Retention/Migration、SQLite 与 Provider-native Context/Cache 对照；S13 负责 OS
+Sandbox。历史 ADR-019 继续 Superseded。
 
 ### S08：Instructions、Settings 与 CLI 交互
 
@@ -509,9 +536,11 @@ S14 按 `Eval/Observability → SDK/Headless → Distribution/Compatibility` 三
 - NFR-010：仓库内容、工具输出和模型文本全部视为不可信输入。
 - NFR-011：权限由代码执行，不依赖 Prompt。
 - NFR-012：路径工具阻止绝对路径、穿越、符号链接和 Windows Junction 越界。
-- NFR-013：API Key 不进入仓库、Transcript 或普通日志。
-- NFR-014：S04-S05 的 Permission Gate 不是 OS Sandbox，文档和 UI 必须明确这一点。
+- NFR-013：API Key、密码、Token、端点和其他 Secret 不进入仓库、Transcript、文件记忆、摘要或普通日志；疑似 Secret 记忆候选 Fail Closed。
+- NFR-014：Permission、Memory、Context Reduction、FileLock 与 Checkpoint 都不是 OS Sandbox，文档和 UI 必须明确这一点。
 - NFR-015：未经用户明确要求和批准，不执行远端推送、发布、部署或数据写入。
+- NFR-016：记忆与索引文件每次访问都必须在独立 memory root 内做真实路径、普通文件、大小、数量、Symlink/Junction 与竞态校验。
+- NFR-017：相关记忆预取失败、取消或迟到不能阻断主模型请求，也不能在请求发送后异步改变该次 Context。
 
 ### 17.3 质量
 

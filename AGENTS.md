@@ -31,6 +31,9 @@
    [ADR-039](./docs/adr/ADR-039-s05-permission-pipeline.md)、
    [ADR-040](./docs/adr/ADR-040-s06-authorized-session-checkpoint-study.md)、
    [ADR-041](./docs/adr/ADR-041-s06-session-checkpoint.md)、
+   [ADR-042](./docs/adr/ADR-042-s07-authorized-context-memory-study.md)、
+   [ADR-043](./docs/adr/ADR-043-s07-context-projection-compaction.md)、
+   [ADR-044](./docs/adr/ADR-044-s07-file-memory-prefetch.md)、
    [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)、
    [ADR-018](./docs/adr/ADR-018-authorized-reference-study.md)、
    [ADR-019](./docs/adr/ADR-019-s07-progressive-context-reduction.md)与
@@ -94,11 +97,14 @@ Checkpoint/Diff/显式 Undo、Behavior Replay 与 Java CLI/Print/stdio/TUI 生�
   显式确认 Gate，或把 Checkpoint 描述成 Git/OS Sandbox；
 - 当前没有 OS Sandbox；不得把应用层 Permission、FileLock、Checkpoint 或进程清理描述成 S13
   隔离能力；
-- S07 的 Context 压缩、S08 分层 Settings、S14 稳定 Export/Retention/Migration 及后续能力继续
-  保持未实现状态。
+- S07 已由 ADR-042/043/044 完成 G0-G2 研究与设计冻结；Canonical Transcript/Projection、
+  条件式 C1-C4、文件记忆 M1-M5 与 ready-only 零等待预取仍未生产实现，`CTX-17/18` 保持 L0，
+  G3-G6 与 Stage Exit 保持 Open；
+- S08 分层 Instructions/Settings、S12 Sub-Agent/后台任务/Worktree、S13 OS Sandbox、S14 稳定
+  Export/Retention/Migration 及后续能力继续保持未实现状态。
 
-S06 Accepted 不表示 S07 Context、S08 分层 Permission、S13 OS Sandbox 或 S14 稳定持久化能力
-已经可用。下一步只进入 S07 Context Engineering 授权研究与启动 Gate。
+S06 Accepted 与 S07 G0-G2 不表示 S07 Context、文件记忆、S08 分层 Permission、S13 OS Sandbox
+或 S14 稳定持久化能力已经可用。下一步只进入 S07 G3 独立实现与离线 Fake。
 
 ## 3. 项目定位
 

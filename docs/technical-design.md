@@ -1,17 +1,15 @@
 # cc-java 技术设计文档
 
-> 文档状态：Proposed v0.8
+> 文档状态：Proposed v0.9
 >
-> 最后更新：2026-07-30
+> 最后更新：2026-08-04
 >
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
-> 当前学习阶段：S01 Runtime Kernel 与 S02 Model + Streaming CLI 已 Accepted；S03
-> Read Tools 已在实现 Commit `71a2818` 上 Accepted
+> 当前学习阶段：S01-S06 已 Accepted；S07 Context Engineering 已完成 G0-G2 研究与设计冻结
 >
-> 当前实现状态：S01-S05 已 Accepted；S06 当前 WORKTREE 已完成 G0-G5，等待协调者
-> Commit-scoped G6。项目自有 JSONL、Session 打开/恢复/分叉、本机单 Writer、未完成 Tool Gate、
-> File Checkpoint/Diff/显式 Undo、Behavior Replay 与 CLI/stdio/TUI 接入已有专项离线证据。
+> 当前实现状态：ADR-042/043/044 已固定 Context Projection、条件式 Reduction、文件记忆和零等待
+> 预取的独立契约；尚无 S07 生产实现、Capability Level 提升或 G3-G6 证据。
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 
@@ -818,12 +816,105 @@ S03-S04 不实现自动压缩。它们只：
 - 接近阈值时发布 Warning；
 - 无法继续时以 `CONTEXT_LIMIT_REACHED` 停止。
 
-S07 再研究工具结果淘汰、完整协议回合保留、摘要、渐进压缩、压缩防抖和
-`/context`。具体 Reducer、记忆机制、持久化投影、阈值与编排顺序不是当前已接受设计；
-必须在 S07 启动时依据公开来源、独立场景和长会话 Eval 重新形成 ADR。
+S07 的 G0-G2 已由 ADR-042、ADR-043 与 ADR-044 冻结：S06 append-only JSONL 继续作为
+Canonical Transcript，模型每次请求只消费从该事实源构建的短生命周期 Context Projection。
+Reducer、摘要与文件记忆都不能改写规范 Transcript，也不能成为 Permission、Recovery 或审计事实。
 
-授权研究已由 ADR-022 恢复，但历史 ADR-019 的具体 S07 结论不会自动生效。S07 必须
-结合公开来源、授权机制研究、独立场景和长会话 Eval 重新形成采纳 ADR。
+### 16.1 Context Projection 与条件式 Reduction
+
+Core 使用框架无关的值对象和 Port 表达容量、预算、候选与结果：
+
+```text
+ContextCapacity(modelId, maximumInputTokens, reservedOutputTokens, safetyMarginTokens)
+ContextUsage(systemTokens, instructionTokens, transcriptTokens, toolTokens,
+             memoryTokens, totalTokens, remainingTokens, estimateKind)
+ProjectionRequest(canonicalMessages, systemInputs, instructionInputs,
+                  readyMemories, capacity, overflowRecoveryAvailable)
+ContextProjection(messages, usage, appliedReductions, sourceRevision)
+ReductionCandidate(strategy, boundary, estimatedTokensFreed, fidelityRisk)
+ReductionOutcome(status, strategy, beforeUsage, afterUsage, reasonCode)
+
+ContextProjectionPlanner.plan(ProjectionRequest) -> ProjectionPlan
+ContextReducer.reduce(ProjectionPlan, CancellationToken) -> ReductionResult
+ContextTokenEstimator.estimate(ProjectionInput) -> ContextUsage
+ContextSummarizer.summarize(SummaryRequest, CancellationToken) -> SummaryResult
+```
+
+Planner 根据当前压力、预计收益、保真风险和协议边界，从以下策略中选择零个、一个或多个；
+每次应用后重新计算预算，满足容量即停止，不能实现为固定串行四步：
+
+| 策略 | 责任 | 必须保留 |
+| --- | --- | --- |
+| C1 大载荷缩减 | 对单个高体积载荷生成有界、可解释的保真表示 | 来源、类型、截断事实与关键结果 |
+| C2 旧 Tool 输出清理 | 清除低价值旧 Tool Result 正文 | 类型化占位、Call/Result ID 与批次顺序 |
+| C3 滚动记忆 | 归纳已完成历史并保留近期交互 | 已确认事实、硬约束、未完成工作与失败状态 |
+| C4 全量摘要 | 其他安全策略不足时摘要完整可压缩区间 | 完整协议边界与后续继续任务所需状态 |
+
+同一 Assistant Message 中的 Tool Calls 保持一个批次；每个保留 Call 必须恰有一个对应 Result，
+活动或未完成 Tool 不进入可删除边界，Projection 的协议孤儿数必须为零。摘要候选只有在非空且
+有界、无 Tool Call、请求未取消、source revision 未变化、边界完整、关键事实与约束通过校验、
+且能够释放足够 Token 时才可进入 Projection；任一 Gate 失败即丢弃候选，不回写 Canonical
+Transcript。
+
+Provider 报告 Overflow 时，同一模型回合最多重新规划一次；第二次 Overflow 明确终止。相同
+source revision、压力区间和失败策略进入冷却，防止反复摘要、费用循环和上下文抖动。内部
+Context Usage View 公开各来源预算、当前压力、应用策略和隐私安全原因码；完整 `/context` 与
+`/compact` 交互 UX 延期 S08。
+
+### 16.2 文件记忆与零等待预取
+
+项目指令继续以仓库根 `AGENTS.md` 为入口。跨 Session 文件记忆使用默认根目录
+`~/.cc-java/projects/<repository-id>/memory`，其中 `repository-id` 由规范 Workspace 身份稳定
+派生且不泄漏绝对路径。记忆按 `USER_PROFILE`、`WORKING_GUIDANCE`、`PROJECT_STATE` 与
+`REFERENCE_POINTER` 四类表达，并划分为：
+
+| 层 | 责任 | 上限或约束 |
+| --- | --- | --- |
+| M1 Storage | 一个 topic 一个 UTF-8 Markdown 文件 | 最多 200 个 topic；受限 frontmatter 与单文件上限 |
+| M2 Index | `MEMORY.md` 链接和一行 hook | 最多 200 行或 25KB |
+| M3 Catalog | 从 M1 有界扫描并可重建元数据目录 | 最多扫描 200 个 topic |
+| M4 Recall | 按当前任务只读选择少量相关 topic | 有界、可取消，失败降级为空 |
+| M5 Projection | 校验、去重并按 Token 预算注入 ready 片段 | 只消费完成且 revision 有效的结果 |
+
+Core 只依赖独立契约：
+
+```text
+MemoryKind
+MemoryTopic(name, kind, description, body, contentDigest, updatedAt)
+MemoryCatalog(entries, diagnostics, revision)
+RecallQuery(repositoryId, userText, boundedKeywords, tokenBudget)
+MemoryProjection(items, estimatedTokens, catalogRevision)
+
+MemoryRepository.loadIndex() / loadTopic() / saveTopic() / deleteTopic()
+MemoryCatalogBuilder.rebuild()
+RelevantMemoryRecall.start(RecallQuery, CancellationToken) -> MemoryPrefetch
+MemoryPrefetch.consumeReady() -> MemoryProjection
+MemoryProjector.validateAndProject(readyItems, budget) -> MemoryProjection
+```
+
+Prefetch 可在非记忆输入组装前启动，但 `consumeReady()` 必须立即返回，不得等待 Future、锁、文件
+I/O 或模型调用。消费点尚未完成、失败、取消或 revision 过期时返回空；请求发送后的迟到结果
+不能注入该请求，只能在下一请求重新评估。该并行准备不实现 S12 Sub-Agent、后台 Agent、任务
+系统或并行 Tool。
+
+文件 Adapter 每次访问和最终原子 Move 前都要校验真实路径、普通文件、大小、数量、UTF-8、
+Symlink/Junction 与竞态；M1 更新使用 digest 冲突检查，M2/M3 作为派生数据可从 M1 重建。记忆、
+索引、摘要和 frontmatter 均是不可信输入，不得保存 Secret、完整 Prompt、完整源码或未经裁剪的
+Tool 输出，也不能扩大 Workspace、提升 Permission、解除 Hard Denial 或绕过 S06 Recovery Gate。
+
+### 16.3 验证与延期边界
+
+G3-G6 必须以离线 Fake 和长会话 Eval 证伪：Tool 协议孤儿数为 `0`，固定事实和硬约束保持率均为
+`100%`，任务完成率不低于未压缩对照；进入 Reduction 的样本中，模型输入 Token 中位数至少下降
+`30%`；慢记忆召回不能增加主模型请求关键路径等待。上述数值是 cc-java 独立 S07 退出阈值，
+不是参考实现常量。
+
+S08 负责分层 Instructions/Settings 与完整 Context UX；S12 负责 Sub-Agent Context 隔离、后台
+Agent、任务系统、并行 Tool 与 Worktree；S13 才负责 OS Sandbox；S14 负责稳定
+Export/Retention/Migration、SQLite 或大规模索引、Provider Cache Hint、原生 Context Editing 和
+跨版本持久化兼容。G3-G6 完成前，ADR-042/043/044 只表示设计已冻结，不表示生产能力可用。
+
+ADR-042 已按 ADR-022 完成新的采纳边界；历史 ADR-019 继续保持 Superseded，不作为实现依据。
 
 ## 17. Session
 

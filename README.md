@@ -86,8 +86,9 @@ Stage 证据为准。
 | L3 | 关键行为和异常路径可与参考基线比较 |
 | L4 | 在评测数据支持下形成 Java 生态差异化 |
 
-R2026.03 基线目前追踪 193 个 Capability ID。S01 只把 19 项推进到 L1，
-其余 174 项仍为 L0；这表示已经建立可测试学习骨架，不表示可以承担真实编码任务。
+R2026.03 基线目前追踪 195 个 Capability ID。S01-S06 已完成 Accepted Stage Exit；当前
+55 项为 L2、31 项为 L1、109 项为 L0。S07 只完成 G0-G2 研究与设计冻结，本次新增的
+`CTX-17/18` 仍为 L0，尚不表示 Context Reduction 或文件记忆已可用于真实任务。
 默认最终目标为 L3，任何不实现项都必须记录 `Accepted Deviation`。
 
 项目同时度量四件事：
@@ -158,7 +159,7 @@ Spring AI 只位于模型和集成适配层，React/Ink 只位于终端前端。
 2. [公开行为基线](./docs/reference-baselines/R2026.03-public-behavior.md)：来源分类、版本限制和行为证据规则；
 3. [授权参考源码基线](./docs/reference-baselines/R2026.03-authorized-source.md)：允许学习的快照、未知项和非复制边界；
 4. [功能对照矩阵](./docs/feature-parity-matrix.md)：我们做到哪里、还差什么；
-5. [项目进度看板](./docs/progress.html)：当前 Stage、Gate、阻塞项和 193 项 Capability 的可视化；
+5. [项目进度看板](./docs/progress.html)：当前 Stage、Gate、阻塞项和 195 项 Capability 的可视化；
 6. [产品需求](./docs/product-requirements.md)：学习型产品边界和阶段验收；
 7. [技术设计](./docs/technical-design.md)：Java 架构、协议和实现约束；
 8. [ADR-022](./docs/adr/ADR-022-reactivate-authorized-reference-study.md)：维护者授权确认后的受控研究规则；

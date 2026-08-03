@@ -4,15 +4,13 @@
 >
 > 参考版本：R2026.03
 >
-> 最后更新：2026-08-03
+> 最后更新：2026-08-04
 >
-> 当前代码状态：S01-S06 已 Accepted；S06 Session + Checkpoint 已在实现 Commit
-> `0a9df85b4a2d8532826c63aa96889540369cd1e9` 上完成 Commit-scoped G0-G6。项目自有
-> append-only JSONL、Create/Continue/Resume/Fork/Inspect、本机单 Writer、未完成 Tool Recovery
-> Gate、ordinary-file Checkpoint/Diff/显式 Undo、
-> Behavior Replay 及 Java CLI/Print/stdio/TUI 生产接入已有可证伪证据；绝不自动重放有副作用操作。
-> `SESSION-08` 仍仅为 L1，其余所列 S06 Feature 达到退出目标 L2；S07 Context、S08 Settings、
-> S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 继续延期。下一步进入 S07 授权研究与启动 Gate。
+> 当前代码状态：S01-S06 已 Accepted；S07 Context Engineering 已完成 G0-G2 研究与设计冻结，
+> ADR-042/043/044 固定 Canonical Transcript/Projection 分离、条件式 C1-C4、文件记忆 M1-M5
+> 与零等待相关记忆预取。当前没有 S07 生产实现或 Capability Level 提升，G3-G6 保持 Open；
+> `CTX-17/18` 作为新差距加入且仍为 L0。S08 分层 Instructions/Settings、S12 Sub-Agent、S13 OS
+> Sandbox 与 S14 稳定 Export/Retention/Migration 继续延期。
 
 ## 1. 文档目的
 
@@ -155,13 +153,13 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 
 | 指标 | R2026.03 当前值 |
 | --- | --- |
-| 纳入追踪的 Capability ID | 193 |
-| 当前阶段 | S06 Session + Checkpoint（Accepted） |
-| Stage Exit | Accepted：实现 Commit `0a9df85b4a2d8532826c63aa96889540369cd1e9` 已通过 Commit-scoped G0-G6 |
-| 当前等级 | 55 项为 L2，31 项为 L1，107 项为 L0 |
-| 默认最终目标 | 193 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 24.35%（193 项等权、目标 L3） |
-| 下一步 | 进入 S07 Context Engineering 授权研究与启动 Gate；S08/S13/S14 延期边界不变 |
+| 纳入追踪的 Capability ID | 195 |
+| 当前阶段 | S07 Context Engineering（G0-G2 设计冻结） |
+| Stage Exit | Open：ADR-042/043/044 已通过 G0-G2；G3-G6 尚未开始 |
+| 当前等级 | 55 项为 L2，31 项为 L1，109 项为 L0；本次无等级变化 |
+| 默认最终目标 | 195 项达到 L3，或存在明确 `Accepted Deviation` |
+| 当前能力覆盖 | 24.10%（195 项等权、目标 L3） |
+| 下一步 | 进入 S07 G3 独立实现；S08/S12/S13/S14 延期边界不变 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -391,6 +389,8 @@ Stage 完成项。
 | CTX-14 | Skill Lazy Loading | Metadata 先加载 | L0 | S11 | REF-03 |
 | CTX-15 | Sub-Agent Isolation | 独立窗口与摘要返回 | L0 | S12 | REF-02/03 |
 | CTX-16 | Prompt Cache | 稳定前缀和 Tool 顺序 | L0 | S14 | REF-01 |
+| CTX-17 | Auto Memory Index | `MEMORY.md` + 有界 topic Catalog 与可重建索引 | L0 | S07 | REF-05/AUTH-01 |
+| CTX-18 | Relevant Memory Prefetch | ready-only、零等待的相关记忆投影 | L0 | S07 | REF-05/AUTH-01 |
 
 ## 15. Settings / Configuration 对照
 
@@ -639,19 +639,22 @@ S06 授权研究与 Gate，不表示持久 Session 或 Checkpoint 已实现。
 
 ### S07：Context Engineering
 
-完成条件：
+G0-G2 已由 ADR-042/043/044 冻结；G3-G6 完成条件：
 
-- Token Budget；
-- 完整 Turn 淘汰并保持 Tool Call/Result 配对；
-- 旧 Tool Output 清理；
-- 摘要与压缩；
-- 同次 Overflow 有界恢复；
-- Thrashing Guard；
-- `/context`；
-- 长会话事实保持、任务完成度和 Token 降幅 Eval。
+- Model-aware Token Budget 与可解释 Context Usage View；
+- Canonical Transcript 保持不变，Projection 中完整 Tool Call/Result 配对；
+- C1 大载荷缩减、C2 旧 Tool 输出清理、C3 滚动记忆、C4 全量摘要按压力条件选择，
+  不作为固定串行四步；
+- 同次 Overflow 一次有界恢复、失败不提交与 Thrashing Guard；
+- M1 Storage、M2 `MEMORY.md` Index（最多 200 行或 25KB）、M3 Catalog（最多 200 topic）、
+  M4 Recall、M5 Projection；
+- `CTX-18` ready-only 零等待消费：未完成/失败/取消立即按空结果继续，迟到结果不注入已发送请求；
+- `/context` 所需内部 Usage 投影；完整 Slash Command UX 仍归 S08；
+- 长会话事实/约束保持、任务完成度、Token 降幅与预取关键路径 Eval。
 
-S07 的具体 Reducer、记忆策略与阈值必须在该阶段依据公开来源、授权机制研究和独立场景
-重新验证。授权恢复不自动恢复历史 ADR-019 的具体结论，仍需新的采纳 ADR。
+S07 采用本项目独立命名、阈值和 Java 契约；历史 ADR-019 继续 Superseded。稳定 Export、Retention、
+Migration、SQLite、Provider Cache/Context Editing 留到 S14；分层 Instructions/Settings 留到 S08，
+Sub-Agent/后台任务留到 S12，OS Sandbox 留到 S13。
 
 ### S08：Instructions + Settings
 
