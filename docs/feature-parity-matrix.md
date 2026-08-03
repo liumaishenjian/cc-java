@@ -6,12 +6,13 @@
 >
 > 最后更新：2026-08-03
 >
-> 当前代码状态：S01-S05 已 Accepted；S06 Session + Checkpoint 已在当前 WORKTREE 完成 G0-G5，
-> 等待协调者 Commit-scoped G6 审查与提交。项目自有 append-only JSONL、Create/Continue/Resume/
-> Fork/Inspect、本机单 Writer、未完成 Tool Recovery Gate、ordinary-file Checkpoint/Diff/显式 Undo、
+> 当前代码状态：S01-S06 已 Accepted；S06 Session + Checkpoint 已在实现 Commit
+> `0a9df85b4a2d8532826c63aa96889540369cd1e9` 上完成 Commit-scoped G0-G6。项目自有
+> append-only JSONL、Create/Continue/Resume/Fork/Inspect、本机单 Writer、未完成 Tool Recovery
+> Gate、ordinary-file Checkpoint/Diff/显式 Undo、
 > Behavior Replay 及 Java CLI/Print/stdio/TUI 生产接入已有可证伪证据；绝不自动重放有副作用操作。
-> `SESSION-08` 仅为 L1，其余所列 S06 Feature 达到退出目标 L2；不包含 S07 Context、S08 Settings、
-> S13 OS Sandbox 或 S14 稳定 Export/Retention/Migration。
+> `SESSION-08` 仍仅为 L1，其余所列 S06 Feature 达到退出目标 L2；S07 Context、S08 Settings、
+> S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 继续延期。下一步进入 S07 授权研究与启动 Gate。
 
 ## 1. 文档目的
 
@@ -155,12 +156,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 193 |
-| 当前阶段 | S06 Session + Checkpoint（WORKTREE，G0-G5 Passed） |
-| Stage Exit | Pending：等待协调者完成 Commit-scoped G6 审查与提交 |
+| 当前阶段 | S06 Session + Checkpoint（Accepted） |
+| Stage Exit | Accepted：实现 Commit `0a9df85b4a2d8532826c63aa96889540369cd1e9` 已通过 Commit-scoped G0-G6 |
 | 当前等级 | 55 项为 L2，31 项为 L1，107 项为 L0 |
 | 默认最终目标 | 193 项达到 L3，或存在明确 `Accepted Deviation` |
 | 当前能力覆盖 | 24.35%（193 项等权、目标 L3） |
-| 下一步 | 完成 S06 Commit-scoped G6；验收后进入 S07 Context Engineering 授权研究与启动 Gate |
+| 下一步 | 进入 S07 Context Engineering 授权研究与启动 Gate；S08/S13/S14 延期边界不变 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 

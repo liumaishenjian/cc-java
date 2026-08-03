@@ -43,12 +43,14 @@
 > 防循环，以及 Fake MCP/Plugin/Sub-Agent 的统一 Pipeline/64K 输出上限；所列 Capability
 > 已按 ADR-039 的退出目标达到 L2。
 >
-> S06 Session + Checkpoint 已在当前 WORKTREE 完成 G0-G5，等待协调者 Commit-scoped G6 审查与
-> 提交。生产路径现已提供项目自有 append-only semantic JSONL、Create/Continue/Resume/Fork/Inspect、
+> S06 Session + Checkpoint 已在实现 Commit
+> `0a9df85b4a2d8532826c63aa96889540369cd1e9` 上完成 Commit-scoped G0-G6，Stage Exit 为
+> Accepted。生产路径现已提供项目自有 append-only semantic JSONL、Create/Continue/Resume/Fork/Inspect、
 > Workspace-aware metadata、本机单 Writer、未完成 Tool Recovery Gate、写前 ordinary-file
 > Checkpoint、有界 Diff 与逐项显式 Undo；Java CLI/Print/stdio/TUI 共用同一 Runtime，Behavior Replay
-> 已验证 Resume/Fork canonical history。任何有副作用操作都绝不自动重放；`SESSION-08` 仅为 L1，
-> 当前仍没有 S07 Context Engineering、S08 分层 Settings、S13 OS Sandbox 或 S14 稳定迁移协议。
+> 已验证 Resume/Fork canonical history。任何有副作用操作都绝不自动重放；`SESSION-08` 仍仅为 L1；
+> 当前仍没有 S07 Context Engineering、S08 分层 Settings、S13 OS
+> Sandbox 或 S14 稳定 Export/Retention/Migration。下一步进入 S07 授权研究与启动 Gate。
 
 ## 项目目标
 

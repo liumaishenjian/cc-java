@@ -61,11 +61,12 @@ stdout/stderr 事件、输出上限、timeout/cancel 与 Windows 进程树清理
 `f7b7137081e2d85417fa5965835d4c014e514dac` 上完成 G0-G6 与 Stage Exit：ADR-038 固定参考
 结论采纳边界，ADR-039 固定三模式、规则优先级、绑定可信 ToolSource 的 Session Grant、Hard
 Denial、隐私安全 Permission Lifecycle、拒绝恢复与 Fake External Tool 测试契约；所列 S05
-Feature 已达到 L2。**S06 Session + Checkpoint** 已在当前 WORKTREE 完成 G0-G5，等待协调者
-Commit-scoped G6 审查与提交：ADR-040/041 固定授权研究边界、项目自有 append-only JSONL、
+Feature 已达到 L2。**S06 Session + Checkpoint** 已在实现 Commit
+`0a9df85b4a2d8532826c63aa96889540369cd1e9` 上完成 Commit-scoped G0-G6 与 Stage Exit：
+ADR-040/041 固定授权研究边界、项目自有 append-only JSONL、
 Create/Continue/Resume/Fork/Inspect、本机单 Writer、未完成 Tool Recovery Gate、ordinary-file
 Checkpoint/Diff/显式 Undo、Behavior Replay 与 Java CLI/Print/stdio/TUI 生产接入；所列 Feature
-除 `SESSION-08` 达到 L1 外均达到退出目标 L2。
+除 `SESSION-08` 达到 L1 外均达到退出目标 L2，S06 Stage Exit 为 Accepted。
 
 当前允许并要求：
 
@@ -96,9 +97,8 @@ Checkpoint/Diff/显式 Undo、Behavior Replay 与 Java CLI/Print/stdio/TUI 生�
 - S07 的 Context 压缩、S08 分层 Settings、S14 稳定 Export/Retention/Migration 及后续能力继续
   保持未实现状态。
 
-S06 WORKTREE G0-G5 不表示 Stage 已完成 Commit-scoped G6，也不表示 S07 Context、S08 分层
-Permission、S13 OS Sandbox 或 S14 稳定持久化能力已经可用。协调者完成 S06 G6 后，下一步只进入
-S07 授权研究与启动 Gate。
+S06 Accepted 不表示 S07 Context、S08 分层 Permission、S13 OS Sandbox 或 S14 稳定持久化能力
+已经可用。下一步只进入 S07 Context Engineering 授权研究与启动 Gate。
 
 ## 3. 项目定位
 

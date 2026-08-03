@@ -4,8 +4,8 @@
 
 ```text
 Stage: S06 Session + Checkpoint
-Status: In Progress
-Release / Commit: WORKTREE
+Status: Accepted（G0-G6 Passed）
+Release / Commit: 0a9df85b4a2d8532826c63aa96889540369cd1e9
 Reference Behavior Baseline: R2026.03
 Authorized Snapshot ID: AUTH-SRC-2026-07-29-A
 Feature IDs: LOOP-14, SESSION-03/04/05/06/07/08/09/10/11, EVAL-02
@@ -61,7 +61,7 @@ Level；等级只能在生产路径、测试、Demo 和 G4 实际证据同一变
 | G3 独立实现 | Passed | Domain/Core/CLI/TUI 已接入项目自有 JSONL、hydrate/recovery、Tool durable pipeline、Checkpoint phase、CLI/stdio/TUI；未增加后期 Stage 能力 |
 | G4 自动验证 | Passed | 聚焦 Session/Checkpoint/Behavior Replay/stdio/TUI 已通过；最终全量命令和计数记录于下文 |
 | G5 Demo | Passed | `docs/demos/S06-session-checkpoint.md` 可复现 create/resume/fork/replay/checkpoint/diff/undo 与安全负例 |
-| G6 退出对账 | Pending coordinator review | 矩阵、README、AGENTS、PRD、技术设计、ADR、Demo、Gap、Evidence 和看板已在 WORKTREE 对账；等待协调者 Commit-scoped 审查与提交 |
+| G6 退出对账 | Passed | 实现 Commit `0a9df85b4a2d8532826c63aa96889540369cd1e9` 已完成 Commit-scoped 全量复验与协调者审查；矩阵、README、AGENTS、PRD、技术设计、ADR、Demo、Gap、Evidence 和看板一致，Stage Exit Accepted |
 
 ## G4 可证伪测试契约
 
@@ -182,5 +182,8 @@ git diff --check
 - 变更未读取或加入商业产品内部 JSONL、受限制源码字节、真实公司端点或私有业务数据；文档持续
   区分应用层 Permission/FileLock/Checkpoint 与 OS Sandbox。
 
-Capability Level 依据 G3-G5 与上述全量证据更新，但 Stage Exit 保持 Pending，等待协调者
-Commit-scoped G6 审查与提交，不宣称 Accepted。
+实现 Commit `0a9df85b4a2d8532826c63aa96889540369cd1e9` 已通过 Commit-scoped 全量复验与协调者 G6
+审查，G0-G6 全部 Passed，S06 Stage Exit 为 Accepted。本次只同步 Commit-scoped 验收状态，无
+Capability Level 再变化：`SESSION-08` 仍为 L1，其余所列 S06 Feature 保持 L2；S07 Context、S08
+Settings、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 延期边界不变。下一步进入 S07
+Context Engineering 授权研究与启动 Gate。
