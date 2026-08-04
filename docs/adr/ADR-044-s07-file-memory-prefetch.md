@@ -64,7 +64,8 @@ updated-at: <ISO-8601 date>
 <bounded Markdown body>
 ```
 
-- `name` 不是任意路径，只允许受限 slug；实际文件名由应用代码生成并在根目录内解析。
+- `name` 不是任意路径，只允许小写 ASCII 字母、数字与单个连字符组成的 kebab-case slug，最多 64 个字符；实际文件名由应用代码生成并在根目录内解析。
+- G3-A 的 M1/M3 独立保守上限为：单 topic UTF-8 最多 64KB、最多 2,000 行，frontmatter 结束标记必须在前 16 行内，`description` 最多 512 个 Unicode Code Point 且必须单行，`updated-at` 使用 ISO-8601 date；这些是 cc-java 自有防滥用常量，不来自参考实现。
 - M1 写入采用同目录暂存、提交前重检和原子 Move；更新必须带读取时 digest，冲突时拒绝覆盖。
 - M2 在 M1 成功提交后重建并原子替换；索引失败不回滚已验证 M1，但产生诊断并在下次启动重建。
 - 自动候选只能保存用户明确提供/确认或可独立验证的高价值信息；模型输出本身不是可信事实来源。

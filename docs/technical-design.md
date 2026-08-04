@@ -870,7 +870,7 @@ Context Usage View 公开各来源预算、当前压力、应用策略和隐私�
 
 | 层 | 责任 | 上限或约束 |
 | --- | --- | --- |
-| M1 Storage | 一个 topic 一个 UTF-8 Markdown 文件 | 最多 200 个 topic；受限 frontmatter 与单文件上限 |
+| M1 Storage | 一个 topic 一个 UTF-8 Markdown 文件 | 最多 200 个 topic；单文件最多 64KB/2,000 行，frontmatter 前 16 行内闭合；slug 最多 64 字符，description 最多 512 Code Point |
 | M2 Index | `MEMORY.md` 链接和一行 hook | 最多 200 行或 25KB |
 | M3 Catalog | 从 M1 有界扫描并可重建元数据目录 | 最多扫描 200 个 topic |
 | M4 Recall | 按当前任务只读选择少量相关 topic | 有界、可取消，失败降级为空 |

@@ -348,7 +348,9 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
 - FR-CTX-012：相关记忆可以并行预取，但消费必须零等待：只使用消费时已完成且通过校验的结果；
   未完成、失败、取消按空结果继续，迟到结果不得注入已发送请求。
 - FR-CTX-013：文件记忆拒绝绝对路径、Traversal、Symlink/Junction、非法 UTF-8、超限和 Secret
-  候选；repository-id 不得泄漏 Workspace 绝对路径。
+  候选；repository-id 不得泄漏 Workspace 绝对路径。M1 单 topic 最多 64KB/2,000 行，frontmatter
+  前 16 行内闭合；kebab-case slug 最多 64 字符，单行 description 最多 512 Code Point。上述常量为
+  cc-java 独立保守上限，不来自参考实现。
 
 ### 11.7 Session 与事件
 
