@@ -223,12 +223,12 @@
     }
   </style>
 </head>
-<body data-matrix-digest="0c5d14495862" data-state-digest="33e85a10062e" data-code-digest="300113941a6f">
+<body data-matrix-digest="0c5d14495862" data-state-digest="b0c125395639" data-code-digest="9a16772948e1">
   <main class="shell">
     <section class="hero">
       <p class="eyebrow">Reference-driven Java Agent Runtime</p>
       <h1>cc-java 项目进度看板</h1>
-      <p class="hero-copy">S07 Context Engineering 已完成 G0-G2，并形成 C1/C2 Reducer、C3/C4 Summary Foundation 与 CTX-17/18 M1-M5 离线生产基础；Provider/AgentRuntime/ModelRequest 接入、Stage Demo/Eval 和 Commit-scoped G3-G6 证据仍未完成。</p>
+      <p class="hero-copy">S07 Context Engineering 已完成 G0-G2，并形成 C1/C2 Reducer、C3/C4 Summary Foundation、AgentRuntime Projection/typed overflow 恢复、Spring AI Provider overflow 分类/零 Tool Summarizer Adapter 与 CTX-17/18 M1-M5 离线基础；Headless composition、模型容量配置、ready-only Memory Runtime 接入、/context View、Stage Demo/Eval 和 Commit-scoped G3-G6 证据仍未完成。</p>
       <div class="hero-meta">
         <span class="chip"><span class="dot"></span>当前 S07 · Context Engineering</span>
         <span class="chip">Stage Exit · OPEN</span>
@@ -263,7 +263,7 @@
 
     <section class="panel callout">
       <strong>Next allowed action</strong>
-      <p>继续 S07 G3：把 C1-C4 与 ready-only Memory Projection 接入 AgentRuntime 模型请求边界，再进入 G4-G6 验证；S08 分层 Instructions/Settings、S12 Sub-Agent/后台任务/Worktree、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 继续延期。</p>
+      <p>继续 S07 G3：接入 Headless composition 与显式模型容量配置，把 ready-only Memory Projection 接入 AgentRuntime，并完成 /context View、Stage Demo/Eval 与 Commit-scoped G3-G6 验证；S08 分层 Instructions/Settings、S12 Sub-Agent/后台任务/Worktree、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 继续延期。</p>
     </section>
 
     <section class="panel" id="gates">
@@ -273,7 +273,7 @@
           <p class="panel-desc">Capability 可以先达到阶段等级，但 Stage 只有 G0-G6 全部通过才退出。</p>
         </div>
       </div>
-      <ol class="gate-grid"><li class="gate passed"><div class="gate-id"><span>G0</span><span class="badge passed">已通过</span></div><p>S07 使用公开 Context/Memory 一手资料与 AUTH-SRC-2026-07-29-A；授权范围、Unknown、仓库外只读路径、非复制边界和停止条件已在基线、ADR-022/042 登记。</p></li><li class="gate passed"><div class="gate-id"><span>G1</span><span class="badge passed">已通过</span></div><p>ADR-042/043/044 固定 LOOP-11、CTX-06/07/08/09/10/11/12/13/17/18、OBS-04 的当前等级、S07 退出目标、独立长会话 Eval、Token/协议/延迟度量与延期边界；新增 CTX-17/18 保持 L0。</p></li><li class="gate passed"><div class="gate-id"><span>G2</span><span class="badge passed">已通过</span></div><p>ADR-043/044 使用独立 Java/Core 契约、Canonical Transcript/Projection 分离、条件式 C1-C4、M1-M5 与 ready-only consumeReady；不复制参考 Prompt、私有命名、布局、格式或常量。</p></li><li class="gate open"><div class="gate-id"><span>G3</span><span class="badge open">待关闭</span></div><p>已形成确定性 Token Estimator、C1/C2 Reducer、C3/C4 Summary Foundation 与 CTX-17/18 M1-M5 文件记忆/ready-only Prefetch 离线基础；尚未实现 Provider Summarizer Adapter 或 AgentRuntime/ModelRequest 生产接入，因此 Gate 保持 Open。</p></li><li class="gate open"><div class="gate-id"><span>G4</span><span class="badge open">待关闭</span></div><p>已有 Reducer 协议/数值负例、C3/C4 成功/回退/skip/stale/coverage/empty/oversize/no-reduction/anchor/protocol/failure/cancel/order，以及单 Run cooldown/retry cleanup 并发、protected tail/Tool 顺序和固定 Provider envelope 回归；另有 M1-M5 文件安全和 ready-only 自动化回归，尚缺 Provider/Runtime 端到端全量证据，因此 Gate 保持 Open。</p></li><li class="gate open"><div class="gate-id"><span>G5</span><span class="badge open">待关闭</span></div><p>尚未完成长会话 Demo/Eval、事实与硬约束保持率、任务完成率、Token 中位数降幅和零等待关键路径度量。</p></li><li class="gate open"><div class="gate-id"><span>G6</span><span class="badge open">待关闭</span></div><p>尚未形成实现 Commit-scoped 证据、独立审查和矩阵/能力声明最终对账，S07 Stage Exit 保持 Open。</p></li></ol>
+      <ol class="gate-grid"><li class="gate passed"><div class="gate-id"><span>G0</span><span class="badge passed">已通过</span></div><p>S07 使用公开 Context/Memory 一手资料与 AUTH-SRC-2026-07-29-A；授权范围、Unknown、仓库外只读路径、非复制边界和停止条件已在基线、ADR-022/042 登记。</p></li><li class="gate passed"><div class="gate-id"><span>G1</span><span class="badge passed">已通过</span></div><p>ADR-042/043/044 固定 LOOP-11、CTX-06/07/08/09/10/11/12/13/17/18、OBS-04 的当前等级、S07 退出目标、独立长会话 Eval、Token/协议/延迟度量与延期边界；新增 CTX-17/18 保持 L0。</p></li><li class="gate passed"><div class="gate-id"><span>G2</span><span class="badge passed">已通过</span></div><p>ADR-043/044 使用独立 Java/Core 契约、Canonical Transcript/Projection 分离、条件式 C1-C4、M1-M5 与 ready-only consumeReady；不复制参考 Prompt、私有命名、布局、格式或常量。</p></li><li class="gate open"><div class="gate-id"><span>G3</span><span class="badge open">待关闭</span></div><p>已形成确定性 Token Estimator、C1-C4 AgentRuntime Projection、typed overflow 单次恢复与 Provider 结构化分类、零 Tool Provider Summarizer Adapter，以及 CTX-17/18 M1-M5 文件记忆/ready-only Prefetch 离线基础；尚缺 Headless composition、显式模型容量配置、ready-only Memory Runtime 接入、/context View 和完整端到端证据，因此 Gate 保持 Open。</p></li><li class="gate open"><div class="gate-id"><span>G4</span><span class="badge open">待关闭</span></div><p>已有 Reducer 协议/数值负例、C3/C4 成功/回退/skip/stale/coverage/empty/oversize/no-reduction/anchor/protocol/failure/cancel/order、Runtime Projection/typed overflow、Provider 结构化分类/零 Tool 摘要，以及单 Run cooldown/retry cleanup、protected tail/Tool 顺序、固定 envelope、M1-M5 文件安全和 ready-only 自动化回归；尚缺 Headless composition、显式容量、Memory Runtime、/context View 与完整端到端证据，因此 Gate 保持 Open。</p></li><li class="gate open"><div class="gate-id"><span>G5</span><span class="badge open">待关闭</span></div><p>尚未完成长会话 Demo/Eval、事实与硬约束保持率、任务完成率、Token 中位数降幅和零等待关键路径度量。</p></li><li class="gate open"><div class="gate-id"><span>G6</span><span class="badge open">待关闭</span></div><p>尚未形成实现 Commit-scoped 证据、独立审查和矩阵/能力声明最终对账，S07 Stage Exit 保持 Open。</p></li></ol>
     </section>
 
     <section class="panel" id="roadmap">
@@ -330,13 +330,13 @@
         </div>
       </div>
       <dl class="evidence-grid">
-        <div class="evidence-item"><dt>Last change</dt><dd>S07 CTX-06..11 A2 typed context-overflow retry 为 ModelGatewayException 增加 Provider-neutral CONTEXT_OVERFLOW，并把既有单 overflow coordinator 接入 AgentRuntime；首次请求仅在 typed overflow、未发布流式文本且摘要 ADOPTED 时重试一次，非 overflow/取消/拒绝不重试，第二次 overflow 映射 CONTEXT_LIMIT_REACHED，Run finally 清理摘要与 retry 状态。本切片无 Provider Adapter、Capability Level 或 Gate 提升。</dd></div>
+        <div class="evidence-item"><dt>Last change</dt><dd>S07 CTX-09/10/11 Provider adapter slice B 在 Spring AI 边界以 pinned OpenAI SDK 的结构化 HTTP status/error code 精确分类 context overflow，禁止自由文本匹配；新增零 Tool、固定 envelope、可取消的直接 ContextSummarizer Adapter，非法完成与超限均不产生候选。尚未接入 Headless composition、模型容量默认值或 Stage Demo/Eval，本切片无 Capability Level 或 Gate 提升。</dd></div>
         <div class="evidence-item"><dt>Evidence stage</dt><dd><code>S07</code></dd></div>
         <div class="evidence-item"><dt>Evidence class</dt><dd><code>IMPLEMENTATION_VERIFIED</code></dd></div>
         <div class="evidence-item"><dt>Code commit</dt><dd><code>N/A - uncommitted S07 G3 foundation slice</code></dd></div>
-        <div class="evidence-item"><dt>Standard command</dt><dd><code>.\mvnw.cmd -pl cc-java-core -am -Dtest=AgentRuntimeContextIntegrationTest,AgentRuntimeTest,ContextOverflowRetryCoordinatorTest,RetryingModelGatewayTest -Dsurefire.failIfNoSpecifiedTests=false test；.\mvnw.cmd test；java scripts/ProgressDashboard.java；java scripts/ProgressDashboard.java --check；java scripts/ProgressDashboard.java --self-test；git diff --check</code></dd></div>
-        <div class="evidence-item"><dt>Result</dt><dd>S07 已形成独立 C1/C2 Reducer、C3/C4 Summary Foundation 与 M1-M5 文件记忆/ready-only Prefetch 离线实现和 Fake 回归；由于尚未 Provider/AgentRuntime/ModelRequest 接入、Stage Demo/Eval 或 Commit-scoped 完整证据，Capability Level 与 G3-G6 均保持不变。</dd></div>
-        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix 0c5d14495862</code><br><code>state 33e85a10062e</code><br><code>code/build 300113941a6f</code></dd></div>
+        <div class="evidence-item"><dt>Standard command</dt><dd><code>.\mvnw.cmd -pl cc-java-model-spring-ai -am -Dtest=SpringAiModelGatewayTest,SpringAiContextSummarizerTest -Dsurefire.failIfNoSpecifiedTests=false test；.\mvnw.cmd test；java scripts/ProgressDashboard.java；java scripts/ProgressDashboard.java --check；java scripts/ProgressDashboard.java --self-test；git diff --check</code></dd></div>
+        <div class="evidence-item"><dt>Result</dt><dd>S07 已形成独立 C1/C2 Reducer、C3/C4 Summary Foundation、AgentRuntime Projection/typed overflow 恢复、Spring AI 结构化 overflow 分类/零 Tool Summarizer Adapter，以及 M1-M5 文件记忆/ready-only Prefetch 离线实现和 Fake 回归；由于尚未 Headless composition、模型容量配置、ready-only Memory Runtime 接入、/context View、Stage Demo/Eval 或 Commit-scoped 完整证据，Capability Level 与 G3-G6 均保持不变。</dd></div>
+        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix 0c5d14495862</code><br><code>state b0c125395639</code><br><code>code/build 9a16772948e1</code></dd></div>
       </dl>
     </section>
 

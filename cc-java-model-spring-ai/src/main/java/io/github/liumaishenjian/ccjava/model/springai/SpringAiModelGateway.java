@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static io.github.liumaishenjian.ccjava.core.ModelGatewayException.FailureKind.CANCELLED;
+import static io.github.liumaishenjian.ccjava.core.ModelGatewayException.FailureKind.CONTEXT_OVERFLOW;
 import static io.github.liumaishenjian.ccjava.core.ModelGatewayException.FailureKind.INCOMPLETE_STREAM;
 import static io.github.liumaishenjian.ccjava.core.ModelGatewayException.FailureKind.PERMANENT;
 import static io.github.liumaishenjian.ccjava.core.ModelGatewayException.FailureKind.RETRYABLE;
@@ -272,7 +273,7 @@ public final class SpringAiModelGateway implements StreamingModelGateway {
                 current != null;
                 current = current.getCause()) {
             if (current instanceof OpenAIServiceException service) {
-                return classifyStatus(service.statusCode());
+                return classifyService(service);
             }
             if (current instanceof java.util.concurrent.TimeoutException) {
                 return retryable(ModelFailureCategory.REQUEST_TIMEOUT, Optional.empty());
@@ -284,6 +285,23 @@ public final class SpringAiModelGateway implements StreamingModelGateway {
             }
         }
         return permanent(ModelFailureCategory.PROVIDER_ERROR, Optional.empty());
+    }
+
+    private static FailureClassification classifyService(OpenAIServiceException service) {
+        Optional<ModelHttpStatusClass> statusClass = Optional.of(
+                service.statusCode() >= 500
+                        ? ModelHttpStatusClass.SERVER_ERROR
+                        : ModelHttpStatusClass.CLIENT_ERROR);
+        if (service.statusCode() == 400
+                && service.code().filter("context_length_exceeded"::equals).isPresent()) {
+            return new FailureClassification(
+                    CONTEXT_OVERFLOW,
+                    ModelFailureSummary.firstAttempt(
+                            ModelFailureCategory.INVALID_REQUEST,
+                            statusClass,
+                            false));
+        }
+        return classifyStatus(service.statusCode());
     }
 
     private static FailureClassification classifyStatus(int status) {

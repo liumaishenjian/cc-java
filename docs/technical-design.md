@@ -875,7 +875,12 @@ A2 在首次请求抛出 `FailureKind.CONTEXT_OVERFLOW` 且尚未发布流式文
 强制执行一次 C3/C4 恢复；只有摘要 ADOPTED 才发送第二次请求。非 overflow、空/拒绝/取消/关闭摘要不重试，
 第二次 overflow 直接终止为 `CONTEXT_LIMIT_REACHED`，不存在递归入口。旧构造器固定使用 no-op 路径，Run
 `finally` 调用 `closeRun` 清除 per-run Guard 与 retry Key；Projection 不写入 `AgentSession` 或
-`SessionJournal`。真实 Provider overflow 分类和 Provider summarizer Adapter 尚未接入。内部
+`SessionJournal`。Provider adapter slice B 仅在 pinned OpenAI SDK 暴露的 HTTP 400 结构化 code 精确为
+`context_length_exceeded` 时映射 typed overflow，不读取自由文本消息或响应正文；其他 400 fail closed，
+429/5xx 与 incomplete-stream 语义保持不变。`SpringAiContextSummarizer` 使用固定 System/User envelope、零
+Tool definitions 和直接流式聚合请求，传播取消并只返回绑定原 tier/revision/source IDs 的纯数据候选；
+Tool Call、空白/超限输出和非 `stop` 完成均不产生候选，且不进入 AgentRuntime/Tool Pipeline。尚未接入
+Headless composition 或模型容量默认值。内部
 Context Usage View 公开各来源预算、当前压力、应用策略和隐私安全原因码；完整 `/context` 与
 `/compact` 交互 UX 延期 S08。
 

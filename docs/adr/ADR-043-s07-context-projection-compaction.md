@@ -29,9 +29,8 @@ Projection 的压力来源、收益估计、保真风险和协议边界决定，
 
 ## 独立 Java 契约
 
-截至 2026-08-05，C1/C2 确定性 Projection、C3/C4 摘要、A1 Runtime Projection seam 与 A2 typed
-overflow 单恢复接缝已形成以下独立 API；A2 仍不包含 Provider 分类 Adapter，也不构成 Capability Level
-或 Gate 提升：
+截至 2026-08-05，C1/C2 确定性 Projection、C3/C4 摘要、Runtime Projection/typed overflow 恢复
+接缝与 Provider adapter slice B 已形成以下独立 API；本切片仍不构成 Capability Level 或 Gate 提升：
 
 ```text
 ContextCapacity(modelId, maximumInputTokens, reservedOutputTokens, safetyMarginTokens)
@@ -69,6 +68,12 @@ ContextPreparationService.closeRun(RunId) -> per-run cleanup
   Tool Definitions 发送第二次请求。非 overflow、空/拒绝/取消/关闭摘要均不重试，第二次 overflow 直接映射
   `CONTEXT_LIMIT_REACHED`。`finally` 按 Run 调用 `closeRun`，关闭并移除摘要与 retry 状态；Projection 不进入
   `AgentSession` 或 `SessionJournal`。
+- Spring AI Adapter 只在 HTTP 400 且 pinned OpenAI SDK `OpenAIServiceException.code()` 精确等于
+  `context_length_exceeded` 时映射 typed overflow；不解析异常消息或响应正文，其他 400 fail closed 为
+  `INVALID_REQUEST/PERMANENT`，嵌套异常、429/5xx 与隐私安全摘要沿用既有边界。
+- `SpringAiContextSummarizer` 以固定独立 System/User envelope 发起零 Tool 的直接流式聚合请求，传播取消并
+  只返回绑定原 tier/revision/source IDs 的纯数据候选；Tool Call、空白输出、非 `stop` 完成、超限和失败均
+  不产生候选，不经过 AgentRuntime 或 Tool Pipeline。
 - Domain/Core 类型保持不可变、框架无关，不携带 Spring AI、Reactor、Path、JSON、FileLock、Ink 或
   Node 类型。
 - `sourceRevision` 标识构建 Projection 时读取的规范历史版本；候选结果提交前必须确认来源未变化。
@@ -152,6 +157,7 @@ Transcript、Tool Payload、Memory Projection 和 Free/Reserved 分类展示估�
 S08 负责分层 Instructions、持久 Settings、完整 `/compact`/`/context` UX；S12 负责 Sub-Agent 独立窗口；
 S14 负责 Provider Cache/Context Editing、稳定机器协议和跨版本持久兼容。当前 C1-C4 已通过 `ContextPreparationService` 接入 `AgentRuntime` 的 ModelRequest 前置 seam，A2 又接入
 Provider-neutral typed overflow 与 Runtime 精确一次恢复；旧构造器仍走 no-op，纯数据 `ContextSummarizer`
-Port、候选 Gate 与 per-run cooldown 保持不变。尚无真实 Provider overflow 分类或 Provider summarizer
-Adapter。G3-G6 完成前，README
+Port、候选 Gate 与 per-run cooldown 保持不变。Provider adapter slice B 已提供基于稳定结构化 SDK code 的
+overflow 分类和零 Tool 摘要 Adapter，但尚未接入 Headless composition、真实模型容量默认值或 Stage
+Demo/Eval。G3-G6 完成前，README
 和矩阵继续把上述 S07 Capability 标为 L0，不得描述为完整可用。

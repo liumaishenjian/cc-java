@@ -1,6 +1,11 @@
 package io.github.liumaishenjian.ccjava.model.springai;
 
+import com.openai.core.http.Headers;
+import com.openai.errors.BadRequestException;
+import com.openai.errors.InternalServerException;
 import com.openai.errors.OpenAIRetryableException;
+import com.openai.errors.RateLimitException;
+import com.openai.models.ErrorObject;
 import io.github.liumaishenjian.ccjava.core.CancellationSource;
 import io.github.liumaishenjian.ccjava.core.CancellationToken;
 import io.github.liumaishenjian.ccjava.core.ModelGatewayException;
@@ -289,6 +294,97 @@ class SpringAiModelGatewayTest {
     }
 
     @Test
+    void classifiesOnlyExactStructuredContextCodeAsOverflow() {
+        SpringAiModelGateway gateway = gatewayFailure(badRequest(
+                "context_length_exceeded", "sensitive body must not escape"));
+
+        assertThatThrownBy(() -> gateway.complete(
+                request(List.of()), ignored -> { }, CancellationToken.none()))
+                .isInstanceOf(ModelGatewayException.class)
+                .satisfies(failure -> {
+                    ModelGatewayException modelFailure = (ModelGatewayException) failure;
+                    assertThat(modelFailure.kind())
+                            .isEqualTo(ModelGatewayException.FailureKind.CONTEXT_OVERFLOW);
+                    assertThat(modelFailure.getMessage())
+                            .doesNotContain("sensitive body")
+                            .doesNotContain("context_length_exceeded");
+                });
+    }
+
+    @Test
+    void otherBadRequestRemainsPermanentEvenWhenMessageMentionsContext() {
+        SpringAiModelGateway gateway = gatewayFailure(badRequest(
+                "invalid_parameter", "context_length_exceeded secret"));
+
+        assertThatThrownBy(() -> gateway.complete(
+                request(List.of()), ignored -> { }, CancellationToken.none()))
+                .isInstanceOf(ModelGatewayException.class)
+                .satisfies(failure -> {
+                    ModelGatewayException modelFailure = (ModelGatewayException) failure;
+                    assertThat(modelFailure.kind())
+                            .isEqualTo(ModelGatewayException.FailureKind.PERMANENT);
+                    assertThat(modelFailure.summary()).hasValueSatisfying(summary ->
+                            assertThat(summary.category())
+                                    .isEqualTo(ModelFailureCategory.INVALID_REQUEST));
+                    assertThat(modelFailure.getMessage()).doesNotContain("secret");
+                });
+    }
+
+    @Test
+    void badRequestWithoutStructuredCodeFailsClosed() {
+        SpringAiModelGateway gateway = gatewayFailure(BadRequestException.builder()
+                .headers(Headers.builder().build())
+                .error(ErrorObject.builder()
+                        .code(java.util.Optional.empty())
+                        .message("context_length_exceeded private")
+                        .param(java.util.Optional.empty())
+                        .type("invalid_request_error")
+                        .build())
+                .build());
+
+        ModelGatewayException failure = captureFailure(gateway);
+
+        assertThat(failure.kind()).isEqualTo(ModelGatewayException.FailureKind.PERMANENT);
+        assertThat(failure.summary()).hasValueSatisfying(summary ->
+                assertThat(summary.category()).isEqualTo(ModelFailureCategory.INVALID_REQUEST));
+        assertThat(failure.getMessage()).doesNotContain("private");
+    }
+
+    @Test
+    void rateLimitAndServerErrorsRemainRetryable() {
+        ModelGatewayException rateLimit = captureFailure(gatewayFailure(
+                RateLimitException.builder()
+                        .headers(Headers.builder().build())
+                        .error(error("rate_limit", "private"))
+                        .build()));
+        ModelGatewayException server = captureFailure(gatewayFailure(
+                InternalServerException.builder()
+                        .statusCode(503)
+                        .headers(Headers.builder().build())
+                        .error(error("server_error", "private"))
+                        .build()));
+
+        assertThat(rateLimit.kind()).isEqualTo(ModelGatewayException.FailureKind.RETRYABLE);
+        assertThat(rateLimit.summary()).hasValueSatisfying(summary ->
+                assertThat(summary.category()).isEqualTo(ModelFailureCategory.RATE_LIMITED));
+        assertThat(server.kind()).isEqualTo(ModelGatewayException.FailureKind.RETRYABLE);
+        assertThat(server.summary()).hasValueSatisfying(summary ->
+                assertThat(summary.category()).isEqualTo(ModelFailureCategory.PROVIDER_UNAVAILABLE));
+        assertThat(rateLimit.getMessage()).doesNotContain("private");
+        assertThat(server.getMessage()).doesNotContain("private");
+    }
+
+    @Test
+    void discoversStructuredContextCodeInNestedCause() {
+        SpringAiModelGateway gateway = gatewayFailure(
+                new IllegalStateException("wrapper", badRequest(
+                        "context_length_exceeded", "private")));
+
+        assertThat(captureFailure(gateway).kind())
+                .isEqualTo(ModelGatewayException.FailureKind.CONTEXT_OVERFLOW);
+    }
+
+    @Test
     void cancellationDisposesTheProviderSubscription() throws Exception {
         AtomicBoolean disposed = new AtomicBoolean();
         RecordingChatModel model = new RecordingChatModel(
@@ -328,6 +424,36 @@ class SpringAiModelGatewayTest {
                 CancellationToken.none());
 
         assertThat(turn.assistantMessage().text()).isEqualTo("answer");
+    }
+
+    private static SpringAiModelGateway gatewayFailure(Throwable failure) {
+        return new SpringAiModelGateway(
+                new RecordingChatModel(Flux.error(failure)), "test-model");
+    }
+
+    private static BadRequestException badRequest(String code, String message) {
+        return BadRequestException.builder()
+                .headers(Headers.builder().build())
+                .error(error(code, message))
+                .build();
+    }
+
+    private static ErrorObject error(String code, String message) {
+        return ErrorObject.builder()
+                .code(code)
+                .message(message)
+                .param(java.util.Optional.empty())
+                .type("invalid_request_error")
+                .build();
+    }
+
+    private static ModelGatewayException captureFailure(SpringAiModelGateway gateway) {
+        try {
+            gateway.complete(request(List.of()), ignored -> { }, CancellationToken.none());
+            throw new AssertionError("expected ModelGatewayException");
+        } catch (ModelGatewayException failure) {
+            return failure;
+        }
     }
 
     private static void awaitPrompt(RecordingChatModel model) throws InterruptedException {
