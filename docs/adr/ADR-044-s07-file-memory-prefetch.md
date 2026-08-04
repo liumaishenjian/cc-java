@@ -74,7 +74,7 @@ updated-at: <ISO-8601 date>
 
 ## 独立 Java 契约
 
-截至 2026-08-04，G3-A 已实现下列 M1-M3 Domain/Core 契约与本地文件 Adapter；M4/M5、零等待预取和 AgentRuntime 接入仍未实现：
+截至 2026-08-05，G3-A/B 已实现下列 M1-M5 Domain/Core 离线契约、本地文件 Adapter 与 ready-only Prefetch；AgentRuntime/ModelRequest 接入仍未实现：
 
 ```text
 MemoryKind
@@ -145,4 +145,4 @@ assemble non-memory inputs ─┼─> consumeReady() ─> build Projection ─> 
 - **S07 引入 SQLite/向量数据库/云服务**：不符合最小依赖与当前规模，延期 S14。
 - **在 S07 实现分层 Instructions 或 Sub-Agent Memory**：分别延期 S08、S12。
 
-G3-A 当前只形成 M1-M3 的离线生产基础与安全回归；`CTX-17` 仍因缺少 AgentRuntime 接入、Stage Demo/Eval 和 Commit-scoped G3-G6 证据保持 L0，`CTX-18` 也因 M4/M5 尚未实现保持 L0。本 ADR 不表示文件记忆或预取已经成为可用的端到端能力。
+G3-B 当前形成 M1-M5 的离线基础与安全回归：M4 确定性 manifest 相关选择、M5 revision/digest/预算 Gate、安全正文加载和 ready-only 一次消费均已有 Fake 证据；`CTX-17/18` 仍因缺少 AgentRuntime/ModelRequest 接入、Stage Demo/Eval 和 Commit-scoped G3-G6 证据保持 L0。本 ADR 不表示文件记忆或预取已经成为可用的端到端能力。

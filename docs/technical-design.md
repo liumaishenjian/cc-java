@@ -922,8 +922,12 @@ G3-G6 必须以离线 Fake 和长会话 Eval 证伪：Tool 协议孤儿数为 `0
 S08 负责分层 Instructions/Settings 与完整 Context UX；S12 负责 Sub-Agent Context 隔离、后台
 Agent、任务系统、并行 Tool 与 Worktree；S13 才负责 OS Sandbox；S14 负责稳定
 Export/Retention/Migration、SQLite 或大规模索引、Provider Cache Hint、原生 Context Editing 和
-跨版本持久化兼容。当前 G3-A 已实现 M1-M3 离线基础，但未接入 AgentRuntime，M4/M5 仍为空白；
-在 Stage Demo/Eval、Commit-scoped G3-G6 证据完成前，`CTX-17/18` 继续保持 L0。
+跨版本持久化兼容。当前 G3-B 已实现 M1-M5 离线基础：M4 按有界显式词项和稳定 tie-break 从
+Catalog manifest 选择，M5 逐项校验 revision/digest、隔离坏文件、去重并执行正文 UTF-8 总预算；
+`MemoryRecallPlan` 最多携带 20 个候选；`MemoryPrefetch.consumeReady()` 使用 `AtomicBoolean` CAS
+无锁竞争一次消费，不调用 `get/join/wait/sleep`，未完成、失败、取消或迟到结果立即降级为空，重复
+消费者得到 `ALREADY_CONSUMED`。尚未接入 AgentRuntime/ModelRequest；在 Stage Demo/Eval、Commit-scoped
+G3-G6 证据完成前，`CTX-17/18` 继续保持 L0。
 
 ADR-042 已按 ADR-022 完成新的采纳边界；历史 ADR-019 继续保持 Superseded，不作为实现依据。
 

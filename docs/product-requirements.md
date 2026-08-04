@@ -346,7 +346,9 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
 - FR-CTX-011：记忆类型只使用 `USER_PROFILE`、`WORKING_GUIDANCE`、`PROJECT_STATE`、
   `REFERENCE_POINTER`；记忆是可修正、可删除、可重建的 Projection 输入，不是 Session 事实。
 - FR-CTX-012：相关记忆可以并行预取，但消费必须零等待：只使用消费时已完成且通过校验的结果；
-  未完成、失败、取消按空结果继续，迟到结果不得注入已发送请求。
+  `consumeReady` 不得调用阻塞式 `get/join/wait/sleep` 或等待 monitor，使用无锁单次消费；未完成、
+  失败、取消按空结果继续，重复消费者得到独立原因码，当前请求忽略的迟到结果不得再次注入。
+  M4 选择计划最多携带 20 个候选，不能由调用者绕过查询上限。
 - FR-CTX-013：文件记忆拒绝绝对路径、Traversal、Symlink/Junction、非法 UTF-8、超限和 Secret
   候选；repository-id 不得泄漏 Workspace 绝对路径。M1 单 topic 最多 64KB/2,000 行，frontmatter
   前 16 行内闭合；kebab-case slug 最多 64 字符，单行 description 最多 512 Code Point。上述常量为

@@ -390,7 +390,7 @@ Stage 完成项。
 | CTX-15 | Sub-Agent Isolation | 独立窗口与摘要返回 | L0 | S12 | REF-02/03 |
 | CTX-16 | Prompt Cache | 稳定前缀和 Tool 顺序 | L0 | S14 | REF-01 |
 | CTX-17 | Auto Memory Index | `MEMORY.md` + 有界 topic Catalog 与可重建索引（M1-M3 离线基础已实现，尚未 Runtime 接入） | L0 | S07 | REF-05/AUTH-01 |
-| CTX-18 | Relevant Memory Prefetch | ready-only、零等待的相关记忆投影 | L0 | S07 | REF-05/AUTH-01 |
+| CTX-18 | Relevant Memory Prefetch | ready-only、零等待的相关记忆投影（M4/M5 离线基础已实现，尚未 Runtime 接入） | L0 | S07 | REF-05/AUTH-01 |
 
 ## 15. Settings / Configuration 对照
 
