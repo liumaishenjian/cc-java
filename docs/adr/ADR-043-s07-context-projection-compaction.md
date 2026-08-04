@@ -29,8 +29,9 @@ Projection 的压力来源、收益估计、保真风险和协议边界决定，
 
 ## 独立 Java 契约
 
-截至 2026-08-05，C1/C2 确定性 Projection 与 C3/C4 离线基础已形成以下独立 API；它们尚未接入
-AgentRuntime/ModelRequest，也不构成 Capability Level 或 Gate 提升：
+截至 2026-08-05，C1/C2 确定性 Projection、C3/C4 摘要与 A1 Runtime Projection seam 已形成以下
+独立 API；A1 只接入 ModelRequest 前的短生命周期准备，不含 Provider overflow retry，也不构成
+Capability Level 或 Gate 提升：
 
 ```text
 ContextCapacity(modelId, maximumInputTokens, reservedOutputTokens, safetyMarginTokens)
@@ -55,10 +56,16 @@ ContextTokenEstimator.estimate(messages, capacity) -> ContextUsage
 ContextSummarizer.summarize(SummaryRequest, CancellationToken) -> Optional<SummaryCandidate>
 SummaryReductionCoordinator.reduce(...) -> SummaryOutcome
 ContextOverflowRetryCoordinator.execute(...) -> at-most-two model attempts
+ContextPreparationService.prepare(canonical ModelRequest, CancellationToken) -> projected ModelRequest
+ContextPreparationService.closeRun(RunId) -> per-run cleanup
 ```
 
 - `ContextProjectionPlanner` 与确定性 Reducer 属于 Core；`ContextSummarizer`、精确 Provider token count 和
   外部载荷读取通过 Port 注入。
+- A1 中 `AgentRuntime` 仍先由 `DefaultContextAssembler` 构造 Canonical `ModelRequest`，再交给单个
+  `ContextPreparationService` 生成只供该模型回合使用的 Projection；旧构造器固定使用 no-op 路径。
+  `finally` 按 Run 调用 `closeRun`，关闭并移除摘要 Guard。Tool Definitions 的对象顺序与 Canonical 请求完全
+  相同，Projection 不进入 `AgentSession` 或 `SessionJournal`。
 - Domain/Core 类型保持不可变、框架无关，不携带 Spring AI、Reactor、Path、JSON、FileLock、Ink 或
   Node 类型。
 - `sourceRevision` 标识构建 Projection 时读取的规范历史版本；候选结果提交前必须确认来源未变化。
@@ -140,7 +147,7 @@ Transcript、Tool Payload、Memory Projection 和 Free/Reserved 分类展示估�
 ## 延期与能力声明
 
 S08 负责分层 Instructions、持久 Settings、完整 `/compact`/`/context` UX；S12 负责 Sub-Agent 独立窗口；
-S14 负责 Provider Cache/Context Editing、稳定机器协议和跨版本持久兼容。当前 C3/C4 只有离线
-Domain/Core、纯数据 `ContextSummarizer` Port、候选 Gate、per-run cooldown 和单 overflow retry
-协调器；没有 Provider Adapter，也没有 AgentRuntime/ModelRequest 接入。G3-G6 完成前，README 和
-矩阵继续把上述 S07 Capability 标为 L0，不得描述为可用。
+S14 负责 Provider Cache/Context Editing、稳定机器协议和跨版本持久兼容。当前 C1-C4 已通过 A1 `ContextPreparationService` 接入 `AgentRuntime` 的 ModelRequest 前置 seam，旧构造器
+仍走 no-op；纯数据 `ContextSummarizer` Port、候选 Gate、per-run cooldown 和离线单 overflow retry
+协调器继续保留。尚无 Provider Adapter、typed overflow 分类或 Runtime retry 接入。G3-G6 完成前，README
+和矩阵继续把上述 S07 Capability 标为 L0，不得描述为完整可用。

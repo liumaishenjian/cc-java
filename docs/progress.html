@@ -223,7 +223,7 @@
     }
   </style>
 </head>
-<body data-matrix-digest="0c5d14495862" data-state-digest="993d9ce12140" data-code-digest="f2308b6de494">
+<body data-matrix-digest="0c5d14495862" data-state-digest="0ba6ac96daea" data-code-digest="ddf28f71f499">
   <main class="shell">
     <section class="hero">
       <p class="eyebrow">Reference-driven Java Agent Runtime</p>
@@ -330,13 +330,13 @@
         </div>
       </div>
       <dl class="evidence-grid">
-        <div class="evidence-item"><dt>Last change</dt><dd>S07 CTX-09/10/11 C3/C4 atomic adoption race fix 让最终摘要采用与 Run close 在同一 Guard 生命周期锁上线性化，并新增 deterministic close-wins/commit-wins 证伪；保留单 Run AutoCloseable、cooldown、retry 与 Canonical/Tool/Provider 边界，尚未 AgentRuntime/ModelRequest 接入，本切片无 Capability Level 或 Gate 提升。</dd></div>
+        <div class="evidence-item"><dt>Last change</dt><dd>S07 CTX-06..11 A1 projection seam 以显式模型 ContextCapacity 和有界 C1-C4 配置接入 AgentRuntime ModelRequest 前置准备；每轮从 DefaultContextAssembler Canonical 快照生成短生命周期 Projection，保持 Tool Definitions 顺序、AgentSession/SessionJournal 不变，并在 Run finally 清理 per-run 摘要状态。旧构造器继续 no-op；typed overflow 与 Runtime retry 延期 A2，本切片无 Capability Level 或 Gate 提升。</dd></div>
         <div class="evidence-item"><dt>Evidence stage</dt><dd><code>S07</code></dd></div>
         <div class="evidence-item"><dt>Evidence class</dt><dd><code>IMPLEMENTATION_VERIFIED</code></dd></div>
         <div class="evidence-item"><dt>Code commit</dt><dd><code>N/A - uncommitted S07 G3 foundation slice</code></dd></div>
         <div class="evidence-item"><dt>Standard command</dt><dd><code>.\mvnw.cmd -pl cc-java-model-spring-ai -am -Dtest=SummaryContractsTest,SummaryReductionCoordinatorTest,ContextOverflowRetryCoordinatorTest,SummaryLifecycleTest,SpringAiPromptMapperTest -Dsurefire.failIfNoSpecifiedTests=false test；.\mvnw.cmd test；java scripts/ProgressDashboard.java；java scripts/ProgressDashboard.java --check；java scripts/ProgressDashboard.java --self-test；git diff --check</code></dd></div>
         <div class="evidence-item"><dt>Result</dt><dd>S07 已形成独立 C1/C2 Reducer、C3/C4 Summary Foundation 与 M1-M5 文件记忆/ready-only Prefetch 离线实现和 Fake 回归；由于尚未 Provider/AgentRuntime/ModelRequest 接入、Stage Demo/Eval 或 Commit-scoped 完整证据，Capability Level 与 G3-G6 均保持不变。</dd></div>
-        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix 0c5d14495862</code><br><code>state 993d9ce12140</code><br><code>code/build f2308b6de494</code></dd></div>
+        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix 0c5d14495862</code><br><code>state 0ba6ac96daea</code><br><code>code/build ddf28f71f499</code></dd></div>
       </dl>
     </section>
 

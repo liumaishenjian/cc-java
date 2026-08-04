@@ -868,7 +868,11 @@ overflow retry coordinator 均在构造时绑定唯一 Run，并实现 `AutoClos
 先获得锁时 ADOPTED 先线性化，close 先获得锁时不执行终态构造并丢弃候选，不能在 close 胜出后采用。
 摘要前还要求 Projection 尾部与 Canonical protected tail 逐条相等；
 Spring AI Adapter 将摘要固定编码为版本化 User JSON envelope，正文使用 UTF-8 Base64，不能映射或裸露成
-Provider Tool 协议。当前协调器是离线 Core seam，尚未接入 AgentRuntime/ModelRequest。内部
+Provider Tool 协议。A1 通过单个 `ContextPreparationService` 接入 AgentRuntime：每轮先由
+`DefaultContextAssembler` 生成 Canonical `ModelRequest`，再按显式 `ContextPreparationConfig` 的模型容量、
+C1 阈值和摘要上限准备短生命周期 Projection；Gateway 只接收投影消息和原顺序 Tool Definitions。
+旧构造器固定使用 no-op 路径，Run `finally` 调用 `closeRun` 清除 per-run Guard；Projection 不写入
+`AgentSession` 或 `SessionJournal`。typed overflow 与 Gateway 单次 retry 留待 A2。内部
 Context Usage View 公开各来源预算、当前压力、应用策略和隐私安全原因码；完整 `/context` 与
 `/compact` 交互 UX 延期 S08。
 

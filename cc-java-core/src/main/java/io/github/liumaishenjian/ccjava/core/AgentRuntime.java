@@ -47,6 +47,7 @@ public final class AgentRuntime {
     private final ToolExecutionPipeline toolPipeline;
     private final LifecycleDispatcher lifecycle;
     private final SessionJournal sessionJournal;
+    private final ContextPreparationService contextPreparation;
     private final ConcurrentMap<SessionId, ActiveRun> activeRuns = new ConcurrentHashMap<>();
 
     /**
@@ -76,7 +77,8 @@ public final class AgentRuntime {
                 toolRegistry,
                 toolPipeline,
                 lifecycle,
-                SessionJournal.noop());
+                SessionJournal.noop(),
+                ContextPreparationService.noop());
     }
 
     /**
@@ -100,6 +102,33 @@ public final class AgentRuntime {
             ToolExecutionPipeline toolPipeline,
             LifecycleDispatcher lifecycle,
             SessionJournal sessionJournal) {
+        this(
+                sessionStore,
+                idGenerator,
+                modelGateway,
+                contextAssembler,
+                toolRegistry,
+                toolPipeline,
+                lifecycle,
+                sessionJournal,
+                ContextPreparationService.noop());
+    }
+
+    /**
+     * 创建显式启用短生命周期 Context Projection 的 Agent Runtime。
+     *
+     * @param contextPreparation 每回合 Projection 准备与 Run 终态清理服务
+     */
+    public AgentRuntime(
+            SessionStore sessionStore,
+            AgentIdGenerator idGenerator,
+            ModelGateway modelGateway,
+            ContextAssembler contextAssembler,
+            ToolRegistry toolRegistry,
+            ToolExecutionPipeline toolPipeline,
+            LifecycleDispatcher lifecycle,
+            SessionJournal sessionJournal,
+            ContextPreparationService contextPreparation) {
         this.sessionStore = Objects.requireNonNull(sessionStore, "sessionStore 不能为空");
         this.idGenerator = Objects.requireNonNull(idGenerator, "idGenerator 不能为空");
         this.modelGateway = Objects.requireNonNull(modelGateway, "modelGateway 不能为空");
@@ -111,6 +140,8 @@ public final class AgentRuntime {
         this.lifecycle = Objects.requireNonNull(lifecycle, "lifecycle 不能为空");
         this.sessionJournal = Objects.requireNonNull(
                 sessionJournal, "sessionJournal 不能为空");
+        this.contextPreparation = Objects.requireNonNull(
+                contextPreparation, "contextPreparation 不能为空");
     }
 
     /**
@@ -154,6 +185,7 @@ public final class AgentRuntime {
         } finally {
             deadlineThread.interrupt();
             activeRuns.remove(sessionId, activeRun);
+            contextPreparation.closeRun(runId);
         }
 
         try {
@@ -209,11 +241,17 @@ public final class AgentRuntime {
                     session,
                     runId,
                     new LifecycleEvent.ModelTurnStarted(turnNumber));
-            ModelRequest modelRequest = contextAssembler.assemble(
+            ModelRequest canonicalRequest = contextAssembler.assemble(
                     session,
                     runId,
                     turnNumber,
                     toolRegistry.definitions());
+            ModelRequest modelRequest = contextPreparation.prepare(
+                    canonicalRequest,
+                    activeRun.cancellation().token());
+            if (activeRun.cancellation().token().isCancellationRequested()) {
+                return stopForCancellation(state, activeRun);
+            }
             ModelTurn modelTurn;
             try {
                 modelTurn = completeModelTurn(
