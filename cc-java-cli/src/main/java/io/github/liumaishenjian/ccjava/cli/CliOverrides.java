@@ -3,6 +3,7 @@ package io.github.liumaishenjian.ccjava.cli;
 import java.nio.file.Path;
 import java.time.Duration;
 import io.github.liumaishenjian.ccjava.cli.session.SessionOpenRequest;
+import io.github.liumaishenjian.ccjava.core.ContextPreparationConfig;
 import io.github.liumaishenjian.ccjava.domain.PermissionMode;
 import java.util.Objects;
 import java.util.Optional;
@@ -18,6 +19,7 @@ import java.util.Optional;
  * @param timeout 每个 Run 的墙钟限制
  * @param permissionMode 当前 S05 Permission Mode
  * @param sessionOpenRequest S06 Session 选择
+ * @param contextPreparation S07 显式启动容量配置；空表示保持 Canonical no-op 路径
  * @since 0.1.0
  */
 record CliOverrides(
@@ -25,14 +27,36 @@ record CliOverrides(
         Optional<String> model,
         Duration timeout,
         PermissionMode permissionMode,
-        SessionOpenRequest sessionOpenRequest) {
+        SessionOpenRequest sessionOpenRequest,
+        Optional<ContextPreparationConfig> contextPreparation) {
 
     CliOverrides(
             Path workspace,
             Optional<String> model,
             Duration timeout,
             PermissionMode permissionMode) {
-        this(workspace, model, timeout, permissionMode, SessionOpenRequest.create());
+        this(
+                workspace,
+                model,
+                timeout,
+                permissionMode,
+                SessionOpenRequest.create(),
+                Optional.empty());
+    }
+
+    CliOverrides(
+            Path workspace,
+            Optional<String> model,
+            Duration timeout,
+            PermissionMode permissionMode,
+            SessionOpenRequest sessionOpenRequest) {
+        this(
+                workspace,
+                model,
+                timeout,
+                permissionMode,
+                sessionOpenRequest,
+                Optional.empty());
     }
 
     static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(5);
@@ -50,6 +74,8 @@ record CliOverrides(
         permissionMode = Objects.requireNonNull(permissionMode, "permissionMode 不能为空");
         sessionOpenRequest = Objects.requireNonNull(
                 sessionOpenRequest, "sessionOpenRequest 不能为空");
+        contextPreparation = Objects.requireNonNull(
+                contextPreparation, "contextPreparation 不能为空");
         if (model.isPresent()) {
             String value = model.orElseThrow();
             if (value.isBlank()

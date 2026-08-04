@@ -3,6 +3,8 @@ package io.github.liumaishenjian.ccjava.cli.runtime;
 import io.github.liumaishenjian.ccjava.core.AgentEventSink;
 import io.github.liumaishenjian.ccjava.core.AgentRuntime;
 import io.github.liumaishenjian.ccjava.core.ApprovalHandler;
+import io.github.liumaishenjian.ccjava.core.ContextPreparationService;
+import io.github.liumaishenjian.ccjava.core.ContextSummarizer;
 import io.github.liumaishenjian.ccjava.core.DefaultContextAssembler;
 import io.github.liumaishenjian.ccjava.cli.session.FileCheckpointCoordinator;
 import io.github.liumaishenjian.ccjava.cli.session.FileSessionStore;
@@ -26,6 +28,7 @@ import io.github.liumaishenjian.ccjava.domain.SessionId;
 import io.github.liumaishenjian.ccjava.domain.SessionSpec;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
 import io.github.liumaishenjian.ccjava.model.springai.OpenAiCompatibleModelFactory;
+import io.github.liumaishenjian.ccjava.model.springai.SpringAiContextSummarizer;
 import io.github.liumaishenjian.ccjava.model.springai.SpringAiModelGateway;
 import io.github.liumaishenjian.ccjava.model.springai.config.OpenAiCompatibleSettings;
 import io.github.liumaishenjian.ccjava.tools.local.LocalWorkspaceBootstrap;
@@ -132,15 +135,44 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             HeadlessRuntimeOptions options,
             ApprovalHandler approvalHandler) {
         this(
-                new RetryingModelGateway(
-                        new SpringAiModelGateway(
-                                new OpenAiCompatibleModelFactory().create(
-                                        Objects.requireNonNull(settings, "settings 不能为空")),
-                                settings.model()),
-                        ModelRetryPolicy.S02_DEFAULT),
+                providerComponents(
+                        Objects.requireNonNull(settings, "settings 不能为空"),
+                        Objects.requireNonNull(options, "options 不能为空")),
                 eventSink,
                 options,
                 approvalHandler);
+    }
+
+    private HeadlessRuntimeSession(
+            ProviderComponents provider,
+            AgentEventSink eventSink,
+            HeadlessRuntimeOptions options,
+            ApprovalHandler approvalHandler) {
+        this(
+                provider.gateway(),
+                eventSink,
+                options,
+                approvalHandler,
+                provider.contextPreparation());
+    }
+
+    private static ProviderComponents providerComponents(
+            OpenAiCompatibleSettings settings,
+            HeadlessRuntimeOptions options) {
+        if (!settings.model().equals(options.model())) {
+            throw new IllegalArgumentException("Provider 与 Runtime 模型配置不一致");
+        }
+        org.springframework.ai.chat.model.ChatModel chatModel =
+                new OpenAiCompatibleModelFactory().create(settings);
+        ModelGateway gateway = new RetryingModelGateway(
+                new SpringAiModelGateway(chatModel, settings.model()),
+                ModelRetryPolicy.S02_DEFAULT);
+        ContextPreparationService preparation = options.contextPreparation()
+                .<ContextPreparationService>map(config -> new ContextPreparationService(
+                        config,
+                        new SpringAiContextSummarizer(chatModel, settings.model())))
+                .orElseGet(ContextPreparationService::noop);
+        return new ProviderComponents(gateway, preparation);
     }
 
     /**
@@ -193,6 +225,42 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             AgentEventSink eventSink,
             HeadlessRuntimeOptions options,
             ApprovalHandler approvalHandler) {
+        this(
+                model,
+                eventSink,
+                options,
+                approvalHandler,
+                ContextPreparationService.noop());
+    }
+
+    /**
+     * 使用显式摘要 Port 验证启用的 S07 Projection，且不访问 Provider 或 Secret。
+     *
+     * @param summarizer 不得执行 Tool 的离线或 Provider 摘要端口
+     */
+    public HeadlessRuntimeSession(
+            ModelGateway model,
+            AgentEventSink eventSink,
+            HeadlessRuntimeOptions options,
+            ApprovalHandler approvalHandler,
+            ContextSummarizer summarizer) {
+        this(
+                model,
+                eventSink,
+                options,
+                approvalHandler,
+                options.contextPreparation()
+                        .<ContextPreparationService>map(config ->
+                                new ContextPreparationService(config, summarizer))
+                        .orElseGet(ContextPreparationService::noop));
+    }
+
+    private HeadlessRuntimeSession(
+            ModelGateway model,
+            AgentEventSink eventSink,
+            HeadlessRuntimeOptions options,
+            ApprovalHandler approvalHandler,
+            ContextPreparationService contextPreparation) {
         Objects.requireNonNull(model, "model 不能为空");
         AgentEventSink downstream = Objects.requireNonNull(eventSink, "eventSink 不能为空");
         this.options = Objects.requireNonNull(options, "options 不能为空");
@@ -252,7 +320,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 tools,
                 pipeline,
                 lifecycle,
-                sessions);
+                sessions,
+                Objects.requireNonNull(contextPreparation, "contextPreparation 不能为空"));
     }
 
     /**
@@ -404,6 +473,11 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
      */
     public java.util.Optional<RunTelemetry> telemetry(RunId runId) {
         return telemetry.find(runId);
+    }
+
+    private record ProviderComponents(
+            ModelGateway gateway,
+            ContextPreparationService contextPreparation) {
     }
 
     private void publish(AgentEventEnvelope envelope, AgentEventSink downstream) {

@@ -72,8 +72,15 @@ ContextPreparationService.closeRun(RunId) -> per-run cleanup
   `context_length_exceeded` 时映射 typed overflow；不解析异常消息或响应正文，其他 400 fail closed 为
   `INVALID_REQUEST/PERMANENT`，嵌套异常、429/5xx 与隐私安全摘要沿用既有边界。
 - `SpringAiContextSummarizer` 以固定独立 System/User envelope 发起零 Tool 的直接流式聚合请求，传播取消并
-  只返回绑定原 tier/revision/source IDs 的纯数据候选；Tool Call、空白输出、非 `stop` 完成、超限和失败均
-  不产生候选，不经过 AgentRuntime 或 Tool Pipeline。
+  只返回绑定原 tier/revision/source IDs 的纯数据候选；Tool Call、空白输出、非 `stop` 完成和超限不产生候选，
+  Provider/Adapter 执行失败映射为隐私安全失败诊断；该请求不经过 AgentRuntime 或 Tool Pipeline。
+- Headless composition 只在可信启动参数同时给出 maximum input、reserved output 与 safety margin 时启用
+  `ContextPreparationService`。三个参数 all-or-none、正数且总保留严格小于窗口；容量不从模型名、Provider
+  自由文本、Workspace 内容或项目 Instructions 推断。生产装配共享同一个 `ChatModel`，普通 Gateway 可保留
+  `RetryingModelGateway`，摘要 Adapter 直接使用底层 `ChatModel`，不会递归进入普通重试 Gateway。
+- C1 阈值、protected tail 和摘要输出限制是经过构造器校验的 cc-java 保守策略常量，不表示 Provider 容量；
+  当前只支持进程启动 opt-in，不是 S08 持久 Settings、Schema 或配置合并能力。没有容量元组时旧构造器和
+  Fake Model 路径继续使用 no-op preparation，并把 Canonical `ModelRequest` 原样发送给 Gateway。
 - Domain/Core 类型保持不可变、框架无关，不携带 Spring AI、Reactor、Path、JSON、FileLock、Ink 或
   Node 类型。
 - `sourceRevision` 标识构建 Projection 时读取的规范历史版本；候选结果提交前必须确认来源未变化。
@@ -158,6 +165,7 @@ S08 负责分层 Instructions、持久 Settings、完整 `/compact`/`/context` U
 S14 负责 Provider Cache/Context Editing、稳定机器协议和跨版本持久兼容。当前 C1-C4 已通过 `ContextPreparationService` 接入 `AgentRuntime` 的 ModelRequest 前置 seam，A2 又接入
 Provider-neutral typed overflow 与 Runtime 精确一次恢复；旧构造器仍走 no-op，纯数据 `ContextSummarizer`
 Port、候选 Gate 与 per-run cooldown 保持不变。Provider adapter slice B 已提供基于稳定结构化 SDK code 的
-overflow 分类和零 Tool 摘要 Adapter，但尚未接入 Headless composition、真实模型容量默认值或 Stage
-Demo/Eval。G3-G6 完成前，README
+overflow 分类和零 Tool 摘要 Adapter；slice C 又以 all-or-none CLI 容量元组接入 Headless composition，且
+明确不提供、推断或宣称任何真实模型容量默认值。ready-only Memory Runtime 接入、内部 Context View、Stage
+Demo/Eval 与 S08 持久 Settings 仍未完成。G3-G6 完成前，README
 和矩阵继续把上述 S07 Capability 标为 L0，不得描述为完整可用。

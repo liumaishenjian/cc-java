@@ -4,6 +4,7 @@ import io.github.liumaishenjian.ccjava.core.AgentEventSink;
 import io.github.liumaishenjian.ccjava.core.ModelTurnTelemetry;
 import io.github.liumaishenjian.ccjava.core.RunTelemetry;
 import io.github.liumaishenjian.ccjava.core.ToolCallTelemetry;
+import io.github.liumaishenjian.ccjava.core.ContextPreparationConfig;
 import io.github.liumaishenjian.ccjava.core.ModelGateway;
 import io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeSession;
 import io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeOptions;
@@ -111,6 +112,27 @@ public final class RuntimeStdioCommandHandler
             Duration timeout,
             PermissionMode permissionMode,
             SessionOpenRequest sessionOpenRequest) {
+        this(
+                settings,
+                workspace,
+                timeout,
+                permissionMode,
+                sessionOpenRequest,
+                Optional.empty());
+    }
+
+    /**
+     * 使用可选显式 S07 启动容量装配 Headless Runtime。
+     *
+     * @param contextPreparation 可信 CLI 容量元组；空表示不启用 Projection
+     */
+    public RuntimeStdioCommandHandler(
+            OpenAiCompatibleSettings settings,
+            Path workspace,
+            Duration timeout,
+            PermissionMode permissionMode,
+            SessionOpenRequest sessionOpenRequest,
+            Optional<ContextPreparationConfig> contextPreparation) {
         approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
         application = new HeadlessRuntimeSession(
                 Objects.requireNonNull(settings, "settings 不能为空"),
@@ -122,7 +144,8 @@ public final class RuntimeStdioCommandHandler
                         permissionMode,
                         java.util.List.of(),
                         Objects.requireNonNull(sessionOpenRequest, "sessionOpenRequest 不能为空"),
-                        SessionStorage.defaultRoot()),
+                        SessionStorage.defaultRoot(),
+                        Objects.requireNonNull(contextPreparation, "contextPreparation 不能为空")),
                 approvals);
     }
 

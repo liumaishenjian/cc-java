@@ -3,6 +3,7 @@ package io.github.liumaishenjian.ccjava.cli;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.liumaishenjian.ccjava.cli.session.SessionOpenMode;
+import io.github.liumaishenjian.ccjava.domain.ContextCapacity;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -54,6 +55,86 @@ class CcJavaCommandTest {
                 .isEqualTo(Path.of("").toAbsolutePath().normalize());
         assertThat(runner.overrides.model()).contains("override-model");
         assertThat(runner.overrides.timeout()).isEqualTo(Duration.ofMillis(250));
+    }
+
+    @Test
+    void parsesOnlyCompleteExplicitContextCapacityTuple() {
+        FakeCliModeRunner runner = new FakeCliModeRunner(0, 0);
+
+        Invocation invocation = execute(
+                runner,
+                "--model",
+                "configured-model",
+                "--context-maximum-input-tokens",
+                "128000",
+                "--context-reserved-output-tokens",
+                "4096",
+                "--context-safety-margin-tokens",
+                "1024",
+                "--print",
+                "hello");
+
+        assertThat(invocation.exitCode()).isZero();
+        assertThat(runner.overrides.contextPreparation()).hasValueSatisfying(config -> {
+            assertThat(config.capacity()).isEqualTo(
+                    new ContextCapacity("configured-model", 128000, 4096, 1024));
+            assertThat(config.largePayloadTokenThreshold()).isPositive();
+            assertThat(config.maxSummaryTokens()).isPositive();
+        });
+    }
+
+    @Test
+    void rejectsPartialOrInvalidContextCapacityBeforeCallingRunner() {
+        FakeCliModeRunner partialRunner = new FakeCliModeRunner(0, 0);
+        FakeCliModeRunner invalidRunner = new FakeCliModeRunner(0, 0);
+        FakeCliModeRunner exhaustedRunner = new FakeCliModeRunner(0, 0);
+        FakeCliModeRunner boundedRunner = new FakeCliModeRunner(0, 0);
+
+        Invocation partial = execute(
+                partialRunner,
+                "--context-maximum-input-tokens",
+                "1000",
+                "--print",
+                "hello");
+        Invocation invalid = execute(
+                invalidRunner,
+                "--context-maximum-input-tokens",
+                "1000",
+                "--context-reserved-output-tokens",
+                "0",
+                "--context-safety-margin-tokens",
+                "100",
+                "--print",
+                "hello");
+        Invocation exhausted = execute(
+                exhaustedRunner,
+                "--context-maximum-input-tokens",
+                "1000",
+                "--context-reserved-output-tokens",
+                "900",
+                "--context-safety-margin-tokens",
+                "100",
+                "--print",
+                "hello");
+        Invocation beyondBound = execute(
+                boundedRunner,
+                "--context-maximum-input-tokens",
+                "2147483648",
+                "--context-reserved-output-tokens",
+                "100",
+                "--context-safety-margin-tokens",
+                "100",
+                "--print",
+                "hello");
+
+        assertThat(partial.exitCode()).isEqualTo(CliExitCode.USAGE_OR_CONFIGURATION);
+        assertThat(invalid.exitCode()).isEqualTo(CliExitCode.USAGE_OR_CONFIGURATION);
+        assertThat(exhausted.exitCode()).isEqualTo(CliExitCode.USAGE_OR_CONFIGURATION);
+        assertThat(beyondBound.exitCode()).isEqualTo(CliExitCode.USAGE_OR_CONFIGURATION);
+        assertThat(partialRunner.overrides).isNull();
+        assertThat(invalidRunner.overrides).isNull();
+        assertThat(exhaustedRunner.overrides).isNull();
+        assertThat(boundedRunner.overrides).isNull();
     }
 
     @Test

@@ -4,10 +4,13 @@ import java.nio.file.Path;
 import java.time.Duration;
 import io.github.liumaishenjian.ccjava.cli.session.SessionOpenRequest;
 import io.github.liumaishenjian.ccjava.cli.session.SessionStorage;
+import io.github.liumaishenjian.ccjava.core.ContextPreparationConfig;
+import io.github.liumaishenjian.ccjava.domain.ContextCapacity;
 import io.github.liumaishenjian.ccjava.domain.PermissionMode;
 import io.github.liumaishenjian.ccjava.domain.PermissionRule;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Headless Runtime 创建 Session 与 Run 所需的非 Secret 配置。
@@ -22,6 +25,7 @@ import java.util.Objects;
  * @param startupPermissionRules 可信启动规则
  * @param sessionOpenRequest S06 Session 选择
  * @param sessionStoreRoot Workspace 外的本机私有 Store root
+ * @param contextPreparation S07 显式启动容量配置；空表示保持 Canonical no-op 路径
  * @since 0.1.0
  */
 public record HeadlessRuntimeOptions(
@@ -31,7 +35,8 @@ public record HeadlessRuntimeOptions(
         PermissionMode permissionMode,
         List<PermissionRule> startupPermissionRules,
         SessionOpenRequest sessionOpenRequest,
-        Path sessionStoreRoot) {
+        Path sessionStoreRoot,
+        Optional<ContextPreparationConfig> contextPreparation) {
 
     /**
      * 使用 DEFAULT 且无 Startup Rule 创建兼容 S04 调用方的配置。
@@ -48,7 +53,8 @@ public record HeadlessRuntimeOptions(
                 PermissionMode.DEFAULT,
                 List.of(),
                 SessionOpenRequest.create(),
-                SessionStorage.defaultRoot());
+                SessionStorage.defaultRoot(),
+                Optional.empty());
     }
 
     /**
@@ -73,7 +79,30 @@ public record HeadlessRuntimeOptions(
                 permissionMode,
                 startupPermissionRules,
                 SessionOpenRequest.create(),
-                SessionStorage.defaultRoot());
+                SessionStorage.defaultRoot(),
+                Optional.empty());
+    }
+
+    /**
+     * 使用显式 Session Store 且不启用 S07 Projection 的兼容构造器。
+     */
+    public HeadlessRuntimeOptions(
+            Path workspace,
+            String model,
+            Duration timeout,
+            PermissionMode permissionMode,
+            List<PermissionRule> startupPermissionRules,
+            SessionOpenRequest sessionOpenRequest,
+            Path sessionStoreRoot) {
+        this(
+                workspace,
+                model,
+                timeout,
+                permissionMode,
+                startupPermissionRules,
+                sessionOpenRequest,
+                sessionStoreRoot,
+                Optional.empty());
     }
 
     /**
@@ -86,6 +115,7 @@ public record HeadlessRuntimeOptions(
      * @param startupPermissionRules 可信启动规则
      * @param sessionOpenRequest Session 选择
      * @param sessionStoreRoot Workspace 外 Store root
+     * @param contextPreparation 显式启动容量配置；不会从 Workspace 或模型名推断
      */
     public HeadlessRuntimeOptions {
         workspace = Objects.requireNonNull(workspace, "workspace 不能为空")
@@ -101,11 +131,31 @@ public record HeadlessRuntimeOptions(
         sessionStoreRoot = Objects.requireNonNull(sessionStoreRoot, "sessionStoreRoot 不能为空")
                 .toAbsolutePath()
                 .normalize();
+        contextPreparation = Objects.requireNonNull(
+                contextPreparation, "contextPreparation 不能为空");
         if (model.isBlank()) {
             throw new IllegalArgumentException("model 不能为空白");
         }
+        String selectedModel = model;
+        contextPreparation = contextPreparation.map(config -> bindModel(config, selectedModel));
         if (timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("timeout 必须大于 0");
         }
+    }
+
+    private static ContextPreparationConfig bindModel(
+            ContextPreparationConfig config,
+            String model) {
+        ContextCapacity source = Objects.requireNonNull(config, "config 不能为空").capacity();
+        return new ContextPreparationConfig(
+                new ContextCapacity(
+                        model,
+                        source.maximumInputTokens(),
+                        source.reservedOutputTokens(),
+                        source.safetyMarginTokens()),
+                config.largePayloadTokenThreshold(),
+                config.protectedMessageCount(),
+                config.maxSummaryUtf8Bytes(),
+                config.maxSummaryTokens());
     }
 }

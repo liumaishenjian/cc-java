@@ -4,12 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.liumaishenjian.ccjava.core.AgentEventSink;
+import io.github.liumaishenjian.ccjava.core.ContextPreparationConfig;
 import io.github.liumaishenjian.ccjava.core.ModelGateway;
 import io.github.liumaishenjian.ccjava.core.RunTelemetry;
 import io.github.liumaishenjian.ccjava.core.TokenUsageTotals;
 import io.github.liumaishenjian.ccjava.cli.session.SessionOpenRequest;
 import io.github.liumaishenjian.ccjava.domain.AgentEventEnvelope;
 import io.github.liumaishenjian.ccjava.domain.AgentRunResult;
+import io.github.liumaishenjian.ccjava.domain.ContextCapacity;
 import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
 import io.github.liumaishenjian.ccjava.domain.LifecycleEvent;
 import io.github.liumaishenjian.ccjava.domain.ModelRequest;
@@ -29,6 +31,7 @@ import io.github.liumaishenjian.ccjava.domain.ToolResultMessage;
 import io.github.liumaishenjian.ccjava.domain.ToolSource;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
+import io.github.liumaishenjian.ccjava.model.springai.config.OpenAiCompatibleSettings;
 import java.io.IOException;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
@@ -119,6 +122,82 @@ class HeadlessRuntimeSessionTest {
     }
 
     @Test
+    void absentContextConfigSendsCanonicalRequestWithoutSummarizing() {
+        AtomicReference<ModelRequest> request = new AtomicReference<>();
+        ModelGateway model = current -> {
+            request.set(current);
+            return ModelTurn.text("done");
+        };
+
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                model,
+                AgentEventSink.noop(),
+                testOptions(temporaryWorkspace, Duration.ofMinutes(5)))) {
+            application.open();
+            application.run("canonical input");
+        }
+
+        assertThat(request.get().messages())
+                .filteredOn(UserMessage.class::isInstance)
+                .singleElement()
+                .isEqualTo(new UserMessage("canonical input"));
+        assertThat(request.get().messages().getFirst()).isInstanceOf(SystemMessage.class);
+    }
+
+    @Test
+    void explicitContextConfigInstallsProjectionAndPreservesToolOrder() throws Exception {
+        Files.writeString(temporaryWorkspace.resolve("large.txt"), "payload-".repeat(2_000));
+        CopyOnWriteArrayList<ModelRequest> requests = new CopyOnWriteArrayList<>();
+        ModelGateway model = request -> {
+            requests.add(request);
+            if (requests.size() == 1) {
+                return new ModelTurn(
+                        AssistantMessage.tools(java.util.List.of(new ToolCall(
+                                "call-large",
+                                "read_file",
+                                new JsonObject(Map.of("path", "large.txt"))))),
+                        ModelTurnMetadata.unknown());
+            }
+            return ModelTurn.text("done");
+        };
+        HeadlessRuntimeOptions options = contextOptions(temporaryWorkspace);
+
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                model,
+                AgentEventSink.noop(),
+                options,
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny(),
+                (request, cancellation) -> {
+                    throw new AssertionError("C1 应先满足预算，不应调用摘要 Port");
+                })) {
+            application.open();
+            application.run("read large evidence");
+        }
+
+        assertThat(requests).hasSize(2);
+        ToolResultMessage preparedResult = requests.getLast().messages().stream()
+                .filter(ToolResultMessage.class::isInstance)
+                .map(ToolResultMessage.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertThat(preparedResult.result().content())
+                .contains("C1 已缩减正文")
+                .doesNotContain("payload-payload-");
+        assertThat(requests.getLast().toolDefinitions())
+                .extracting(definition -> definition.name())
+                .containsExactly(
+                        "list_files",
+                        "search_text",
+                        "read_file",
+                        "git_status",
+                        "git_diff",
+                        "apply_patch",
+                        "write_file",
+                        "run_command");
+    }
+
+    @Test
     void rejectsBlankAndOversizedPromptsBeforeCallingTheModel() {
         ModelGateway model = ignored -> {
             throw new AssertionError("非法 Prompt 不应调用 ModelGateway");
@@ -136,6 +215,26 @@ class HeadlessRuntimeSessionTest {
             assertThatThrownBy(() -> application.run(
                     "x".repeat(HeadlessRuntimeSession.MAX_PROMPT_CHARS + 1)))
                     .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    @Test
+    void providerComponentConstructionDoesNotExposeSettingsOrApiKey() {
+        String secret = "provider-secret-token";
+        OpenAiCompatibleSettings settings = new OpenAiCompatibleSettings(
+                "https://gateway.example.test",
+                secret,
+                "configured-model");
+
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                settings,
+                AgentEventSink.noop(),
+                new HeadlessRuntimeOptions(
+                        temporaryWorkspace,
+                        settings.model(),
+                        Duration.ofSeconds(3)))) {
+            assertThat(application.toString()).doesNotContain(secret, "gateway.example.test");
+            assertThat(settings.toString()).contains("apiKey=<redacted>").doesNotContain(secret);
         }
     }
 
@@ -848,6 +947,23 @@ class HeadlessRuntimeSessionTest {
                     .orElseThrow();
             return new io.github.liumaishenjian.ccjava.domain.SessionId(value);
         }
+    }
+
+    private HeadlessRuntimeOptions contextOptions(Path workspace) {
+        return new HeadlessRuntimeOptions(
+                workspace,
+                "fake-model",
+                Duration.ofSeconds(5),
+                PermissionMode.DEFAULT,
+                java.util.List.of(),
+                SessionOpenRequest.create(),
+                sessionStoreRoot,
+                Optional.of(new ContextPreparationConfig(
+                        new ContextCapacity("ignored-before-binding", 4_000, 100, 100),
+                        200,
+                        0,
+                        1_024,
+                        256)));
     }
 
     private HeadlessRuntimeOptions testOptions(Path workspace, Duration timeout) {

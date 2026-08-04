@@ -2,6 +2,8 @@ package io.github.liumaishenjian.ccjava.cli;
 
 import io.github.liumaishenjian.ccjava.cli.session.SessionOpenMode;
 import io.github.liumaishenjian.ccjava.cli.session.SessionOpenRequest;
+import io.github.liumaishenjian.ccjava.core.ContextPreparationConfig;
+import io.github.liumaishenjian.ccjava.domain.ContextCapacity;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
 import picocli.CommandLine.ArgGroup;
 import picocli.CommandLine.Command;
@@ -31,6 +33,14 @@ import java.util.concurrent.Callable;
         version = "cc-java 0.1.0-SNAPSHOT",
         description = "Java Headless coding-agent runtime")
 final class CcJavaCommand implements Callable<Integer> {
+
+    /** CLI 数值只作为防误配边界，不代表任何 Provider 的真实容量。 */
+    private static final long MAX_CONTEXT_TOKEN_OPTION = Integer.MAX_VALUE;
+    private static final long LARGE_PAYLOAD_TOKEN_THRESHOLD = 8_192L;
+    private static final int PROTECTED_MESSAGE_COUNT = 8;
+    private static final int MAX_SUMMARY_UTF8_BYTES = 32 * 1_024;
+    private static final long MAX_SUMMARY_TOKENS = 8_192L;
+    private static final String UNRESOLVED_MODEL_ID = "startup-selected-model";
 
     private final CliModeRunner runner;
 
@@ -66,6 +76,9 @@ final class CcJavaCommand implements Callable<Integer> {
     @ArgGroup(exclusive = true)
     private SessionSelection sessionSelection;
 
+    @ArgGroup(exclusive = false, multiplicity = "0..1")
+    private ContextCapacityOptions contextCapacity;
+
     @Spec
     private CommandSpec commandSpec;
 
@@ -82,7 +95,8 @@ final class CcJavaCommand implements Callable<Integer> {
                     Optional.ofNullable(model),
                     timeout,
                     permissionMode,
-                    sessionOpenRequest());
+                    sessionOpenRequest(),
+                    contextPreparation());
         } catch (IllegalArgumentException exception) {
             throw new ParameterException(
                     commandSpec.commandLine(),
@@ -92,6 +106,41 @@ final class CcJavaCommand implements Callable<Integer> {
             return runner.runPrint(mode.printPrompt, overrides);
         }
         return runner.runStdio(overrides);
+    }
+
+    private Optional<ContextPreparationConfig> contextPreparation() {
+        if (contextCapacity == null) {
+            return Optional.empty();
+        }
+        long maximum = boundedPositive(
+                contextCapacity.maximumInputTokens,
+                "--context-maximum-input-tokens");
+        long reserved = boundedPositive(
+                contextCapacity.reservedOutputTokens,
+                "--context-reserved-output-tokens");
+        long margin = boundedPositive(
+                contextCapacity.safetyMarginTokens,
+                "--context-safety-margin-tokens");
+        String modelId = model == null ? UNRESOLVED_MODEL_ID : model.trim();
+        ContextCapacity capacity = new ContextCapacity(modelId, maximum, reserved, margin);
+        long summaryTokens = Math.min(MAX_SUMMARY_TOKENS, reserved);
+        int summaryUtf8Bytes = Math.toIntExact(Math.min(
+                MAX_SUMMARY_UTF8_BYTES,
+                Math.multiplyExact(summaryTokens, 4L)));
+        return Optional.of(new ContextPreparationConfig(
+                capacity,
+                LARGE_PAYLOAD_TOKEN_THRESHOLD,
+                PROTECTED_MESSAGE_COUNT,
+                summaryUtf8Bytes,
+                summaryTokens));
+    }
+
+    private long boundedPositive(Long value, String optionName) {
+        if (value == null || value <= 0 || value > MAX_CONTEXT_TOKEN_OPTION) {
+            throw new IllegalArgumentException(
+                    optionName + " 必须在 1 到 " + MAX_CONTEXT_TOKEN_OPTION + " 之间");
+        }
+        return value;
     }
 
     private SessionOpenRequest sessionOpenRequest() {
@@ -120,6 +169,35 @@ final class CcJavaCommand implements Callable<Integer> {
                     "Session ID 格式无效");
         }
         return new SessionId(value);
+    }
+
+    /**
+     * 显式启动容量元组；Picocli 要求三个可信参数同时出现。
+     *
+     * <p>这些值不从模型名、Provider 响应或 Workspace 指令推断，也不是 S08 持久设置。</p>
+     */
+    private static final class ContextCapacityOptions {
+
+        @Option(
+                names = "--context-maximum-input-tokens",
+                required = true,
+                paramLabel = "<tokens>",
+                description = "显式模型输入窗口上限；必须与另外两个 Context 参数一起提供")
+        private Long maximumInputTokens;
+
+        @Option(
+                names = "--context-reserved-output-tokens",
+                required = true,
+                paramLabel = "<tokens>",
+                description = "显式输出保留 Token；必须大于 0")
+        private Long reservedOutputTokens;
+
+        @Option(
+                names = "--context-safety-margin-tokens",
+                required = true,
+                paramLabel = "<tokens>",
+                description = "显式估算安全余量 Token；必须大于 0")
+        private Long safetyMarginTokens;
     }
 
     private static final class SessionSelection {

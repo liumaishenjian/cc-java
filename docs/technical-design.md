@@ -9,7 +9,9 @@
 > 当前学习阶段：S01-S06 已 Accepted；S07 Context Engineering 已完成 G0-G2 研究与设计冻结
 >
 > 当前实现状态：ADR-042/043/044 已固定 Context Projection、条件式 Reduction、文件记忆和零等待
-> 预取的独立契约；尚无 S07 生产实现、Capability Level 提升或 G3-G6 证据。
+> 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter 与显式启动容量的 Headless
+> composition 已形成实现和离线 Fake，但 ready-only Memory Runtime、Context View、Demo/Eval、Capability
+> Level 提升与 G3-G6 完整证据仍未完成。
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 
@@ -879,8 +881,12 @@ A2 在首次请求抛出 `FailureKind.CONTEXT_OVERFLOW` 且尚未发布流式文
 `context_length_exceeded` 时映射 typed overflow，不读取自由文本消息或响应正文；其他 400 fail closed，
 429/5xx 与 incomplete-stream 语义保持不变。`SpringAiContextSummarizer` 使用固定 System/User envelope、零
 Tool definitions 和直接流式聚合请求，传播取消并只返回绑定原 tier/revision/source IDs 的纯数据候选；
-Tool Call、空白/超限输出和非 `stop` 完成均不产生候选，且不进入 AgentRuntime/Tool Pipeline。尚未接入
-Headless composition 或模型容量默认值。内部
+Tool Call、空白/超限输出和非 `stop` 完成均不产生候选，且不进入 AgentRuntime/Tool Pipeline。Headless
+composition 只在可信 CLI 同时提供 maximum input、reserved output 与 safety margin 时启用 Preparation；参数
+all-or-none、严格校验，不从模型名、Provider 文本、Workspace 或项目 Instructions 推断。生产装配共享一个
+`ChatModel`，普通 Gateway 保留既有重试策略，Summarizer 直接调用底层模型而不递归经过该 Gateway。C1 阈值、
+protected tail 与摘要限制是独立校验的保守项目常量，不是 Provider 容量声明；本切片只有进程启动 opt-in，
+S08 持久 Settings、Schema 和合并层级仍未实现。缺省参数时 Headless/Fake 继续发送未修改 Canonical 请求。内部
 Context Usage View 公开各来源预算、当前压力、应用策略和隐私安全原因码；完整 `/context` 与
 `/compact` 交互 UX 延期 S08。
 
