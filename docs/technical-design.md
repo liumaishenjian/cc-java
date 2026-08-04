@@ -868,11 +868,14 @@ overflow retry coordinator 均在构造时绑定唯一 Run，并实现 `AutoClos
 先获得锁时 ADOPTED 先线性化，close 先获得锁时不执行终态构造并丢弃候选，不能在 close 胜出后采用。
 摘要前还要求 Projection 尾部与 Canonical protected tail 逐条相等；
 Spring AI Adapter 将摘要固定编码为版本化 User JSON envelope，正文使用 UTF-8 Base64，不能映射或裸露成
-Provider Tool 协议。A1 通过单个 `ContextPreparationService` 接入 AgentRuntime：每轮先由
+Provider Tool 协议。单个 `ContextPreparationService` 接入 AgentRuntime：每轮先由
 `DefaultContextAssembler` 生成 Canonical `ModelRequest`，再按显式 `ContextPreparationConfig` 的模型容量、
 C1 阈值和摘要上限准备短生命周期 Projection；Gateway 只接收投影消息和原顺序 Tool Definitions。
-旧构造器固定使用 no-op 路径，Run `finally` 调用 `closeRun` 清除 per-run Guard；Projection 不写入
-`AgentSession` 或 `SessionJournal`。typed overflow 与 Gateway 单次 retry 留待 A2。内部
+A2 在首次请求抛出 `FailureKind.CONTEXT_OVERFLOW` 且尚未发布流式文本时，复用 per-run retry coordinator
+强制执行一次 C3/C4 恢复；只有摘要 ADOPTED 才发送第二次请求。非 overflow、空/拒绝/取消/关闭摘要不重试，
+第二次 overflow 直接终止为 `CONTEXT_LIMIT_REACHED`，不存在递归入口。旧构造器固定使用 no-op 路径，Run
+`finally` 调用 `closeRun` 清除 per-run Guard 与 retry Key；Projection 不写入 `AgentSession` 或
+`SessionJournal`。真实 Provider overflow 分类和 Provider summarizer Adapter 尚未接入。内部
 Context Usage View 公开各来源预算、当前压力、应用策略和隐私安全原因码；完整 `/context` 与
 `/compact` 交互 UX 延期 S08。
 

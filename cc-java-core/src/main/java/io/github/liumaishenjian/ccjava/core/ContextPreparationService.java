@@ -1,5 +1,6 @@
 package io.github.liumaishenjian.ccjava.core;
 
+import io.github.liumaishenjian.ccjava.domain.ContextCapacity;
 import io.github.liumaishenjian.ccjava.domain.ContextProjection;
 import io.github.liumaishenjian.ccjava.domain.ContextReductionOutcome;
 import io.github.liumaishenjian.ccjava.domain.ContextReductionStatus;
@@ -11,6 +12,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 从 ContextAssembler 生成的 Canonical ModelRequest 构建单回合短生命周期 Projection。
@@ -63,7 +66,7 @@ public final class ContextPreparationService {
                 config.protectedMessageCount(), canonical.messages().size());
         long revision = canonical.messages().size();
         ProjectionRequest request = new ProjectionRequest(
-                canonical.messages(), config.capacity(), revision, protectedCount, false);
+                canonical.messages(), config.capacity(), revision, protectedCount, true);
         ContextReductionOutcome reduced = state.reducer().reduce(request, cancellationToken);
         ContextProjection projection = reduced.projection();
         if (reduced.status() == ContextReductionStatus.CONTEXT_LIMIT_REACHED
@@ -79,20 +82,94 @@ public final class ContextPreparationService {
                     canonical.runId(), request, projection, policy, cancellationToken);
             projection = summary.projection();
         }
-        return new ModelRequest(
+        ModelRequest prepared = new ModelRequest(
                 canonical.sessionId(),
                 canonical.runId(),
                 canonical.turnNumber(),
                 projection.messages(),
                 canonical.toolDefinitions());
+        ContextCapacity recoveryCapacity = recoveryCapacity(projection);
+        ProjectionRequest recoveryRequest = new ProjectionRequest(
+                canonical.messages(), recoveryCapacity, revision, protectedCount, true);
+        ContextProjection recoveryProjection = new ContextProjection(
+                projection.messages(),
+                state.estimator().estimate(projection.messages(), recoveryCapacity),
+                projection.appliedReductions(),
+                projection.sourceRevision());
+        state.prepared().set(new PreparedContext(
+                recoveryRequest,
+                recoveryProjection,
+                policyFor(recoveryProjection, protectedCount)));
+        return prepared;
     }
 
-    /** 关闭并移除一个 Run 的所有摘要冷却状态。 */
+    /**
+     * 执行首次请求，并仅在 typed context overflow 后强制摘要与重试一次。
+     *
+     * <p>no-op 路径直接执行一次。启用路径把既有 Coordinator 的无循环尝试结果重新映射为
+     * 原始 {@link ModelGatewayException}，从而保持非 overflow 失败和第二次 overflow 的精确分类。</p>
+     */
+    public <T> T executePrepared(
+            ModelRequest prepared,
+            CancellationToken cancellationToken,
+            PreparedAttempt<T> attempt) throws ModelGatewayException {
+        Objects.requireNonNull(prepared, "prepared 不能为空");
+        Objects.requireNonNull(cancellationToken, "cancellationToken 不能为空");
+        Objects.requireNonNull(attempt, "attempt 不能为空");
+        if (!enabled) {
+            return attempt.execute(prepared);
+        }
+        RunState state = runs.get(prepared.runId());
+        PreparedContext context = state == null ? null : state.prepared().getAndSet(null);
+        if (state == null || context == null) {
+            return attempt.execute(prepared);
+        }
+        AtomicReference<ModelGatewayException> failure = new AtomicReference<>();
+        AtomicBoolean attempted = new AtomicBoolean();
+        ContextOverflowRetryCoordinator.Outcome<AttemptValue<T>> outcome =
+                state.overflow().execute(
+                        prepared.runId(),
+                        context.request(),
+                        context.projection(),
+                        context.policy(),
+                        cancellationToken,
+                        projection -> {
+                    attempted.set(true);
+                    try {
+                        ModelRequest request = new ModelRequest(
+                                prepared.sessionId(), prepared.runId(), prepared.turnNumber(),
+                                projection.messages(), prepared.toolDefinitions());
+                        return ContextOverflowRetryCoordinator.AttemptResult.success(
+                                new AttemptValue<>(attempt.execute(request)));
+                    } catch (ModelGatewayException exception) {
+                        failure.set(exception);
+                        return exception.kind() == ModelGatewayException.FailureKind.CONTEXT_OVERFLOW
+                                ? ContextOverflowRetryCoordinator.AttemptResult.overflow()
+                                : ContextOverflowRetryCoordinator.AttemptResult.failed();
+                    }
+                });
+        if (outcome.result().status()
+                == ContextOverflowRetryCoordinator.AttemptStatus.SUCCESS) {
+            return outcome.result().value().orElseThrow().value();
+        }
+        if (!attempted.get()) {
+            throw new ModelGatewayException(
+                    ModelGatewayException.FailureKind.CANCELLED,
+                    "Model request cancelled");
+        }
+        ModelGatewayException exception = failure.get();
+        if (exception != null) {
+            throw exception;
+        }
+        throw new ModelGatewayException("Model request failed");
+    }
+
+    /** 关闭并移除一个 Run 的所有摘要冷却和 overflow retry 状态。 */
     public void closeRun(RunId runId) {
         Objects.requireNonNull(runId, "runId 不能为空");
         RunState state = runs.remove(runId);
         if (state != null) {
-            state.summary().close();
+            state.overflow().close();
         }
     }
 
@@ -108,7 +185,35 @@ public final class ContextPreparationService {
         SummaryAttemptGuard guard = new SummaryAttemptGuard(runId);
         SummaryReductionCoordinator summary = new SummaryReductionCoordinator(
                 summarizer, estimator, guard);
-        return new RunState(reducer, summary);
+        ContextOverflowRetryCoordinator overflow = new ContextOverflowRetryCoordinator(
+                runId, summary);
+        return new RunState(
+                estimator, reducer, summary, overflow, new AtomicReference<>());
+    }
+
+    private ContextCapacity recoveryCapacity(ContextProjection projection) {
+        long reducedBudget = Math.max(1L, projection.usage().totalTokens() - 1L);
+        long reserved = Math.addExact(
+                config.capacity().reservedOutputTokens(),
+                config.capacity().safetyMarginTokens());
+        long maximum = Math.addExact(reducedBudget, reserved);
+        return new ContextCapacity(
+                config.capacity().modelId(),
+                maximum,
+                config.capacity().reservedOutputTokens(),
+                config.capacity().safetyMarginTokens());
+    }
+
+    private SummaryReductionPolicy policyFor(
+            ContextProjection projection,
+            int protectedCount) {
+        return new SummaryReductionPolicy(
+                rollingEnd(projection, protectedCount),
+                true,
+                List.of(),
+                List.of(),
+                config.maxSummaryUtf8Bytes(),
+                config.maxSummaryTokens());
     }
 
     private int rollingEnd(ContextProjection projection, int protectedCount) {
@@ -121,8 +226,27 @@ public final class ContextPreparationService {
         return available <= 1 ? 0 : first + Math.max(1, available / 2);
     }
 
+    /** 单次 ModelRequest 尝试；实现不得自行循环。 */
+    @FunctionalInterface
+    public interface PreparedAttempt<T> {
+        /** 执行一次 prepared 或 recovered 请求。 */
+        T execute(ModelRequest request) throws ModelGatewayException;
+    }
+
+    private record AttemptValue<T>(T value) {
+    }
+
+    private record PreparedContext(
+            ProjectionRequest request,
+            ContextProjection projection,
+            SummaryReductionPolicy policy) {
+    }
+
     private record RunState(
+            ContextTokenEstimator estimator,
             DeterministicContextReducer reducer,
-            SummaryReductionCoordinator summary) {
+            SummaryReductionCoordinator summary,
+            ContextOverflowRetryCoordinator overflow,
+            AtomicReference<PreparedContext> prepared) {
     }
 }

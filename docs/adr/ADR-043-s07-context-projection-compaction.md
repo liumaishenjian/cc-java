@@ -29,9 +29,9 @@ Projection 的压力来源、收益估计、保真风险和协议边界决定，
 
 ## 独立 Java 契约
 
-截至 2026-08-05，C1/C2 确定性 Projection、C3/C4 摘要与 A1 Runtime Projection seam 已形成以下
-独立 API；A1 只接入 ModelRequest 前的短生命周期准备，不含 Provider overflow retry，也不构成
-Capability Level 或 Gate 提升：
+截至 2026-08-05，C1/C2 确定性 Projection、C3/C4 摘要、A1 Runtime Projection seam 与 A2 typed
+overflow 单恢复接缝已形成以下独立 API；A2 仍不包含 Provider 分类 Adapter，也不构成 Capability Level
+或 Gate 提升：
 
 ```text
 ContextCapacity(modelId, maximumInputTokens, reservedOutputTokens, safetyMarginTokens)
@@ -62,10 +62,13 @@ ContextPreparationService.closeRun(RunId) -> per-run cleanup
 
 - `ContextProjectionPlanner` 与确定性 Reducer 属于 Core；`ContextSummarizer`、精确 Provider token count 和
   外部载荷读取通过 Port 注入。
-- A1 中 `AgentRuntime` 仍先由 `DefaultContextAssembler` 构造 Canonical `ModelRequest`，再交给单个
+- `AgentRuntime` 仍先由 `DefaultContextAssembler` 构造 Canonical `ModelRequest`，再交给单个
   `ContextPreparationService` 生成只供该模型回合使用的 Projection；旧构造器固定使用 no-op 路径。
-  `finally` 按 Run 调用 `closeRun`，关闭并移除摘要 Guard。Tool Definitions 的对象顺序与 Canonical 请求完全
-  相同，Projection 不进入 `AgentSession` 或 `SessionJournal`。
+  A2 仅在 `ModelGatewayException.FailureKind.CONTEXT_OVERFLOW` 且首次请求尚未产生可见流式文本时，使用
+  同一 Run 的 `ContextOverflowRetryCoordinator` 强制尝试 C3/C4；只有摘要 ADOPTED 才以完全相同且有序的
+  Tool Definitions 发送第二次请求。非 overflow、空/拒绝/取消/关闭摘要均不重试，第二次 overflow 直接映射
+  `CONTEXT_LIMIT_REACHED`。`finally` 按 Run 调用 `closeRun`，关闭并移除摘要与 retry 状态；Projection 不进入
+  `AgentSession` 或 `SessionJournal`。
 - Domain/Core 类型保持不可变、框架无关，不携带 Spring AI、Reactor、Path、JSON、FileLock、Ink 或
   Node 类型。
 - `sourceRevision` 标识构建 Projection 时读取的规范历史版本；候选结果提交前必须确认来源未变化。
@@ -147,7 +150,8 @@ Transcript、Tool Payload、Memory Projection 和 Free/Reserved 分类展示估�
 ## 延期与能力声明
 
 S08 负责分层 Instructions、持久 Settings、完整 `/compact`/`/context` UX；S12 负责 Sub-Agent 独立窗口；
-S14 负责 Provider Cache/Context Editing、稳定机器协议和跨版本持久兼容。当前 C1-C4 已通过 A1 `ContextPreparationService` 接入 `AgentRuntime` 的 ModelRequest 前置 seam，旧构造器
-仍走 no-op；纯数据 `ContextSummarizer` Port、候选 Gate、per-run cooldown 和离线单 overflow retry
-协调器继续保留。尚无 Provider Adapter、typed overflow 分类或 Runtime retry 接入。G3-G6 完成前，README
+S14 负责 Provider Cache/Context Editing、稳定机器协议和跨版本持久兼容。当前 C1-C4 已通过 `ContextPreparationService` 接入 `AgentRuntime` 的 ModelRequest 前置 seam，A2 又接入
+Provider-neutral typed overflow 与 Runtime 精确一次恢复；旧构造器仍走 no-op，纯数据 `ContextSummarizer`
+Port、候选 Gate 与 per-run cooldown 保持不变。尚无真实 Provider overflow 分类或 Provider summarizer
+Adapter。G3-G6 完成前，README
 和矩阵继续把上述 S07 Capability 标为 L0，不得描述为完整可用。

@@ -136,6 +136,146 @@ class AgentRuntimeContextIntegrationTest {
     }
 
     @Test
+    void retriesOnceWithForcedSummaryAfterTypedContextOverflow() {
+        Fixture fixture = fixtureWithHistory();
+        AtomicInteger calls = new AtomicInteger();
+        List<ModelRequest> requests = new ArrayList<>();
+        ContextPreparationService preparation = configured((request, cancellation) ->
+                Optional.of(candidate(request, "overflow compact")));
+        ModelGateway model = request -> {
+            requests.add(request);
+            if (calls.getAndIncrement() == 0) {
+                throw new ModelGatewayException(
+                        ModelGatewayException.FailureKind.CONTEXT_OVERFLOW,
+                        "context overflow");
+            }
+            return ModelTurn.text("recovered");
+        };
+
+        AgentRunResult result = fixture.runtime(model, preparation)
+                .run(fixture.session().id(), request("active"));
+
+        assertThat(result.stopReason()).isEqualTo(StopReason.COMPLETED);
+        assertThat(calls).hasValue(2);
+        assertThat(requests).hasSize(2);
+        assertThat(requests.get(1).messages())
+                .anyMatch(io.github.liumaishenjian.ccjava.domain.ContextSummaryMessage.class::isInstance);
+        assertThat(requests.get(1).toolDefinitions())
+                .containsExactlyElementsOf(requests.get(0).toolDefinitions());
+        assertCompleteToolBatches(requests.get(1).messages());
+        assertThat(preparation.activeRunCount()).isZero();
+    }
+
+    @Test
+    void secondTypedContextOverflowStopsAfterExactlyTwoGatewayAttempts() {
+        Fixture fixture = fixtureWithHistory();
+        AtomicInteger calls = new AtomicInteger();
+        ContextPreparationService preparation = configured((request, cancellation) ->
+                Optional.of(candidate(request, "overflow compact")));
+        ModelGateway model = request -> {
+            calls.incrementAndGet();
+            throw new ModelGatewayException(
+                    ModelGatewayException.FailureKind.CONTEXT_OVERFLOW,
+                    "context overflow");
+        };
+
+        AgentRunResult result = fixture.runtime(model, preparation)
+                .run(fixture.session().id(), request("active"));
+
+        assertThat(result.stopReason()).isEqualTo(StopReason.CONTEXT_LIMIT_REACHED);
+        assertThat(calls).hasValue(2);
+        assertThat(preparation.activeRunCount()).isZero();
+    }
+
+    @Test
+    void cancellationAfterTypedContextOverflowPreventsSummaryAndRetry() throws Exception {
+        Fixture fixture = fixtureWithHistory();
+        CountDownLatch firstOverflow = new CountDownLatch(1);
+        CountDownLatch releaseFailure = new CountDownLatch(1);
+        AtomicInteger modelCalls = new AtomicInteger();
+        AtomicInteger summaryCalls = new AtomicInteger();
+        ContextPreparationService preparation = configured((request, cancellation) -> {
+            summaryCalls.incrementAndGet();
+            return Optional.of(candidate(request, "unexpected"));
+        });
+        ModelGateway model = request -> {
+            modelCalls.incrementAndGet();
+            firstOverflow.countDown();
+            await(releaseFailure);
+            throw new ModelGatewayException(
+                    ModelGatewayException.FailureKind.CONTEXT_OVERFLOW,
+                    "context overflow");
+        };
+        AgentRuntime runtime = fixture.runtime(model, preparation);
+        AtomicReference<AgentRunResult> result = new AtomicReference<>();
+        Thread thread = Thread.ofVirtual().start(() -> result.set(
+                runtime.run(fixture.session().id(), request("active"))));
+        assertThat(firstOverflow.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(runtime.cancel(
+                fixture.session().id(),
+                new io.github.liumaishenjian.ccjava.domain.RunId("run-2")))
+                .isTrue();
+        releaseFailure.countDown();
+        thread.join(TimeUnit.SECONDS.toMillis(5));
+
+        assertThat(result.get().stopReason()).isEqualTo(StopReason.USER_CANCELLED);
+        assertThat(modelCalls).hasValue(1);
+        assertThat(summaryCalls).hasValue(0);
+        assertThat(preparation.activeRunCount()).isZero();
+    }
+
+    @Test
+    void nonOverflowFailureNeverSummarizesOrRetries() {
+        Fixture fixture = fixtureWithHistory();
+        AtomicInteger modelCalls = new AtomicInteger();
+        AtomicInteger summaryCalls = new AtomicInteger();
+        ContextPreparationService preparation = configured((request, cancellation) -> {
+            summaryCalls.incrementAndGet();
+            return Optional.of(candidate(request, "unexpected"));
+        });
+        ModelGateway model = request -> {
+            modelCalls.incrementAndGet();
+            throw new ModelGatewayException(
+                    ModelGatewayException.FailureKind.PERMANENT,
+                    "permanent");
+        };
+
+        AgentRunResult result = fixture.runtime(model, preparation)
+                .run(fixture.session().id(), request("active"));
+
+        assertThat(result.stopReason()).isEqualTo(StopReason.MODEL_ERROR);
+        assertThat(modelCalls).hasValue(1);
+        assertThat(summaryCalls).hasValue(0);
+        assertThat(preparation.activeRunCount()).isZero();
+    }
+
+    @Test
+    void streamingDeltaBeforeTypedOverflowPreventsRetry() {
+        Fixture fixture = fixtureWithHistory();
+        AtomicInteger modelCalls = new AtomicInteger();
+        AtomicInteger summaryCalls = new AtomicInteger();
+        ContextPreparationService preparation = configured((request, cancellation) -> {
+            summaryCalls.incrementAndGet();
+            return Optional.of(candidate(request, "unexpected"));
+        });
+        StreamingModelGateway model = (request, observer, cancellation) -> {
+            modelCalls.incrementAndGet();
+            observer.onTextDelta("visible");
+            throw new ModelGatewayException(
+                    ModelGatewayException.FailureKind.CONTEXT_OVERFLOW,
+                    "late context overflow");
+        };
+
+        AgentRunResult result = fixture.runtime(model, preparation)
+                .run(fixture.session().id(), request("active"));
+
+        assertThat(result.stopReason()).isEqualTo(StopReason.INCOMPLETE_MODEL_STREAM);
+        assertThat(modelCalls).hasValue(1);
+        assertThat(summaryCalls).hasValue(0);
+        assertThat(preparation.activeRunCount()).isZero();
+    }
+
+    @Test
     void cancellationDuringPreparationPreventsGatewayCallAndClosesRun() throws Exception {
         Fixture fixture = fixtureWithHistory();
         CountDownLatch entered = new CountDownLatch(1);

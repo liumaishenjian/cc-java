@@ -223,7 +223,7 @@
     }
   </style>
 </head>
-<body data-matrix-digest="0c5d14495862" data-state-digest="0ba6ac96daea" data-code-digest="ddf28f71f499">
+<body data-matrix-digest="0c5d14495862" data-state-digest="33e85a10062e" data-code-digest="300113941a6f">
   <main class="shell">
     <section class="hero">
       <p class="eyebrow">Reference-driven Java Agent Runtime</p>
@@ -330,13 +330,13 @@
         </div>
       </div>
       <dl class="evidence-grid">
-        <div class="evidence-item"><dt>Last change</dt><dd>S07 CTX-06..11 A1 projection seam 以显式模型 ContextCapacity 和有界 C1-C4 配置接入 AgentRuntime ModelRequest 前置准备；每轮从 DefaultContextAssembler Canonical 快照生成短生命周期 Projection，保持 Tool Definitions 顺序、AgentSession/SessionJournal 不变，并在 Run finally 清理 per-run 摘要状态。旧构造器继续 no-op；typed overflow 与 Runtime retry 延期 A2，本切片无 Capability Level 或 Gate 提升。</dd></div>
+        <div class="evidence-item"><dt>Last change</dt><dd>S07 CTX-06..11 A2 typed context-overflow retry 为 ModelGatewayException 增加 Provider-neutral CONTEXT_OVERFLOW，并把既有单 overflow coordinator 接入 AgentRuntime；首次请求仅在 typed overflow、未发布流式文本且摘要 ADOPTED 时重试一次，非 overflow/取消/拒绝不重试，第二次 overflow 映射 CONTEXT_LIMIT_REACHED，Run finally 清理摘要与 retry 状态。本切片无 Provider Adapter、Capability Level 或 Gate 提升。</dd></div>
         <div class="evidence-item"><dt>Evidence stage</dt><dd><code>S07</code></dd></div>
         <div class="evidence-item"><dt>Evidence class</dt><dd><code>IMPLEMENTATION_VERIFIED</code></dd></div>
         <div class="evidence-item"><dt>Code commit</dt><dd><code>N/A - uncommitted S07 G3 foundation slice</code></dd></div>
-        <div class="evidence-item"><dt>Standard command</dt><dd><code>.\mvnw.cmd -pl cc-java-model-spring-ai -am -Dtest=SummaryContractsTest,SummaryReductionCoordinatorTest,ContextOverflowRetryCoordinatorTest,SummaryLifecycleTest,SpringAiPromptMapperTest -Dsurefire.failIfNoSpecifiedTests=false test；.\mvnw.cmd test；java scripts/ProgressDashboard.java；java scripts/ProgressDashboard.java --check；java scripts/ProgressDashboard.java --self-test；git diff --check</code></dd></div>
+        <div class="evidence-item"><dt>Standard command</dt><dd><code>.\mvnw.cmd -pl cc-java-core -am -Dtest=AgentRuntimeContextIntegrationTest,AgentRuntimeTest,ContextOverflowRetryCoordinatorTest,RetryingModelGatewayTest -Dsurefire.failIfNoSpecifiedTests=false test；.\mvnw.cmd test；java scripts/ProgressDashboard.java；java scripts/ProgressDashboard.java --check；java scripts/ProgressDashboard.java --self-test；git diff --check</code></dd></div>
         <div class="evidence-item"><dt>Result</dt><dd>S07 已形成独立 C1/C2 Reducer、C3/C4 Summary Foundation 与 M1-M5 文件记忆/ready-only Prefetch 离线实现和 Fake 回归；由于尚未 Provider/AgentRuntime/ModelRequest 接入、Stage Demo/Eval 或 Commit-scoped 完整证据，Capability Level 与 G3-G6 均保持不变。</dd></div>
-        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix 0c5d14495862</code><br><code>state 0ba6ac96daea</code><br><code>code/build ddf28f71f499</code></dd></div>
+        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix 0c5d14495862</code><br><code>state 33e85a10062e</code><br><code>code/build 300113941a6f</code></dd></div>
       </dl>
     </section>
 

@@ -22,6 +22,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -254,12 +255,15 @@ public final class AgentRuntime {
             }
             ModelTurn modelTurn;
             try {
-                modelTurn = completeModelTurn(
-                        session,
-                        runId,
-                        turnNumber,
+                modelTurn = contextPreparation.executePrepared(
                         modelRequest,
-                        activeRun.cancellation());
+                        activeRun.cancellation().token(),
+                        request -> completeModelTurn(
+                                session,
+                                runId,
+                                turnNumber,
+                                request,
+                                activeRun.cancellation()));
             } catch (ModelGatewayException exception) {
                 if (activeRun.cancellation().token().isCancellationRequested()) {
                     return stopForCancellation(state, activeRun);
@@ -345,17 +349,31 @@ public final class AgentRuntime {
             ModelRequest modelRequest,
             CancellationSource cancellation) throws ModelGatewayException {
         if (modelGateway instanceof StreamingModelGateway streamingGateway) {
-            return streamingGateway.complete(
-                    modelRequest,
-                    delta -> {
-                        if (!cancellation.token().isCancellationRequested()) {
-                            lifecycle.dispatch(
-                                    session,
-                                    runId,
-                                    new ModelTextDelta(turnNumber, delta));
-                        }
-                    },
-                    cancellation.token());
+            AtomicBoolean emittedText = new AtomicBoolean();
+            try {
+                return streamingGateway.complete(
+                        modelRequest,
+                        delta -> {
+                            emittedText.set(true);
+                            if (!cancellation.token().isCancellationRequested()) {
+                                lifecycle.dispatch(
+                                        session,
+                                        runId,
+                                        new ModelTextDelta(turnNumber, delta));
+                            }
+                        },
+                        cancellation.token());
+            } catch (ModelGatewayException failure) {
+                if (emittedText.get()
+                        && failure.kind()
+                                == ModelGatewayException.FailureKind.CONTEXT_OVERFLOW) {
+                    throw new ModelGatewayException(
+                            ModelGatewayException.FailureKind.INCOMPLETE_STREAM,
+                            "Model stream failed after publishing output",
+                            failure);
+                }
+                throw failure;
+            }
         }
         return modelGateway.complete(modelRequest);
     }
@@ -388,6 +406,7 @@ public final class AgentRuntime {
         return switch (exception.kind()) {
             case INCOMPLETE_STREAM -> StopReason.INCOMPLETE_MODEL_STREAM;
             case RETRY_EXHAUSTED -> StopReason.MODEL_RETRY_EXHAUSTED;
+            case CONTEXT_OVERFLOW -> StopReason.CONTEXT_LIMIT_REACHED;
             default -> StopReason.MODEL_ERROR;
         };
     }

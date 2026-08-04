@@ -135,6 +135,8 @@ public final class ModelGatewayException extends Exception {
         RETRY_EXHAUSTED,
         /** 流在完整终态前结束，禁止自动重试。 */
         INCOMPLETE_STREAM,
+        /** Provider 明确拒绝超过输入 Context 容量的请求。 */
+        CONTEXT_OVERFLOW,
         /** 用户取消或 Runtime Deadline 已传播到 Adapter。 */
         CANCELLED
     }
