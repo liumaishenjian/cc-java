@@ -29,7 +29,8 @@ Projection 的压力来源、收益估计、保真风险和协议边界决定，
 
 ## 独立 Java 契约
 
-以下是 G3 的设计目标，不是当前已实现 API：
+截至 2026-08-05，C1/C2 确定性 Projection 与 C3/C4 离线基础已形成以下独立 API；它们尚未接入
+AgentRuntime/ModelRequest，也不构成 Capability Level 或 Gate 提升：
 
 ```text
 ContextCapacity(modelId, maximumInputTokens, reservedOutputTokens, safetyMarginTokens)
@@ -38,13 +39,22 @@ ContextUsage(systemTokens, instructionTokens, transcriptTokens, toolTokens,
 ProjectionRequest(canonicalMessages, systemInputs, instructionInputs,
                   readyMemories, capacity, overflowRecoveryAvailable)
 ContextProjection(messages, usage, appliedReductions, sourceRevision)
-ReductionCandidate(strategy, boundary, estimatedTokensFreed, fidelityRisk)
-ReductionOutcome(status, strategy, beforeUsage, afterUsage, reasonCode)
+ContextReduction(strategy, tokensBefore, tokensAfter, affectedMessages)
+ContextReductionOutcome(status, projection, initialUsage, finalUsage, reason)
+SummaryRequest(tier, boundedInputSnapshot, sourceRevision, sourceMessageIds,
+               requiredProtectedAnchors, maxOutputUtf8Bytes, maxOutputTokens,
+               sourceEstimatedTokens)
+SummaryCandidate(tier, summary, sourceRevision, sourceMessageIds,
+                 utf8Bytes, estimatedTokens)
+SummaryOutcome(status, previousProjection, projection, attemptedTiers,
+               diagnostics, adoptedCandidate)
 
-ContextProjectionPlanner.plan(ProjectionRequest) -> ProjectionPlan
-ContextReducer.reduce(ProjectionPlan, CancellationToken) -> ReductionResult
-ContextTokenEstimator.estimate(ProjectionInput) -> ContextUsage
-ContextSummarizer.summarize(SummaryRequest, CancellationToken) -> SummaryResult
+ContextProjectionPlanner.plan(ProjectionRequest, CancellationToken)
+ContextReducer.reduce(ProjectionRequest, CancellationToken)
+ContextTokenEstimator.estimate(messages, capacity) -> ContextUsage
+ContextSummarizer.summarize(SummaryRequest, CancellationToken) -> Optional<SummaryCandidate>
+SummaryReductionCoordinator.reduce(...) -> SummaryOutcome
+ContextOverflowRetryCoordinator.execute(...) -> at-most-two model attempts
 ```
 
 - `ContextProjectionPlanner` 与确定性 Reducer 属于 Core；`ContextSummarizer`、精确 Provider token count 和
@@ -87,7 +97,18 @@ ContextSummarizer.summarize(SummaryRequest, CancellationToken) -> SummaryResult
 6. 预估后的 Projection 确实释放足够空间。
 
 任一条件失败时保留原 Projection，发布失败 outcome；不得写入 Canonical Transcript，也不得把失败摘要
-当作下一次摘要的事实来源。
+当作下一次摘要的事实来源。当前离线 Core 还要求候选 tier 匹配、source revision 匹配、稳定 source
+message ID 有序精确覆盖、严格 UTF-8、请求级 byte/token 上限、输出估算严格低于来源、所有 protected
+anchor 原样保留且正文不含 Tool Call/Result 协议片段。C3 只在 C1/C2 仍超预算且 rolling window 是完整
+协议区间时尝试；C4 只在 C3 仍未满足容量且完整摘要前提成立时尝试。同一 Run/source revision/tier
+最多调用摘要 Port 一次，候选提交后只追加 Projection Reduction，Canonical Transcript 保持深度相等。
+冷却与 overflow retry 状态由构造时绑定唯一 Run 的 `AutoCloseable` 对象持有；Run owner 结束时调用
+`close()`，并发 close/acquire 在同一锁上线性化，关闭后 fail-closed 且清空 revision/tier Key，不建立跨 Run
+全局 registry。摘要最终采用也通过 Guard 的同一生命周期锁提交：commit 先获得锁时 ADOPTED 在线性化点上
+先于 close；close 先获得锁时 commit 不执行终态构造并丢弃候选，不能在 close 胜出后返回 ADOPTED。
+Coordinator 还逐条比较原 Canonical protected tail 与 Projection 尾部；任何差异在摘要前拒绝。
+Provider Adapter 把 `ContextSummaryMessage` 固定映射为版本化 User JSON envelope，摘要正文以 UTF-8 Base64
+承载，不能映射成 Assistant/ToolResponse 或在 envelope 中裸露可伪装 Tool 协议的片段。
 
 ## Context Usage 投影
 
@@ -119,5 +140,7 @@ Transcript、Tool Payload、Memory Projection 和 Free/Reserved 分类展示估�
 ## 延期与能力声明
 
 S08 负责分层 Instructions、持久 Settings、完整 `/compact`/`/context` UX；S12 负责 Sub-Agent 独立窗口；
-S14 负责 Provider Cache/Context Editing、稳定机器协议和跨版本持久兼容。G3-G6 完成前，README 和
+S14 负责 Provider Cache/Context Editing、稳定机器协议和跨版本持久兼容。当前 C3/C4 只有离线
+Domain/Core、纯数据 `ContextSummarizer` Port、候选 Gate、per-run cooldown 和单 overflow retry
+协调器；没有 Provider Adapter，也没有 AgentRuntime/ModelRequest 接入。G3-G6 完成前，README 和
 矩阵继续把上述 S07 Capability 标为 L0，不得描述为可用。

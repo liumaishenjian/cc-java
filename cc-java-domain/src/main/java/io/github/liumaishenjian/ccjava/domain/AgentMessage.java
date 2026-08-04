@@ -9,5 +9,6 @@ package io.github.liumaishenjian.ccjava.domain;
  * @since 0.1.0
  */
 public sealed interface AgentMessage
-        permits SystemMessage, UserMessage, AssistantMessage, ToolResultMessage {
+        permits SystemMessage, UserMessage, AssistantMessage, ToolResultMessage,
+                ContextSummaryMessage {
 }

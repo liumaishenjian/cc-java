@@ -146,3 +146,7 @@ assemble non-memory inputs ─┼─> consumeReady() ─> build Projection ─> 
 - **在 S07 实现分层 Instructions 或 Sub-Agent Memory**：分别延期 S08、S12。
 
 G3-B 当前形成 M1-M5 的离线基础与安全回归：M4 确定性 manifest 相关选择、M5 revision/digest/预算 Gate、安全正文加载和 ready-only 一次消费均已有 Fake 证据；`CTX-17/18` 仍因缺少 AgentRuntime/ModelRequest 接入、Stage Demo/Eval 和 Commit-scoped G3-G6 证据保持 L0。本 ADR 不表示文件记忆或预取已经成为可用的端到端能力。
+
+2026-08-05 新增的 C3/C4 Summary Foundation 不改变本 ADR 的文件记忆边界：摘要候选不得把 Memory
+文本提升为权限、审计或执行事实，也不得把 ready-only 预取改成摘要关键路径上的等待。C3/C4 归
+ADR-043 管理，M1-M5 与摘要候选分别维持独立 revision、digest、byte/token budget 和失败降级。

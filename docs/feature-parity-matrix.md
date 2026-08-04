@@ -381,9 +381,9 @@ Stage 完成项。
 | CTX-06 | Token Budget | Model-aware 预算 | L0 | S07 | REF-01/02 |
 | CTX-07 | Complete Turn Eviction | 保持 Tool 协议成对 | L0 | S07 | REF-01 |
 | CTX-08 | Old Tool Output Clear | 优先释放低价值输出 | L0 | S07 | REF-02 |
-| CTX-09 | Conversation Summary | LLM 压缩 | L0 | S07 | REF-01/02 |
-| CTX-10 | Multi-level Compaction | 渐进压缩 | L0 | S07 | REF-01 |
-| CTX-11 | Thrashing Guard | 压缩失败防循环 | L0 | S07 | REF-02 |
+| CTX-09 | Conversation Summary | C3/C4 有界候选、严格提交 Gate 与纯数据 Summarizer Port（离线基础已实现，尚未 Provider/Runtime 接入） | L0 | S07 | REF-01/02 |
+| CTX-10 | Multi-level Compaction | C1/C2 后条件式 C3→C4、预算满足即停（离线基础已实现，尚未 Runtime 接入） | L0 | S07 | REF-01 |
+| CTX-11 | Thrashing Guard | Run/revision/tier 冷却 + 单 overflow retry（离线基础已实现，尚未 Runtime 接入） | L0 | S07 | REF-02 |
 | CTX-12 | Compact Instructions | 用户控制保留内容 | L0 | S07/S08 | REF-02 |
 | CTX-13 | `/context` | Context 构成可视化 | L0 | S07 | REF-02 |
 | CTX-14 | Skill Lazy Loading | Metadata 先加载 | L0 | S11 | REF-03 |

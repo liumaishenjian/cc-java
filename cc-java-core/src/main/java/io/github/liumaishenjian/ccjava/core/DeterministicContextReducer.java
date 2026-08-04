@@ -30,8 +30,9 @@ import java.util.Set;
  * 的单个高体积 Tool Result；C2 再按最旧批次顺序清理正文。两者都保留 Assistant 批次、
  * Call ID、Tool 名称、结果状态与原有顺序，且从不修改输入列表或 Canonical Transcript。</p>
  *
- * <p>C3/C4 不在本类伪实现：若 C1/C2 无法安全满足预算，返回
- * {@link ContextReductionStatus#CONTEXT_LIMIT_REACHED}。</p>
+ * <p>C3/C4 不在本类执行：若 C1/C2 无法安全满足预算，返回
+ * {@link ContextReductionStatus#CONTEXT_LIMIT_REACHED}，再由独立的
+ * {@link SummaryReductionCoordinator} 根据 eligibility 与候选 Gate 决定是否继续。</p>
  *
  * @since 0.7.0
  */

@@ -854,10 +854,21 @@ Planner 根据当前压力、预计收益、保真风险和协议边界，从以
 活动或未完成 Tool 不进入可删除边界，Projection 的协议孤儿数必须为零。摘要候选只有在非空且
 有界、无 Tool Call、请求未取消、source revision 未变化、边界完整、关键事实与约束通过校验、
 且能够释放足够 Token 时才可进入 Projection；任一 Gate 失败即丢弃候选，不回写 Canonical
-Transcript。
+Transcript。C3/C4 离线基础进一步使用 `SummaryRequest` 固定 tier、有界文本快照、source revision、
+稳定 source message IDs、protected anchors 及 byte/token 上限；`SummaryCandidate` 只返回纯数据。
+Core Adoption Gate 要求 tier/revision 匹配、source IDs 有序精确覆盖、严格 UTF-8、候选不超过请求
+上限、输出估算严格低于来源、anchor 原样保留且无 Tool Call/Result 协议片段。通过后仅以
+`ContextSummaryMessage` 替换 Projection 的完整协议区间，并追加一个 C3/C4 Reduction。
 
-Provider 报告 Overflow 时，同一模型回合最多重新规划一次；第二次 Overflow 明确终止。相同
-source revision、压力区间和失败策略进入冷却，防止反复摘要、费用循环和上下文抖动。内部
+Provider 报告 Overflow 时，`ContextOverflowRetryCoordinator` 对同一 Run/source revision 最多消费一次
+恢复资格；只有摘要已提交才执行第二次模型请求，第二次 Overflow 明确终止。`SummaryAttemptGuard` 与
+overflow retry coordinator 均在构造时绑定唯一 Run，并实现 `AutoCloseable`：同 Run 内每个 revision/tier
+仍最多占用一次，即使候选为空、失败或被拒绝也不释放；Run 结束调用 `close()` 后并发 fail-closed、清空
+全部本地 Key，不保留跨 Run registry。最终摘要采用通过 Guard 与 `close()` 共用的生命周期锁提交：commit
+先获得锁时 ADOPTED 先线性化，close 先获得锁时不执行终态构造并丢弃候选，不能在 close 胜出后采用。
+摘要前还要求 Projection 尾部与 Canonical protected tail 逐条相等；
+Spring AI Adapter 将摘要固定编码为版本化 User JSON envelope，正文使用 UTF-8 Base64，不能映射或裸露成
+Provider Tool 协议。当前协调器是离线 Core seam，尚未接入 AgentRuntime/ModelRequest。内部
 Context Usage View 公开各来源预算、当前压力、应用策略和隐私安全原因码；完整 `/context` 与
 `/compact` 交互 UX 延期 S08。
 

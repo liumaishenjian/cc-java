@@ -1,8 +1,8 @@
 /**
  * 定义 Coding Agent Runtime 使用的框架无关领域协议和值对象。
  *
- * <p>该包负责表达 Session、Run、消息、模型回合、工具调用、Context Projection、
- * 文件记忆 Topic/Catalog/Mutation/Recall/Projection、权限决策、运行限制和终止状态等稳定语义。领域类型应保持不可变，并且不得依赖
+ * <p>该包负责表达 Session、Run、消息、模型回合、工具调用、Context Projection、C3/C4 摘要请求、
+ * 候选、诊断与终态、文件记忆 Topic/Catalog/Mutation/Recall/Projection、权限决策、运行限制和终止状态等稳定语义。领域类型应保持不可变，并且不得依赖
  * Spring AI、Reactor、终端、文件系统、持久化或具体模型 Provider。</p>
  *
  * <p>本包只定义跨模块共享的业务语义，不负责驱动 Agent Loop，也不执行

@@ -334,10 +334,13 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
   滚动记忆或 C4 全量摘要；C1-C4 不是固定串行四步，预算满足后立即停止。
 - FR-CTX-006：任意 Projection 必须保持完整 Tool Call/Result 配对和批次顺序，协议孤儿数为零；
   活动或未完成 Tool 不进入可删除边界。
-- FR-CTX-007：Provider 明确 Overflow 时同一模型回合最多恢复一次；重复压力受 Thrashing Guard
-  限制，无法安全满足预算时以 `CONTEXT_LIMIT_REACHED` 停止。
-- FR-CTX-008：摘要为空、失败、取消、返回 Tool Call、来源 revision 变化或关键事实/约束缺失时，
-  不提交压缩边界。
+- FR-CTX-007：Provider 明确 Overflow 时同一模型回合最多恢复一次且最多新增一次模型请求；重复压力
+  由绑定 Run/source revision/tier 的 Thrashing Guard 限制，每层每个来源最多一次摘要尝试，无法安全
+  满足预算时以 `CONTEXT_LIMIT_REACHED` 停止。
+- FR-CTX-008：摘要为空、失败、取消、返回 Tool Call/Result 协议片段、来源 revision 变化、source
+  message ID 未有序精确覆盖、严格 UTF-8 或 byte/token 上限不满足、输出估算未严格降低，或关键
+  protected anchor 缺失时，不提交压缩边界并保持上一 Projection 深度相等。摘要 Port 只返回数据，
+  不拥有 Tool Registry/Pipeline，也不能发起 Tool Call。
 - FR-CTX-009：S07 内部 Context Usage View 按 System、Instructions、Transcript、Tool、Memory、
   Reserved/Free 分类展示有界估算且不泄漏正文；完整 `/context` Slash Command UX 归 S08。
 - FR-CTX-010：项目级文件记忆默认位于 `~/.cc-java/projects/<repository-id>/memory`，入口为

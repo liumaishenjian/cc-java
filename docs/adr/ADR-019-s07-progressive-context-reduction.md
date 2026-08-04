@@ -100,10 +100,16 @@ S07 至少需要以下独立测试和度量：
 
 阈值、摘要模型和 Reducer 顺序都必须通过测试或 Eval 决定，不能复制参考常量。
 
-## 结果与后续
+## 历史后续说明（2026-08-05）
 
-- S06 必须先提供稳定 Message ID、完整 Protocol Round 和投影决策持久化位置；
-- S07 实现时仍需完成 G0-G6 证据包，本 ADR 不代表能力已经实现；
+本 ADR 保持 `Superseded`，不得重新成为实现依据。活动设计与当前离线实现由
+[ADR-042](./ADR-042-s07-authorized-context-memory-study.md)、
+[ADR-043](./ADR-043-s07-context-projection-compaction.md)和
+[ADR-044](./ADR-044-s07-file-memory-prefetch.md)定义；本次 C3/C4 只用独立 Domain/Core 契约、
+Scripted Fake 和项目自有边界实现，不恢复本 ADR 中的历史类型草案或参考表达。
+
+- S06 已提供 append-only Canonical Transcript，S07 摘要只产生短生命周期 Projection；
+- S07 仍需完成 G3-G6 证据包，本 ADR 不代表能力已经实现；
 - 快照 Revision、缺失组件算法和上游正式术语继续保持 `Unknown`；
 - 若新的公开行为观察或授权快照与本 ADR 冲突，应新建 ADR Supersede 本决策，并重跑
   相关长会话 Eval。

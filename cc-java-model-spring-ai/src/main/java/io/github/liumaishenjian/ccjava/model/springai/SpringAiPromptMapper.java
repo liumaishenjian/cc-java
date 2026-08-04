@@ -1,6 +1,7 @@
 package io.github.liumaishenjian.ccjava.model.springai;
 
 import io.github.liumaishenjian.ccjava.domain.AgentMessage;
+import io.github.liumaishenjian.ccjava.domain.ContextSummaryMessage;
 import io.github.liumaishenjian.ccjava.domain.ModelRequest;
 import io.github.liumaishenjian.ccjava.domain.ToolDefinition;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
@@ -11,6 +12,9 @@ import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.DefaultToolDefinition;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
 
@@ -23,6 +27,8 @@ import java.util.Objects;
  * @since 0.1.0
  */
 final class SpringAiPromptMapper {
+
+    private static final String SUMMARY_ENVELOPE_VERSION = "cc-java-context-summary-v1";
 
     Prompt map(ModelRequest request, String model) {
         Objects.requireNonNull(request, "request 不能为空");
@@ -50,7 +56,26 @@ final class SpringAiPromptMapper {
                     mapAssistant(assistant);
             case io.github.liumaishenjian.ccjava.domain.ToolResultMessage toolResult ->
                     mapToolResult(toolResult.result());
+            case ContextSummaryMessage summary -> mapSummary(summary);
         };
+    }
+
+    /**
+     * 把摘要编码成固定 User envelope，绝不映射成 Assistant/ToolResponse 或 Provider Tool Call。
+     *
+     * <p>正文先按 UTF-8 Base64 编码后放入单一字段，即使其中含角色标记或类似 Tool 协议的文本，
+     * Provider envelope 也不会出现可解释为 Tool Call/Result 的原始片段；tier 和来源 ID 使用稳定字段
+     * 顺序，保证相同输入确定性映射。</p>
+     */
+    private org.springframework.ai.chat.messages.UserMessage mapSummary(
+            ContextSummaryMessage summary) {
+        LinkedHashMap<String, Object> fields = new LinkedHashMap<>();
+        fields.put("kind", SUMMARY_ENVELOPE_VERSION);
+        fields.put("tier", summary.tier().name());
+        fields.put("sourceMessageIds", summary.sourceMessageIds());
+        fields.put("contentBase64", Base64.getEncoder().encodeToString(
+                summary.content().getBytes(StandardCharsets.UTF_8)));
+        return new org.springframework.ai.chat.messages.UserMessage(SpringAiJson.write(fields));
     }
 
     private org.springframework.ai.chat.messages.AssistantMessage mapAssistant(

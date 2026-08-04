@@ -4,6 +4,7 @@ import io.github.liumaishenjian.ccjava.domain.AgentMessage;
 import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
 import io.github.liumaishenjian.ccjava.domain.ContextCapacity;
 import io.github.liumaishenjian.ccjava.domain.ContextEstimateKind;
+import io.github.liumaishenjian.ccjava.domain.ContextSummaryMessage;
 import io.github.liumaishenjian.ccjava.domain.ContextUsage;
 import io.github.liumaishenjian.ccjava.domain.SystemMessage;
 import io.github.liumaishenjian.ccjava.domain.ToolCall;
@@ -47,6 +48,8 @@ public final class CodePointContextTokenEstimator implements ContextTokenEstimat
                 }
             } else if (message instanceof ToolResultMessage toolResult) {
                 tool = Math.addExact(tool, toolResultSize(toolResult));
+            } else if (message instanceof ContextSummaryMessage summary) {
+                transcript = Math.addExact(transcript, textSize(summary.content()));
             } else {
                 throw new IllegalArgumentException("不支持的 Context 消息类型: " + message.getClass());
             }
