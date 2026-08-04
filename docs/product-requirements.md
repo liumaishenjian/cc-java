@@ -351,6 +351,9 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
   候选；repository-id 不得泄漏 Workspace 绝对路径。M1 单 topic 最多 64KB/2,000 行，frontmatter
   前 16 行内闭合；kebab-case slug 最多 64 字符，单行 description 最多 512 Code Point。上述常量为
   cc-java 独立保守上限，不来自参考实现。
+- FR-CTX-014：M1 创建仅允许目标不存在，更新和删除必须匹配读取时 SHA-256；同目录随机暂存只用
+  `ATOMIC_MOVE` 提交且不回退非原子写入。M1 成功后 M2 重建失败不得回滚 topic，而应返回不回显
+  内容的结构化诊断。
 
 ### 11.7 Session 与事件
 

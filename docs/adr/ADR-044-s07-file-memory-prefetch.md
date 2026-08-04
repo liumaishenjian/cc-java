@@ -66,14 +66,15 @@ updated-at: <ISO-8601 date>
 
 - `name` 不是任意路径，只允许小写 ASCII 字母、数字与单个连字符组成的 kebab-case slug，最多 64 个字符；实际文件名由应用代码生成并在根目录内解析。
 - G3-A 的 M1/M3 独立保守上限为：单 topic UTF-8 最多 64KB、最多 2,000 行，frontmatter 结束标记必须在前 16 行内，`description` 最多 512 个 Unicode Code Point 且必须单行，`updated-at` 使用 ISO-8601 date；这些是 cc-java 自有防滥用常量，不来自参考实现。
-- M1 写入采用同目录暂存、提交前重检和原子 Move；更新必须带读取时 digest，冲突时拒绝覆盖。
+- M1 写入采用同目录暂存与提交前重检；创建将已 `force(true)` 的最终暂存内容通过同目录硬链接一次性 create-only 发布，不再执行后续 Move，更新才使用原子 Move 且必须带读取时 digest。硬链接不支持或竞态目标已存在时 Fail Closed，不回退复制或覆盖。
+- M1 删除先把目录项原子 claim 到同目录 tombstone 并复验 identity/digest；不匹配时恢复，恢复碰撞或失败时保留可恢复对象，绝不删除未验证替换。
 - M2 在 M1 成功提交后重建并原子替换；索引失败不回滚已验证 M1，但产生诊断并在下次启动重建。
 - 自动候选只能保存用户明确提供/确认或可独立验证的高价值信息；模型输出本身不是可信事实来源。
 - S07 只定义普通本地文件持久化，不承诺稳定 Export、Retention、Migration、SQLite、云同步或多主机一致性。
 
 ## 独立 Java 契约
 
-以下是 G3 的设计目标，不是当前已实现 API：
+截至 2026-08-04，G3-A 已实现下列 M1-M3 Domain/Core 契约与本地文件 Adapter；M4/M5、零等待预取和 AgentRuntime 接入仍未实现：
 
 ```text
 MemoryKind
@@ -144,4 +145,4 @@ assemble non-memory inputs ─┼─> consumeReady() ─> build Projection ─> 
 - **S07 引入 SQLite/向量数据库/云服务**：不符合最小依赖与当前规模，延期 S14。
 - **在 S07 实现分层 Instructions 或 Sub-Agent Memory**：分别延期 S08、S12。
 
-G3-G6 完成前，`CTX-17` 与 `CTX-18` 保持 L0；本 ADR 不表示文件记忆或预取已经可用。
+G3-A 当前只形成 M1-M3 的离线生产基础与安全回归；`CTX-17` 仍因缺少 AgentRuntime 接入、Stage Demo/Eval 和 Commit-scoped G3-G6 证据保持 L0，`CTX-18` 也因 M4/M5 尚未实现保持 L0。本 ADR 不表示文件记忆或预取已经成为可用的端到端能力。

@@ -45,7 +45,8 @@ import java.util.regex.Pattern;
  *
  * <p>每个目录项独立验证链接/重解析点、真实路径、普通文件、文件名、大小、行数、严格 UTF-8 和
  * 受限 frontmatter。单文件失败只产生不回显正文或非法路径的诊断；已验证 topic 继续进入 Catalog。
- * 本切片只读，不创建、更新、删除文件，也不把 Memory 接入 AgentRuntime。</p>
+ * 本类型自身只读，M1 mutation 与 M2 持久替换由相邻 {@link FileMemoryRepository} 承担；当前不把
+ * Memory 接入 AgentRuntime。</p>
  *
  * @since 0.7.0
  */
@@ -151,7 +152,8 @@ public final class FileMemoryCatalogAdapter
         boolean exceeded = false;
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(root)) {
             for (Path path : stream) {
-                if ("MEMORY.md".equals(fileName(path))) {
+                if ("MEMORY.md".equals(fileName(path))
+                        || FileMemoryRepository.isInternalTemporaryName(fileName(path))) {
                     continue;
                 }
                 if (selected.size() < MAX_TOPICS) {
@@ -225,6 +227,10 @@ public final class FileMemoryCatalogAdapter
             included++;
         }
         return new MemoryIndex(content.toString(), included, diagnostics);
+    }
+
+    Parsed parseTopic(Path candidate) {
+        return parse(candidate);
     }
 
     private Parsed parse(Path candidate) {
@@ -538,7 +544,7 @@ public final class FileMemoryCatalogAdapter
         }
     }
 
-    private record Parsed(
+    record Parsed(
             MemoryTopicHeader header,
             MemoryDiagnostic diagnostic) {
     }

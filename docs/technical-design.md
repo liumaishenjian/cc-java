@@ -898,9 +898,19 @@ I/O 或模型调用。消费点尚未完成、失败、取消或 revision 过期
 系统或并行 Tool。
 
 文件 Adapter 每次访问和最终原子 Move 前都要校验真实路径、普通文件、大小、数量、UTF-8、
-Symlink/Junction 与竞态；M1 更新使用 digest 冲突检查，M2/M3 作为派生数据可从 M1 重建。记忆、
-索引、摘要和 frontmatter 均是不可信输入，不得保存 Secret、完整 Prompt、完整源码或未经裁剪的
-Tool 输出，也不能扩大 Workspace、提升 Permission、解除 Hard Denial 或绕过 S06 Recovery Gate。
+Symlink/Junction 与竞态；M1 创建将已经 `force(true)` 的最终同目录 staged file 直接通过硬链接
+create-only 发布到 absent target，并验证发布项与 staged identity/digest 后 best-effort 删除已知 staging 名；
+发布后的清理失败不得改变 `CREATED` 或阻断后续 Index 重建，只允许留下严格内部随机名工件。创建路径
+不再执行后续 Move，硬链接不支持或目标竞态出现时 Fail Closed，不回退复制或覆盖。更新使用读取时
+SHA-256，在提交前重检文件 identity 与 digest，并以 `ATOMIC_MOVE` 替换。删除先把目录项
+`ATOMIC_MOVE` 到同目录随机 tombstone，复验被 claim 对象的 identity 与
+SHA-256 后才最终删除；不匹配时原子恢复，恢复碰撞或失败则保留可恢复 tombstone，绝不删除未知
+替换。同目录随机暂存使用 `CREATE_NEW + WRITE + NOFOLLOW_LINKS` 和 `FileChannel.force(true)`，
+提交仅接受 `ATOMIC_MOVE` 且不回退；内部暂存名只匹配固定 128-bit 小写十六进制格式，攻击者控制
+的宽前缀不能从 M3/数量预算中隐藏。M1 成功后 M2 原子重建失败不
+回滚 topic，只附 `INDEX_REBUILD_FAILED` 诊断；M2/M3 作为派生数据可从 M1 重建。记忆、索引、摘要
+和 frontmatter 均是不可信输入，不得保存 Secret、完整 Prompt、完整源码或未经裁剪的 Tool 输出，
+也不能扩大 Workspace、提升 Permission、解除 Hard Denial 或绕过 S06 Recovery Gate。
 
 ### 16.3 验证与延期边界
 
@@ -912,7 +922,8 @@ G3-G6 必须以离线 Fake 和长会话 Eval 证伪：Tool 协议孤儿数为 `0
 S08 负责分层 Instructions/Settings 与完整 Context UX；S12 负责 Sub-Agent Context 隔离、后台
 Agent、任务系统、并行 Tool 与 Worktree；S13 才负责 OS Sandbox；S14 负责稳定
 Export/Retention/Migration、SQLite 或大规模索引、Provider Cache Hint、原生 Context Editing 和
-跨版本持久化兼容。G3-G6 完成前，ADR-042/043/044 只表示设计已冻结，不表示生产能力可用。
+跨版本持久化兼容。当前 G3-A 已实现 M1-M3 离线基础，但未接入 AgentRuntime，M4/M5 仍为空白；
+在 Stage Demo/Eval、Commit-scoped G3-G6 证据完成前，`CTX-17/18` 继续保持 L0。
 
 ADR-042 已按 ADR-022 完成新的采纳边界；历史 ADR-019 继续保持 Superseded，不作为实现依据。
 
