@@ -11,6 +11,19 @@ class MemoryProjectionTest {
             new MemoryCatalogRevision("0".repeat(64));
 
     @Test
+    void memoryContextRejectsEmptyAndOverBoundedItems() {
+        MemoryProjectionItem item = new MemoryProjectionItem(
+                "safe-topic", MemoryKind.PROJECT_STATE, "hook", "body",
+                "1".repeat(64), 4);
+
+        assertThatThrownBy(() -> new MemoryContextMessage(REVISION, List.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new MemoryContextMessage(
+                        REVISION, java.util.Collections.nCopies(21, item)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void rejectsWrongByteAccountingAndBudgetOverflow() {
         MemoryProjectionItem item = new MemoryProjectionItem(
                 "safe-topic", MemoryKind.PROJECT_STATE, "hook", "正文",

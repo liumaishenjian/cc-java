@@ -10,6 +10,10 @@ import io.github.liumaishenjian.ccjava.domain.ContextReductionReason;
 import io.github.liumaishenjian.ccjava.domain.ContextReductionStatus;
 import io.github.liumaishenjian.ccjava.domain.ContextReductionStrategy;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
+import io.github.liumaishenjian.ccjava.domain.MemoryCatalogRevision;
+import io.github.liumaishenjian.ccjava.domain.MemoryContextMessage;
+import io.github.liumaishenjian.ccjava.domain.MemoryKind;
+import io.github.liumaishenjian.ccjava.domain.MemoryProjectionItem;
 import io.github.liumaishenjian.ccjava.domain.ProjectionRequest;
 import io.github.liumaishenjian.ccjava.domain.SystemMessage;
 import io.github.liumaishenjian.ccjava.domain.ToolCall;
@@ -26,6 +30,30 @@ class DeterministicContextReducerTest {
 
     private static final ContextTokenEstimator ESTIMATOR =
             new CodePointContextTokenEstimator();
+
+    @Test
+    void estimatorClassifiesMemorySeparatelyAndIncludesItInTotal() {
+        String body = "memory-body";
+        MemoryContextMessage memory = new MemoryContextMessage(
+                new MemoryCatalogRevision("c".repeat(64)),
+                List.of(new MemoryProjectionItem(
+                        "topic", MemoryKind.PROJECT_STATE, "hook", body,
+                        "d".repeat(64), body.getBytes(java.nio.charset.StandardCharsets.UTF_8).length)));
+        ContextCapacity capacity = new ContextCapacity("fake", 1_000, 10, 10);
+
+        var usage = ESTIMATOR.estimate(
+                List.of(new SystemMessage("sys"), new UserMessage("user"), memory),
+                capacity);
+
+        assertThat(usage.memoryTokens()).isPositive();
+        assertThat(usage.transcriptTokens()).isEqualTo(4);
+        assertThat(usage.totalTokens()).isEqualTo(
+                usage.systemTokens()
+                        + usage.instructionTokens()
+                        + usage.transcriptTokens()
+                        + usage.toolTokens()
+                        + usage.memoryTokens());
+    }
 
     @Test
     void appliesNoStrategyUnderLowPressure() {

@@ -2,6 +2,7 @@ package io.github.liumaishenjian.ccjava.model.springai;
 
 import io.github.liumaishenjian.ccjava.domain.AgentMessage;
 import io.github.liumaishenjian.ccjava.domain.ContextSummaryMessage;
+import io.github.liumaishenjian.ccjava.domain.MemoryContextMessage;
 import io.github.liumaishenjian.ccjava.domain.ModelRequest;
 import io.github.liumaishenjian.ccjava.domain.ToolDefinition;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
@@ -29,6 +30,7 @@ import java.util.Objects;
 final class SpringAiPromptMapper {
 
     private static final String SUMMARY_ENVELOPE_VERSION = "cc-java-context-summary-v1";
+    private static final String MEMORY_ENVELOPE_VERSION = "cc-java-memory-context-v1";
 
     Prompt map(ModelRequest request, String model) {
         Objects.requireNonNull(request, "request 不能为空");
@@ -57,6 +59,7 @@ final class SpringAiPromptMapper {
             case io.github.liumaishenjian.ccjava.domain.ToolResultMessage toolResult ->
                     mapToolResult(toolResult.result());
             case ContextSummaryMessage summary -> mapSummary(summary);
+            case MemoryContextMessage memory -> mapMemory(memory);
         };
     }
 
@@ -76,6 +79,35 @@ final class SpringAiPromptMapper {
         fields.put("contentBase64", Base64.getEncoder().encodeToString(
                 summary.content().getBytes(StandardCharsets.UTF_8)));
         return new org.springframework.ai.chat.messages.UserMessage(SpringAiJson.write(fields));
+    }
+
+    /**
+     * 把 M5 投影编码成固定、无路径且显式不可信的 User envelope。
+     *
+     * <p>每个文本字段独立使用 UTF-8 Base64，Adapter 只认识 Domain 值，不接触文件或召回实现类型。
+     * 即使记忆正文伪装成指令或 Tool 协议，也不会成为 Provider Tool Call/Result。</p>
+     */
+    private org.springframework.ai.chat.messages.UserMessage mapMemory(
+            MemoryContextMessage memory) {
+        LinkedHashMap<String, Object> fields = new LinkedHashMap<>();
+        fields.put("kind", MEMORY_ENVELOPE_VERSION);
+        fields.put("untrusted", true);
+        fields.put("source", memory.source());
+        fields.put("revision", memory.catalogRevision().value());
+        fields.put("items", memory.items().stream().map(item -> {
+            LinkedHashMap<String, Object> encoded = new LinkedHashMap<>();
+            encoded.put("nameBase64", base64(item.name()));
+            encoded.put("memoryKind", item.kind().name());
+            encoded.put("descriptionBase64", base64(item.description()));
+            encoded.put("contentDigest", item.contentDigest());
+            encoded.put("bodyBase64", base64(item.body()));
+            return encoded;
+        }).toList());
+        return new org.springframework.ai.chat.messages.UserMessage(SpringAiJson.write(fields));
+    }
+
+    private String base64(String value) {
+        return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
     }
 
     private org.springframework.ai.chat.messages.AssistantMessage mapAssistant(

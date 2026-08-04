@@ -74,7 +74,7 @@ updated-at: <ISO-8601 date>
 
 ## 独立 Java 契约
 
-截至 2026-08-05，G3-A/B 已实现下列 M1-M5 Domain/Core 离线契约、本地文件 Adapter 与 ready-only Prefetch；AgentRuntime/ModelRequest 接入仍未实现：
+截至 2026-08-05，G3-A/B/D1 已实现下列 M1-M5 Domain/Core 离线契约、本地文件 Adapter、ready-only Prefetch 与 AgentRuntime/Core Projection seam；D2 文件系统 Composition Root 接入仍未实现：
 
 ```text
 MemoryKind
@@ -88,12 +88,17 @@ MemoryCatalogBuilder.rebuild()
 RelevantMemoryRecall.start(RecallQuery, CancellationToken) -> MemoryPrefetch
 MemoryPrefetch.consumeReady() -> MemoryProjection
 MemoryProjector.validateAndProject(readyItems, budget) -> MemoryProjection
+MemoryPrefetchFactory.start(UserMessage, CancellationToken) -> MemoryPrefetch
+MemoryContextService.start()/consumeReady() -> short-lived MemoryContextMessage
 ```
 
 - Core 只依赖 `MemoryRepository`/`RelevantMemoryRecall` Port 和不可变值；文件路径、frontmatter 解析、原子
   Move、锁与真实路径校验位于本地 Adapter。
 - `MemoryPrefetch.consumeReady()` 必须是立即返回操作，不允许等待 Future、锁、文件 I/O 或模型调用。
 - Prefetch 可以在请求准备早期启动，但 M5 只消费调用时已经成功完成、revision 仍有效的结果。
+- D1 的 `AgentRuntime` 在当前有界 `UserMessage` 已进入 Canonical Session 后、调用非记忆 `ContextAssembler` 前创建每回合新句柄；在 `ContextPreparationService`/Gateway 前的唯一消费点只调用一次 `consumeReady()`，finally 仅传播非阻塞取消，不拥有或关闭 Adapter Executor。
+- 非空 ready 投影以 `MemoryContextMessage` 紧邻插入当前 `UserMessage` 之前；System、历史、完整 Tool batch 与 `toolDefinitions` 保持原顺序。该消息和 Provider envelope 都不包含 Path，固定标记 `source=project-file-memory`、Catalog revision 和 `untrusted=true`，正文及标签使用 UTF-8 Base64。
+- `CodePointContextTokenEstimator` 把该消息的来源、revision 和条目字段计入独立 `memoryTokens` 及 `totalTokens`；Memory Context 仍不得写回 Session/Journal 或改变 Permission Pipeline 决策。
 
 ## 零等待预取时序
 
@@ -145,7 +150,7 @@ assemble non-memory inputs ─┼─> consumeReady() ─> build Projection ─> 
 - **S07 引入 SQLite/向量数据库/云服务**：不符合最小依赖与当前规模，延期 S14。
 - **在 S07 实现分层 Instructions 或 Sub-Agent Memory**：分别延期 S08、S12。
 
-G3-B 当前形成 M1-M5 的离线基础与安全回归：M4 确定性 manifest 相关选择、M5 revision/digest/预算 Gate、安全正文加载和 ready-only 一次消费均已有 Fake 证据；`CTX-17/18` 仍因缺少 AgentRuntime/ModelRequest 接入、Stage Demo/Eval 和 Commit-scoped G3-G6 证据保持 L0。本 ADR 不表示文件记忆或预取已经成为可用的端到端能力。
+G3-B/D1 当前形成 M1-M5 的离线基础、安全回归与 Core Runtime seam：M4 确定性 manifest 相关选择、M5 revision/digest/预算 Gate、安全正文加载、ready-only 一次消费、零等待慢 Future、迟到结果隔离、每回合 fresh prefetch、短生命周期消息/Provider envelope、Canonical Session/Journal 排除、Permission denial 保持及 memory token 分类均已有 Fake 证据；`CTX-17/18` 仍因缺少 D2 文件系统生产装配、Context View、Stage Demo/Eval 和 Commit-scoped G3-G6 证据保持 L0。本 ADR 不表示文件记忆或预取已经成为可用的端到端能力。
 
 2026-08-05 新增的 C3/C4 Summary Foundation 不改变本 ADR 的文件记忆边界：摘要候选不得把 Memory
 文本提升为权限、审计或执行事实，也不得把 ready-only 预取改成摘要关键路径上的等待。C3/C4 归

@@ -90,6 +90,18 @@ public final class MemoryPrefetch {
         }
     }
 
+    /**
+     * 尽力取消尚未完成的召回工作，绝不等待任务结束。
+     *
+     * <p>执行器与底层资源仍由创建该句柄的 Adapter 拥有；本方法只传播
+     * {@link Future#cancel(boolean)} 信号。</p>
+     *
+     * @return Future 接受本次取消请求时为 {@code true}
+     */
+    public boolean cancel() {
+        return future.cancel(true);
+    }
+
     private MemoryProjection empty(MemoryProjectionDiagnosticKind kind) {
         return MemoryProjection.empty(
                 byteBudget, revision, MemoryProjectionDiagnostic.catalog(kind));

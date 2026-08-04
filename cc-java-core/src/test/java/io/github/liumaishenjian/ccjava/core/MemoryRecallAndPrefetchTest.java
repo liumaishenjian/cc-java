@@ -130,6 +130,16 @@ class MemoryRecallAndPrefetchTest {
     }
 
     @Test
+    void cancelIsNonBlockingAndPropagatesToFuture() {
+        BlockingForbiddenFuture future = new BlockingForbiddenFuture();
+        MemoryPrefetch prefetch = new MemoryPrefetch(future, 100, REVISION);
+
+        assertThat(prefetch.cancel()).isTrue();
+        assertThat(future.isCancelled()).isTrue();
+        assertThat(future.blockingCalled).isFalse();
+    }
+
+    @Test
     void consumesReadySuccessExceptionalAndCancelled() {
         CompletableFuture<MemoryProjection> ready =
                 CompletableFuture.completedFuture(emptyProjection());

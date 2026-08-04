@@ -3,6 +3,7 @@ package io.github.liumaishenjian.ccjava.core;
 import io.github.liumaishenjian.ccjava.domain.AgentMessage;
 import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
 import io.github.liumaishenjian.ccjava.domain.ContextSummaryMessage;
+import io.github.liumaishenjian.ccjava.domain.MemoryContextMessage;
 import io.github.liumaishenjian.ccjava.domain.SystemMessage;
 import io.github.liumaishenjian.ccjava.domain.ToolCall;
 import io.github.liumaishenjian.ccjava.domain.ToolResultMessage;
@@ -52,6 +53,16 @@ final class SummaryMessageCodec {
         }
         if (message instanceof ContextSummaryMessage summary) {
             return "summary: " + summary.content();
+        }
+        if (message instanceof MemoryContextMessage memory) {
+            StringBuilder text = new StringBuilder("memory ")
+                    .append(memory.source()).append(' ')
+                    .append(memory.catalogRevision().value());
+            memory.items().forEach(item -> text.append("\ntopic ")
+                    .append(item.name()).append(' ')
+                    .append(item.kind()).append(": ")
+                    .append(item.body()));
+            return text.toString();
         }
         if (message instanceof AssistantMessage assistant) {
             StringBuilder text = new StringBuilder("assistant: ").append(assistant.text());

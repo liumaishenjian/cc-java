@@ -9,9 +9,9 @@
 > 当前学习阶段：S01-S06 已 Accepted；S07 Context Engineering 已完成 G0-G2 研究与设计冻结
 >
 > 当前实现状态：ADR-042/043/044 已固定 Context Projection、条件式 Reduction、文件记忆和零等待
-> 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter 与显式启动容量的 Headless
-> composition 已形成实现和离线 Fake，但 ready-only Memory Runtime、Context View、Demo/Eval、Capability
-> Level 提升与 G3-G6 完整证据仍未完成。
+> 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
+> composition，以及 ready-only Memory Core/Domain Runtime seam 已形成实现和离线 Fake，但 D2 文件系统
+> 生产装配、Context View、Demo/Eval、Capability Level 提升与 G3-G6 完整证据仍未完成。
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 
@@ -922,9 +922,19 @@ MemoryProjector.validateAndProject(readyItems, budget) -> MemoryProjection
 ```
 
 Prefetch 可在非记忆输入组装前启动，但 `consumeReady()` 必须立即返回，不得等待 Future、锁、文件
-I/O 或模型调用。消费点尚未完成、失败、取消或 revision 过期时返回空；请求发送后的迟到结果
-不能注入该请求，只能在下一请求重新评估。该并行准备不实现 S12 Sub-Agent、后台 Agent、任务
-系统或并行 Tool。
+I/O 或模型调用。D1 由 `MemoryPrefetchFactory` 和 `MemoryContextService` 形成无 Path 的 Core seam：
+`AgentRuntime` 针对本次 Run 的有界 `UserMessage`，在非记忆 `ContextAssembler` 前创建一个每回合 fresh
+句柄；在 `ContextPreparationService`/Gateway 前唯一消费一次，finally 只传播 `Future.cancel(true)` 而
+不等待或拥有 Adapter Executor。消费点尚未完成、失败或取消时主请求继续；请求发送后的迟到结果
+不能注入该请求，下一模型回合必须重新启动召回。
+
+只有非空、最多 20 项的 ready 投影会转换为短生命周期 `MemoryContextMessage`，紧邻插入当前
+`UserMessage` 之前；System、历史、完整 Tool batch 与 `toolDefinitions` 的顺序和对象保持不变。该消息
+不写入 Canonical Session/Journal，不包含 Path，不能改变 Permission/Approval/Hard Denial。Spring AI
+Adapter 使用固定 `cc-java-memory-context-v1` User JSON envelope，显式携带 `untrusted=true`、
+`source=project-file-memory`、Catalog revision，并对记忆文本字段作 UTF-8 Base64；
+`CodePointContextTokenEstimator` 将这些字段计入独立 `memoryTokens` 与 `totalTokens`。该并行准备不实现
+S12 Sub-Agent、后台 Agent、任务系统或并行 Tool；D2 文件系统生产装配仍未接入 Headless。
 
 文件 Adapter 每次访问和最终原子 Move 前都要校验真实路径、普通文件、大小、数量、UTF-8、
 Symlink/Junction 与竞态；M1 创建将已经 `force(true)` 的最终同目录 staged file 直接通过硬链接

@@ -6,6 +6,8 @@ import io.github.liumaishenjian.ccjava.domain.ContextCapacity;
 import io.github.liumaishenjian.ccjava.domain.ContextEstimateKind;
 import io.github.liumaishenjian.ccjava.domain.ContextSummaryMessage;
 import io.github.liumaishenjian.ccjava.domain.ContextUsage;
+import io.github.liumaishenjian.ccjava.domain.MemoryContextMessage;
+import io.github.liumaishenjian.ccjava.domain.MemoryProjectionItem;
 import io.github.liumaishenjian.ccjava.domain.SystemMessage;
 import io.github.liumaishenjian.ccjava.domain.ToolCall;
 import io.github.liumaishenjian.ccjava.domain.ToolResultMessage;
@@ -35,6 +37,7 @@ public final class CodePointContextTokenEstimator implements ContextTokenEstimat
         long system = 0;
         long transcript = 0;
         long tool = 0;
+        long memory = 0;
         for (AgentMessage message : messages) {
             Objects.requireNonNull(message, "消息元素不能为空");
             if (message instanceof SystemMessage systemMessage) {
@@ -50,20 +53,38 @@ public final class CodePointContextTokenEstimator implements ContextTokenEstimat
                 tool = Math.addExact(tool, toolResultSize(toolResult));
             } else if (message instanceof ContextSummaryMessage summary) {
                 transcript = Math.addExact(transcript, textSize(summary.content()));
+            } else if (message instanceof MemoryContextMessage memoryContext) {
+                memory = Math.addExact(memory, memorySize(memoryContext));
             } else {
                 throw new IllegalArgumentException("不支持的 Context 消息类型: " + message.getClass());
             }
         }
-        long total = Math.addExact(system, Math.addExact(transcript, tool));
+        long total = Math.addExact(
+                system,
+                Math.addExact(Math.addExact(transcript, tool), memory));
         return new ContextUsage(
                 system,
                 0,
                 transcript,
                 tool,
-                0,
+                memory,
                 total,
                 capacity.availableInputTokens() - total,
                 ContextEstimateKind.ESTIMATED);
+    }
+
+    private long memorySize(MemoryContextMessage message) {
+        long size = Math.addExact(
+                textSize(message.source()),
+                textSize(message.catalogRevision().value()));
+        for (MemoryProjectionItem item : message.items()) {
+            size = Math.addExact(size, textSize(item.name()));
+            size = Math.addExact(size, textSize(item.kind().name()));
+            size = Math.addExact(size, textSize(item.description()));
+            size = Math.addExact(size, textSize(item.body()));
+            size = Math.addExact(size, textSize(item.contentDigest()));
+        }
+        return size;
     }
 
     private long toolCallSize(ToolCall call) {

@@ -16,6 +16,7 @@ import io.github.liumaishenjian.ccjava.domain.ToolError;
 import io.github.liumaishenjian.ccjava.domain.ToolErrorCode;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
 import io.github.liumaishenjian.ccjava.domain.ToolResultMessage;
+import io.github.liumaishenjian.ccjava.domain.UserMessage;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -49,6 +50,7 @@ public final class AgentRuntime {
     private final LifecycleDispatcher lifecycle;
     private final SessionJournal sessionJournal;
     private final ContextPreparationService contextPreparation;
+    private final MemoryContextService memoryContext;
     private final ConcurrentMap<SessionId, ActiveRun> activeRuns = new ConcurrentHashMap<>();
 
     /**
@@ -79,7 +81,8 @@ public final class AgentRuntime {
                 toolPipeline,
                 lifecycle,
                 SessionJournal.noop(),
-                ContextPreparationService.noop());
+                ContextPreparationService.noop(),
+                MemoryContextService.noop());
     }
 
     /**
@@ -112,7 +115,8 @@ public final class AgentRuntime {
                 toolPipeline,
                 lifecycle,
                 sessionJournal,
-                ContextPreparationService.noop());
+                ContextPreparationService.noop(),
+                MemoryContextService.noop());
     }
 
     /**
@@ -130,6 +134,38 @@ public final class AgentRuntime {
             LifecycleDispatcher lifecycle,
             SessionJournal sessionJournal,
             ContextPreparationService contextPreparation) {
+        this(
+                sessionStore,
+                idGenerator,
+                modelGateway,
+                contextAssembler,
+                toolRegistry,
+                toolPipeline,
+                lifecycle,
+                sessionJournal,
+                contextPreparation,
+                MemoryContextService.noop());
+    }
+
+    /**
+     * 创建同时启用 Context Projection 与 ready-only Memory Projection 的 Runtime。
+     *
+     * <p>Memory 服务只参与单次模型请求 Projection，不进入 Canonical Session、Journal 或
+     * Permission/Tool 执行路径。旧构造器均传入 no-op，保持 S01-S06 和既有 S07 行为。</p>
+     *
+     * @param memoryContext 每回合预取、唯一消费与非阻塞清理服务
+     */
+    public AgentRuntime(
+            SessionStore sessionStore,
+            AgentIdGenerator idGenerator,
+            ModelGateway modelGateway,
+            ContextAssembler contextAssembler,
+            ToolRegistry toolRegistry,
+            ToolExecutionPipeline toolPipeline,
+            LifecycleDispatcher lifecycle,
+            SessionJournal sessionJournal,
+            ContextPreparationService contextPreparation,
+            MemoryContextService memoryContext) {
         this.sessionStore = Objects.requireNonNull(sessionStore, "sessionStore 不能为空");
         this.idGenerator = Objects.requireNonNull(idGenerator, "idGenerator 不能为空");
         this.modelGateway = Objects.requireNonNull(modelGateway, "modelGateway 不能为空");
@@ -143,6 +179,8 @@ public final class AgentRuntime {
                 sessionJournal, "sessionJournal 不能为空");
         this.contextPreparation = Objects.requireNonNull(
                 contextPreparation, "contextPreparation 不能为空");
+        this.memoryContext = Objects.requireNonNull(
+                memoryContext, "memoryContext 不能为空");
     }
 
     /**
@@ -180,7 +218,8 @@ public final class AgentRuntime {
 
         AgentRunResult result;
         try {
-            result = executeLoop(session, runId, state, activeRun);
+            result = executeLoop(
+                    session, runId, state, activeRun, request.userMessage());
         } catch (RuntimeException exception) {
             result = state.stop(StopReason.INTERNAL_ERROR);
         } finally {
@@ -228,7 +267,8 @@ public final class AgentRuntime {
             AgentSession session,
             RunId runId,
             AgentRunState state,
-            ActiveRun activeRun) {
+            ActiveRun activeRun,
+            UserMessage currentUserMessage) {
         while (true) {
             if (activeRun.cancellation().token().isCancellationRequested()) {
                 return stopForCancellation(state, activeRun);
@@ -238,98 +278,109 @@ public final class AgentRuntime {
             }
 
             int turnNumber = state.recordModelTurnAttempt();
-            lifecycle.dispatch(
-                    session,
-                    runId,
-                    new LifecycleEvent.ModelTurnStarted(turnNumber));
-            ModelRequest canonicalRequest = contextAssembler.assemble(
-                    session,
-                    runId,
-                    turnNumber,
-                    toolRegistry.definitions());
-            ModelRequest modelRequest = contextPreparation.prepare(
-                    canonicalRequest,
+            MemoryContextService.TurnPrefetch memoryPrefetch = memoryContext.start(
+                    currentUserMessage,
                     activeRun.cancellation().token());
-            if (activeRun.cancellation().token().isCancellationRequested()) {
-                return stopForCancellation(state, activeRun);
-            }
-            ModelTurn modelTurn;
             try {
-                modelTurn = contextPreparation.executePrepared(
-                        modelRequest,
-                        activeRun.cancellation().token(),
-                        request -> completeModelTurn(
+                lifecycle.dispatch(
+                        session,
+                        runId,
+                        new LifecycleEvent.ModelTurnStarted(turnNumber));
+                ModelRequest canonicalRequest = contextAssembler.assemble(
+                        session,
+                        runId,
+                        turnNumber,
+                        toolRegistry.definitions());
+                ModelRequest withMemory = memoryContext.consumeReady(
+                        canonicalRequest,
+                        currentUserMessage,
+                        memoryPrefetch);
+                ModelRequest modelRequest = contextPreparation.prepare(
+                        withMemory,
+                        activeRun.cancellation().token());
+                if (activeRun.cancellation().token().isCancellationRequested()) {
+                    return stopForCancellation(state, activeRun);
+                }
+                ModelTurn modelTurn;
+                try {
+                    modelTurn = contextPreparation.executePrepared(
+                            modelRequest,
+                            activeRun.cancellation().token(),
+                            request -> completeModelTurn(
+                                    session,
+                                    runId,
+                                    turnNumber,
+                                    request,
+                                    activeRun.cancellation()));
+                } catch (ModelGatewayException exception) {
+                    if (activeRun.cancellation().token().isCancellationRequested()) {
+                        return stopForCancellation(state, activeRun);
+                    }
+                    return state.stop(stopReasonFor(exception), exception.summary());
+                } catch (RuntimeException exception) {
+                    if (activeRun.cancellation().token().isCancellationRequested()) {
+                        return stopForCancellation(state, activeRun);
+                    }
+                    return state.stop(StopReason.MODEL_ERROR);
+                }
+                if (activeRun.cancellation().token().isCancellationRequested()) {
+                    return stopForCancellation(state, activeRun);
+                }
+                if (modelTurn == null) {
+                    return state.stop(StopReason.INVALID_MODEL_RESPONSE);
+                }
+                lifecycle.dispatch(
+                        session,
+                        runId,
+                        new LifecycleEvent.ModelTurnCompleted(turnNumber, modelTurn));
+
+                if (modelTurn.metadata().finishReason() == ModelFinishReason.LENGTH) {
+                    return state.stop(StopReason.OUTPUT_LIMIT_REACHED);
+                }
+                AssistantMessage assistant = modelTurn.assistantMessage();
+                if (assistant.isEmpty()) {
+                    return state.stop(StopReason.INVALID_MODEL_RESPONSE);
+                }
+
+                List<ToolCall> calls = assistant.toolCalls();
+                if (!hasValidToolCallIds(session, calls)) {
+                    return state.stop(StopReason.INVALID_MODEL_RESPONSE);
+                }
+                if (calls.isEmpty()) {
+                    appendAssistant(session, runId, assistant);
+                    return state.complete(assistant.text());
+                }
+                if (!state.canAcceptToolBatch(calls.size())) {
+                    return state.stop(StopReason.TOOL_LIMIT_REACHED);
+                }
+
+                appendAssistant(session, runId, assistant);
+                for (ToolCall call : calls) {
+                    int ordinal = state.recordToolCall();
+                    ToolResult result;
+                    try {
+                        result = toolPipeline.execute(
                                 session,
                                 runId,
-                                turnNumber,
-                                request,
-                                activeRun.cancellation()));
-            } catch (ModelGatewayException exception) {
-                if (activeRun.cancellation().token().isCancellationRequested()) {
-                    return stopForCancellation(state, activeRun);
+                                ordinal,
+                                call,
+                                activeRun.cancellation().token());
+                    } catch (ToolJournalPersistenceException journalFailure) {
+                        session.fence();
+                        return state.stop(StopReason.INTERNAL_ERROR);
+                    } catch (RuntimeException exception) {
+                        session.fence();
+                        return state.stop(StopReason.INTERNAL_ERROR);
+                    }
+                    if (!call.id().equals(result.callId())
+                            || !call.name().equals(result.toolName())) {
+                        session.fence();
+                        return state.stop(StopReason.INTERNAL_ERROR);
+                    }
+                    session.appendToolResult(new ToolResultMessage(result));
                 }
-                return state.stop(stopReasonFor(exception), exception.summary());
-            } catch (RuntimeException exception) {
-                if (activeRun.cancellation().token().isCancellationRequested()) {
-                    return stopForCancellation(state, activeRun);
-                }
-                return state.stop(StopReason.MODEL_ERROR);
-            }
-            if (activeRun.cancellation().token().isCancellationRequested()) {
-                return stopForCancellation(state, activeRun);
-            }
-            if (modelTurn == null) {
-                return state.stop(StopReason.INVALID_MODEL_RESPONSE);
-            }
-            lifecycle.dispatch(
-                    session,
-                    runId,
-                    new LifecycleEvent.ModelTurnCompleted(turnNumber, modelTurn));
-
-            if (modelTurn.metadata().finishReason() == ModelFinishReason.LENGTH) {
-                return state.stop(StopReason.OUTPUT_LIMIT_REACHED);
-            }
-            AssistantMessage assistant = modelTurn.assistantMessage();
-            if (assistant.isEmpty()) {
-                return state.stop(StopReason.INVALID_MODEL_RESPONSE);
-            }
-
-            List<ToolCall> calls = assistant.toolCalls();
-            if (!hasValidToolCallIds(session, calls)) {
-                return state.stop(StopReason.INVALID_MODEL_RESPONSE);
-            }
-            if (calls.isEmpty()) {
-                appendAssistant(session, runId, assistant);
-                return state.complete(assistant.text());
-            }
-            if (!state.canAcceptToolBatch(calls.size())) {
-                return state.stop(StopReason.TOOL_LIMIT_REACHED);
-            }
-
-            appendAssistant(session, runId, assistant);
-            for (ToolCall call : calls) {
-                int ordinal = state.recordToolCall();
-                ToolResult result;
-                try {
-                    result = toolPipeline.execute(
-                            session,
-                            runId,
-                            ordinal,
-                            call,
-                            activeRun.cancellation().token());
-                } catch (ToolJournalPersistenceException journalFailure) {
-                    session.fence();
-                    return state.stop(StopReason.INTERNAL_ERROR);
-                } catch (RuntimeException exception) {
-                    session.fence();
-                    return state.stop(StopReason.INTERNAL_ERROR);
-                }
-                if (!call.id().equals(result.callId())
-                        || !call.name().equals(result.toolName())) {
-                    session.fence();
-                    return state.stop(StopReason.INTERNAL_ERROR);
-                }
-                session.appendToolResult(new ToolResultMessage(result));
+            } finally {
+                memoryPrefetch.close();
             }
         }
     }
