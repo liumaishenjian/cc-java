@@ -122,6 +122,14 @@ public final class AgentRuntime {
     /**
      * 创建显式启用短生命周期 Context Projection 的 Agent Runtime。
      *
+     * @param sessionStore 当前进程的 Session Store
+     * @param idGenerator Run ID 来源
+     * @param modelGateway 单回合模型端口
+     * @param contextAssembler 追加式 Context 组装器
+     * @param toolRegistry 当前可见 Tool Registry
+     * @param toolPipeline 统一 Tool 执行管线
+     * @param lifecycle 可失败的观察生命周期分发器
+     * @param sessionJournal 必须成功的规范 Session journal
      * @param contextPreparation 每回合 Projection 准备与 Run 终态清理服务
      */
     public AgentRuntime(
@@ -153,6 +161,15 @@ public final class AgentRuntime {
      * <p>Memory 服务只参与单次模型请求 Projection，不进入 Canonical Session、Journal 或
      * Permission/Tool 执行路径。旧构造器均传入 no-op，保持 S01-S06 和既有 S07 行为。</p>
      *
+     * @param sessionStore 当前进程的 Session Store
+     * @param idGenerator Run ID 来源
+     * @param modelGateway 单回合模型端口
+     * @param contextAssembler 追加式 Context 组装器
+     * @param toolRegistry 当前可见 Tool Registry
+     * @param toolPipeline 统一 Tool 执行管线
+     * @param lifecycle 可失败的观察生命周期分发器
+     * @param sessionJournal 必须成功的规范 Session journal
+     * @param contextPreparation 每回合 Projection 准备与 Run 终态清理服务
      * @param memoryContext 每回合预取、唯一消费与非阻塞清理服务
      */
     public AgentRuntime(

@@ -19,6 +19,10 @@ import java.util.Objects;
  */
 public final class RelevantMemoryRecall {
 
+    /** 创建不保留查询或 Catalog 状态的确定性 M4 选择器。 */
+    public RelevantMemoryRecall() {
+    }
+
     /**
      * 选择有界候选。
      *

@@ -124,6 +124,11 @@ public final class RuntimeStdioCommandHandler
     /**
      * 使用可选显式 S07 启动容量装配 Headless Runtime。
      *
+     * @param settings 已应用模型覆盖的 Provider 设置
+     * @param workspace 已解析的真实 Workspace
+     * @param timeout 每个 Run 的墙钟限制
+     * @param permissionMode 当前 Permission Mode
+     * @param sessionOpenRequest Create/Continue/Resume/Fork 选择
      * @param contextPreparation 可信 CLI 容量元组；空表示不启用 Projection
      */
     public RuntimeStdioCommandHandler(

@@ -223,7 +223,7 @@
     }
   </style>
 </head>
-<body data-matrix-digest="f9056fe10f8c" data-state-digest="abac2d01bb69" data-code-digest="d43f1d8b6629">
+<body data-matrix-digest="f9056fe10f8c" data-state-digest="38bcc471cc22" data-code-digest="ba7b613d887f">
   <main class="shell">
     <section class="hero">
       <p class="eyebrow">Reference-driven Java Agent Runtime</p>
@@ -330,13 +330,13 @@
         </div>
       </div>
       <dl class="evidence-grid">
-        <div class="evidence-item"><dt>Last change</dt><dd>S07 D4 已将 S07ContextMemoryEvalTest 加强为三条无选择偏差的确定性多回合 Fixture：每条完成三个有序 Tool Call/Result 批次，事实/硬约束仅位于可压缩历史，当前完成标记保留 protected tail；真实 ContextPreparationService 覆盖 C1 与经配置生产 revision/source coverage/UTF-8/token/protected-tail/protocol Guard 采纳的 C3，确定性 oracle 另行检查事实/约束 marker（非配置 Summary anchor）。实测 alpha 10490→5270（C1×3，49%）、bravo 10489→5269（C1×3，49%）、charlie 5227→3608（C3，30%），实际中位数 49%；Canonical in-memory message prefix value equality 为 true、Tool orphan 为 0、事实/约束与完成均为 3/3。Demo/Eval 已完成并保留 latch 驱动的慢 Memory 零等待与迟到隔离证据链接；Capability Level 不变，G6/Stage Exit 仍 Open，未新增生产依赖或 S08 UX。</dd></div>
+        <div class="evidence-item"><dt>Last change</dt><dd>S07 G6 remediation 补齐 Domain/Core/Local Adapter/Headless CLI 的中文 Javadoc 契约标签，说明 Context overflow 至多一次恢复、C3/C4 摘要 Gate、ready-only Memory、隐私安全诊断和 Runtime 依赖边界；严格 aggregate Javadoc 已通过。能力等级、Stage Gate、矩阵和验收声明均未变化，G6/Stage Exit 仍 Open，未新增生产依赖或 S08 UX。</dd></div>
         <div class="evidence-item"><dt>Evidence stage</dt><dd><code>S07</code></dd></div>
         <div class="evidence-item"><dt>Evidence class</dt><dd><code>IMPLEMENTATION_VERIFIED</code></dd></div>
         <div class="evidence-item"><dt>Code commit</dt><dd><code>N/A - uncommitted S07 G3 foundation slice</code></dd></div>
         <div class="evidence-item"><dt>Standard command</dt><dd><code>.\mvnw.cmd -pl cc-java-cli -am -Dtest=HeadlessRuntimeSessionTest,DeterministicMemoryKeywordPolicyTest,FileMemoryPrefetchAdapterTest,FileMemoryBodyLoaderTest,FileMemoryCatalogAdapterTest,MemoryRecallAndPrefetchTest,AgentRuntimeContextIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test；.\mvnw.cmd test；java scripts/ProgressDashboard.java；java scripts/ProgressDashboard.java --check；java scripts/ProgressDashboard.java --self-test；git diff --check</code></dd></div>
         <div class="evidence-item"><dt>Result</dt><dd>S07 已形成 C1-C4 AgentRuntime Projection/typed overflow 恢复、Spring AI 结构化 overflow 分类/零 Tool Summarizer、显式启动容量的 Headless composition、FR-CTX-009/CTX-13 内部 Usage View 与 OBS-04 latest-only observer 基础、M1-M5 文件记忆/ready-only Prefetch 离线实现、D1 Memory Core/Domain Runtime seam，以及 D2 文件系统 Adapter 与真实 Provider Headless composition。Usage View 仅保存数值和固定枚举，instructionTokens 因 AGENTS/System 合并固定为 0，normal/recovery 发布和 observer failure/latest close 均有离线证据；默认 hashed Workspace 布局、公开 Options 不携带 memory home、非内联 queued start、确定性有界关键词、fresh Catalog/revision 与 M4 后 mutation stale Gate、Secret-safe 正文、ready/slow/missing/invalid/rejected/cancelled、构造失败和 close 的无等待 shutdownNow 均有离线证据；由于尚未 Stage Demo/Eval 或 Commit-scoped 完整证据，Capability Level 与 G3-G6 均保持不变。</dd></div>
-        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix f9056fe10f8c</code><br><code>state abac2d01bb69</code><br><code>code/build d43f1d8b6629</code></dd></div>
+        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix f9056fe10f8c</code><br><code>state 38bcc471cc22</code><br><code>code/build ba7b613d887f</code></dd></div>
       </dl>
     </section>
 

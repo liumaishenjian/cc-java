@@ -43,7 +43,14 @@ public record MemoryProjection(
         }
     }
 
-    /** 创建不携带正文的空投影。 */
+    /**
+     * 创建不携带正文的空投影。
+     *
+     * @param byteBudget 本次仍适用、但未被消耗的正文 UTF-8 字节预算
+     * @param revision 消费时已经验证的 Catalog revision
+     * @param diagnostic 说明为何安全降级为空且不回显内容的诊断
+     * @return 保留预算、revision 与单条诊断的空 M5 投影
+     */
     public static MemoryProjection empty(
             int byteBudget,
             MemoryCatalogRevision revision,

@@ -27,14 +27,25 @@ public record MemoryMutationDiagnostic(
         }
     }
 
-    /** 创建关联已验证 topic 的诊断。 */
+    /**
+     * 创建关联已验证 topic 的 mutation 诊断。
+     *
+     * @param kind 不回显正文、路径或底层失败详情的 mutation 分类
+     * @param topicName 已验证的受限 topic slug
+     * @return 仅携带安全 slug 的 topic 级 mutation 诊断
+     */
     public static MemoryMutationDiagnostic topic(
             MemoryMutationDiagnosticKind kind,
             String topicName) {
         return new MemoryMutationDiagnostic(kind, Optional.of(topicName));
     }
 
-    /** 创建不关联 topic 的诊断。 */
+    /**
+     * 创建不关联 topic 的 repository 级 mutation 诊断。
+     *
+     * @param kind 不回显 root 或底层异常详情的 mutation 分类
+     * @return 不携带 topic slug 的隐私安全 mutation 诊断
+     */
     public static MemoryMutationDiagnostic repository(MemoryMutationDiagnosticKind kind) {
         return new MemoryMutationDiagnostic(kind, Optional.empty());
     }

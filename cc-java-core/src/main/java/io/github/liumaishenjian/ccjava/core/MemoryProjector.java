@@ -26,7 +26,13 @@ public final class MemoryProjector {
 
     private final MemoryBodyLoader loader;
 
-    /** 固定安全正文加载 Port。 */
+    /**
+     * 固定安全正文加载 Port。
+     *
+     * <p>该依赖只按已验证 slug 读取正文；Projector 不接收文件路径，也不直接执行文件 I/O。</p>
+     *
+     * @param loader 已完成路径和文件安全校验的正文加载 Port
+     */
     public MemoryProjector(MemoryBodyLoader loader) {
         this.loader = Objects.requireNonNull(loader, "loader 不能为空");
     }

@@ -222,7 +222,11 @@ public final class FileMemoryPrefetchAdapter implements MemoryPrefetchFactory, A
         }
     }
 
-    /** 创建供 AgentRuntime 使用的短生命周期 Memory Context 服务。 */
+    /**
+     * 创建供 AgentRuntime 使用的短生命周期 Memory Context 服务。
+     *
+     * @return 以本 Adapter 为回合级预取工厂、但不转移 Executor 所有权的 Core 服务
+     */
     public MemoryContextService contextService() {
         return new MemoryContextService(this);
     }

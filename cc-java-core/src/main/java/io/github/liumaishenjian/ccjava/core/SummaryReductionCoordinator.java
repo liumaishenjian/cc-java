@@ -37,7 +37,13 @@ public final class SummaryReductionCoordinator implements AutoCloseable {
     private final ContextTokenEstimator estimator;
     private final SummaryAttemptGuard attemptGuard;
 
-    /** 创建 C3/C4 Coordinator。 */
+    /**
+     * 创建 C3/C4 Coordinator。
+     *
+     * @param summarizer 仅生成摘要候选、不得执行 Tool 的 Port
+     * @param estimator 对候选 Projection 重新计算容量的 Core 策略
+     * @param attemptGuard 绑定唯一 Run 的 tier 冷却与关闭线性化 Guard
+     */
     public SummaryReductionCoordinator(
             ContextSummarizer summarizer,
             ContextTokenEstimator estimator,

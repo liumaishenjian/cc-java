@@ -15,6 +15,10 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public final class LatestContextUsageCollector implements ContextUsageObserver, AutoCloseable {
 
+    /** 创建未关闭且尚未接收任何 Usage View 的 collector。 */
+    public LatestContextUsageCollector() {
+    }
+
     private final AtomicReference<ContextUsageView> latest = new AtomicReference<>();
     private boolean closed;
 

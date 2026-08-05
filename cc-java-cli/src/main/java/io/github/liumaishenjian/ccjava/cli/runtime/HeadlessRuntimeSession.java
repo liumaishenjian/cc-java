@@ -252,6 +252,10 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     /**
      * 使用显式摘要 Port 验证启用的 S07 Projection，且不访问 Provider 或 Secret。
      *
+     * @param model 模型回合端口
+     * @param eventSink Surface 的只读事件消费者
+     * @param options 非 Secret Runtime 配置
+     * @param approvalHandler 单次审批端口
      * @param summarizer 不得执行 Tool 的离线或 Provider 摘要端口
      */
     public HeadlessRuntimeSession(

@@ -159,10 +159,19 @@ public final class ContextOverflowRetryCoordinator implements AutoCloseable {
         }
     }
 
-    /** 单次模型请求尝试；实现不能自行重试。 */
+    /**
+     * 单次模型请求尝试；实现不能自行重试。
+     *
+     * @param <T> 成功响应的数据类型
+     */
     @FunctionalInterface
     public interface ProjectionAttempt<T> {
-        /** 对给定不可变 Projection 执行一次请求。 */
+        /**
+         * 对给定不可变 Projection 执行一次请求。
+         *
+         * @param projection 本次请求唯一可消费的 Projection
+         * @return 成功、overflow、失败或取消的分类结果
+         */
         AttemptResult<T> execute(ContextProjection projection);
     }
 
@@ -181,6 +190,7 @@ public final class ContextOverflowRetryCoordinator implements AutoCloseable {
     /**
      * 单次请求结果；只有 SUCCESS 必须且只能携带 value。
      *
+     * @param <T> 成功响应的数据类型
      * @param status 结果分类
      * @param value 成功数据
      */
@@ -194,23 +204,44 @@ public final class ContextOverflowRetryCoordinator implements AutoCloseable {
             }
         }
 
-        /** 创建成功结果。 */
+        /**
+         * 创建成功结果。
+         *
+         * @param <T> 成功响应的数据类型
+         * @param value 本次请求产生的非空响应
+         * @return 携带响应的成功分类结果
+         */
         public static <T> AttemptResult<T> success(T value) {
             return new AttemptResult<>(AttemptStatus.SUCCESS, Optional.of(
                     Objects.requireNonNull(value, "value 不能为空")));
         }
 
-        /** 创建 overflow 结果。 */
+        /**
+         * 创建 overflow 结果。
+         *
+         * @param <T> 原本期望的成功响应数据类型
+         * @return 不携带响应的 overflow 分类结果
+         */
         public static <T> AttemptResult<T> overflow() {
             return new AttemptResult<>(AttemptStatus.OVERFLOW, Optional.empty());
         }
 
-        /** 创建普通失败结果。 */
+        /**
+         * 创建普通失败结果。
+         *
+         * @param <T> 原本期望的成功响应数据类型
+         * @return 不携带响应的非 overflow 失败分类结果
+         */
         public static <T> AttemptResult<T> failed() {
             return new AttemptResult<>(AttemptStatus.FAILED, Optional.empty());
         }
 
-        /** 创建取消结果。 */
+        /**
+         * 创建取消结果。
+         *
+         * @param <T> 原本期望的成功响应数据类型
+         * @return 不携带响应的取消分类结果
+         */
         public static <T> AttemptResult<T> cancelled() {
             return new AttemptResult<>(AttemptStatus.CANCELLED, Optional.empty());
         }
@@ -219,6 +250,7 @@ public final class ContextOverflowRetryCoordinator implements AutoCloseable {
     /**
      * 单 overflow recovery 的终态。
      *
+     * @param <T> 最后一次成功响应的数据类型
      * @param result 最后一次实际模型请求结果；零次请求时为取消
      * @param modelRequestAttempts 实际请求次数，只能为零、一或二
      * @param projection 最后一次请求使用或可安全保留的 Projection

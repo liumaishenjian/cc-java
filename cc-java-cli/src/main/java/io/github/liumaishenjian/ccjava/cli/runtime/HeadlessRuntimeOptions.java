@@ -85,6 +85,14 @@ public record HeadlessRuntimeOptions(
 
     /**
      * 使用显式 Session Store 且不启用 S07 Projection 的兼容构造器。
+     *
+     * @param workspace 已解析的真实 Workspace 目录
+     * @param model Provider 模型标识
+     * @param timeout 每个 Run 的墙钟限制
+     * @param permissionMode 当前 Permission Mode
+     * @param startupPermissionRules 可信启动规则
+     * @param sessionOpenRequest 创建、继续、恢复或分叉的 Session 选择
+     * @param sessionStoreRoot Workspace 外的 Session Store 根目录
      */
     public HeadlessRuntimeOptions(
             Path workspace,

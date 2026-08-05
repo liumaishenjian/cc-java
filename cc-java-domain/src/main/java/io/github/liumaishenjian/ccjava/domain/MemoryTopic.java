@@ -67,7 +67,16 @@ public record MemoryTopic(
         updatedAt = Objects.requireNonNull(updatedAt, "updatedAt 不能为空");
     }
 
-    /** 创建尚未持久化、没有读取摘要的新建候选。 */
+    /**
+     * 创建尚未持久化、没有读取摘要的新建候选。
+     *
+     * @param name 将由 Adapter 映射为 root 内文件名的受限 topic slug
+     * @param kind 用户提供或确认的信息语义分类
+     * @param description M2 索引使用的一行有界 recall hook
+     * @param body 待经 M1 安全校验和持久化的 Markdown 正文
+     * @param updatedAt 本次内容确认日期
+     * @return contentDigest 为空、不能作为更新前提的新建候选
+     */
     public static MemoryTopic candidate(
             String name,
             MemoryKind kind,
@@ -98,7 +107,12 @@ public record MemoryTopic(
         return new MemoryTopic(name, kind, description, body, contentDigest, updatedAt);
     }
 
-    /** 返回不含正文的 Catalog header。 */
+    /**
+     * 返回不含正文的 Catalog header。
+     *
+     * @return 携带持久摘要、可安全参与 M3 选择的 header
+     * @throws IllegalStateException 当前 topic 尚未持久化时
+     */
     public MemoryTopicHeader header() {
         if (contentDigest.isEmpty()) {
             throw new IllegalStateException("尚未持久化的 topic 没有 Catalog header");

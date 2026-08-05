@@ -33,7 +33,12 @@ public final class ContextPreparationService {
     private final boolean enabled;
     private final ConcurrentMap<RunId, RunState> runs = new ConcurrentHashMap<>();
 
-    /** 创建启用 C1-C4 的准备服务，默认不发布 Context Usage View。 */
+    /**
+     * 创建启用 C1-C4 的准备服务，默认不发布 Context Usage View。
+     *
+     * @param config 已校验的容量、保护尾部和 reduction 限制
+     * @param summarizer C3/C4 只返回候选数据的摘要 Port
+     */
     public ContextPreparationService(
             ContextPreparationConfig config,
             ContextSummarizer summarizer) {
@@ -66,13 +71,21 @@ public final class ContextPreparationService {
         this.enabled = false;
     }
 
-    /** 返回保持原 ModelRequest 不变且不保留 Run 状态的兼容路径。 */
+    /**
+     * 返回保持原 ModelRequest 不变且不保留 Run 状态的兼容路径。
+     *
+     * @return 不调用 reduction、摘要或 Usage 观察端口的 no-op 服务
+     */
     public static ContextPreparationService noop() {
         return new ContextPreparationService();
     }
 
     /**
      * 为一个模型回合准备 Projection，并保持 Session/Run/turn/Tool 定义原样。
+     *
+     * @param canonical ContextAssembler 构造的不可变规范请求
+     * @param cancellationToken 本回合取消令牌
+     * @return 仅供当前模型回合使用的请求；no-op 时返回原请求
      */
     public ModelRequest prepare(
             ModelRequest canonical,
@@ -130,6 +143,13 @@ public final class ContextPreparationService {
      *
      * <p>no-op 路径直接执行一次。启用路径把既有 Coordinator 的无循环尝试结果重新映射为
      * 原始 {@link ModelGatewayException}，从而保持非 overflow 失败和第二次 overflow 的精确分类。</p>
+     *
+     * @param <T> 单次模型请求成功结果的数据类型
+     * @param prepared 已准备、尚未发送的短生命周期请求
+     * @param cancellationToken 本回合取消令牌
+     * @param attempt 不自行重试的实际模型调用
+     * @return 首次调用或唯一恢复调用的成功结果
+     * @throws ModelGatewayException 模型调用失败、取消或第二次 overflow 时
      */
     public <T> T executePrepared(
             ModelRequest prepared,
@@ -227,7 +247,11 @@ public final class ContextPreparationService {
         }
     }
 
-    /** 关闭并移除一个 Run 的所有摘要冷却和 overflow retry 状态。 */
+    /**
+     * 关闭并移除一个 Run 的所有摘要冷却和 overflow retry 状态。
+     *
+     * @param runId 生命周期已结束的唯一 Run
+     */
     public void closeRun(RunId runId) {
         Objects.requireNonNull(runId, "runId 不能为空");
         RunState state = runs.remove(runId);
@@ -289,10 +313,20 @@ public final class ContextPreparationService {
         return available <= 1 ? 0 : first + Math.max(1, available / 2);
     }
 
-    /** 单次 ModelRequest 尝试；实现不得自行循环。 */
+    /**
+     * 单次 ModelRequest 尝试；实现不得自行循环。
+     *
+     * @param <T> 成功响应的数据类型
+     */
     @FunctionalInterface
     public interface PreparedAttempt<T> {
-        /** 执行一次 prepared 或 recovered 请求。 */
+        /**
+         * 执行一次 prepared 或 recovered 请求。
+         *
+         * @param request 本次唯一允许发送的模型请求
+         * @return 模型调用成功后的响应
+         * @throws ModelGatewayException 模型端口无法完成本次调用时
+         */
         T execute(ModelRequest request) throws ModelGatewayException;
     }
 

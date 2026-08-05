@@ -72,7 +72,11 @@ public final class FileMemoryRepository implements MemoryRepository {
     private final CreateLinker linker;
     private final StagedCleaner cleaner;
 
-    /** 固定一个已经存在、非链接且可解析为自身的 memory root。 */
+    /**
+     * 固定一个已经存在、非链接且可解析为自身的 memory root。
+     *
+     * @param memoryRoot 由 Composition 提供、后续每次读写仍会验证的 M1 根目录
+     */
     public FileMemoryRepository(Path memoryRoot) {
         this(
                 memoryRoot,

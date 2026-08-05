@@ -25,12 +25,23 @@ public record MemoryProjectionDiagnostic(
         });
     }
 
-    /** 创建 Catalog 级诊断。 */
+    /**
+     * 创建 Catalog 级诊断。
+     *
+     * @param kind 不携带正文、路径或异常文本的 Catalog 失败分类
+     * @return 不关联具体 topic 的投影诊断
+     */
     public static MemoryProjectionDiagnostic catalog(MemoryProjectionDiagnosticKind kind) {
         return new MemoryProjectionDiagnostic(kind, Optional.empty());
     }
 
-    /** 创建 topic 级诊断。 */
+    /**
+     * 创建 topic 级诊断。
+     *
+     * @param kind 不携带正文、路径或异常文本的投影失败分类
+     * @param name 已验证的受限 topic slug
+     * @return 仅关联安全 slug 的投影诊断
+     */
     public static MemoryProjectionDiagnostic topic(
             MemoryProjectionDiagnosticKind kind, String name) {
         return new MemoryProjectionDiagnostic(kind, Optional.of(name));

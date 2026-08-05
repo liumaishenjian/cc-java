@@ -23,7 +23,11 @@ public final class MemoryContextService {
     private final MemoryPrefetchFactory factory;
     private final boolean enabled;
 
-    /** 创建启用 ready-only Memory Projection 的服务。 */
+    /**
+     * 创建启用 ready-only Memory Projection 的服务。
+     *
+     * @param factory 为每个用户消息创建独立预取句柄的 Core Port
+     */
     public MemoryContextService(MemoryPrefetchFactory factory) {
         this.factory = Objects.requireNonNull(factory, "factory 不能为空");
         this.enabled = true;
@@ -34,7 +38,11 @@ public final class MemoryContextService {
         this.enabled = false;
     }
 
-    /** 返回不创建资源且保持请求原样的兼容路径。 */
+    /**
+     * 返回不创建资源且保持请求原样的兼容路径。
+     *
+     * @return 不启动预取、也不插入 Memory Context 消息的服务
+     */
     public static MemoryContextService noop() {
         return new MemoryContextService();
     }

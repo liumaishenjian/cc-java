@@ -49,7 +49,16 @@ public record MemoryMutationResult(
         }
     }
 
-    /** 创建 M1 成功结果。 */
+    /**
+     * 创建 M1 已提交的创建或更新结果。
+     *
+     * <p>M2 重建失败不会回滚已验证的 M1 提交，而是以唯一诊断保留供下次启动重建。</p>
+     *
+     * @param status 已提交的 CREATED 或 UPDATED 终态
+     * @param topic 已包含持久摘要的 M1 topic
+     * @param indexRebuildFailed M2 是否在 M1 提交后重建失败
+     * @return 保留 M1 成功状态与可选 M2 失败诊断的结果
+     */
     public static MemoryMutationResult saved(
             MemoryMutationStatus status,
             MemoryTopic topic,
@@ -67,7 +76,13 @@ public record MemoryMutationResult(
                         : List.of());
     }
 
-    /** 创建删除成功结果。 */
+    /**
+     * 创建 M1 已删除的结果。
+     *
+     * @param topicName 已验证且已从 M1 删除的 topic slug
+     * @param indexRebuildFailed M2 是否在删除提交后重建失败
+     * @return 不携带 topic、但保留可选 M2 失败诊断的删除结果
+     */
     public static MemoryMutationResult deleted(String topicName, boolean indexRebuildFailed) {
         return new MemoryMutationResult(
                 MemoryMutationStatus.DELETED,
@@ -79,7 +94,11 @@ public record MemoryMutationResult(
                         : List.of());
     }
 
-    /** 创建 M2 重建成功结果。 */
+    /**
+     * 创建 M2 重建成功结果。
+     *
+     * @return 不改变任何 M1 topic 且不携带失败诊断的索引重建结果
+     */
     public static MemoryMutationResult indexRebuilt() {
         return new MemoryMutationResult(
                 MemoryMutationStatus.INDEX_REBUILT,
@@ -87,7 +106,12 @@ public record MemoryMutationResult(
                 List.of());
     }
 
-    /** 创建在 M1 提交前结束的拒绝结果。 */
+    /**
+     * 创建在 M1 提交前结束的拒绝结果。
+     *
+     * @param diagnostic 不回显被拒绝内容、路径或 Secret 的原因分类
+     * @return 明确表示本次调用未提交 M1 的拒绝结果
+     */
     public static MemoryMutationResult rejected(MemoryMutationDiagnostic diagnostic) {
         return new MemoryMutationResult(
                 MemoryMutationStatus.REJECTED,

@@ -14,10 +14,18 @@ import java.util.Objects;
 @FunctionalInterface
 public interface ContextUsageObserver {
 
-    /** 接收一个已完成准备或 overflow recovery 的安全快照。 */
+    /**
+     * 接收一个已完成准备或 overflow recovery 的安全快照。
+     *
+     * @param view 不含 Prompt、路径或自由错误文本的数值化快照
+     */
     void publish(ContextUsageView view);
 
-    /** 返回不保留也不发布 Usage View 的兼容观察者。 */
+    /**
+     * 返回不保留也不发布 Usage View 的兼容观察者。
+     *
+     * @return 对每个非空快照无副作用的观察端口
+     */
     static ContextUsageObserver noop() {
         return view -> Objects.requireNonNull(view, "view 不能为空");
     }

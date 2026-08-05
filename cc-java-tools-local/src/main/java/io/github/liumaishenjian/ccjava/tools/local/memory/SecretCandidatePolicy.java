@@ -14,6 +14,10 @@ import java.util.regex.Pattern;
  */
 public final class SecretCandidatePolicy {
 
+    /** 创建无状态的保守 Secret 候选检测策略。 */
+    public SecretCandidatePolicy() {
+    }
+
     private static final Pattern ASSIGNMENT = Pattern.compile(
             "(?im)\\b(?:api[_-]?key|access[_-]?token|auth[_-]?token|token|password|passwd|credential|client[_-]?secret)\\b\\s*[:=]\\s*['\\\"]?\\S+");
     private static final Pattern BEARER = Pattern.compile(

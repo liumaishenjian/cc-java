@@ -81,12 +81,23 @@ public record SummaryDiagnostic(Kind kind, Optional<SummaryTier> tier) {
         }
     }
 
-    /** 创建不关联层级的全局诊断。 */
+    /**
+     * 创建不关联层级的全局诊断。
+     *
+     * @param kind 尚未选择 C3/C4 tier 时可报告的全局原因
+     * @return 不携带 tier 的全局摘要诊断
+     */
     public static SummaryDiagnostic global(Kind kind) {
         return new SummaryDiagnostic(kind, Optional.empty());
     }
 
-    /** 创建关联具体 C3/C4 层级的诊断。 */
+    /**
+     * 创建关联具体 C3/C4 层级的诊断。
+     *
+     * @param kind 仅能在某一摘要 tier 内判定的原因
+     * @param tier 产生或拒绝候选的 C3/C4 tier
+     * @return 关联该 tier 的摘要诊断
+     */
     public static SummaryDiagnostic tier(Kind kind, SummaryTier tier) {
         return new SummaryDiagnostic(kind, Optional.of(
                 Objects.requireNonNull(tier, "tier 不能为空")));

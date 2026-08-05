@@ -29,12 +29,23 @@ public record MemoryDiagnostic(
         }
     }
 
-    /** 创建不关联 topic 的诊断。 */
+    /**
+     * 创建不关联 topic 的 Catalog 级诊断。
+     *
+     * @param kind 不回显底层异常文本的 Catalog 失败分类
+     * @return 不携带 topic slug 的隐私安全诊断
+     */
     public static MemoryDiagnostic catalog(MemoryDiagnosticKind kind) {
         return new MemoryDiagnostic(kind, Optional.empty());
     }
 
-    /** 创建关联已验证 topic 的诊断。 */
+    /**
+     * 创建关联已验证 topic 的诊断。
+     *
+     * @param kind 不回显正文、路径或异常文本的失败分类
+     * @param topicName 已验证的受限 topic slug
+     * @return 仅携带安全 slug 的 topic 级诊断
+     */
     public static MemoryDiagnostic topic(
             MemoryDiagnosticKind kind,
             String topicName) {
