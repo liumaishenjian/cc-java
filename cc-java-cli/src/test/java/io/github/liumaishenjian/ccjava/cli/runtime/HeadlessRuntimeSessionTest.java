@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.liumaishenjian.ccjava.core.AgentEventSink;
 import io.github.liumaishenjian.ccjava.core.ContextPreparationConfig;
+import io.github.liumaishenjian.ccjava.core.ContextPreparationService;
 import io.github.liumaishenjian.ccjava.core.ModelGateway;
 import io.github.liumaishenjian.ccjava.core.RunTelemetry;
 import io.github.liumaishenjian.ccjava.core.TokenUsageTotals;
@@ -14,6 +15,9 @@ import io.github.liumaishenjian.ccjava.domain.AgentRunResult;
 import io.github.liumaishenjian.ccjava.domain.ContextCapacity;
 import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
 import io.github.liumaishenjian.ccjava.domain.LifecycleEvent;
+import io.github.liumaishenjian.ccjava.domain.MemoryContextMessage;
+import io.github.liumaishenjian.ccjava.domain.MemoryKind;
+import io.github.liumaishenjian.ccjava.domain.MemoryTopic;
 import io.github.liumaishenjian.ccjava.domain.ModelRequest;
 import io.github.liumaishenjian.ccjava.domain.ModelFinishReason;
 import io.github.liumaishenjian.ccjava.domain.ModelTurn;
@@ -32,16 +36,22 @@ import io.github.liumaishenjian.ccjava.domain.ToolSource;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
 import io.github.liumaishenjian.ccjava.model.springai.config.OpenAiCompatibleSettings;
+import io.github.liumaishenjian.ccjava.tools.local.memory.FileMemoryPrefetchAdapter;
+import io.github.liumaishenjian.ccjava.tools.local.memory.FileMemoryRepository;
 import java.io.IOException;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.Map;
+import java.util.Queue;
 import java.time.Duration;
 import java.util.Comparator;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -195,6 +205,264 @@ class HeadlessRuntimeSessionTest {
                         "apply_patch",
                         "write_file",
                         "run_command");
+    }
+
+    @Test
+    void defaultMemoryLayoutUsesHashedCanonicalWorkspaceWithoutPathDisclosure()
+            throws Exception {
+        Path memoryHome = Files.createDirectory(sessionStoreRoot.resolve("private-memory-home"));
+        io.github.liumaishenjian.ccjava.tools.local.memory.MemoryStorageLayout layout =
+                new io.github.liumaishenjian.ccjava.tools.local.memory.MemoryStorageLayout();
+        String repositoryId = layout.repositoryId(temporaryWorkspace);
+        Path memoryRoot = layout.defaultMemoryRoot(memoryHome, repositoryId);
+        Files.createDirectories(memoryRoot);
+        new FileMemoryRepository(memoryRoot).saveTopic(
+                MemoryTopic.candidate(
+                        "java-build",
+                        MemoryKind.PROJECT_STATE,
+                        "Java build guidance",
+                        "Use mvnw test.",
+                        java.time.LocalDate.of(2026, 8, 5)),
+                Optional.empty());
+        AtomicReference<ModelRequest> sent = new AtomicReference<>();
+        HeadlessRuntimeOptions options = new HeadlessRuntimeOptions(
+                temporaryWorkspace,
+                "fake-model",
+                Duration.ofSeconds(5),
+                PermissionMode.DEFAULT,
+                java.util.List.of(),
+                SessionOpenRequest.create(),
+                sessionStoreRoot,
+                Optional.empty());
+        QueuedExecutorService memoryExecutor = new QueuedExecutorService();
+        AtomicReference<Boolean> publicOptionsExposedHome = new AtomicReference<>();
+        AgentEventSink memoryScheduler = envelope -> {
+            if (envelope.event() instanceof LifecycleEvent.ModelTurnStarted) {
+                memoryExecutor.runNext();
+            }
+        };
+
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                request -> {
+                    publicOptionsExposedHome.set(options.toString().contains(memoryHome.toString()));
+                    sent.set(request);
+                    return ModelTurn.text("done");
+                },
+                memoryScheduler,
+                options,
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny(),
+                ContextPreparationService.noop(),
+                HeadlessRuntimeSession.HeadlessMemoryLayout.forHome(
+                        memoryHome, memoryExecutor))) {
+            application.open();
+            application.run("java build");
+        }
+
+        assertThat(memoryRoot)
+                .isEqualTo(memoryHome.resolve(".cc-java/projects")
+                        .resolve(repositoryId)
+                        .resolve("memory"));
+        assertThat(repositoryId).matches("[0-9a-f]{64}")
+                .doesNotContain(temporaryWorkspace.getFileName().toString());
+        assertThat(publicOptionsExposedHome.get()).isFalse();
+        assertThat(sent.get().toString())
+                .doesNotContain(temporaryWorkspace.toString(), memoryHome.toString());
+        assertThat(memoryExecutor.shutdownNowCalls()).isOne();
+    }
+
+    @Test
+    void productionCompositionInjectsReadyFileMemoryWithoutChangingCanonicalState()
+            throws Exception {
+        Path memoryRoot = Files.createDirectory(sessionStoreRoot.resolve("memory-ready"));
+        MemoryTopic persisted = new FileMemoryRepository(memoryRoot).saveTopic(
+                MemoryTopic.candidate(
+                        "java-build",
+                        MemoryKind.PROJECT_STATE,
+                        "Java Maven build guidance",
+                        "Use mvnw test.",
+                        java.time.LocalDate.of(2026, 8, 5)),
+                Optional.empty()).topic().orElseThrow();
+        AtomicReference<ModelRequest> sent = new AtomicReference<>();
+        QueuedExecutorService memoryExecutor = new QueuedExecutorService();
+        AgentEventSink memoryScheduler = envelope -> {
+            if (envelope.event() instanceof LifecycleEvent.ModelTurnStarted) {
+                memoryExecutor.runNext();
+            }
+        };
+        ModelGateway model = request -> {
+            sent.set(request);
+            return ModelTurn.text("done");
+        };
+
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                model,
+                memoryScheduler,
+                testOptions(temporaryWorkspace, Duration.ofSeconds(5)),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny(),
+                ContextPreparationService.noop(),
+                HeadlessRuntimeSession.HeadlessMemoryLayout.forRoot(
+                        memoryRoot, memoryExecutor))) {
+            application.open();
+            assertThat(application.run("fix java build").stopReason())
+                    .isEqualTo(StopReason.COMPLETED);
+        }
+
+        MemoryContextMessage memory = sent.get().messages().stream()
+                .filter(MemoryContextMessage.class::isInstance)
+                .map(MemoryContextMessage.class::cast)
+                .findFirst()
+                .orElseThrow();
+        assertThat(memory.items())
+                .extracting(item -> item.name())
+                .containsExactly(persisted.name());
+        assertThat(sent.get().messages().getLast())
+                .isEqualTo(new UserMessage("fix java build"));
+        assertThat(sent.get().toolDefinitions())
+                .extracting(definition -> definition.name())
+                .containsExactly(
+                        "list_files", "search_text", "read_file", "git_status", "git_diff",
+                        "apply_patch", "write_file", "run_command");
+        assertThat(memoryExecutor.isShutdown()).isTrue();
+
+        // Resume 只重放 Canonical User/Assistant；上一次短生命周期 Memory 不得写入 Journal。
+        AtomicReference<ModelRequest> resumed = new AtomicReference<>();
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                request -> {
+                    resumed.set(request);
+                    return ModelTurn.text("resumed");
+                },
+                AgentEventSink.noop(),
+                new HeadlessRuntimeOptions(
+                        temporaryWorkspace,
+                        "fake-model",
+                        Duration.ofSeconds(5),
+                        PermissionMode.DEFAULT,
+                        java.util.List.of(),
+                        new SessionOpenRequest(
+                                io.github.liumaishenjian.ccjava.cli.session.SessionOpenMode.RESUME,
+                                Optional.of(sent.get().sessionId())),
+                        sessionStoreRoot,
+                        Optional.empty()))) {
+            application.open();
+            application.run("next canonical task");
+        }
+        assertThat(resumed.get().messages())
+                .noneMatch(MemoryContextMessage.class::isInstance)
+                .extracting(message -> switch (message) {
+                    case SystemMessage ignored -> "system";
+                    case UserMessage user -> "user:" + user.content();
+                    case AssistantMessage assistant -> "assistant:" + assistant.text();
+                    default -> message.getClass().getSimpleName();
+                })
+                .containsExactly(
+                        "system",
+                        "user:fix java build",
+                        "assistant:done",
+                        "user:next canonical task");
+    }
+
+    @Test
+    void constructorFailureShutsDownInjectedMemoryExecutorWithoutCreatingAdapter() {
+        Path memoryRoot = sessionStoreRoot.resolve("constructor-failure-memory");
+        QueuedExecutorService executor = new QueuedExecutorService();
+        HeadlessRuntimeSession.HeadlessMemoryLayout memoryLayout =
+                new HeadlessRuntimeSession.HeadlessMemoryLayout(
+                        memoryRoot,
+                        executor,
+                        ignored -> {
+                            throw new AssertionError("Earlier constructor failure must prevent adapter creation");
+                        });
+
+        assertThatThrownBy(() -> new HeadlessRuntimeSession(
+                ignored -> ModelTurn.text("unused"),
+                AgentEventSink.noop(),
+                testOptions(temporaryWorkspace, Duration.ofSeconds(5)),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny(),
+                null,
+                memoryLayout))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("contextPreparation 不能为空");
+
+        assertThat(executor.isShutdown()).isTrue();
+        assertThat(executor.shutdownNowCalls()).isOne();
+    }
+
+    @Test
+    void closeStopsMemoryBeforeSessionCloseFailure() throws Exception {
+        Path memoryRoot = Files.createDirectory(sessionStoreRoot.resolve("memory-close-failure"));
+        QueuedExecutorService memoryExecutor = new QueuedExecutorService();
+        HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                ignored -> ModelTurn.text("done"),
+                AgentEventSink.noop(),
+                testOptions(temporaryWorkspace, Duration.ofSeconds(5)),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny(),
+                ContextPreparationService.noop(),
+                HeadlessRuntimeSession.HeadlessMemoryLayout.forRoot(
+                        memoryRoot, memoryExecutor));
+        application.open();
+        java.lang.reflect.Field sessionField = HeadlessRuntimeSession.class
+                .getDeclaredField("session");
+        sessionField.setAccessible(true);
+        io.github.liumaishenjian.ccjava.core.AgentSession session =
+                (io.github.liumaishenjian.ccjava.core.AgentSession) sessionField.get(application);
+        java.lang.reflect.Field activeRunField = session.getClass()
+                .getDeclaredField("activeRunId");
+        activeRunField.setAccessible(true);
+        activeRunField.set(session, new io.github.liumaishenjian.ccjava.domain.RunId("fixture-active"));
+
+        assertThatThrownBy(application::close)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("存在活动 Run 时不能关闭 Session");
+        assertThat(memoryExecutor.isShutdown()).isTrue();
+        assertThat(memoryExecutor.shutdownNowCalls()).isOne();
+    }
+
+    @Test
+    void slowProductionRecallDoesNotDelayGatewayAndCloseInterruptsWorker()
+            throws Exception {
+        Path memoryRoot = Files.createDirectory(sessionStoreRoot.resolve("memory-slow"));
+        CountDownLatch workerStarted = new CountDownLatch(1);
+        CountDownLatch releaseWorker = new CountDownLatch(1);
+        CountDownLatch gatewayStarted = new CountDownLatch(1);
+        ExecutorService memoryExecutor = Executors.newSingleThreadExecutor(runnable ->
+                Thread.ofPlatform().name("headless-memory-slow-test").unstarted(() -> {
+                    workerStarted.countDown();
+                    try {
+                        releaseWorker.await();
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+                    runnable.run();
+                }));
+        AtomicReference<ModelRequest> sent = new AtomicReference<>();
+        HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                request -> {
+                    sent.set(request);
+                    gatewayStarted.countDown();
+                    return ModelTurn.text("done");
+                },
+                AgentEventSink.noop(),
+                testOptions(temporaryWorkspace, Duration.ofSeconds(5)),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny(),
+                ContextPreparationService.noop(),
+                HeadlessRuntimeSession.HeadlessMemoryLayout.forRoot(
+                        memoryRoot, memoryExecutor));
+        try {
+            application.open();
+            application.run("java build");
+            assertThat(workerStarted.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(gatewayStarted.getCount()).isZero();
+            assertThat(sent.get().messages()).noneMatch(MemoryContextMessage.class::isInstance);
+        } finally {
+            application.close();
+            releaseWorker.countDown();
+        }
+        assertThat(memoryExecutor.isShutdown()).isTrue();
     }
 
     @Test
@@ -997,6 +1265,58 @@ class HeadlessRuntimeSessionTest {
                 rules,
                 SessionOpenRequest.create(),
                 sessionStoreRoot);
+    }
+
+    private static final class QueuedExecutorService
+            extends java.util.concurrent.AbstractExecutorService {
+        private final Queue<Runnable> tasks = new ArrayDeque<>();
+        private boolean shutdown;
+        private int shutdownNowCalls;
+
+        @Override
+        public void shutdown() {
+            shutdown = true;
+        }
+
+        @Override
+        public java.util.List<Runnable> shutdownNow() {
+            shutdown = true;
+            shutdownNowCalls++;
+            java.util.List<Runnable> pending = java.util.List.copyOf(tasks);
+            tasks.clear();
+            return pending;
+        }
+
+        @Override
+        public boolean isShutdown() {
+            return shutdown;
+        }
+
+        @Override
+        public boolean isTerminated() {
+            return shutdown && tasks.isEmpty();
+        }
+
+        @Override
+        public boolean awaitTermination(long timeout, TimeUnit unit) {
+            return isTerminated();
+        }
+
+        @Override
+        public void execute(Runnable command) {
+            if (shutdown) {
+                throw new java.util.concurrent.RejectedExecutionException();
+            }
+            tasks.add(command);
+        }
+
+        void runNext() {
+            tasks.remove().run();
+        }
+
+        int shutdownNowCalls() {
+            return shutdownNowCalls;
+        }
     }
 
     private static void runGit(Path directory, String... arguments) throws Exception {

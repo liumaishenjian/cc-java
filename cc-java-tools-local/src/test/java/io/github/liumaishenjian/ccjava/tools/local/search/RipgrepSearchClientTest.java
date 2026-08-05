@@ -3,6 +3,7 @@ package io.github.liumaishenjian.ccjava.tools.local.search;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.liumaishenjian.ccjava.domain.ToolErrorCode;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -288,9 +289,13 @@ class RipgrepSearchClientTest {
         command.add("-Dcc.java.fake.rg.mode=" + mode);
         command.addAll(List.of(additionalJvmArguments));
         command.add("-cp");
-        command.add(System.getProperty("java.class.path"));
+        command.add(fakeProcessClasspath());
         command.add(FakeRipgrepProcess.class.getName());
-        return new RipgrepSearchClient(workspace, command, timeout);
+        return new RipgrepSearchClient(
+                workspace,
+                RipgrepExecutableResolver.fixed(command),
+                timeout,
+                RipgrepSearchClientTest::startFakeProcess);
     }
 
     private List<String> fakeCommand(String mode) {
@@ -298,12 +303,44 @@ class RipgrepSearchClientTest {
                 javaExecutable(),
                 "-Dcc.java.fake.rg.mode=" + mode,
                 "-cp",
-                System.getProperty("java.class.path"),
+                fakeProcessClasspath(),
                 FakeRipgrepProcess.class.getName());
     }
 
     private static String javaExecutable() {
-        return Path.of(System.getProperty("java.home"), "bin", "java").toString();
+        String executable = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT)
+                .contains("windows") ? "java.exe" : "java";
+        return Path.of(System.getProperty("java.home"), "bin", executable).toString();
+    }
+
+    private static String fakeProcessClasspath() {
+        try {
+            return Path.of(FakeRipgrepProcess.class.getProtectionDomain()
+                            .getCodeSource()
+                            .getLocation()
+                            .toURI())
+                    .toString();
+        } catch (java.net.URISyntaxException failure) {
+            throw new IllegalStateException("无法解析 Fake ripgrep test-classes", failure);
+        }
+    }
+
+    private static Process startFakeProcess(ProcessBuilder builder) throws IOException {
+        try {
+            return builder.start();
+        } catch (IOException failure) {
+            if (!isWindowsAccessDenied(failure)) {
+                throw failure;
+            }
+            return builder.start();
+        }
+    }
+
+    private static boolean isWindowsAccessDenied(IOException failure) {
+        String message = failure.getMessage();
+        return System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("windows")
+                && message != null
+                && message.contains("error=5");
     }
 
     private static void awaitFile(Path path) throws Exception {

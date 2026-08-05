@@ -60,7 +60,7 @@ public final class FakeRipgrepProcess {
                     javaExecutable(),
                     "-Dcc.java.fake.rg.mode=child",
                     "-cp",
-                    System.getProperty("java.class.path"),
+                    directClasspath(),
                     FakeRipgrepProcess.class.getName())
                     .start();
             Files.writeString(requiredPath("cc.java.fake.rg.childPid"), Long.toString(child.pid()));
@@ -100,7 +100,21 @@ public final class FakeRipgrepProcess {
     }
 
     private static String javaExecutable() {
-        return Path.of(System.getProperty("java.home"), "bin", "java").toString();
+        String executable = System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT)
+                .contains("windows") ? "java.exe" : "java";
+        return Path.of(System.getProperty("java.home"), "bin", executable).toString();
+    }
+
+    private static String directClasspath() {
+        try {
+            return Path.of(FakeRipgrepProcess.class.getProtectionDomain()
+                            .getCodeSource()
+                            .getLocation()
+                            .toURI())
+                    .toString();
+        } catch (java.net.URISyntaxException failure) {
+            throw new IllegalStateException("无法解析 Fake ripgrep test-classes", failure);
+        }
     }
 
     private static boolean containsSingleThread(String[] arguments) {

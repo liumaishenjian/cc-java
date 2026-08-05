@@ -10,8 +10,8 @@
 >
 > 当前实现状态：ADR-042/043/044 已固定 Context Projection、条件式 Reduction、文件记忆和零等待
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
-> composition，以及 ready-only Memory Core/Domain Runtime seam 已形成实现和离线 Fake，但 D2 文件系统
-> 生产装配、Context View、Demo/Eval、Capability Level 提升与 G3-G6 完整证据仍未完成。
+> composition、ready-only Memory Core/Domain Runtime seam 与 D2 Headless 文件系统生产装配已形成实现和
+> 离线 Fake；Context View、Demo/Eval、Capability Level 提升与 G3-G6 完整证据仍未完成。
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 
@@ -933,8 +933,16 @@ I/O 或模型调用。D1 由 `MemoryPrefetchFactory` 和 `MemoryContextService` 
 不写入 Canonical Session/Journal，不包含 Path，不能改变 Permission/Approval/Hard Denial。Spring AI
 Adapter 使用固定 `cc-java-memory-context-v1` User JSON envelope，显式携带 `untrusted=true`、
 `source=project-file-memory`、Catalog revision，并对记忆文本字段作 UTF-8 Base64；
-`CodePointContextTokenEstimator` 将这些字段计入独立 `memoryTokens` 与 `totalTokens`。该并行准备不实现
-S12 Sub-Agent、后台 Agent、任务系统或并行 Tool；D2 文件系统生产装配仍未接入 Headless。
+`CodePointContextTokenEstimator` 将这些字段计入独立 `memoryTokens` 与 `totalTokens`。D2 由真实 Provider
+Headless Composition 通过 `MemoryStorageLayout` 派生 `<user.home>/.cc-java/projects/<sha256(canonical workspace)>/memory`；`user.home` 只在包级 Composition seam 内部读取，不进入公开 `HeadlessRuntimeOptions`，测试通过该 seam 注入 home/root 和专属 Executor，默认 root 缺失时既不创建目录也不阻断启动。显式 Fake/no-provider Headless 构造器仍保持 Memory no-op。
+
+`FileMemoryPrefetchAdapter.start(...)` 不执行文件 I/O，只向保证非内联排队的每 Session 专属虚拟线程执行器提交任务。任务内
+完成项目自有的 locale-independent 关键词提取（首次出现顺序、唯一、最多 32 项、每项最多 64 Unicode
+code point）、Catalog Adapter 构造/重建、M4 选择、消费时 fresh Catalog/revision 重检、正文加载和 M5
+投影；M4 最多 20 topic，M5 正文总预算 256 KiB，M4 后发生 topic mutation 时第二次 rebuild/revision Gate 会拒绝旧计划。缺失/非法 root、零命中、stale revision、digest 变化、
+损坏或 Secret candidate topic、取消、执行拒绝和异步失败均降级为空，错误与观察面不携带 raw
+Workspace/home/root。Memory Adapter 只在其他可失败 Headless 组件完成校验后创建，后续装配失败立即关闭；Headless close 先执行 `shutdownNow()` 和句柄取消、不等待任务结束，并以 `finally` 保持 Session Store 释放。该并行准备不实现
+S12 Sub-Agent、后台 Agent、任务系统或并行 Tool。
 
 文件 Adapter 每次访问和最终原子 Move 前都要校验真实路径、普通文件、大小、数量、UTF-8、
 Symlink/Junction 与竞态；M1 创建将已经 `force(true)` 的最终同目录 staged file 直接通过硬链接
@@ -961,12 +969,13 @@ G3-G6 必须以离线 Fake 和长会话 Eval 证伪：Tool 协议孤儿数为 `0
 S08 负责分层 Instructions/Settings 与完整 Context UX；S12 负责 Sub-Agent Context 隔离、后台
 Agent、任务系统、并行 Tool 与 Worktree；S13 才负责 OS Sandbox；S14 负责稳定
 Export/Retention/Migration、SQLite 或大规模索引、Provider Cache Hint、原生 Context Editing 和
-跨版本持久化兼容。当前 G3-B 已实现 M1-M5 离线基础：M4 按有界显式词项和稳定 tie-break 从
-Catalog manifest 选择，M5 逐项校验 revision/digest、隔离坏文件、去重并执行正文 UTF-8 总预算；
-`MemoryRecallPlan` 最多携带 20 个候选；`MemoryPrefetch.consumeReady()` 使用 `AtomicBoolean` CAS
-无锁竞争一次消费，不调用 `get/join/wait/sleep`，未完成、失败、取消或迟到结果立即降级为空，重复
-消费者得到 `ALREADY_CONSUMED`。尚未接入 AgentRuntime/ModelRequest；在 Stage Demo/Eval、Commit-scoped
-G3-G6 证据完成前，`CTX-17/18` 继续保持 L0。
+跨版本持久化兼容。当前 G3-B/D1/D2 已实现 M1-M5 离线基础、AgentRuntime/ModelRequest seam 与真实 Provider Headless 文件
+装配：M4 按有界显式词项和稳定 tie-break 从 Catalog manifest 选择，M5 逐项校验 revision/digest、隔离
+坏文件、去重并执行正文 UTF-8 总预算；`MemoryRecallPlan` 最多携带 20 个候选；
+`MemoryPrefetch.consumeReady()` 使用 `AtomicBoolean` CAS 无锁竞争一次消费，不调用
+`get/join/wait/sleep`，未完成、失败、取消或迟到结果立即降级为空，重复消费者得到
+`ALREADY_CONSUMED`。在 Context View、Stage Demo/Eval、Commit-scoped G3-G6 证据完成前，
+`CTX-17/18` 继续保持 L0。
 
 ADR-042 已按 ADR-022 完成新的采纳边界；历史 ADR-019 继续保持 Superseded，不作为实现依据。
 

@@ -14,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
+import java.util.Locale;
 import java.util.Optional;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -436,21 +437,26 @@ class FileMemoryRepositoryTest {
         Path target = Files.createDirectory(temporary.resolve("junction-target"));
         Path junction = root.resolve("linked-topic.md");
         Process process = new ProcessBuilder(
-                "cmd.exe", "/d", "/c", "mklink", "/J",
+                "cmd.exe", "/u", "/d", "/c", "mklink", "/J",
                 junction.toString(), target.toString())
                 .redirectErrorStream(true)
                 .start();
-        String output = new String(process.getInputStream().readAllBytes(),
-                java.nio.charset.Charset.defaultCharset());
+        byte[] outputBytes = process.getInputStream().readAllBytes();
         int exit = process.waitFor();
         if (exit != 0) {
-            if (output.toLowerCase(java.util.Locale.ROOT).contains("access")
+            String output = new String(outputBytes, java.nio.charset.StandardCharsets.UTF_16LE)
+                    .trim();
+            String normalized = output.toLowerCase(Locale.ROOT);
+            if (normalized.contains("access is denied")
+                    || normalized.contains("access denied")
                     || output.contains("拒绝访问")
-                    || output.contains("特权")) {
+                    || output.contains("客户端没有所需的特权")
+                    || normalized.contains("privilege is not held")) {
                 Assumptions.abort("当前 Windows 策略禁止创建 Junction");
             }
-            throw new AssertionError("Junction 创建失败: " + output);
+            throw new AssertionError("Junction 创建失败: exit=" + exit + ", output=" + output);
         }
+        assertThat(Files.isDirectory(junction)).isTrue();
         try {
             FileMemoryRepository repository = repository(root);
             assertRejected(

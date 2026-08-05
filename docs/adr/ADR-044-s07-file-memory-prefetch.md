@@ -74,7 +74,7 @@ updated-at: <ISO-8601 date>
 
 ## 独立 Java 契约
 
-截至 2026-08-05，G3-A/B/D1 已实现下列 M1-M5 Domain/Core 离线契约、本地文件 Adapter、ready-only Prefetch 与 AgentRuntime/Core Projection seam；D2 文件系统 Composition Root 接入仍未实现：
+截至 2026-08-05，G3-A/B/D1/D2 已实现下列 M1-M5 Domain/Core 离线契约、本地文件 Adapter、ready-only Prefetch、AgentRuntime/Core Projection seam 与真实 Headless 文件系统装配：
 
 ```text
 MemoryKind
@@ -99,6 +99,9 @@ MemoryContextService.start()/consumeReady() -> short-lived MemoryContextMessage
 - D1 的 `AgentRuntime` 在当前有界 `UserMessage` 已进入 Canonical Session 后、调用非记忆 `ContextAssembler` 前创建每回合新句柄；在 `ContextPreparationService`/Gateway 前的唯一消费点只调用一次 `consumeReady()`，finally 仅传播非阻塞取消，不拥有或关闭 Adapter Executor。
 - 非空 ready 投影以 `MemoryContextMessage` 紧邻插入当前 `UserMessage` 之前；System、历史、完整 Tool batch 与 `toolDefinitions` 保持原顺序。该消息和 Provider envelope 都不包含 Path，固定标记 `source=project-file-memory`、Catalog revision 和 `untrusted=true`，正文及标签使用 UTF-8 Base64。
 - `CodePointContextTokenEstimator` 把该消息的来源、revision 和条目字段计入独立 `memoryTokens` 及 `totalTokens`；Memory Context 仍不得写回 Session/Journal 或改变 Permission Pipeline 决策。
+- D2 的真实 Provider Headless Composition 通过 `MemoryStorageLayout` 固定使用 `<user.home>/.cc-java/projects/<sha256(canonical workspace)>/memory`；`user.home` 只在包级 Composition seam 内部读取，不进入公开 `HeadlessRuntimeOptions`，测试通过包级 seam 注入独立 home/root 和专属执行器，默认目录缺失时不创建。
+- `FileMemoryPrefetchAdapter.start(...)` 只向保证非内联排队的执行器提交任务；Catalog 构造/重建、项目自有的 locale-independent 有界关键词提取（有序唯一、最多 32 项、每项最多 64 code point）、M4 选择、消费时 fresh Catalog/revision 检查、正文加载与 M5 投影均在 Adapter 专属虚拟线程任务内。上限固定为 20 topic 与 256 KiB，M4 选择后 topic 变化会由第二次 rebuild/revision Gate 拒绝旧计划。
+- Memory Adapter 只在其他可失败 Headless 组件校验后创建，后续装配失败会立即关闭；Headless close 先对每 Session 专属 Executor 执行 `shutdownNow()` 且不等待，并以 `finally` 保持 Session Store 释放。缺失/非法 root、执行拒绝、取消、失败、零命中、stale/digest/corrupt/Secret candidate 均隐私安全降级为空。显式 Fake/no-provider Headless 构造器继续走 no-op，以保持既有离线调用边界。
 
 ## 零等待预取时序
 
@@ -150,7 +153,7 @@ assemble non-memory inputs ─┼─> consumeReady() ─> build Projection ─> 
 - **S07 引入 SQLite/向量数据库/云服务**：不符合最小依赖与当前规模，延期 S14。
 - **在 S07 实现分层 Instructions 或 Sub-Agent Memory**：分别延期 S08、S12。
 
-G3-B/D1 当前形成 M1-M5 的离线基础、安全回归与 Core Runtime seam：M4 确定性 manifest 相关选择、M5 revision/digest/预算 Gate、安全正文加载、ready-only 一次消费、零等待慢 Future、迟到结果隔离、每回合 fresh prefetch、短生命周期消息/Provider envelope、Canonical Session/Journal 排除、Permission denial 保持及 memory token 分类均已有 Fake 证据；`CTX-17/18` 仍因缺少 D2 文件系统生产装配、Context View、Stage Demo/Eval 和 Commit-scoped G3-G6 证据保持 L0。本 ADR 不表示文件记忆或预取已经成为可用的端到端能力。
+G3-B/D1/D2 当前形成 M1-M5 的离线基础、安全回归、Core Runtime seam 与真实 Headless 文件系统生产装配：M4 确定性 manifest 相关选择、M5 revision/digest/预算 Gate、安全正文加载、ready-only 一次消费、零等待慢 Future、迟到结果隔离、每回合 fresh prefetch、短生命周期消息/Provider envelope、Canonical Session/Journal 排除、Permission denial 保持、memory token 分类、默认 hashed Workspace 布局与 Executor 无等待关闭均已有确定性证据；`CTX-17/18` 仍因缺少 Context View、Stage Demo/Eval 和 Commit-scoped G3-G6 证据保持 L0。本 ADR 不表示 S07 Stage Exit 或完整文件记忆 UX 已完成。
 
 2026-08-05 新增的 C3/C4 Summary Foundation 不改变本 ADR 的文件记忆边界：摘要候选不得把 Memory
 文本提升为权限、审计或执行事实，也不得把 ready-only 预取改成摘要关键路径上的等待。C3/C4 归

@@ -32,6 +32,8 @@ import io.github.liumaishenjian.ccjava.model.springai.SpringAiContextSummarizer;
 import io.github.liumaishenjian.ccjava.model.springai.SpringAiModelGateway;
 import io.github.liumaishenjian.ccjava.model.springai.config.OpenAiCompatibleSettings;
 import io.github.liumaishenjian.ccjava.tools.local.LocalWorkspaceBootstrap;
+import io.github.liumaishenjian.ccjava.tools.local.memory.FileMemoryPrefetchAdapter;
+import io.github.liumaishenjian.ccjava.tools.local.memory.MemoryStorageLayout;
 import io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceAccessException;
 
 import java.time.Clock;
@@ -40,6 +42,7 @@ import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ExecutorService;
 
 /**
  * 管理 Java Headless Surface 共用的一次进程内 Agent Session。
@@ -75,6 +78,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private final AgentRuntime runtime;
     private final HeadlessRuntimeOptions options;
     private final RunTelemetryCollector telemetry;
+    private final AutoCloseable memoryResource;
     private final AtomicReference<RunId> activeRunId = new AtomicReference<>();
     private final io.github.liumaishenjian.ccjava.core.SessionPermissionState permissionState;
     private final LocalWorkspaceBootstrap workspaceBootstrap;
@@ -153,7 +157,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 eventSink,
                 options,
                 approvalHandler,
-                provider.contextPreparation());
+                provider.contextPreparation(),
+                HeadlessMemoryLayout.production());
     }
 
     private static ProviderComponents providerComponents(
@@ -230,7 +235,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 eventSink,
                 options,
                 approvalHandler,
-                ContextPreparationService.noop());
+                ContextPreparationService.noop(),
+                HeadlessMemoryLayout.disabled());
     }
 
     /**
@@ -252,76 +258,116 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 options.contextPreparation()
                         .<ContextPreparationService>map(config ->
                                 new ContextPreparationService(config, summarizer))
-                        .orElseGet(ContextPreparationService::noop));
+                        .orElseGet(ContextPreparationService::noop),
+                HeadlessMemoryLayout.disabled());
     }
 
-    private HeadlessRuntimeSession(
+    HeadlessRuntimeSession(
             ModelGateway model,
             AgentEventSink eventSink,
             HeadlessRuntimeOptions options,
             ApprovalHandler approvalHandler,
-            ContextPreparationService contextPreparation) {
-        Objects.requireNonNull(model, "model 不能为空");
-        AgentEventSink downstream = Objects.requireNonNull(eventSink, "eventSink 不能为空");
-        this.options = Objects.requireNonNull(options, "options 不能为空");
-        ApprovalHandler approvals = Objects.requireNonNull(
-                approvalHandler, "approvalHandler 不能为空");
+            ContextPreparationService contextPreparation,
+            HeadlessMemoryLayout memoryLayout) {
+        HeadlessMemoryLayout checkedMemoryLayout = Objects.requireNonNull(
+                memoryLayout, "memoryLayout 不能为空");
+        ModelGateway checkedModel;
+        AgentEventSink downstream;
+        ApprovalHandler approvals;
+        try {
+            checkedModel = Objects.requireNonNull(model, "model 不能为空");
+            downstream = Objects.requireNonNull(eventSink, "eventSink 不能为空");
+            this.options = Objects.requireNonNull(options, "options 不能为空");
+            approvals = Objects.requireNonNull(approvalHandler, "approvalHandler 不能为空");
+        } catch (RuntimeException | Error failure) {
+            checkedMemoryLayout.closeUnused();
+            throw failure;
+        }
         telemetry = new RunTelemetryCollector();
         try {
             workspaceBootstrap = LocalWorkspaceBootstrap.open(this.options.workspace());
         } catch (java.io.IOException | WorkspaceAccessException exception) {
+            checkedMemoryLayout.closeUnused();
             throw new IllegalArgumentException("Workspace 只读能力初始化失败");
         }
         UuidAgentIdGenerator ids = new UuidAgentIdGenerator();
-        LifecycleDispatcher lifecycle = new LifecycleDispatcher(
-                Clock.systemUTC(),
-                envelope -> {
-                    try {
-                        telemetry.publish(envelope);
-                    } catch (RuntimeException ignored) {
-                        // Telemetry 是旁路观察者，失败不能吞掉 Surface 所需的权威终态。
-                    }
-                    publish(envelope, downstream);
-                });
-        sessions = new FileSessionStore(
-                this.options.sessionStoreRoot(),
-                this.options.workspace(),
-                ids,
-                lifecycle,
-                Clock.systemUTC());
-        checkpoints = new FileCheckpointCoordinator(
-                this.options.sessionStoreRoot(),
-                workspaceBootstrap.workspaceGuard(),
-                sessions);
-        ToolRegistry tools = new ToolRegistry(workspaceBootstrap.tools());
-        permissionState = new io.github.liumaishenjian.ccjava.core.InMemorySessionPermissionState();
-        var policy = new io.github.liumaishenjian.ccjava.core.PermissionPolicy(
-                this.options.permissionMode(),
-                this.options.startupPermissionRules(),
-                new io.github.liumaishenjian.ccjava.core.DefaultPermissionSelectorResolver(),
-                new io.github.liumaishenjian.ccjava.core.DefaultHardDenialPolicy(
-                        new io.github.liumaishenjian.ccjava.tools.local.workspace
-                                .WorkspaceWriteHardDenial(
-                                        workspaceBootstrap.workspaceGuard())),
-                permissionState);
-        ToolExecutionPipeline pipeline = new ToolExecutionPipeline(
-                tools,
-                policy,
-                approvals,
-                permissionState,
-                lifecycle,
-                sessions,
-                checkpoints);
-        runtime = new AgentRuntime(
-                sessions,
-                ids,
-                model,
-                new DefaultContextAssembler(),
-                tools,
-                pipeline,
-                lifecycle,
-                sessions,
-                Objects.requireNonNull(contextPreparation, "contextPreparation 不能为空"));
+        try {
+            LifecycleDispatcher lifecycle = new LifecycleDispatcher(
+                    Clock.systemUTC(),
+                    envelope -> {
+                        try {
+                            telemetry.publish(envelope);
+                        } catch (RuntimeException ignored) {
+                            // Telemetry 是旁路观察者，失败不能吞掉 Surface 所需的权威终态。
+                        }
+                        publish(envelope, downstream);
+                    });
+            sessions = new FileSessionStore(
+                    this.options.sessionStoreRoot(),
+                    this.options.workspace(),
+                    ids,
+                    lifecycle,
+                    Clock.systemUTC());
+            checkpoints = new FileCheckpointCoordinator(
+                    this.options.sessionStoreRoot(),
+                    workspaceBootstrap.workspaceGuard(),
+                    sessions);
+            ToolRegistry tools = new ToolRegistry(workspaceBootstrap.tools());
+            permissionState = new io.github.liumaishenjian.ccjava.core.InMemorySessionPermissionState();
+            var policy = new io.github.liumaishenjian.ccjava.core.PermissionPolicy(
+                    this.options.permissionMode(),
+                    this.options.startupPermissionRules(),
+                    new io.github.liumaishenjian.ccjava.core.DefaultPermissionSelectorResolver(),
+                    new io.github.liumaishenjian.ccjava.core.DefaultHardDenialPolicy(
+                            new io.github.liumaishenjian.ccjava.tools.local.workspace
+                                    .WorkspaceWriteHardDenial(
+                                            workspaceBootstrap.workspaceGuard())),
+                    permissionState);
+            ToolExecutionPipeline pipeline = new ToolExecutionPipeline(
+                    tools,
+                    policy,
+                    approvals,
+                    permissionState,
+                    lifecycle,
+                    sessions,
+                    checkpoints);
+            ContextPreparationService checkedPreparation = Objects.requireNonNull(
+                    contextPreparation, "contextPreparation 不能为空");
+            FileMemoryPrefetchAdapter memoryPrefetch = checkedMemoryLayout.create(this.options);
+            try {
+                runtime = new AgentRuntime(
+                        sessions,
+                        ids,
+                        checkedModel,
+                        new DefaultContextAssembler(),
+                        tools,
+                        pipeline,
+                        lifecycle,
+                        sessions,
+                        checkedPreparation,
+                        memoryPrefetch == null
+                                ? io.github.liumaishenjian.ccjava.core.MemoryContextService.noop()
+                                : memoryPrefetch.contextService());
+                memoryResource = memoryPrefetch == null ? () -> { } : memoryPrefetch;
+            } catch (RuntimeException | Error failure) {
+                closeMemory(memoryPrefetch);
+                throw failure;
+            }
+        } catch (RuntimeException | Error failure) {
+            checkedMemoryLayout.closeUnused();
+            throw failure;
+        }
+    }
+
+    private static void closeMemory(AutoCloseable resource) {
+        if (resource == null) {
+            return;
+        }
+        try {
+            resource.close();
+        } catch (Exception ignored) {
+            // Memory 关闭失败不得泄漏 root、home 或底层异常文本。
+        }
     }
 
     /**
@@ -480,6 +526,110 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             ContextPreparationService contextPreparation) {
     }
 
+    /**
+     * 包级 D2 Memory layout seam：生产内部读取 {@code user.home}，测试只注入可信 home/root。
+     *
+     * <p>它不是公开 Setting，也不进入 {@link HeadlessRuntimeOptions}。若 root 派生失败，仅关闭 Memory
+     * 能力；已注入且尚未移交给 Adapter 的执行器会立即 {@code shutdownNow()}。</p>
+     */
+    static final class HeadlessMemoryLayout {
+        private final Path home;
+        private final Path root;
+        private final ExecutorService executor;
+        private final boolean enabled;
+        private final java.util.function.Function<Path, FileMemoryPrefetchAdapter> adapterFactory;
+
+        private HeadlessMemoryLayout(
+                Path home,
+                Path root,
+                ExecutorService executor,
+                boolean enabled) {
+            this(home, root, executor, enabled, selectedRoot -> executor == null
+                    ? new FileMemoryPrefetchAdapter(selectedRoot)
+                    : new FileMemoryPrefetchAdapter(selectedRoot, executor));
+        }
+
+        HeadlessMemoryLayout(
+                Path root,
+                ExecutorService executor,
+                java.util.function.Function<Path, FileMemoryPrefetchAdapter> adapterFactory) {
+            this(
+                    null,
+                    Objects.requireNonNull(root, "root 不能为空").toAbsolutePath().normalize(),
+                    Objects.requireNonNull(executor, "executor 不能为空"),
+                    true,
+                    Objects.requireNonNull(adapterFactory, "adapterFactory 不能为空"));
+        }
+
+        private HeadlessMemoryLayout(
+                Path home,
+                Path root,
+                ExecutorService executor,
+                boolean enabled,
+                java.util.function.Function<Path, FileMemoryPrefetchAdapter> adapterFactory) {
+            this.home = home;
+            this.root = root;
+            this.executor = executor;
+            this.enabled = enabled;
+            this.adapterFactory = adapterFactory;
+        }
+
+        static HeadlessMemoryLayout production() {
+            return new HeadlessMemoryLayout(null, null, null, true);
+        }
+
+        static HeadlessMemoryLayout disabled() {
+            return new HeadlessMemoryLayout(null, null, null, false);
+        }
+
+        static HeadlessMemoryLayout forHome(Path home, ExecutorService executor) {
+            return new HeadlessMemoryLayout(
+                    Objects.requireNonNull(home, "home 不能为空").toAbsolutePath().normalize(),
+                    null,
+                    Objects.requireNonNull(executor, "executor 不能为空"),
+                    true);
+        }
+
+        static HeadlessMemoryLayout forRoot(Path root, ExecutorService executor) {
+            return new HeadlessMemoryLayout(
+                    null,
+                    Objects.requireNonNull(root, "root 不能为空").toAbsolutePath().normalize(),
+                    Objects.requireNonNull(executor, "executor 不能为空"),
+                    true);
+        }
+
+        FileMemoryPrefetchAdapter create(HeadlessRuntimeOptions options) {
+            if (!enabled) {
+                return null;
+            }
+            try {
+                Path selectedRoot = root;
+                if (selectedRoot == null) {
+                    MemoryStorageLayout layout = new MemoryStorageLayout();
+                    String repositoryId = layout.repositoryId(options.workspace());
+                    Path selectedHome = home != null ? home : productionHome();
+                    selectedRoot = layout.defaultMemoryRoot(selectedHome, repositoryId);
+                }
+                return adapterFactory.apply(selectedRoot);
+            } catch (java.io.IOException | RuntimeException failure) {
+                closeUnused();
+                return null;
+            }
+        }
+
+        void closeUnused() {
+            if (executor != null) {
+                executor.shutdownNow();
+            }
+        }
+
+        private static Path productionHome() {
+            return Path.of(Objects.requireNonNull(
+                    System.getProperty("user.home"),
+                    "user.home 不能为空"));
+        }
+    }
+
     private void publish(AgentEventEnvelope envelope, AgentEventSink downstream) {
         if (envelope.event() instanceof LifecycleEvent.RunStarted) {
             activeRunId.set(envelope.runId().orElseThrow());
@@ -502,12 +652,16 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
      */
     @Override
     public void close() {
-        if (session != null && !session.isClosed()) {
-            if (openResult != null && !openResult.readOnly()) {
-                sessions.close(session.id());
-                permissionState.clear(session.id());
+        closeMemory(memoryResource);
+        try {
+            if (session != null && !session.isClosed()) {
+                if (openResult != null && !openResult.readOnly()) {
+                    sessions.close(session.id());
+                    permissionState.clear(session.id());
+                }
             }
+        } finally {
+            sessions.close();
         }
-        sessions.close();
     }
 }

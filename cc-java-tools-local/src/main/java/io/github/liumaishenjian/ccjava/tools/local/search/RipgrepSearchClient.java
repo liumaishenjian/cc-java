@@ -54,6 +54,7 @@ public final class RipgrepSearchClient implements TextSearchBackend {
     private final Path workspace;
     private final RipgrepExecutableResolver executableResolver;
     private final Duration timeout;
+    private final ProcessStarter processStarter;
     private final RipgrepJsonLinesParser jsonParser;
 
     /**
@@ -101,10 +102,30 @@ public final class RipgrepSearchClient implements TextSearchBackend {
             Path workspace,
             RipgrepExecutableResolver executableResolver,
             Duration timeout) {
+        this(workspace, executableResolver, timeout, ProcessBuilder::start);
+    }
+
+    /**
+     * 使用测试专用进程启动器创建客户端。
+     *
+     * <p>该缝隙仅用于将 ProcessBuilder 的不可重现 Windows 启动竞争隔离在 Fake Fixture；
+     * 生产组合始终使用三参数构造器的 {@link ProcessBuilder#start()}。</p>
+     *
+     * @param workspace 真实 Workspace
+     * @param executableResolver 可信可执行入口解析器
+     * @param timeout 整次搜索（包括重试）的墙钟限制
+     * @param processStarter 测试专用的进程启动器
+     */
+    RipgrepSearchClient(
+            Path workspace,
+            RipgrepExecutableResolver executableResolver,
+            Duration timeout,
+            ProcessStarter processStarter) {
         this.workspace = Objects.requireNonNull(workspace, "workspace 不能为空");
         this.executableResolver =
                 Objects.requireNonNull(executableResolver, "executableResolver 不能为空");
         this.timeout = Objects.requireNonNull(timeout, "timeout 不能为空");
+        this.processStarter = Objects.requireNonNull(processStarter, "processStarter 不能为空");
         if (timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("timeout 必须为正数");
         }
@@ -320,16 +341,13 @@ public final class RipgrepSearchClient implements TextSearchBackend {
             builder.environment().remove("RIPGREP_CONFIG_PATH");
             builder.environment().put("LC_ALL", "C");
             builder.environment().put("LANG", "C");
-            process = builder.start();
+            process = processStarter.start(builder);
         } catch (IOException exception) {
+            boolean retryable = isTransientResourceFailure(exception.getMessage());
             ToolError error = ToolError.of(
-                    isTransientResourceFailure(exception.getMessage())
-                            ? ToolErrorCode.EXECUTION_FAILED
-                            : ToolErrorCode.SEARCH_UNAVAILABLE,
-                    isTransientResourceFailure(exception.getMessage())
-                            ? "ripgrep 临时资源不足"
-                            : "ripgrep 搜索引擎不可用");
-            throw new AttemptFailure(error, isTransientResourceFailure(exception.getMessage()));
+                    retryable ? ToolErrorCode.EXECUTION_FAILED : ToolErrorCode.SEARCH_UNAVAILABLE,
+                    retryable ? "ripgrep 临时资源不足" : "ripgrep 搜索引擎不可用");
+            throw new AttemptFailure(error, retryable);
         }
 
         BoundedBytes stdout = new BoundedBytes(process.getInputStream(), MAX_STDOUT_BYTES);
@@ -511,6 +529,11 @@ public final class RipgrepSearchClient implements TextSearchBackend {
     private static void rejectInterrupted() throws TextSearchBackend.SearchException {
         throw new TextSearchBackend.SearchException(ToolError.of(
                 ToolErrorCode.OPERATION_TIMED_OUT, "ripgrep 搜索已取消"));
+    }
+
+    @FunctionalInterface
+    interface ProcessStarter {
+        Process start(ProcessBuilder builder) throws IOException;
     }
 
     private static boolean isTransientResourceFailure(String diagnostic) {

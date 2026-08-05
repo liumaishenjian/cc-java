@@ -45,8 +45,8 @@ import java.util.regex.Pattern;
  *
  * <p>每个目录项独立验证链接/重解析点、真实路径、普通文件、文件名、大小、行数、严格 UTF-8 和
  * 受限 frontmatter。单文件失败只产生不回显正文或非法路径的诊断；已验证 topic 继续进入 Catalog。
- * 本类型自身只读，M1 mutation 与 M2 持久替换由相邻 {@link FileMemoryRepository} 承担；当前不把
- * Memory 接入 AgentRuntime。</p>
+ * 本类型自身只读，M1 mutation 与 M2 持久替换由相邻 {@link FileMemoryRepository} 承担；D2 仅由
+ * {@link FileMemoryPrefetchAdapter} 在异步边界组合本 Adapter，不改变其文件安全契约。</p>
  *
  * @since 0.7.0
  */
