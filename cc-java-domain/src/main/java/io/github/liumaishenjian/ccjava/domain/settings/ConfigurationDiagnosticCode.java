@@ -23,5 +23,14 @@ public enum ConfigurationDiagnosticCode {
     /** 合并输入未按固定低到高来源顺序提供。 */ INVALID_SOURCE_ORDER,
     /** 同一来源在一次原子合并中重复出现。 */ DUPLICATE_SOURCE,
     /** 来源声明了该来源类别不允许承载的字段。 */ FORBIDDEN_SOURCE_FIELD,
-    /** 规则删除目标不存在，不能提交部分合并结果。 */ MISSING_RULE_REMOVAL
+    /** 规则删除目标不存在，不能提交部分合并结果。 */ MISSING_RULE_REMOVAL,
+    /** 可选 Settings 文件不存在。 */ MISSING_FILE,
+    /** 固定来源不能在不泄露细节的前提下读取。 */ UNREADABLE_FILE,
+    /** 固定来源是链接、重解析点、非普通文件或发生边界逃逸。 */ UNSAFE_FILE,
+    /** 读取前后文件 identity、真实路径、大小或修改时间发生变化。 */ IDENTITY_CHANGED,
+    /** Project local 文件未被 Git 明确判定为忽略。 */ LOCAL_NOT_GITIGNORED,
+    /** Project local 文件的 Git 忽略检查超时、启动失败或输出不可信。 */ LOCAL_GIT_CHECK_FAILED,
+    /** 刷新在候选完成前被取消。 */ CANCELLED,
+    /** 刷新候选基于陈旧发布版本，不能覆盖新的 last-known-good。 */ CAS_CONFLICT,
+    /** 本进程内 Settings 发布版本已耗尽，不能安全递增。 */ REVISION_EXHAUSTED
 }
