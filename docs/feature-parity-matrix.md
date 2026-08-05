@@ -8,7 +8,7 @@
 >
 > 当前代码状态：S01-S07 已 Accepted；S07 的 Canonical Transcript/Projection、条件式 C1-C4、文件记忆
 > M1-M5、ready-only 零等待预取、内部 Usage View 与 latest-only Recovery Analytics 已在离线 Fake、Demo、
-> Gap 和 Commit-scoped 对账中达到声明等级。S08 已完成 G0 受控机制研究并进入 IN_PROGRESS；分层
+> Gap 和 Commit-scoped 对账中达到声明等级。S08 已完成 G0 受控机制研究和 G1 独立产品契约冻结并进入 IN_PROGRESS；分层
 > Instructions/Settings、完整 Context UX、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
 
 ## 1. 文档目的
@@ -153,12 +153,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 195 |
-| 当前阶段 | S08 Instructions + Settings（IN_PROGRESS；仅 G0 受控机制研究 Passed） |
-| Stage Exit | S07 Accepted：ADR-042/043/044、离线 Fake、Demo、Gap 与 Commit-scoped G0-G6 对账形成闭环；S08 G1-G6 仍 Open |
+| 当前阶段 | S08 Instructions + Settings（IN_PROGRESS；G0 受控机制研究和 G1 产品契约冻结 Passed） |
+| Stage Exit | S07 Accepted：ADR-042/043/044、离线 Fake、Demo、Gap 与 Commit-scoped G0-G6 对账形成闭环；S08 G2-G6 仍 Open |
 | 当前等级 | 64 项为 L2，34 项为 L1，97 项为 L0（本次无等级变化） |
 | 默认最终目标 | 195 项达到 L3，或存在明确 `Accepted Deviation` |
 | 当前能力覆盖 | 27.69%（195 项等权、目标 L3；本次无变化） |
-| 下一步 | 冻结 S08 G1 范围与可证伪实验；S12/S13/S14 延期边界不变 |
+| 下一步 | 按 ADR-046 设计 S08 G2 独立 Java 契约；S12/S13/S14 延期边界不变 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -658,8 +658,8 @@ Sub-Agent/后台任务留到 S12，OS Sandbox 留到 S13。
 ### S08：Instructions + Settings
 
 G0 已于 2026-08-05 通过：`ADR-045` 在 `AUTH-SRC-2026-07-29-A` 的登记只读路径上完成了
-分层 Instructions、Settings 合并/来源、模型/权限/Tool 设置、Slash/诊断与失败安全边界的机制研究；
-该结论只冻结独立设计和可证伪交接，不代表实现、测试、Demo、G1-G6 或 Capability Level 已完成。
+分层 Instructions、Settings 合并/来源、模型/权限/Tool 设置、Slash/诊断与失败安全边界的机制研究。G1 已由
+`ADR-046` 冻结项目自有文件位置、Schema v1、逐字段合并、命令最小语义和可证伪切片；这不代表实现、测试、Demo、G2-G6 或 Capability Level 已完成。
 
 完成条件：
 

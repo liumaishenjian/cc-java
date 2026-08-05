@@ -11,7 +11,7 @@
 
 ## 决策
 
-S08 以独立的 Java 契约实现分层 Instructions、Settings 与交互命令；本 ADR 只冻结研究结论、采纳边界、风险和可证伪计划。S08 当前为 `IN_PROGRESS`，仅 G0 Passed；G1-G6 仍 Open，尚未实现配置 Schema、持久来源、命令 UX、测试、Demo 或 Capability Level 提升。
+S08 以独立的 Java 契约实现分层 Instructions、Settings 与交互命令；本 ADR 只冻结研究结论、采纳边界、风险和可证伪计划。作出本 ADR 时 S08 仅 G0 Passed；后续 G1 产品契约见 ADR-046。此 ADR 本身不实现配置 Schema、持久来源、命令 UX、测试、Demo 或 Capability Level 提升。
 
 受控研究仅在登记的只读本地路径 `G:\AI Cloud\claude-code-main` 进行。研究材料只用于抽象职责、状态转换、安全边界和验证方法；不复制函数、Prompt、注释、私有名称、文件布局、常量、内部格式或错误文本，也不作为测试 Oracle。
 
@@ -74,4 +74,4 @@ S08 以独立的 Java 契约实现分层 Instructions、Settings 与交互命令
 
 ## Gate 状态
 
-本 ADR 和来源登记满足 S08 G0 的受控机制研究材料：授权范围、只读位置、抽象观察、独立采纳边界、未知项和 G1-G2 可证伪交接均已记录。G1-G6、Stage Exit、实现证据、Demo 与所有 Capability Level 保持 Open/不变；S08 不是 Accepted。
+本 ADR 和来源登记满足 S08 G0 的受控机制研究材料：授权范围、只读位置、抽象观察、独立采纳边界、未知项和 G1-G2 可证伪交接均已记录。后续 ADR-046 已使 G1 Passed；G2-G6、Stage Exit、实现证据、Demo 与所有 Capability Level 仍 Open/不变，S08 不是 Accepted。

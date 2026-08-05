@@ -4,7 +4,7 @@
 >
 > 最后更新：2026-08-05
 >
-> 当前阶段：S01-S07 已 Accepted；S07 已以 Commit-scoped G0-G6 对账完成 Projection、Memory、内部 Usage View、deterministic Fake Eval、Demo 与 Gap 闭环。S08 Instructions + Settings 已完成 G0 受控机制研究并处于 IN_PROGRESS；G1-G6 及实现仍未启动。
+> 当前阶段：S01-S07 已 Accepted；S07 已以 Commit-scoped G0-G6 对账完成 Projection、Memory、内部 Usage View、deterministic Fake Eval、Demo 与 Gap 闭环。S08 Instructions + Settings 已完成 G0 受控机制研究和 G1 产品契约冻结并处于 IN_PROGRESS；G2-G6 及实现仍未启动。
 >
 > 产品负责人：项目维护者
 
@@ -457,10 +457,10 @@ Sandbox。历史 ADR-019 继续 Superseded。
   `/permissions`、`/resume`；
 - 更完整的 React/Ink 历史、多行输入、补全和运行中 steering。
 
-S08 的 G0 受控机制研究已由 ADR-045 完成：来源、抽象职责、配置合并/来源、命令状态、安全边界和
-G1-G2 可证伪交接已经冻结；这不表示配置 Schema、持久来源或交互命令已实现。S08 建立配置 Schema
-和版本字段，但跨版本迁移兼容留在 S14。层级 Instructions 接入后，必须重新运行 S07 的摘要重注入和
-Context Usage 对账回归测试。
+S08 的 G0 受控机制研究已由 ADR-045 完成；G1 已由 ADR-046 冻结项目自有 Instructions 文件位置、
+Settings schema v1、逐字段 merge/delete/provenance、最小 Slash/doctor 语义和可证伪切片。这不表示
+配置 Schema 的实现、持久来源或交互命令已实现。跨版本迁移兼容留在 S14；层级 Instructions 接入后，
+必须重新运行 S07 的摘要重注入和 Context Usage 对账回归测试。
 
 ## 14. S09-S11：扩展系统重实现
 
