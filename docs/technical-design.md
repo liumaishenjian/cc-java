@@ -6,14 +6,14 @@
 >
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
-> 当前学习阶段：S01-S07 已 Accepted；S08 Instructions + Settings 已完成 G0 受控机制研究和 G1 产品契约冻结，当前为 IN_PROGRESS，
-> G2-G6 仍 Open
+> 当前学习阶段：S01-S07 已 Accepted；S08 Instructions + Settings 已完成 G0 受控机制研究、G1 产品契约与 G2 独立架构契约冻结，当前为 IN_PROGRESS，
+> G3-G6 仍 Open
 >
 > 当前实现状态：ADR-042/043/044 已固定并验证 Context Projection、条件式 Reduction、文件记忆和零等待
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
 > composition、ready-only Memory Core/Domain Runtime seam、D2 Headless 文件系统生产装配、Context View 与
 > deterministic Fake Demo/Eval 已完成 Commit-scoped G0-G6 对账。ADR-045 冻结 S08 机制研究边界，ADR-046 已冻结 G1 独立产品契约；
-> S08 的持久 Settings、Schema 与完整 Context UX 仍未实现。
+> ADR-047 已在不实现代码的前提下冻结 S08 的 Domain/Core/Application/Adapter 边界、独立 user-root guard、严格 Settings parser/last-known-good、命令 Intent/Event 与 G3/G4 切片；持久 Settings、Schema 与完整 Context UX 仍未实现。
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 
@@ -1341,10 +1341,12 @@ CLI
 企业 Managed Policy 在真实需求出现后再设计。数组合并、规则覆盖和不可覆盖项必须有明确语义。
 
 S08 G0 已由 ADR-045 完成授权机制研究，G1 已由 ADR-046 冻结逐字段 Schema v1、来源优先级、
-scalar/object/list/delete 语义、Instructions 发现/范围/不支持 import、Slash/doctor 最小语义与可证伪实验；
-G2 才定义独立的 Domain/Core 有效配置、provenance、诊断与 Command Intent 契约。该冻结不创建持久配置格式或实现，
-且不得让项目文本、Settings 或 Slash Command 绕过 S05 Permission Pipeline、S06 Recovery Gate、
-WorkspaceGuard 或 Hard Denial。
+scalar/object/list/delete 语义、Instructions 发现/范围/不支持 import、Slash/doctor 最小语义与可证伪实验；G2 已由
+ADR-047 冻结 Domain/Core/Application/Adapter 的有效配置、provenance、诊断、Command Intent/Event、严格 duplicate-key
+parser、last-known-good 刷新和 G3/G4 切片。Workspace 内 Instructions 继续由 `WorkspaceGuard` 验证；位于 Workspace
+外的固定 user Instructions root 必须由独立 user-root guard 验证，绝不将其误用为 WorkspaceGuard 输入。该冻结不创建持久
+配置格式或实现，且不得让项目文本、Settings 或 Slash Command 绕过 S05 Permission Pipeline、S06 Recovery Gate、
+WorkspaceGuard、独立 user-root guard 或 Hard Denial。
 
 ## 21. Trust Boundary 与安全
 
@@ -1504,7 +1506,8 @@ S04～S05 增加审批；S06～S08 增加 Session 与 Slash Command；S14 再验
 S01 的离线 Fake Loop、S02 的真实模型 CLI、S03 的只读调查和 S04 的 Mini Coding Agent 都是递进检查点。任何一个检查点可运行，都不等于路线完成；能力等级、参考行为符合度和剩余差距始终以矩阵为准。
 
 S05-S08 必须分别稳定 `PermissionPolicy`、Session 分支/恢复、Context Projection 和
-Resolved Instructions/Settings 的可注入契约。S12 才把这些真实输入组合成
+Resolved Instructions/Settings 的可注入契约。ADR-047 已为后者冻结 Domain/Core/Application/Adapter 边界，
+包括独立 user-root guard、严格 Settings 解析/刷新和 Command Intent/Event；G3 才实现这些契约。S12 才把这些真实输入组合成
 `RuntimeScope`；不能等实现并发时再重写前述边界，也不能为了未来 Subagent 在早期创建
 没有当前用途的空抽象。
 
