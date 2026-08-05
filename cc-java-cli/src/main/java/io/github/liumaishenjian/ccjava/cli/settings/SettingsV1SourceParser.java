@@ -8,9 +8,11 @@ import io.github.liumaishenjian.ccjava.domain.settings.DeclaredPermissionRule;
 import io.github.liumaishenjian.ccjava.domain.settings.DeclaredPermissionRuleDefinition;
 import io.github.liumaishenjian.ccjava.domain.settings.DeclaredPermissionRuleRemoval;
 import io.github.liumaishenjian.ccjava.domain.settings.DeclaredSettings;
+import io.github.liumaishenjian.ccjava.domain.settings.DeclaredToolConfiguration;
 import io.github.liumaishenjian.ccjava.domain.settings.SettingPath;
 import io.github.liumaishenjian.ccjava.domain.settings.SettingsRevision;
 import io.github.liumaishenjian.ccjava.domain.settings.SettingsSourceId;
+import io.github.liumaishenjian.ccjava.domain.settings.SettingsSourceKind;
 import io.github.liumaishenjian.ccjava.domain.settings.SettingsSourceSnapshot;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -112,6 +114,9 @@ public final class SettingsV1SourceParser {
      */
     public ParseResult parse(SettingsSourceId sourceId, byte[] bytes) {
         Objects.requireNonNull(sourceId, "sourceId 不能为空");
+        if (!isFileSource(sourceId.kind())) {
+            return failure(sourceId, ConfigurationDiagnosticCode.UNSUPPORTED_FILE_SOURCE, Optional.empty());
+        }
         if (bytes == null || bytes.length > MAX_BYTES) {
             return failure(sourceId, ConfigurationDiagnosticCode.BYTE_LIMIT, Optional.empty());
         }
@@ -142,7 +147,7 @@ public final class SettingsV1SourceParser {
         Optional<List<String>> enabledTools = optionalStringList(root, "tools", "enabled", TOOLS_FIELDS,
                 MAX_ENABLED_TOOLS, 1, 128, SettingPath.TOOLS_ENABLED);
         enabledTools.ifPresent(tools -> tools.forEach(this::requireBuiltinTool));
-        Map<String, JsonObject> toolConfigurations = toolConfigurations(root);
+        Map<String, DeclaredToolConfiguration> toolConfigurations = toolConfigurations(root);
         List<String> compactInstructions = optionalStringList(root, "context", "compactInstructions", CONTEXT_FIELDS,
                 MAX_COMPACT_INSTRUCTIONS, 1, 512, SettingPath.CONTEXT_COMPACT_INSTRUCTIONS).orElse(List.of());
         Optional<String> verbosity = optionalEnum(root, "diagnostics", "verbosity", DIAGNOSTICS_FIELDS,
@@ -192,7 +197,7 @@ public final class SettingsV1SourceParser {
         return List.copyOf(parsed);
     }
 
-    private Map<String, JsonObject> toolConfigurations(JsonNode root) {
+    private Map<String, DeclaredToolConfiguration> toolConfigurations(JsonNode root) {
         JsonNode tools = optionalObject(root, "tools", SettingPath.TOOLS_CONFIG);
         if (tools == null) {
             return Map.of();
@@ -208,12 +213,16 @@ public final class SettingsV1SourceParser {
         if (configurations.size() > MAX_TOOL_CONFIGS) {
             throw invalid(ConfigurationDiagnosticCode.MEMBER_LIMIT, SettingPath.TOOLS_CONFIG);
         }
-        LinkedHashMap<String, JsonObject> parsed = new LinkedHashMap<>();
+        LinkedHashMap<String, DeclaredToolConfiguration> parsed = new LinkedHashMap<>();
         Iterator<Map.Entry<String, JsonNode>> entries = configurations.properties().iterator();
         while (entries.hasNext()) {
             Map.Entry<String, JsonNode> entry = entries.next();
             requireBuiltinTool(entry.getKey());
             JsonNode configuration = entry.getValue();
+            if (configuration.isNull()) {
+                parsed.put(entry.getKey(), new DeclaredToolConfiguration.Removal());
+                continue;
+            }
             if (!configuration.isObject()) {
                 throw invalid(ConfigurationDiagnosticCode.INVALID_TYPE, SettingPath.TOOLS_CONFIG);
             }
@@ -230,9 +239,14 @@ public final class SettingsV1SourceParser {
                 }
                 scalarValues.put(field.getKey(), scalarValue(field.getValue()));
             }
-            parsed.put(entry.getKey(), new JsonObject(scalarValues));
+            parsed.put(entry.getKey(), new DeclaredToolConfiguration.Replacement(new JsonObject(scalarValues)));
         }
         return Collections.unmodifiableMap(parsed);
+    }
+
+    private static boolean isFileSource(SettingsSourceKind kind) {
+        return kind == SettingsSourceKind.USER || kind == SettingsSourceKind.PROJECT_SHARED
+                || kind == SettingsSourceKind.PROJECT_LOCAL;
     }
 
     private void validateDocumentBeforeMaterialization(byte[] bytes) {

@@ -1,6 +1,5 @@
 package io.github.liumaishenjian.ccjava.domain.settings;
 
-import io.github.liumaishenjian.ccjava.domain.JsonObject;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -18,14 +17,14 @@ import java.util.Optional;
  * @param permissionMode 可选权限模式名
  * @param permissionRules 有序规则声明
  * @param enabledTools 可选内置 Tool 可见列表
- * @param toolConfigurations 按 Tool 名称整体替换的递归冻结标量配置
+ * @param toolConfigurations 按 Tool 名称整体替换或显式移除的有序声明
  * @param compactInstructions 有序锚点
  * @param diagnosticsVerbosity 可选诊断级别
  * @since 0.8.0
  */
 public record DeclaredSettings(Optional<String> modelName, Optional<String> permissionMode,
                                List<DeclaredPermissionRule> permissionRules, Optional<List<String>> enabledTools,
-                               Map<String, JsonObject> toolConfigurations, List<String> compactInstructions,
+                               Map<String, DeclaredToolConfiguration> toolConfigurations, List<String> compactInstructions,
                                Optional<String> diagnosticsVerbosity) {
     /** 递归冻结集合和映射，拒绝空的必需组件。 */
     public DeclaredSettings {
@@ -45,9 +44,10 @@ public record DeclaredSettings(Optional<String> modelName, Optional<String> perm
                 + "diagnosticsVerbosity=<redacted>]";
     }
 
-    private static Map<String, JsonObject> immutableConfigurations(Map<String, JsonObject> source) {
+    private static Map<String, DeclaredToolConfiguration> immutableConfigurations(
+            Map<String, DeclaredToolConfiguration> source) {
         source = Objects.requireNonNull(source, "toolConfigurations 不能为空");
-        LinkedHashMap<String, JsonObject> copy = new LinkedHashMap<>();
+        LinkedHashMap<String, DeclaredToolConfiguration> copy = new LinkedHashMap<>();
         source.forEach((tool, configuration) -> {
             if (tool == null || tool.isBlank()) {
                 throw new IllegalArgumentException("toolConfigurations 的 Tool 名不能为空");

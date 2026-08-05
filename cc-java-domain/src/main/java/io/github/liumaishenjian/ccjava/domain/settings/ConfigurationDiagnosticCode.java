@@ -18,5 +18,6 @@ public enum ConfigurationDiagnosticCode {
     /** 引用了未注册 Tool。 */ UNSUPPORTED_TOOL,
     /** 权限规则不受支持。 */ UNSUPPORTED_RULE,
     /** 出现凭证类字段。 */ FORBIDDEN_CREDENTIAL_FIELD,
-    /** 出现端点类字段。 */ FORBIDDEN_ENDPOINT_FIELD
+    /** 出现端点类字段。 */ FORBIDDEN_ENDPOINT_FIELD,
+    /** 文件解析器收到只能由程序构造的覆盖来源。 */ UNSUPPORTED_FILE_SOURCE
 }

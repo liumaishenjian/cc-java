@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 
 import io.github.liumaishenjian.ccjava.domain.settings.DeclaredPermissionRuleDefinition;
 import io.github.liumaishenjian.ccjava.domain.settings.DeclaredSettings;
+import io.github.liumaishenjian.ccjava.domain.settings.DeclaredToolConfiguration.Removal;
+import io.github.liumaishenjian.ccjava.domain.settings.DeclaredToolConfiguration.Replacement;
 import io.github.liumaishenjian.ccjava.domain.settings.SettingValidationStatus;
 import io.github.liumaishenjian.ccjava.domain.settings.SettingsRevision;
 import io.github.liumaishenjian.ccjava.domain.settings.SettingsSourceId;
@@ -30,7 +32,7 @@ class SettingsContractsTest {
         String secret = "api-key-should-not-appear";
         DeclaredPermissionRuleDefinition rule = rule(selector);
         DeclaredSettings settings = new DeclaredSettings(Optional.of("private-model"), Optional.of("PLAN"), List.of(rule),
-                Optional.of(List.of("read_file")), Map.of("read_file", new JsonObject(Map.of("endpoint", endpoint, "token", secret))),
+                Optional.of(List.of("read_file")), Map.of("read_file", new Replacement(new JsonObject(Map.of("endpoint", endpoint, "token", secret)))),
                 List.of(compactInstruction), Optional.of("DETAIL"));
         SettingsSourceSnapshot snapshot = new SettingsSourceSnapshot(
                 new SettingsSourceId(SettingsSourceKind.PROJECT_SHARED, "project-settings"),
@@ -39,6 +41,21 @@ class SettingsContractsTest {
         assertThat(rule.toString()).doesNotContain(selector);
         assertThat(settings.toString()).doesNotContain("private-model", endpoint, secret, compactInstruction, selector);
         assertThat(snapshot.toString()).doesNotContain("private-model", endpoint, secret, compactInstruction, selector);
+    }
+
+    @Test
+    void toolConfigurationDeclarationsPreserveOrderAreDefensiveAndRedacted() {
+        java.util.LinkedHashMap<String, io.github.liumaishenjian.ccjava.domain.settings.DeclaredToolConfiguration> configurations =
+                new java.util.LinkedHashMap<>();
+        configurations.put("read_file", new Replacement(new JsonObject(Map.of("maxLines", 100))));
+        configurations.put("search", new Removal());
+        DeclaredSettings settings = new DeclaredSettings(Optional.empty(), Optional.empty(), List.of(), Optional.empty(),
+                configurations, List.of(), Optional.empty());
+        configurations.clear();
+
+        assertThat(settings.toolConfigurations().keySet()).containsExactly("read_file", "search");
+        assertThat(settings.toolConfigurations()).isUnmodifiable();
+        assertThat(settings.toString()).doesNotContain("maxLines", "100", "read_file", "search");
     }
 
     @Test

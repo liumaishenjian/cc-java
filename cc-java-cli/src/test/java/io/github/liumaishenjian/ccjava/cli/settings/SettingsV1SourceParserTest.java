@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.liumaishenjian.ccjava.domain.settings.ConfigurationDiagnosticCode;
 import io.github.liumaishenjian.ccjava.domain.settings.DeclaredPermissionRuleDefinition;
 import io.github.liumaishenjian.ccjava.domain.settings.DeclaredPermissionRuleRemoval;
+import io.github.liumaishenjian.ccjava.domain.settings.DeclaredToolConfiguration.Removal;
+import io.github.liumaishenjian.ccjava.domain.settings.DeclaredToolConfiguration.Replacement;
 import io.github.liumaishenjian.ccjava.domain.settings.SettingsSourceId;
 import io.github.liumaishenjian.ccjava.domain.settings.SettingsSourceKind;
 import java.nio.charset.StandardCharsets;
@@ -33,13 +35,65 @@ class SettingsV1SourceParserTest {
         assertThat(complete.snapshot()).isPresent();
         assertThat(complete.snapshot().orElseThrow().declaredValues().enabledTools().orElseThrow())
                 .containsExactly("read_file", "search");
-        assertThat(complete.snapshot().orElseThrow().declaredValues().toolConfigurations().get("read_file").values())
-                .containsEntry("maxLines", java.math.BigInteger.valueOf(100)).containsEntry("includeHidden", false);
+        assertThat(complete.snapshot().orElseThrow().declaredValues().toolConfigurations().get("read_file"))
+                .isInstanceOfSatisfying(Replacement.class, replacement -> assertThat(replacement.values().values())
+                        .containsEntry("maxLines", java.math.BigInteger.valueOf(100))
+                        .containsEntry("includeHidden", false));
         assertThat(complete.snapshot().orElseThrow().declaredValues().permissionRules())
                 .hasSize(2)
                 .element(0).isInstanceOf(DeclaredPermissionRuleDefinition.class);
         assertThat(complete.snapshot().orElseThrow().declaredValues().permissionRules())
                 .element(1).isInstanceOf(DeclaredPermissionRuleRemoval.class);
+    }
+
+    @Test
+    void acceptsOnlyFileBackedSourceKinds() {
+        for (SettingsSourceKind kind : List.of(SettingsSourceKind.USER, SettingsSourceKind.PROJECT_SHARED,
+                SettingsSourceKind.PROJECT_LOCAL)) {
+            SettingsV1SourceParser.ParseResult result = PARSER.parse(new SettingsSourceId(kind, "source-" + kind),
+                    "{\"schemaVersion\":1}".getBytes(StandardCharsets.UTF_8));
+            assertThat(result.snapshot()).isPresent();
+            assertThat(result.diagnostics()).isEmpty();
+        }
+    }
+
+    @Test
+    void rejectsProgrammaticOverlayKindsWithoutReadingTheirBodies() {
+        String secret = "api-key-should-not-appear";
+        for (SettingsSourceKind kind : List.of(SettingsSourceKind.DEFAULTS, SettingsSourceKind.SESSION, SettingsSourceKind.CLI)) {
+            SettingsV1SourceParser.ParseResult result = PARSER.parse(new SettingsSourceId(kind, "overlay-" + kind),
+                    ("{\"schemaVersion\":1,\"token\":\"" + secret + "\"}").getBytes(StandardCharsets.UTF_8));
+            assertThat(result.snapshot()).isEmpty();
+            assertThat(result.diagnostics()).singleElement().satisfies(diagnostic -> {
+                assertThat(diagnostic.code()).isEqualTo(ConfigurationDiagnosticCode.UNSUPPORTED_FILE_SOURCE);
+                assertThat(diagnostic.toString()).doesNotContain(secret);
+            });
+        }
+    }
+
+    @Test
+    void representsToolConfigReplacementAndRemovalInSourceOrder() {
+        SettingsV1SourceParser.ParseResult result = parse("""
+                {"schemaVersion":1,"tools":{"config":{"search":{"maxResults":20},"read_file":null}}}
+                """);
+
+        assertThat(result.snapshot()).isPresent();
+        assertThat(result.snapshot().orElseThrow().declaredValues().toolConfigurations())
+                .containsOnlyKeys("search", "read_file")
+                .containsEntry("read_file", new Removal());
+        assertThat(result.snapshot().orElseThrow().declaredValues().toolConfigurations().keySet())
+                .containsExactly("search", "read_file");
+        assertThat(result.snapshot().orElseThrow().declaredValues().toolConfigurations().get("search"))
+                .isInstanceOfSatisfying(Replacement.class, replacement -> assertThat(replacement.values().values())
+                        .containsEntry("maxResults", java.math.BigInteger.valueOf(20)));
+    }
+
+    @Test
+    void rejectsNestedAndScalarNullToolConfigurationValuesAtomically() {
+        assertFailure("{\"schemaVersion\":1,\"tools\":{\"config\":{\"read_file\":{\"maxLines\":null}}}}",
+                ConfigurationDiagnosticCode.INVALID_TYPE);
+        assertFailure("{\"schemaVersion\":1,\"tools\":{\"config\":{\"read_file\":null,\"search\":true}}}",
+                ConfigurationDiagnosticCode.INVALID_TYPE);
     }
 
     @Test
