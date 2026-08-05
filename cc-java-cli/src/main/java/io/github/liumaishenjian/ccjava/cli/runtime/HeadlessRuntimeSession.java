@@ -9,7 +9,6 @@ import io.github.liumaishenjian.ccjava.core.instructions.InstructionContextServi
 import io.github.liumaishenjian.ccjava.cli.instructions.InstructionFoundationFactory;
 import io.github.liumaishenjian.ccjava.cli.instructions.InstructionProjectionState;
 import io.github.liumaishenjian.ccjava.core.LatestContextUsageCollector;
-import io.github.liumaishenjian.ccjava.core.DefaultContextAssembler;
 import io.github.liumaishenjian.ccjava.cli.session.FileCheckpointCoordinator;
 import io.github.liumaishenjian.ccjava.cli.session.FileSessionStore;
 import io.github.liumaishenjian.ccjava.cli.session.SessionOpenResult;
@@ -19,8 +18,6 @@ import io.github.liumaishenjian.ccjava.core.ModelRetryPolicy;
 import io.github.liumaishenjian.ccjava.core.RetryingModelGateway;
 import io.github.liumaishenjian.ccjava.core.RunTelemetry;
 import io.github.liumaishenjian.ccjava.core.RunTelemetryCollector;
-import io.github.liumaishenjian.ccjava.core.ToolExecutionPipeline;
-import io.github.liumaishenjian.ccjava.core.ToolRegistry;
 import io.github.liumaishenjian.ccjava.core.UuidAgentIdGenerator;
 import io.github.liumaishenjian.ccjava.domain.AgentEventEnvelope;
 import io.github.liumaishenjian.ccjava.domain.AgentLimits;
@@ -32,6 +29,9 @@ import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
 import io.github.liumaishenjian.ccjava.domain.SessionSpec;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
+import io.github.liumaishenjian.ccjava.domain.ToolSource;
+import io.github.liumaishenjian.ccjava.domain.settings.RuntimeConfiguration;
+import io.github.liumaishenjian.ccjava.domain.settings.RuntimeDiagnosticsVerbosity;
 import io.github.liumaishenjian.ccjava.model.springai.OpenAiCompatibleModelFactory;
 import io.github.liumaishenjian.ccjava.model.springai.SpringAiContextSummarizer;
 import io.github.liumaishenjian.ccjava.model.springai.SpringAiModelGateway;
@@ -81,15 +81,23 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
 
     private final FileSessionStore sessions;
     private final FileCheckpointCoordinator checkpoints;
-    private final AgentRuntime runtime;
     private final HeadlessRuntimeOptions options;
     private final RunTelemetryCollector telemetry;
     private final LatestContextUsageCollector contextUsage;
     private final AutoCloseable memoryResource;
-    private final AtomicReference<RunId> activeRunId = new AtomicReference<>();
-    private final io.github.liumaishenjian.ccjava.core.SessionPermissionState permissionState;
+    private final Object lifecycleMonitor = new Object();
+    private ActiveRun activeRun;
+    private boolean closed;
+    private final io.github.liumaishenjian.ccjava.core.InMemorySessionPermissionState permissionState;
     private final LocalWorkspaceBootstrap workspaceBootstrap;
     private final InstructionContextService instructionContext;
+    private final ModelGateway configuredGateway;
+    private final ContextPreparationService contextPreparation;
+    private final ApprovalHandler approvalHandler;
+    private final io.github.liumaishenjian.ccjava.core.MemoryContextService memoryContext;
+    private final LifecycleDispatcher lifecycle;
+    private final UuidAgentIdGenerator ids;
+    private final AtomicReference<HeadlessRuntimeScope> scope;
     private io.github.liumaishenjian.ccjava.core.AgentSession session;
     private SessionOpenResult openResult;
 
@@ -337,6 +345,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             downstream = Objects.requireNonNull(eventSink, "eventSink 不能为空");
             this.options = Objects.requireNonNull(options, "options 不能为空");
             approvals = Objects.requireNonNull(approvalHandler, "approvalHandler 不能为空");
+            this.approvalHandler = approvals;
         } catch (RuntimeException | Error failure) {
             checkedMemoryLayout.closeUnused();
             throw failure;
@@ -351,9 +360,9 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             checkedMemoryLayout.closeUnused();
             throw new IllegalArgumentException("Workspace 只读能力初始化失败");
         }
-        UuidAgentIdGenerator ids = new UuidAgentIdGenerator();
+        ids = new UuidAgentIdGenerator();
         try {
-            LifecycleDispatcher lifecycle = new LifecycleDispatcher(
+            lifecycle = new LifecycleDispatcher(
                     Clock.systemUTC(),
                     envelope -> {
                         try {
@@ -373,44 +382,16 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                     this.options.sessionStoreRoot(),
                     workspaceBootstrap.workspaceGuard(),
                     sessions);
-            ToolRegistry tools = new ToolRegistry(workspaceBootstrap.tools());
             permissionState = new io.github.liumaishenjian.ccjava.core.InMemorySessionPermissionState();
-            var policy = new io.github.liumaishenjian.ccjava.core.PermissionPolicy(
-                    this.options.permissionMode(),
-                    this.options.startupPermissionRules(),
-                    new io.github.liumaishenjian.ccjava.core.DefaultPermissionSelectorResolver(),
-                    new io.github.liumaishenjian.ccjava.core.DefaultHardDenialPolicy(
-                            new io.github.liumaishenjian.ccjava.tools.local.workspace
-                                    .WorkspaceWriteHardDenial(
-                                            workspaceBootstrap.workspaceGuard())),
-                    permissionState);
-            ToolExecutionPipeline pipeline = new ToolExecutionPipeline(
-                    tools,
-                    policy,
-                    approvals,
-                    permissionState,
-                    lifecycle,
-                    sessions,
-                    checkpoints);
-            ContextPreparationService checkedPreparation = Objects.requireNonNull(
-                    contextPreparation, "contextPreparation 不能为空");
+            configuredGateway = checkedModel;
+            this.contextPreparation = Objects.requireNonNull(contextPreparation, "contextPreparation 不能为空");
             FileMemoryPrefetchAdapter memoryPrefetch = checkedMemoryLayout.create(this.options);
             try {
-                runtime = new AgentRuntime(
-                        sessions,
-                        ids,
-                        checkedModel,
-                        new DefaultContextAssembler(),
-                        tools,
-                        pipeline,
-                        lifecycle,
-                        sessions,
-                        checkedPreparation,
-                        memoryPrefetch == null
-                                ? io.github.liumaishenjian.ccjava.core.MemoryContextService.noop()
-                                : memoryPrefetch.contextService(),
-                        instructionContext);
+                memoryContext = memoryPrefetch == null
+                        ? io.github.liumaishenjian.ccjava.core.MemoryContextService.noop()
+                        : memoryPrefetch.contextService();
                 memoryResource = memoryPrefetch == null ? () -> { } : memoryPrefetch;
+                scope = new AtomicReference<>(buildScope(initialConfiguration()));
             } catch (RuntimeException | Error failure) {
                 closeMemory(memoryPrefetch);
                 throw failure;
@@ -439,24 +420,29 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
      * @throws IllegalStateException 已经打开或已经关闭时
      */
     public SessionId open() {
-        if (session != null) {
-            throw new IllegalStateException("Headless Session 已经打开");
+        synchronized (lifecycleMonitor) {
+            if (closed) {
+                throw new IllegalStateException("Headless Session 尚未打开或已经关闭");
+            }
+            if (session != null) {
+                throw new IllegalStateException("Headless Session 已经打开");
+            }
+            var snapshot = workspaceBootstrap.snapshot();
+            SessionSpec spec = new SessionSpec(
+                    SYSTEM_INSTRUCTIONS,
+                    Map.of(
+                            "model", options.model(),
+                            "timeout", options.timeout().toString(),
+                            "permissionMode", options.permissionMode().name(),
+                            "gitRepository", Boolean.toString(snapshot.repository()),
+                            "gitBranch", snapshot.branch(),
+                            "gitStaged", Integer.toString(snapshot.staged()),
+                            "gitUnstaged", Integer.toString(snapshot.unstaged()),
+                            "gitUntracked", Integer.toString(snapshot.untracked())));
+            openResult = sessions.open(options.sessionOpenRequest(), spec);
+            session = openResult.session();
+            return session.id();
         }
-        var snapshot = workspaceBootstrap.snapshot();
-        SessionSpec spec = new SessionSpec(
-                SYSTEM_INSTRUCTIONS,
-                Map.of(
-                        "model", options.model(),
-                        "timeout", options.timeout().toString(),
-                        "permissionMode", options.permissionMode().name(),
-                        "gitRepository", Boolean.toString(snapshot.repository()),
-                        "gitBranch", snapshot.branch(),
-                        "gitStaged", Integer.toString(snapshot.staged()),
-                        "gitUnstaged", Integer.toString(snapshot.unstaged()),
-                        "gitUntracked", Integer.toString(snapshot.untracked())));
-        openResult = sessions.open(options.sessionOpenRequest(), spec);
-        session = openResult.session();
-        return session.id();
     }
 
     /**
@@ -466,19 +452,35 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
      * @return Runtime 权威终态
      */
     public AgentRunResult run(String prompt) {
-        requireOpen();
         Objects.requireNonNull(prompt, "prompt 不能为空");
         if (prompt.isBlank() || prompt.length() > MAX_PROMPT_CHARS) {
             throw new IllegalArgumentException("prompt 为空或超过长度限制");
         }
-        return runtime.run(
-                session.id(),
-                new AgentRunRequest(
-                        new UserMessage(prompt),
-                        new AgentLimits(
-                                AgentLimits.DEFAULT.maxModelTurns(),
-                                AgentLimits.DEFAULT.maxToolCalls(),
-                                options.timeout())));
+        ActiveRun captured;
+        synchronized (lifecycleMonitor) {
+            requireOpenLocked();
+            if (activeRun != null) {
+                throw new IllegalStateException("Headless Session 已有活动 Run");
+            }
+            captured = new ActiveRun(scope.get(), session.id());
+            activeRun = captured;
+        }
+        try {
+            return captured.scope().runtime().run(
+                    captured.sessionId(),
+                    new AgentRunRequest(
+                            new UserMessage(prompt),
+                            new AgentLimits(
+                                    AgentLimits.DEFAULT.maxModelTurns(),
+                                    AgentLimits.DEFAULT.maxToolCalls(),
+                                    options.timeout())));
+        } finally {
+            synchronized (lifecycleMonitor) {
+                if (activeRun == captured) {
+                    activeRun = null;
+                }
+            }
+        }
     }
 
     /**
@@ -490,8 +492,13 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
      * @return 确实命中活动 Run 时为 {@code true}
      */
     public boolean cancelActive() {
-        RunId runId = activeRunId.get();
-        return runId != null && session != null && runtime.cancel(session.id(), runId);
+        ActiveRun captured;
+        RunId runId;
+        synchronized (lifecycleMonitor) {
+            captured = activeRun;
+            runId = captured == null ? null : captured.runId();
+        }
+        return runId != null && captured.scope().runtime().cancel(captured.sessionId(), runId);
     }
 
     /**
@@ -502,9 +509,14 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
      */
     public boolean cancel(RunId runId) {
         Objects.requireNonNull(runId, "runId 不能为空");
-        return runId.equals(activeRunId.get())
-                && session != null
-                && runtime.cancel(session.id(), runId);
+        ActiveRun captured;
+        synchronized (lifecycleMonitor) {
+            captured = activeRun;
+            if (captured == null || !runId.equals(captured.runId())) {
+                return false;
+            }
+        }
+        return captured.scope().runtime().cancel(captured.sessionId(), runId);
     }
 
     /**
@@ -587,6 +599,63 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
      */
     public Optional<ContextUsageView> latestContextUsage() {
         return contextUsage == null ? Optional.empty() : contextUsage.latest();
+    }
+
+    /**
+     * 在 idle 边界替换下一 Run 的完整 RuntimeScope。
+     *
+     * <p>候选 scope 会先完整构造；构造失败、取消或发现活动 Run 时均不替换当前 scope。
+     * 当前切片只支持启动 Provider 已配置的模型，Tool config、compact anchors 和诊断详细度
+     * 仍只携带在配置值中，未向不支持它们的 Adapter 注入。</p>
+     *
+     * @param configuration 已由可信 Application 层投影的完整配置
+     * @return 成功替换时为 {@code true}
+     */
+    public boolean replaceRuntimeConfiguration(RuntimeConfiguration configuration) {
+        Objects.requireNonNull(configuration, "configuration 不能为空");
+        synchronized (lifecycleMonitor) {
+            requireOpenLocked();
+            if (activeRun != null) {
+                return false;
+            }
+            final HeadlessRuntimeScope candidate;
+            try {
+                candidate = buildScope(configuration);
+            } catch (RuntimeException failure) {
+                return false;
+            }
+            if (closed || activeRun != null) {
+                return false;
+            }
+            scope.set(candidate);
+            return true;
+        }
+    }
+
+    /**
+     * 返回下一 Run 将捕获的完整不可变配置。
+     *
+     * @return 当前 scope 的已验证配置，不包含 Provider 凭证或 Settings 正文
+     */
+    public RuntimeConfiguration runtimeConfiguration() {
+        return scope.get().configuration();
+    }
+
+    private RuntimeConfiguration initialConfiguration() {
+        return new RuntimeConfiguration(
+                Optional.of(options.model()), options.permissionMode(), options.startupPermissionRules(),
+                workspaceBootstrap.tools().stream()
+                        .filter(tool -> tool.definition().source() == ToolSource.BUILT_IN)
+                        .map(tool -> tool.definition().name())
+                        .toList(),
+                Map.of(), java.util.List.of(), RuntimeDiagnosticsVerbosity.SUMMARY);
+    }
+
+    private HeadlessRuntimeScope buildScope(RuntimeConfiguration configuration) {
+        return HeadlessRuntimeScope.create(
+                configuration, options.model(), configuredGateway, contextPreparation, workspaceBootstrap.tools(),
+                sessions, checkpoints, lifecycle, ids, approvalHandler, permissionState,
+                workspaceBootstrap.workspaceGuard(), memoryContext, instructionContext);
     }
 
     private static ContextComponents contextComponents(
@@ -746,16 +815,25 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     }
 
     private void publish(AgentEventEnvelope envelope, AgentEventSink downstream) {
-        if (envelope.event() instanceof LifecycleEvent.RunStarted) {
-            activeRunId.set(envelope.runId().orElseThrow());
-        } else if (envelope.event() instanceof LifecycleEvent.RunFinished) {
-            envelope.runId().ifPresent(runId -> activeRunId.compareAndSet(runId, null));
+        synchronized (lifecycleMonitor) {
+            if (envelope.event() instanceof LifecycleEvent.RunStarted) {
+                ActiveRun current = activeRun;
+                if (current != null && current.runId() == null) {
+                    current.setRunId(envelope.runId().orElseThrow());
+                }
+            }
         }
         downstream.publish(envelope);
     }
 
     private void requireOpen() {
-        if (session == null || session.isClosed()) {
+        synchronized (lifecycleMonitor) {
+            requireOpenLocked();
+        }
+    }
+
+    private void requireOpenLocked() {
+        if (closed || session == null || session.isClosed()) {
             throw new IllegalStateException("Headless Session 尚未打开或已经关闭");
         }
     }
@@ -767,19 +845,56 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
      */
     @Override
     public void close() {
-        if (contextUsage != null) {
-            contextUsage.close();
-        }
-        closeMemory(memoryResource);
-        try {
-            if (session != null && !session.isClosed()) {
-                if (openResult != null && !openResult.readOnly()) {
-                    sessions.close(session.id());
-                    permissionState.clear(session.id());
-                }
+        synchronized (lifecycleMonitor) {
+            if (closed) {
+                return;
             }
-        } finally {
-            sessions.close();
+            if (activeRun != null) {
+                throw new IllegalStateException("存在活动 Run 时不能关闭 Session");
+            }
+            closed = true;
+            if (contextUsage != null) {
+                contextUsage.close();
+            }
+            closeMemory(memoryResource);
+            try {
+                if (session != null && !session.isClosed() && openResult != null && !openResult.readOnly()) {
+                    try {
+                        sessions.close(session.id());
+                    } finally {
+                        permissionState.clear(session.id());
+                    }
+                }
+            } finally {
+                sessions.close();
+            }
+        }
+    }
+
+    private static final class ActiveRun {
+        private final HeadlessRuntimeScope scope;
+        private final SessionId sessionId;
+        private RunId runId;
+
+        private ActiveRun(HeadlessRuntimeScope scope, SessionId sessionId) {
+            this.scope = scope;
+            this.sessionId = sessionId;
+        }
+
+        private HeadlessRuntimeScope scope() {
+            return scope;
+        }
+
+        private SessionId sessionId() {
+            return sessionId;
+        }
+
+        private RunId runId() {
+            return runId;
+        }
+
+        private void setRunId(RunId runId) {
+            this.runId = runId;
         }
     }
 }

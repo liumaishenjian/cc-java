@@ -35,6 +35,8 @@ import io.github.liumaishenjian.ccjava.domain.ToolResultMessage;
 import io.github.liumaishenjian.ccjava.domain.ToolSource;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
+import io.github.liumaishenjian.ccjava.domain.settings.RuntimeConfiguration;
+import io.github.liumaishenjian.ccjava.domain.settings.RuntimeDiagnosticsVerbosity;
 import io.github.liumaishenjian.ccjava.model.springai.config.OpenAiCompatibleSettings;
 import io.github.liumaishenjian.ccjava.tools.local.memory.FileMemoryPrefetchAdapter;
 import io.github.liumaishenjian.ccjava.tools.local.memory.FileMemoryRepository;
@@ -1380,6 +1382,239 @@ class HeadlessRuntimeSessionTest {
                         0,
                         1_024,
                         256)));
+    }
+
+    @Test
+    void idleRuntimeScopeReplacementChangesOnlyTheNextRunAndCanHideAllBuiltinTools() {
+        CopyOnWriteArrayList<ModelRequest> requests = new CopyOnWriteArrayList<>();
+        ModelGateway model = request -> {
+            requests.add(request);
+            return ModelTurn.text("done");
+        };
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                model, AgentEventSink.noop(), testOptions(temporaryWorkspace, Duration.ofSeconds(5)))) {
+            application.open();
+            application.run("before replacement");
+            assertThat(application.replaceRuntimeConfiguration(runtimeConfiguration(java.util.List.of()))).isTrue();
+            application.run("after replacement");
+        }
+        assertThat(requests).hasSize(2);
+        assertThat(requests.getFirst().toolDefinitions()).isNotEmpty();
+        assertThat(requests.getLast().toolDefinitions()).isEmpty();
+    }
+
+    @Test
+    void activeRuntimeScopeReplacementRejectsImmediatelyAndPreservesPreviousScope() throws Exception {
+        CountDownLatch modelEntered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        ModelGateway blocking = request -> {
+            modelEntered.countDown();
+            try {
+                if (!release.await(5, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("test timeout");
+                }
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(exception);
+            }
+            return ModelTurn.text("done");
+        };
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                blocking, AgentEventSink.noop(), testOptions(temporaryWorkspace, Duration.ofSeconds(5)))) {
+            application.open();
+            Thread runner = Thread.ofPlatform().start(() -> {
+                try {
+                    application.run("block");
+                } catch (Throwable throwable) {
+                    failure.set(throwable);
+                }
+            });
+            assertThat(modelEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            long started = System.nanoTime();
+            assertThat(application.replaceRuntimeConfiguration(runtimeConfiguration(java.util.List.of()))).isFalse();
+            assertThat(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)).isLessThan(250L);
+            assertThat(application.runtimeConfiguration().enabledBuiltinTools()).isNotEmpty();
+            release.countDown();
+            runner.join(5_000);
+            assertThat(failure.get()).isNull();
+        }
+    }
+
+    @Test
+    void invalidRuntimeScopeCandidateDoesNotReplaceCurrentScope() {
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                ignored -> ModelTurn.text("done"), AgentEventSink.noop(),
+                testOptions(temporaryWorkspace, Duration.ofSeconds(5)))) {
+            application.open();
+            RuntimeConfiguration unsupported = new RuntimeConfiguration(
+                    Optional.of("other-model"), PermissionMode.DEFAULT, java.util.List.of(),
+                    java.util.List.of(), Map.of(), java.util.List.of(), RuntimeDiagnosticsVerbosity.SUMMARY);
+            RuntimeConfiguration unsupportedConfiguration = new RuntimeConfiguration(
+                    Optional.of("fake-model"), PermissionMode.DEFAULT, java.util.List.of(),
+                    java.util.List.of(), Map.of("read_file", new JsonObject(Map.of("maxLines", 5))),
+                    java.util.List.of(), RuntimeDiagnosticsVerbosity.SUMMARY);
+            assertThat(application.replaceRuntimeConfiguration(unsupported)).isFalse();
+            assertThat(application.replaceRuntimeConfiguration(unsupportedConfiguration)).isFalse();
+            assertThat(application.runtimeConfiguration().modelName()).contains("fake-model");
+        }
+    }
+
+    @Test
+    void cancelActiveTargetsTheScopeCapturedBeforeTheRun() throws Exception {
+        CountDownLatch modelEntered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicReference<AgentRunResult> result = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        CopyOnWriteArrayList<AgentEventEnvelope> events = new CopyOnWriteArrayList<>();
+        ModelGateway blocking = request -> {
+            modelEntered.countDown();
+            try {
+                if (!release.await(5, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("test timeout");
+                }
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(exception);
+            }
+            return ModelTurn.text("not delivered after cancellation");
+        };
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                blocking, events::add, testOptions(temporaryWorkspace, Duration.ofSeconds(5)))) {
+            application.open();
+            Thread runner = Thread.ofPlatform().start(() -> {
+                try {
+                    result.set(application.run("block then cancel"));
+                } catch (Throwable throwable) {
+                    failure.set(throwable);
+                }
+            });
+            assertThat(modelEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(events).anySatisfy(envelope -> assertThat(envelope.event())
+                    .isInstanceOf(LifecycleEvent.RunStarted.class));
+            assertThat(application.cancelActive()).isTrue();
+            release.countDown();
+            runner.join(5_000);
+            assertThat(failure.get()).isNull();
+            assertThat(result.get().stopReason()).isEqualTo(StopReason.USER_CANCELLED);
+            assertThat(application.cancelActive()).isFalse();
+        }
+    }
+
+    @Test
+    void firstRunCompletionCannotClearTheSecondRunsCancellationTarget() throws Exception {
+        CountDownLatch firstEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        CountDownLatch secondEntered = new CountDownLatch(1);
+        CountDownLatch releaseSecond = new CountDownLatch(1);
+        AtomicReference<Throwable> firstFailure = new AtomicReference<>();
+        AtomicReference<Throwable> secondFailure = new AtomicReference<>();
+        AtomicReference<AgentRunResult> secondResult = new AtomicReference<>();
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        ModelGateway model = request -> {
+            if (calls.incrementAndGet() == 1) {
+                firstEntered.countDown();
+                try {
+                    releaseFirst.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(exception);
+                }
+            } else {
+                secondEntered.countDown();
+                try {
+                    releaseSecond.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(exception);
+                }
+            }
+            return ModelTurn.text("done");
+        };
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                model, AgentEventSink.noop(), testOptions(temporaryWorkspace, Duration.ofSeconds(5)))) {
+            application.open();
+            Thread first = Thread.ofPlatform().start(() -> {
+                try {
+                    application.run("first");
+                } catch (Throwable failure) {
+                    firstFailure.set(failure);
+                }
+            });
+            assertThat(firstEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            releaseFirst.countDown();
+            first.join(5_000);
+            assertThat(firstFailure.get()).isNull();
+            Thread second = Thread.ofPlatform().start(() -> {
+                try {
+                    secondResult.set(application.run("second"));
+                } catch (Throwable failure) {
+                    secondFailure.set(failure);
+                }
+            });
+            assertThat(secondEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(application.cancelActive()).isTrue();
+            releaseSecond.countDown();
+            second.join(5_000);
+            assertThat(secondFailure.get()).isNull();
+            assertThat(secondResult.get().stopReason()).isEqualTo(StopReason.USER_CANCELLED);
+        }
+    }
+
+    @Test
+    void closeRejectsActiveRunAndIsIdempotentAfterItFinishes() throws Exception {
+        CountDownLatch modelEntered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        ModelGateway model = request -> {
+            modelEntered.countDown();
+            try {
+                release.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(exception);
+            }
+            return ModelTurn.text("done");
+        };
+        QueuedExecutorService memoryExecutor = new QueuedExecutorService();
+        Path memoryRoot = Files.createDirectory(sessionStoreRoot.resolve("close-idempotent-memory"));
+        HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                model,
+                AgentEventSink.noop(),
+                testOptions(temporaryWorkspace, Duration.ofSeconds(5)),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny(),
+                ContextPreparationService.noop(),
+                HeadlessRuntimeSession.HeadlessMemoryLayout.forRoot(memoryRoot, memoryExecutor));
+        application.open();
+        Thread runner = Thread.ofPlatform().start(() -> {
+            try {
+                application.run("block");
+            } catch (Throwable throwable) {
+                failure.set(throwable);
+            }
+        });
+        assertThat(modelEntered.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThatThrownBy(application::close)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("存在活动 Run 时不能关闭 Session");
+        release.countDown();
+        runner.join(5_000);
+        assertThat(failure.get()).isNull();
+        application.close();
+        application.close();
+        assertThat(memoryExecutor.shutdownNowCalls()).isOne();
+        assertThatThrownBy(() -> application.run("after close"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Headless Session 尚未打开或已经关闭");
+        assertThatThrownBy(() -> application.replaceRuntimeConfiguration(runtimeConfiguration(java.util.List.of())))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Headless Session 尚未打开或已经关闭");
+    }
+
+    private RuntimeConfiguration runtimeConfiguration(java.util.List<String> visibleTools) {
+        return new RuntimeConfiguration(Optional.of("fake-model"), PermissionMode.DEFAULT, java.util.List.of(),
+                visibleTools, Map.of(), java.util.List.of(), RuntimeDiagnosticsVerbosity.SUMMARY);
     }
 
     private HeadlessRuntimeOptions testOptions(Path workspace, Duration timeout) {
