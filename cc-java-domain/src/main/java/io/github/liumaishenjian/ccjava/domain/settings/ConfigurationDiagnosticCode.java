@@ -19,5 +19,9 @@ public enum ConfigurationDiagnosticCode {
     /** 权限规则不受支持。 */ UNSUPPORTED_RULE,
     /** 出现凭证类字段。 */ FORBIDDEN_CREDENTIAL_FIELD,
     /** 出现端点类字段。 */ FORBIDDEN_ENDPOINT_FIELD,
-    /** 文件解析器收到只能由程序构造的覆盖来源。 */ UNSUPPORTED_FILE_SOURCE
+    /** 文件解析器收到只能由程序构造的覆盖来源。 */ UNSUPPORTED_FILE_SOURCE,
+    /** 合并输入未按固定低到高来源顺序提供。 */ INVALID_SOURCE_ORDER,
+    /** 同一来源在一次原子合并中重复出现。 */ DUPLICATE_SOURCE,
+    /** 来源声明了该来源类别不允许承载的字段。 */ FORBIDDEN_SOURCE_FIELD,
+    /** 规则删除目标不存在，不能提交部分合并结果。 */ MISSING_RULE_REMOVAL
 }
