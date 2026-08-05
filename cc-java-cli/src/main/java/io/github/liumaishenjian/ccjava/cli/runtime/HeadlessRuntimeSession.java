@@ -14,6 +14,7 @@ import io.github.liumaishenjian.ccjava.cli.session.FileSessionStore;
 import io.github.liumaishenjian.ccjava.cli.session.SessionOpenResult;
 import io.github.liumaishenjian.ccjava.core.LifecycleDispatcher;
 import io.github.liumaishenjian.ccjava.core.ModelGateway;
+import io.github.liumaishenjian.ccjava.core.ToolRegistry;
 import io.github.liumaishenjian.ccjava.core.ModelRetryPolicy;
 import io.github.liumaishenjian.ccjava.core.RetryingModelGateway;
 import io.github.liumaishenjian.ccjava.core.RunTelemetry;
@@ -30,6 +31,7 @@ import io.github.liumaishenjian.ccjava.domain.SessionId;
 import io.github.liumaishenjian.ccjava.domain.SessionSpec;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
 import io.github.liumaishenjian.ccjava.domain.ToolSource;
+import io.github.liumaishenjian.ccjava.domain.settings.DeclaredSettings;
 import io.github.liumaishenjian.ccjava.domain.settings.RuntimeConfiguration;
 import io.github.liumaishenjian.ccjava.domain.settings.RuntimeDiagnosticsVerbosity;
 import io.github.liumaishenjian.ccjava.model.springai.OpenAiCompatibleModelFactory;
@@ -49,6 +51,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 
 /**
  * 管理 Java Headless Surface 共用的一次进程内 Agent Session。
@@ -86,8 +90,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private final LatestContextUsageCollector contextUsage;
     private final AutoCloseable memoryResource;
     private final Object lifecycleMonitor = new Object();
-    private ActiveRun activeRun;
-    private boolean closed;
+    private volatile ActiveRun activeRun;
+    private volatile boolean closed;
     private final io.github.liumaishenjian.ccjava.core.InMemorySessionPermissionState permissionState;
     private final LocalWorkspaceBootstrap workspaceBootstrap;
     private final InstructionContextService instructionContext;
@@ -98,8 +102,10 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private final LifecycleDispatcher lifecycle;
     private final UuidAgentIdGenerator ids;
     private final AtomicReference<HeadlessRuntimeScope> scope;
+    private final RuntimeScopeFactory runtimeScopeFactory;
     private io.github.liumaishenjian.ccjava.core.AgentSession session;
     private SessionOpenResult openResult;
+    private SettingsApplicationService settingsApplication;
 
     /**
      * 使用已校验的 OpenAI-compatible 设置创建真实模型 Session 装配器。
@@ -168,6 +174,15 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             AgentEventSink eventSink,
             HeadlessRuntimeOptions options,
             ApprovalHandler approvalHandler) {
+        this(provider, eventSink, options, approvalHandler, HeadlessInstructionLayout.production());
+    }
+
+    private HeadlessRuntimeSession(
+            ProviderComponents provider,
+            AgentEventSink eventSink,
+            HeadlessRuntimeOptions options,
+            ApprovalHandler approvalHandler,
+            HeadlessInstructionLayout instructionLayout) {
         this(
                 provider.gateway(),
                 eventSink,
@@ -175,7 +190,15 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 approvalHandler,
                 provider.contextPreparation(),
                 provider.contextUsage(),
-                HeadlessMemoryLayout.production());
+                HeadlessMemoryLayout.production(),
+                instructionLayout);
+        try {
+            settingsApplication = SettingsApplicationService.production(this, instructionLayout.userHome());
+            settingsApplication.refresh(io.github.liumaishenjian.ccjava.core.CancellationToken.none());
+        } catch (RuntimeException failure) {
+            // Settings 是 optional source；构造失败退化为禁用 Settings，已创建资源保持由 close 管理。
+            settingsApplication = null;
+        }
     }
 
     private static ProviderComponents providerComponents(
@@ -333,6 +356,20 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             LatestContextUsageCollector contextUsage,
             HeadlessMemoryLayout memoryLayout,
             HeadlessInstructionLayout instructionLayout) {
+        this(model, eventSink, options, approvalHandler, contextPreparation, contextUsage, memoryLayout,
+                instructionLayout, null);
+    }
+
+    HeadlessRuntimeSession(
+            ModelGateway model,
+            AgentEventSink eventSink,
+            HeadlessRuntimeOptions options,
+            ApprovalHandler approvalHandler,
+            ContextPreparationService contextPreparation,
+            LatestContextUsageCollector contextUsage,
+            HeadlessMemoryLayout memoryLayout,
+            HeadlessInstructionLayout instructionLayout,
+            RuntimeScopeFactory runtimeScopeFactory) {
         HeadlessMemoryLayout checkedMemoryLayout = Objects.requireNonNull(
                 memoryLayout, "memoryLayout 不能为空");
         HeadlessInstructionLayout checkedInstructionLayout = Objects.requireNonNull(
@@ -352,6 +389,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         }
         telemetry = new RunTelemetryCollector();
         this.contextUsage = contextUsage;
+        this.runtimeScopeFactory = runtimeScopeFactory == null ? this::createRuntimeScope : runtimeScopeFactory;
         try {
             workspaceBootstrap = LocalWorkspaceBootstrap.open(this.options.workspace());
             instructionContext = new InstructionProjectionState(InstructionFoundationFactory.open(
@@ -361,6 +399,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             throw new IllegalArgumentException("Workspace 只读能力初始化失败");
         }
         ids = new UuidAgentIdGenerator();
+        AtomicBoolean memoryOwnershipTransferred = new AtomicBoolean();
         try {
             lifecycle = new LifecycleDispatcher(
                     Clock.systemUTC(),
@@ -386,6 +425,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             configuredGateway = checkedModel;
             this.contextPreparation = Objects.requireNonNull(contextPreparation, "contextPreparation 不能为空");
             FileMemoryPrefetchAdapter memoryPrefetch = checkedMemoryLayout.create(this.options);
+            memoryOwnershipTransferred.set(memoryPrefetch != null);
             try {
                 memoryContext = memoryPrefetch == null
                         ? io.github.liumaishenjian.ccjava.core.MemoryContextService.noop()
@@ -397,7 +437,9 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 throw failure;
             }
         } catch (RuntimeException | Error failure) {
-            checkedMemoryLayout.closeUnused();
+            if (!memoryOwnershipTransferred.get()) {
+                checkedMemoryLayout.closeUnused();
+            }
             throw failure;
         }
     }
@@ -428,12 +470,13 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 throw new IllegalStateException("Headless Session 已经打开");
             }
             var snapshot = workspaceBootstrap.snapshot();
+            RuntimeConfiguration effectiveConfiguration = scope.get().configuration();
             SessionSpec spec = new SessionSpec(
                     SYSTEM_INSTRUCTIONS,
                     Map.of(
-                            "model", options.model(),
+                            "model", effectiveConfiguration.modelName().orElse(options.model()),
                             "timeout", options.timeout().toString(),
-                            "permissionMode", options.permissionMode().name(),
+                            "permissionMode", effectiveConfiguration.permissionMode().name(),
                             "gitRepository", Boolean.toString(snapshot.repository()),
                             "gitBranch", snapshot.branch(),
                             "gitStaged", Integer.toString(snapshot.staged()),
@@ -613,23 +656,64 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
      */
     public boolean replaceRuntimeConfiguration(RuntimeConfiguration configuration) {
         Objects.requireNonNull(configuration, "configuration 不能为空");
+        if (closed) throw new IllegalStateException("Headless Session 尚未打开或已经关闭");
+        if (activeRun != null) return false;
+        final HeadlessRuntimeScope candidate;
+        try {
+            candidate = buildScope(configuration);
+        } catch (RuntimeException failure) {
+            return false;
+        }
         synchronized (lifecycleMonitor) {
-            requireOpenLocked();
-            if (activeRun != null) {
-                return false;
-            }
-            final HeadlessRuntimeScope candidate;
-            try {
-                candidate = buildScope(configuration);
-            } catch (RuntimeException failure) {
-                return false;
-            }
-            if (closed || activeRun != null) {
-                return false;
-            }
+            if (closed || activeRun != null) return false;
             scope.set(candidate);
             return true;
         }
+    }
+
+    /**
+     * 在单一生命周期边界内提交已准备 Scope 与 Settings LKG CAS。
+     *
+     * <p>仅同包 Settings Application 可调用，避免公开 API 在 lifecycle lock 内执行任意回调。
+     * 文件/Git I/O 与候选 Scope 构建均由调用方在锁外完成；回调异常、活动 Run 或关闭均保持旧状态。</p>
+     */
+    SettingsCommitResult replaceRuntimeConfigurationAtomically(
+            RuntimeConfiguration configuration,
+            io.github.liumaishenjian.ccjava.core.settings.SettingsSnapshotStore store,
+            Optional<Long> expectedRevision,
+            io.github.liumaishenjian.ccjava.core.settings.EffectiveSettingsSnapshot snapshot) {
+        Objects.requireNonNull(configuration, "configuration 不能为空");
+        Objects.requireNonNull(store, "store 不能为空");
+        Objects.requireNonNull(expectedRevision, "expectedRevision 不能为空");
+        Objects.requireNonNull(snapshot, "snapshot 不能为空");
+        if (isClosedOrActive()) return SettingsCommitResult.ACTIVE_OR_CLOSED;
+        final HeadlessRuntimeScope candidate;
+        try {
+            candidate = buildScope(configuration);
+        } catch (RuntimeException failure) {
+            return SettingsCommitResult.INTERNAL_FAILURE;
+        }
+        synchronized (lifecycleMonitor) {
+            if (closed || activeRun != null) return SettingsCommitResult.ACTIVE_OR_CLOSED;
+            try {
+                if (!store.replaceIfCurrent(expectedRevision, snapshot)) return SettingsCommitResult.CAS_CONFLICT;
+                scope.set(candidate);
+                return SettingsCommitResult.COMMITTED;
+            } catch (RuntimeException failure) {
+                return SettingsCommitResult.INTERNAL_FAILURE;
+            }
+        }
+    }
+
+    private boolean isClosedOrActive() {
+        return closed || activeRun != null;
+    }
+
+    enum SettingsCommitResult {
+        COMMITTED,
+        ACTIVE_OR_CLOSED,
+        CAS_CONFLICT,
+        INTERNAL_FAILURE
     }
 
     /**
@@ -639,6 +723,64 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
      */
     public RuntimeConfiguration runtimeConfiguration() {
         return scope.get().configuration();
+    }
+
+    boolean hasActiveRun() {
+        return activeRun != null;
+    }
+
+    boolean isClosedOrActiveForSettings() {
+        return isClosedOrActive();
+    }
+
+    /**
+     * 显式刷新真实 Provider Session 的固定 Settings 文件。
+     *
+     * <p>Fake 构造器没有 Settings Application 接线，因而确定性测试不会读取用户目录；此时
+     * 返回空而不产生文件或 durable 副作用。</p>
+     *
+     * @param cancellationToken 刷新取消边界
+     * @return 真实生产接线的应用结果；Fake Session 为空
+     */
+    public Optional<SettingsApplicationService.SettingsApplicationResult> refreshSettings(
+            io.github.liumaishenjian.ccjava.core.CancellationToken cancellationToken) {
+        SettingsApplicationService application = settingsApplication;
+        return application == null ? Optional.empty() : Optional.of(application.refresh(cancellationToken));
+    }
+
+    /**
+     * 替换下一 Run 的 Session 内存 Settings overlay；不会持久化到文件或 Session JSONL。
+     *
+     * @param overlay 已验证的 Session 声明；空值移除 overlay
+     * @param cancellationToken 本次替换的取消边界
+     * @return Settings 启用时的发布或拒绝结果；Fake Session 为空
+     */
+    public Optional<SettingsApplicationService.SettingsApplicationResult> replaceSessionSettingsOverlay(
+            Optional<DeclaredSettings> overlay, io.github.liumaishenjian.ccjava.core.CancellationToken cancellationToken) {
+        SettingsApplicationService application = settingsApplication;
+        return application == null ? Optional.empty() : Optional.of(application.replaceSessionOverlay(overlay, cancellationToken));
+    }
+
+    /**
+     * 替换下一 Run 的 CLI 内存 Settings overlay；不会持久化到文件或 Session JSONL。
+     *
+     * @param overlay 已验证的 CLI 声明；空值移除 overlay
+     * @param cancellationToken 本次替换的取消边界
+     * @return Settings 启用时的发布或拒绝结果；Fake Session 为空
+     */
+    public Optional<SettingsApplicationService.SettingsApplicationResult> replaceCliSettingsOverlay(
+            Optional<DeclaredSettings> overlay, io.github.liumaishenjian.ccjava.core.CancellationToken cancellationToken) {
+        SettingsApplicationService application = settingsApplication;
+        return application == null ? Optional.empty() : Optional.of(application.replaceCliOverlay(overlay, cancellationToken));
+    }
+
+    ToolRegistry builtinToolRegistry() {
+        return new ToolRegistry(workspaceBootstrap.tools().stream()
+                .filter(tool -> tool.definition().source() == ToolSource.BUILT_IN).toList());
+    }
+
+    io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceGuard workspaceGuard() {
+        return workspaceBootstrap.workspaceGuard();
     }
 
     private RuntimeConfiguration initialConfiguration() {
@@ -652,10 +794,19 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     }
 
     private HeadlessRuntimeScope buildScope(RuntimeConfiguration configuration) {
+        return runtimeScopeFactory.create(configuration);
+    }
+
+    private HeadlessRuntimeScope createRuntimeScope(RuntimeConfiguration configuration) {
         return HeadlessRuntimeScope.create(
                 configuration, options.model(), configuredGateway, contextPreparation, workspaceBootstrap.tools(),
                 sessions, checkpoints, lifecycle, ids, approvalHandler, permissionState,
                 workspaceBootstrap.workspaceGuard(), memoryContext, instructionContext);
+    }
+
+    @FunctionalInterface
+    interface RuntimeScopeFactory {
+        HeadlessRuntimeScope create(RuntimeConfiguration configuration);
     }
 
     private static ContextComponents contextComponents(
@@ -697,8 +848,13 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         }
 
         static HeadlessInstructionLayout production() {
-            return new HeadlessInstructionLayout(Path.of(Objects.requireNonNull(
+            return production(() -> Path.of(Objects.requireNonNull(
                     System.getProperty("user.home"), "user.home 不能为空")));
+        }
+
+        static HeadlessInstructionLayout production(Supplier<Path> userHomeResolver) {
+            return new HeadlessInstructionLayout(Objects.requireNonNull(userHomeResolver,
+                    "userHomeResolver 不能为空").get());
         }
 
         static HeadlessInstructionLayout forHome(Path userHome) {

@@ -108,21 +108,46 @@ class RuntimeSettingsApplierTest {
     }
 
     @Test
-    void rejectsUnknownModelToolConfigurationAndRuleWithoutPartialReplacement() {
+    void unsupportedModelPreparePreservesCurrentConfiguration() {
         RuntimeSettingsApplier applier = applier();
         RuntimeConfiguration before = applier.current();
 
-        assertRejected(applier.apply(settings("unknown-model", null, List.of(), null, Map.of(), List.of(), null),
+        assertRejected(applier.prepare(settings("unknown-model", null, List.of(), null, Map.of(), List.of(), null),
                 () -> false, () -> false), before, RuntimeSettingsDiagnosticCode.UNSUPPORTED_MODEL);
-        assertRejected(applier.apply(settings(null, null, List.of(), List.of("missing"), Map.of(), List.of(), null),
+        assertThat(applier.current()).isSameAs(before);
+    }
+
+    @Test
+    void hiddenOrUnsupportedEnabledToolPreparePreservesCurrentConfiguration() {
+        RuntimeSettingsApplier applier = applier();
+        RuntimeConfiguration before = applier.current();
+
+        assertRejected(applier.prepare(settings(null, null, List.of(), List.of("missing"), Map.of(), List.of(), null),
                 () -> false, () -> false), before, RuntimeSettingsDiagnosticCode.INVALID_TOOL_VISIBILITY);
-        assertRejected(applier.apply(settings(null, null, List.of(), null,
+        assertThat(applier.current()).isSameAs(before);
+    }
+
+    @Test
+    void unsupportedToolConfigurationPreparePreservesCurrentConfiguration() {
+        RuntimeSettingsApplier applier = applier();
+        RuntimeConfiguration before = applier.current();
+
+        assertRejected(applier.prepare(settings(null, null, List.of(), null,
                 Map.of("missing", replacement(Map.of("maxLines", 1))), List.of(), null), () -> false, () -> false),
                 before, RuntimeSettingsDiagnosticCode.INVALID_TOOL_CONFIGURATION);
-        assertRejected(applier.apply(settings(null, null,
+        assertThat(applier.current()).isSameAs(before);
+    }
+
+    @Test
+    void unsupportedPermissionRulePreparePreservesCurrentConfiguration() {
+        RuntimeSettingsApplier applier = applier();
+        RuntimeConfiguration before = applier.current();
+
+        assertRejected(applier.prepare(settings(null, null,
                 List.of(rule("bad", "ALLOW", "READ_WORKSPACE", "read_file", "MCP", "x")), null,
                 Map.of(), List.of(), null), () -> false, () -> false), before,
                 RuntimeSettingsDiagnosticCode.INVALID_PERMISSION_RULE);
+        assertThat(applier.current()).isSameAs(before);
     }
 
     @Test

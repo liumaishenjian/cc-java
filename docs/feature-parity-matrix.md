@@ -4,12 +4,11 @@
 >
 > 参考版本：R2026.03
 >
-> 最后更新：2026-08-05
+> 最后更新：2026-08-06
 >
 > 当前代码状态：S01-S07 已 Accepted；S07 的 Canonical Transcript/Projection、条件式 C1-C4、文件记忆
 > M1-M5、ready-only 零等待预取、内部 Usage View 与 latest-only Recovery Analytics 已在离线 Fake、Demo、
-> Gap 和 Commit-scoped 对账中达到声明等级。S08 已完成 G0 受控机制研究、G1 独立产品契约和 G2 独立架构契约冻结并进入 IN_PROGRESS；分层
-> Instructions/Settings、完整 Context UX、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
+> Gap 和 Commit-scoped 对账中达到声明等级。S08 已完成 G0-G2；G3-C2b 已实现真实 Headless 的固定来源读取、内存 Session/CLI overlay 与 LKG/RuntimeScope idle 事务接缝，但 G3-G6、Capability Level 和 Stage Exit 仍 Open；完整 Context UX、doctor、Slash/stdio/TUI、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
 
 ## 1. 文档目的
 

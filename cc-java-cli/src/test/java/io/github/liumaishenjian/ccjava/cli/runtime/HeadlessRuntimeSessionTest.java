@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.liumaishenjian.ccjava.core.AgentEventSink;
+import io.github.liumaishenjian.ccjava.core.CancellationSource;
+import io.github.liumaishenjian.ccjava.core.CancellationToken;
 import io.github.liumaishenjian.ccjava.core.ContextPreparationConfig;
 import io.github.liumaishenjian.ccjava.core.ContextPreparationService;
 import io.github.liumaishenjian.ccjava.core.ModelGateway;
@@ -55,6 +57,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -131,6 +134,30 @@ class HeadlessRuntimeSessionTest {
         assertThat(result.finalText()).contains("hello from runtime");
         assertThat(result.modelTurns()).isOne();
         assertThat(result.toolCalls()).isZero();
+    }
+
+    @Test
+    void productionInstructionLayoutResolvesUserHomeOnceForSharedSettingsComposition() throws Exception {
+        Path home = Files.createDirectory(sessionStoreRoot.resolve("resolved-home"));
+        AtomicInteger resolutions = new AtomicInteger();
+        HeadlessRuntimeSession.HeadlessInstructionLayout layout =
+                HeadlessRuntimeSession.HeadlessInstructionLayout.production(() -> {
+                    resolutions.incrementAndGet();
+                    return home;
+                });
+
+        try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(
+                ignored -> ModelTurn.text("done"), AgentEventSink.noop(),
+                testOptions(temporaryWorkspace, Duration.ofSeconds(5)),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny(),
+                ContextPreparationService.noop(), null,
+                HeadlessRuntimeSession.HeadlessMemoryLayout.disabled(), layout)) {
+            SettingsApplicationService service = SettingsApplicationService.production(runtime, layout.userHome());
+            assertThat(service.refresh(CancellationToken.none()).published()).isTrue();
+        }
+
+        assertThat(resolutions).hasValue(1);
     }
 
     @Test
@@ -537,6 +564,39 @@ class HeadlessRuntimeSessionTest {
     }
 
     @Test
+    void constructorFailureAfterMemoryAdapterTransferClosesExecutorExactlyOnce() throws Exception {
+        Path memoryRoot = Files.createDirectory(sessionStoreRoot.resolve("constructor-transferred-memory"));
+        QueuedExecutorService executor = new QueuedExecutorService();
+        AtomicInteger adapters = new AtomicInteger();
+        HeadlessRuntimeSession.HeadlessMemoryLayout memoryLayout =
+                new HeadlessRuntimeSession.HeadlessMemoryLayout(memoryRoot, executor, root -> {
+                    adapters.incrementAndGet();
+                    return new FileMemoryPrefetchAdapter(root, executor);
+                });
+
+        assertThatThrownBy(() -> new HeadlessRuntimeSession(
+                ignored -> ModelTurn.text("unused"),
+                AgentEventSink.noop(),
+                testOptions(temporaryWorkspace, Duration.ofSeconds(5)),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny(),
+                ContextPreparationService.noop(), null, memoryLayout,
+                HeadlessRuntimeSession.HeadlessInstructionLayout.forHome(sessionStoreRoot),
+                ignored -> { throw new IllegalStateException("scope construction failure"); }))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("scope construction failure");
+
+        assertThat(adapters).hasValue(1);
+        assertThat(executor.shutdownNowCalls()).isOne();
+        try (var children = Files.list(sessionStoreRoot)) {
+            assertThat(children.filter(Files::isDirectory)
+                    .map(Path::getFileName)
+                    .map(Path::toString)
+                    .toList()).containsExactly("constructor-transferred-memory");
+        }
+    }
+
+    @Test
     void closeStopsMemoryBeforeSessionCloseFailure() throws Exception {
         Path memoryRoot = Files.createDirectory(sessionStoreRoot.resolve("memory-close-failure"));
         QueuedExecutorService memoryExecutor = new QueuedExecutorService();
@@ -650,6 +710,29 @@ class HeadlessRuntimeSessionTest {
             assertThat(application.toString()).doesNotContain(secret, "gateway.example.test");
             assertThat(settings.toString()).contains("apiKey=<redacted>").doesNotContain(secret);
         }
+    }
+
+    @Test
+    void sessionSpecUsesEffectiveRuntimeModelAndPermissionMode() {
+        CopyOnWriteArrayList<AgentEventEnvelope> events = new CopyOnWriteArrayList<>();
+        HeadlessRuntimeOptions options = testOptions(temporaryWorkspace, "option-model", Duration.ofSeconds(3));
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                ignored -> ModelTurn.text("done"), events::add, options)) {
+            RuntimeConfiguration current = application.runtimeConfiguration();
+            RuntimeConfiguration effective = new RuntimeConfiguration(Optional.empty(), PermissionMode.PLAN,
+                    current.permissionRules(), current.enabledBuiltinTools(), current.toolConfigurations(),
+                    current.compactAnchors(), current.diagnosticsVerbosity());
+            assertThat(application.replaceRuntimeConfiguration(effective)).isTrue();
+            application.open();
+        }
+
+        assertThat(events)
+                .extracting(AgentEventEnvelope::event)
+                .filteredOn(LifecycleEvent.SessionStarted.class::isInstance)
+                .singleElement()
+                .satisfies(event -> assertThat(((LifecycleEvent.SessionStarted) event).spec().runtimeMetadata())
+                        .containsEntry("model", "option-model")
+                        .containsEntry("permissionMode", "PLAN"));
     }
 
     @Test
@@ -1610,6 +1693,28 @@ class HeadlessRuntimeSessionTest {
         assertThatThrownBy(() -> application.replaceRuntimeConfiguration(runtimeConfiguration(java.util.List.of())))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Headless Session 尚未打开或已经关闭");
+    }
+
+    @Test
+    void fakeSessionsKeepSettingsDisabledAndNeverReadOrWriteSettingsState() {
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                ignored -> ModelTurn.text("done"), AgentEventSink.noop(),
+                testOptions(temporaryWorkspace, Duration.ofSeconds(5)))) {
+            application.open();
+            assertThat(application.refreshSettings(CancellationToken.none())).isEmpty();
+        }
+    }
+
+    @Test
+    void fakeSettingsOverlayApisRemainDisabledWithoutDurableWrites() {
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                ignored -> ModelTurn.text("done"), AgentEventSink.noop(),
+                testOptions(temporaryWorkspace, Duration.ofSeconds(5)))) {
+            application.open();
+            assertThat(application.replaceSessionSettingsOverlay(Optional.empty(), CancellationToken.none())).isEmpty();
+            assertThat(application.replaceCliSettingsOverlay(Optional.empty(), CancellationToken.none())).isEmpty();
+            assertThat(Files.exists(sessionStoreRoot.resolve("settings.json"))).isFalse();
+        }
     }
 
     private RuntimeConfiguration runtimeConfiguration(java.util.List<String> visibleTools) {

@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  * @since 0.8.0
  */
-public final class SettingsSnapshotStore {
+public class SettingsSnapshotStore {
     private final AtomicReference<EffectiveSettingsSnapshot> current = new AtomicReference<>();
 
     /** 创建尚未建立 last-known-good 的发布槽。 */

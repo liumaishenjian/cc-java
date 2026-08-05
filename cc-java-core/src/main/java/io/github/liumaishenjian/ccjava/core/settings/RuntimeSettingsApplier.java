@@ -97,6 +97,26 @@ public final class RuntimeSettingsApplier {
      */
     public synchronized RuntimeSettingsApplyResult apply(
             EffectiveSettings settings, BooleanSupplier hasActiveRun, BooleanSupplier cancelled) {
+        RuntimeSettingsApplyResult prepared = prepare(settings, hasActiveRun, cancelled);
+        if (prepared.applied()) {
+            current = prepared.configuration();
+        }
+        return prepared;
+    }
+
+    /**
+     * 在不改变当前配置的前提下构造完整候选。
+     *
+     * <p>Application 层可在此后先构建外部 RuntimeScope，再把候选与其余发布槽作为一个
+     * 事务提交，避免 LKG 与 Scope 分别暴露。</p>
+     *
+     * @param settings 已完成来源合并的 Settings
+     * @param hasActiveRun 当前会话是否存在活动 Run
+     * @param cancelled 调用是否已取消
+     * @return 候选或保留当前配置的拒绝结果
+     */
+    public synchronized RuntimeSettingsApplyResult prepare(
+            EffectiveSettings settings, BooleanSupplier hasActiveRun, BooleanSupplier cancelled) {
         Objects.requireNonNull(settings, "settings 不能为空");
         hasActiveRun = Objects.requireNonNull(hasActiveRun, "hasActiveRun 不能为空");
         cancelled = Objects.requireNonNull(cancelled, "cancelled 不能为空");
@@ -106,7 +126,6 @@ public final class RuntimeSettingsApplier {
         if (cancelled.getAsBoolean()) {
             return RuntimeSettingsApplyResult.rejected(current, RuntimeSettingsDiagnosticCode.CANCELLED);
         }
-
         try {
             RuntimeConfiguration candidate = project(settings, baseline);
             if (cancelled.getAsBoolean()) {
@@ -115,11 +134,22 @@ public final class RuntimeSettingsApplier {
             if (hasActiveRun.getAsBoolean()) {
                 return RuntimeSettingsApplyResult.rejected(current, RuntimeSettingsDiagnosticCode.ACTIVE_RUN);
             }
-            current = candidate;
             return RuntimeSettingsApplyResult.applied(candidate);
         } catch (ProjectionFailure failure) {
             return RuntimeSettingsApplyResult.rejected(current, failure.code);
         }
+    }
+
+    /**
+     * 提交已经由 {@link #prepare(EffectiveSettings, BooleanSupplier, BooleanSupplier)} 验证的候选。
+     *
+     * <p>调用方必须在同一会话 idle 事务中同时替换对应的 RuntimeScope；本方法不读取文件或
+     * 执行 Tool。</p>
+     *
+     * @param configuration 已准备的完整配置
+     */
+    public synchronized void commitPrepared(RuntimeConfiguration configuration) {
+        current = Objects.requireNonNull(configuration, "configuration 不能为空");
     }
 
     private RuntimeConfiguration project(EffectiveSettings settings, RuntimeConfiguration previous) {

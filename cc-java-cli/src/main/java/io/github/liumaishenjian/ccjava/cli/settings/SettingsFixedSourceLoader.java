@@ -35,7 +35,7 @@ import java.util.Optional;
  *
  * @since 0.8.0
  */
-public final class SettingsFixedSourceLoader {
+public class SettingsFixedSourceLoader {
     private static final String USER_SAFE_ID = "user-settings";
     private static final String PROJECT_SHARED_SAFE_ID = "project-shared-settings";
     private static final String PROJECT_LOCAL_SAFE_ID = "project-local-settings";

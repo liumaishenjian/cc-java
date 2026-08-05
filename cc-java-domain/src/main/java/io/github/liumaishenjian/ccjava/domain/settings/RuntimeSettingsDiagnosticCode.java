@@ -10,5 +10,6 @@ public enum RuntimeSettingsDiagnosticCode {
     /** Settings 请求可见的 Tool 未注册、非 builtin 或违反 shrink-only 约束。 */ INVALID_TOOL_VISIBILITY,
     /** Tool 配置目标未注册、非 builtin、已删除或不受其可信 schema 支持。 */ INVALID_TOOL_CONFIGURATION,
     /** Tool 配置尝试影响凭证、端点或执行/隔离安全边界。 */ FORBIDDEN_TOOL_CONFIGURATION,
-    /** compact anchor 或 diagnostics verbosity 不能映射到受限 Runtime 输入。 */ INVALID_CONTEXT_OR_DIAGNOSTICS
+    /** compact anchor 或 diagnostics verbosity 不能映射到受限 Runtime 输入。 */ INVALID_CONTEXT_OR_DIAGNOSTICS,
+    /** Application 原子提交遇到未预期内部失败，旧 Scope 和 LKG 均保持不变。 */ INTERNAL_FAILURE
 }

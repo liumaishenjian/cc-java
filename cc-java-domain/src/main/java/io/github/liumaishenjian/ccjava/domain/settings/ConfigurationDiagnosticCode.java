@@ -32,5 +32,6 @@ public enum ConfigurationDiagnosticCode {
     /** Project local 文件的 Git 忽略检查超时、启动失败或输出不可信。 */ LOCAL_GIT_CHECK_FAILED,
     /** 刷新在候选完成前被取消。 */ CANCELLED,
     /** 刷新候选基于陈旧发布版本，不能覆盖新的 last-known-good。 */ CAS_CONFLICT,
-    /** 本进程内 Settings 发布版本已耗尽，不能安全递增。 */ REVISION_EXHAUSTED
+    /** 本进程内 Settings 发布版本已耗尽，不能安全递增。 */ REVISION_EXHAUSTED,
+    /** 应用层原子提交遇到未预期内部失败，旧状态保持不变。 */ INTERNAL_FAILURE
 }
