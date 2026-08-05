@@ -10,7 +10,7 @@ import java.util.Objects;
  *
  * @since 0.4.0
  */
-final class Utf8TextDocument {
+public final class Utf8TextDocument {
 
     private final String text;
     private final byte[] bytes;
@@ -22,15 +22,30 @@ final class Utf8TextDocument {
         this.bom = bom;
     }
 
-    String text() {
+    /**
+     * 返回同一次严格解码得到的文本。
+     *
+     * @return 不可变 UTF-8 文本快照
+     */
+    public String text() {
         return text;
     }
 
-    byte[] bytes() {
+    /**
+     * 返回原始字节的防御性副本。
+     *
+     * @return 不可由调用者修改内部基线的字节副本
+     */
+    public byte[] bytes() {
         return bytes.clone();
     }
 
-    boolean bom() {
+    /**
+     * 指示原始字节是否带 UTF-8 BOM。
+     *
+     * @return 带 BOM 时为 {@code true}
+     */
+    public boolean bom() {
         return bom;
     }
 }

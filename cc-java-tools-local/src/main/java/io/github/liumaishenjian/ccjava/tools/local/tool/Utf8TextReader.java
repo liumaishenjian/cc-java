@@ -12,13 +12,28 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/** 以严格 UTF-8 和字节 ceiling 读取普通文本。 */
-final class Utf8TextReader {
+/**
+ * 以严格 UTF-8 和字节上限读取普通文本。
+ *
+ * <p>本工具只负责一次字节读取与解码，不验证 Workspace 路径、文件身份或调用者权限。
+ * 安全 Adapter 必须在调用前后自行完成真实路径和 TOCTOU 验证。</p>
+ *
+ * @since 0.4.0
+ */
+public final class Utf8TextReader {
 
     private Utf8TextReader() {
     }
 
-    static String read(Path path, long maximumBytes) throws WorkspaceAccessException {
+    /**
+     * 读取一次文本快照。
+     *
+     * @param path 调用方已验证的普通文件路径
+     * @param maximumBytes 允许读取的最大字节数
+     * @return 严格 UTF-8 解码后的文本
+     * @throws WorkspaceAccessException 文件无法读取、超过上限或不是 UTF-8 文本时
+     */
+    public static String read(Path path, long maximumBytes) throws WorkspaceAccessException {
         return readDocument(path, maximumBytes).text();
     }
 
@@ -30,7 +45,7 @@ final class Utf8TextReader {
      * @return 严格 UTF-8 文档快照
      * @throws WorkspaceAccessException 文件过大、编码非法或读取失败时
      */
-    static Utf8TextDocument readDocument(Path path, long maximumBytes)
+    public static Utf8TextDocument readDocument(Path path, long maximumBytes)
             throws WorkspaceAccessException {
         long size;
         try {

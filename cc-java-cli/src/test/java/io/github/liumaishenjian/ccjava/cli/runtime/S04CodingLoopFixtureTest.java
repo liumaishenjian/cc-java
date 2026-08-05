@@ -343,7 +343,13 @@ class S04CodingLoopFixtureTest {
                 ModelRequest request,
                 String callId) {
             ToolResult result = result(request, callId);
-            assertThat(result.status()).isEqualTo(ToolResultStatus.SUCCESS);
+            assertThat(result.status())
+                    .as(
+                            "callId=%s, errorCode=%s, content=%s",
+                            callId,
+                            result.error().map(error -> error.code().name()).orElse("none"),
+                            result.content())
+                    .isEqualTo(ToolResultStatus.SUCCESS);
             return assertThat(result.content());
         }
 

@@ -23,6 +23,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.node.ObjectNode;
@@ -421,8 +423,13 @@ class RuntimeStdioCommandHandlerTest {
                 : "printf 'command-stream\\n'; printf 'ok\\n' > command.txt";
         StdioProtocolCodec codec = new StdioProtocolCodec();
         CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
-        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
-                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        CountDownLatch terminalReceived = new CountDownLatch(1);
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) -> {
+            events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+            if (type.equals("run.completed") || type.equals("run.failed") || type.equals("run.cancelled")) {
+                terminalReceived.countDown();
+            }
+        };
         java.util.concurrent.atomic.AtomicInteger turns = new java.util.concurrent.atomic.AtomicInteger();
 
         try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(
@@ -460,7 +467,12 @@ class RuntimeStdioCommandHandlerTest {
                             approval.runId().orElseThrow(),
                             approval.payload().get("approvalId").stringValue())), emitter);
 
-            CapturedEvent output = awaitEvent(events, "tool.output");
+            assertThat(terminalReceived.await(15, TimeUnit.SECONDS)).isTrue();
+            CapturedEvent output = events.stream()
+                    .filter(event -> event.type().equals("tool.output"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError(
+                            "命令完成前未收到 stdout 事件: " + eventDiagnostics(events)));
             assertThat(output.payload().toString())
                     .contains("\"stream\":\"stdout\"", "command-stream")
                     .doesNotContain(workspace().toString());
@@ -468,6 +480,22 @@ class RuntimeStdioCommandHandlerTest {
         }
 
         assertThat(Files.readString(workspace().resolve("command.txt"))).contains("ok");
+    }
+
+    private static String eventDiagnostics(List<CapturedEvent> events) {
+        return events.stream()
+                .map(event -> event.type() + "[status=" + stringField(event, "status")
+                        + ", errorCode=" + stringField(event, "errorCode")
+                        + ", stopReason=" + stringField(event, "stopReason")
+                        + ", stream=" + stringField(event, "stream")
+                        + ", toolName=" + stringField(event, "toolName") + "]")
+                .toList()
+                .toString();
+    }
+
+    private static String stringField(CapturedEvent event, String field) {
+        var value = event.payload().get(field);
+        return value != null && value.isString() ? value.stringValue() : "-";
     }
 
     private CapturedEvent awaitTerminal(List<CapturedEvent> events)
