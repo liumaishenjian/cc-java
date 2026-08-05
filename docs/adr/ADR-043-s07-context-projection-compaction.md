@@ -176,5 +176,4 @@ Provider-neutral typed overflow 与 Runtime 精确一次恢复；旧构造器仍
 Port、候选 Gate 与 per-run cooldown 保持不变。Provider adapter slice B 已提供基于稳定结构化 SDK code 的
 overflow 分类和零 Tool 摘要 Adapter；slice C 又以 all-or-none CLI 容量元组接入 Headless composition，且
 明确不提供、推断或宣称任何真实模型容量默认值。ready-only Memory Runtime 与内部 Context Usage View 已有离线
-基础；Stage Demo/Eval、S08 持久 Settings 与完整 `/context` UX 仍未完成。G3-G6 完成前，README
-和矩阵继续把上述 S07 Capability 标为 L0，不得描述为完整可用。
+基础；D4 已补充 deterministic Fake 长会话 Eval、Demo 与 Gap Report，验证事实/硬约束 marker、完成率、Tool 配对、Canonical 不变、估算 Token 降幅和零等待时序；该 Fake 不代表真实模型质量。S08 持久 Settings 与完整 `/context` UX 仍未完成；G6/Stage Exit 仍 Open，README 和矩阵继续把上述 S07 Capability 标为 L0，不得描述为完整可用。

@@ -4,13 +4,13 @@
 >
 > 参考版本：R2026.03
 >
-> 最后更新：2026-08-04
+> 最后更新：2026-08-05
 >
-> 当前代码状态：S01-S06 已 Accepted；S07 Context Engineering 已完成 G0-G2 研究与设计冻结，
-> ADR-042/043/044 固定 Canonical Transcript/Projection 分离、条件式 C1-C4、文件记忆 M1-M5
-> 与零等待相关记忆预取。当前没有 S07 生产实现或 Capability Level 提升，G3-G6 保持 Open；
-> `CTX-17/18` 作为新差距加入且仍为 L0。S08 分层 Instructions/Settings、S12 Sub-Agent、S13 OS
-> Sandbox 与 S14 稳定 Export/Retention/Migration 继续延期。
+> 当前代码状态：S01-S06 已 Accepted；S07 Context Engineering 已完成 G0-G2，并形成 Canonical
+> Transcript/Projection、条件式 C1-C4、文件记忆 M1-M5、零等待预取与内部 Usage View。D4 的 deterministic
+> Fake Eval、Demo、Gap 已提供 G3-G5 证据，但 Capability Level 保持不变，G6 与 Stage Exit 保持 Open；
+> `CTX-17/18` 仍为 L0。S08 分层 Instructions/Settings、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定
+> Export/Retention/Migration 继续延期。
 
 ## 1. 文档目的
 
@@ -154,8 +154,8 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 195 |
-| 当前阶段 | S07 Context Engineering（G0-G2 设计冻结） |
-| Stage Exit | Open：ADR-042/043/044 已通过 G0-G2；G3-G6 尚未开始 |
+| 当前阶段 | S07 Context Engineering（G0-G5 证据切片） |
+| Stage Exit | Open：ADR-042/043/044 已通过 G0-G5；G6 尚未完成 Commit-scoped 对账 |
 | 当前等级 | 55 项为 L2，31 项为 L1，109 项为 L0；本次无等级变化 |
 | 默认最终目标 | 195 项达到 L3，或存在明确 `Accepted Deviation` |
 | 当前能力覆盖 | 24.10%（195 项等权、目标 L3） |

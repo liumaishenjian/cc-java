@@ -4,8 +4,8 @@
 >
 > 最后更新：2026-08-04
 >
-> 当前阶段：S01-S06 已 Accepted；S07 Context Engineering 已完成 G0-G2 研究与设计冻结，
-> ADR-042/043/044 已接受，尚无生产实现、Capability Level 提升或 G3-G6 证据
+> 当前阶段：S01-S06 已 Accepted；S07 Context Engineering 已完成 G0-G2，并已有 Projection、Memory、内部 Usage View 与 deterministic Fake G3-G5 证据；
+> Capability Level 未提升，G6 与 Stage Exit 仍 Open
 >
 > 产品负责人：项目维护者
 
@@ -434,7 +434,7 @@ heartbeat/stale reclaim 或 OS Sandbox；这些兼容性和隔离能力属于 S1
 
 ### S07：Context Engineering
 
-G0-G2 已由 ADR-042/043/044 完成研究与设计冻结；当前没有生产实现或等级提升。G3-G6 验收范围：
+G0-G2 已由 ADR-042/043/044 完成研究与设计冻结；D4 已具备生产 Projection/Memory seam 与 deterministic Fake G3-G5 证据，但等级未提升、G6 仍 Open。G3-G6 验收范围：
 
 - Canonical Transcript/Context Projection 分离、Model-aware 容量预算和可解释 Usage View；
 - C1 大载荷缩减、C2 旧 Tool 输出清理、C3 滚动记忆、C4 全量摘要按条件选择，保持完整 Tool
