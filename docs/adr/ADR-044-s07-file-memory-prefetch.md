@@ -4,7 +4,7 @@
 - Date: 2026-08-04
 - Stage: S07 Context Engineering
 - Capability IDs: `CTX-17`、`CTX-18`（并支撑 `CTX-06/09/10`）
-- Current → S07 Exit Target: `L0 → L2`（G0-G2 冻结，不提升等级）
+- Current → S07 Exit Target: `L0 → L2`（S07 G0-G6 已完成）
 - Reference Behavior Baseline: `R2026.03`
 - Authorized Snapshot ID: `AUTH-SRC-2026-07-29-A`
 - Classification: `Documented / Observed / Inferred / Unknown` 见 ADR-042；本 ADR 为 cc-java 独立 `Documented` 设计
@@ -74,7 +74,7 @@ updated-at: <ISO-8601 date>
 
 ## 独立 Java 契约
 
-截至 2026-08-05，G3-A/B/D1/D2 已实现下列 M1-M5 Domain/Core 离线契约、本地文件 Adapter、ready-only Prefetch、AgentRuntime/Core Projection seam 与真实 Headless 文件系统装配：
+截至 2026-08-05，G3-A/B/D1/D2 与 Commit-scoped G6 对账已完成下列 M1-M5 Domain/Core 离线契约、本地文件 Adapter、ready-only Prefetch、AgentRuntime/Core Projection seam 与真实 Headless 文件系统装配；`CTX-17/18` 达到 S07 L2：
 
 ```text
 MemoryKind
@@ -153,7 +153,7 @@ assemble non-memory inputs ─┼─> consumeReady() ─> build Projection ─> 
 - **S07 引入 SQLite/向量数据库/云服务**：不符合最小依赖与当前规模，延期 S14。
 - **在 S07 实现分层 Instructions 或 Sub-Agent Memory**：分别延期 S08、S12。
 
-G3-B/D1/D2 当前形成 M1-M5 的离线基础、安全回归、Core Runtime seam 与真实 Headless 文件系统生产装配：M4 确定性 manifest 相关选择、M5 revision/digest/预算 Gate、安全正文加载、ready-only 一次消费、零等待慢 Future、迟到结果隔离、每回合 fresh prefetch、短生命周期消息/Provider envelope、Canonical Session/Journal 排除、Permission denial 保持、memory token 分类、默认 hashed Workspace 布局与 Executor 无等待关闭均已有确定性证据；`CTX-17/18` 已有内部 Context View、deterministic Fake Demo/Eval 与 G3-G5 证据，但 Capability Level 仍为 L0，待 Commit-scoped G6 对账。本 ADR 不表示 S07 Stage Exit 或完整文件记忆 UX 已完成。
+G3-B/D1/D2 已形成 M1-M5 的离线基础、安全回归、Core Runtime seam 与真实 Headless 文件系统生产装配：M4 确定性 manifest 相关选择、M5 revision/digest/预算 Gate、安全正文加载、ready-only 一次消费、零等待慢 Future、迟到结果隔离、每回合 fresh prefetch、短生命周期消息/Provider envelope、Canonical Session/Journal 排除、Permission denial 保持、memory token 分类、默认 hashed Workspace 布局与 Executor 无等待关闭均已有确定性证据。deterministic Fake Demo/Eval、Gap 与 Commit-scoped G6 对账已完成，`CTX-17/18` 达到 L2，S07 Stage Exit Accepted。本 ADR 不表示 S08 的完整文件记忆管理 UX 或 S14 的稳定保留/导出/迁移能力已经实现。
 
 2026-08-05 新增的 C3/C4 Summary Foundation 不改变本 ADR 的文件记忆边界：摘要候选不得把 Memory
 文本提升为权限、审计或执行事实，也不得把 ready-only 预取改成摘要关键路径上的等待。C3/C4 归

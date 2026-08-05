@@ -109,7 +109,7 @@ S07 至少需要以下独立测试和度量：
 Scripted Fake 和项目自有边界实现，不恢复本 ADR 中的历史类型草案或参考表达。
 
 - S06 已提供 append-only Canonical Transcript，S07 摘要只产生短生命周期 Projection；
-- S07 仍需完成 G3-G6 证据包，本 ADR 不代表能力已经实现；
+- S07 已由 ADR-042/043/044、离线 Fake、Demo、Gap 与 Commit-scoped G0-G6 对账验收；本 ADR 仍不代表任何能力依据其历史草案实现；
 - 快照 Revision、缺失组件算法和上游正式术语继续保持 `Unknown`；
 - 若新的公开行为观察或授权快照与本 ADR 冲突，应新建 ADR Supersede 本决策，并重跑
   相关长会话 Eval。

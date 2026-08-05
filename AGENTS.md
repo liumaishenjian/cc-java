@@ -97,14 +97,16 @@ Checkpoint/Diff/显式 Undo、Behavior Replay 与 Java CLI/Print/stdio/TUI 生�
   显式确认 Gate，或把 Checkpoint 描述成 Git/OS Sandbox；
 - 当前没有 OS Sandbox；不得把应用层 Permission、FileLock、Checkpoint 或进程清理描述成 S13
   隔离能力；
-- S07 已由 ADR-042/043/044 完成 G0-G2 研究与设计冻结；Canonical Transcript/Projection、
-  条件式 C1-C4、文件记忆 M1-M5 与 ready-only 零等待预取仍未生产实现，`CTX-17/18` 保持 L0，
-  G3-G6 与 Stage Exit 保持 Open；
-- S08 分层 Instructions/Settings、S12 Sub-Agent/后台任务/Worktree、S13 OS Sandbox、S14 稳定
+- S07 已在实现基线 `f12fe259b6fb623f1a9add19a55c45d254f329ec` 上完成 Commit-scoped G0-G6，
+  Stage Exit 为 Accepted：Canonical Transcript/Projection、条件式 C1-C4、typed overflow 至多一次恢复、
+  内部 Usage View、文件记忆 M1-M5 与 ready-only 零等待预取均已验证；LOOP-11、CTX-06/07/08/09/10/11/17/18
+  达到 L2，CTX-12/13 与 OBS-04 为 L1；
+- 当前进入 S08 Instructions + Settings 的 Planned/Not Started 状态；分层 Instructions/Settings、完整
+  `/compact`/`/context`/stdio/Slash/TUI UX、S12 Sub-Agent/后台任务/Worktree、S13 OS Sandbox、S14 稳定
   Export/Retention/Migration 及后续能力继续保持未实现状态。
 
-S06 Accepted 与 S07 G0-G2 不表示 S07 Context、文件记忆、S08 分层 Permission、S13 OS Sandbox
-或 S14 稳定持久化能力已经可用。下一步只进入 S07 G3 独立实现与离线 Fake。
+S07 Accepted 不表示 S08 分层 Instructions/Settings/Permission、完整 Context UX、S13 OS Sandbox
+或 S14 稳定持久化能力已经可用。下一步只进入 S08 G0 授权机制研究与范围冻结。
 
 ## 3. 项目定位
 

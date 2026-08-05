@@ -49,8 +49,7 @@
 > Workspace-aware metadata、本机单 Writer、未完成 Tool Recovery Gate、写前 ordinary-file
 > Checkpoint、有界 Diff 与逐项显式 Undo；Java CLI/Print/stdio/TUI 共用同一 Runtime，Behavior Replay
 > 已验证 Resume/Fork canonical history。任何有副作用操作都绝不自动重放；`SESSION-08` 仍仅为 L1；
-> 当前仍没有 S07 Context Engineering、S08 分层 Settings、S13 OS
-> Sandbox 或 S14 稳定 Export/Retention/Migration。下一步进入 S07 授权研究与启动 Gate。
+> S07 Context Engineering 已在 Commit-scoped G0-G6 对账后 Accepted：生产路径提供短生命周期 Context Projection、条件式 C1-C4、typed overflow 至多一次恢复、内部 Usage View、M1-M5 文件记忆及 ready-only 零等待预取；离线长会话 Eval 保持 Canonical/Tool 协议、事实/硬约束与完成率，并取得 49% 的估算 Token 降幅中位数。S08 分层 Instructions/Settings 与完整 Context UX、S13 OS Sandbox、S14 稳定 Export/Retention/Migration 仍未实现；下一步启动 S08 G0。
 
 ## 项目目标
 
@@ -86,9 +85,9 @@ Stage 证据为准。
 | L3 | 关键行为和异常路径可与参考基线比较 |
 | L4 | 在评测数据支持下形成 Java 生态差异化 |
 
-R2026.03 基线目前追踪 195 个 Capability ID。S01-S06 已完成 Accepted Stage Exit；当前
-55 项为 L2、31 项为 L1、109 项为 L0。S07 只完成 G0-G2 研究与设计冻结，本次新增的
-`CTX-17/18` 仍为 L0，尚不表示 Context Reduction 或文件记忆已可用于真实任务。
+R2026.03 基线目前追踪 195 个 Capability ID。S01-S07 已完成 Accepted Stage Exit；当前
+64 项为 L2、34 项为 L1、97 项为 L0。S07 的 `CTX-17/18` 已达到 L2，可在受限 Headless
+生产路径中提供文件记忆与零等待预取；这不表示 S08 的用户可见管理 UX 或 S14 的稳定持久化能力已经实现。
 默认最终目标为 L3，任何不实现项都必须记录 `Accepted Deviation`。
 
 项目同时度量四件事：

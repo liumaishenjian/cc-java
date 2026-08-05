@@ -6,11 +6,10 @@
 >
 > 最后更新：2026-08-05
 >
-> 当前代码状态：S01-S06 已 Accepted；S07 Context Engineering 已完成 G0-G2，并形成 Canonical
-> Transcript/Projection、条件式 C1-C4、文件记忆 M1-M5、零等待预取与内部 Usage View。D4 的 deterministic
-> Fake Eval、Demo、Gap 已提供 G3-G5 证据，但 Capability Level 保持不变，G6 与 Stage Exit 保持 Open；
-> `CTX-17/18` 仍为 L0。S08 分层 Instructions/Settings、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定
-> Export/Retention/Migration 继续延期。
+> 当前代码状态：S01-S07 已 Accepted；S07 的 Canonical Transcript/Projection、条件式 C1-C4、文件记忆
+> M1-M5、ready-only 零等待预取、内部 Usage View 与 latest-only Recovery Analytics 已在离线 Fake、Demo、
+> Gap 和 Commit-scoped 对账中达到声明等级。当前路线切换至尚未启动的 S08；分层 Instructions/Settings、
+> 完整 Context UX、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
 
 ## 1. 文档目的
 
@@ -154,12 +153,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 195 |
-| 当前阶段 | S07 Context Engineering（G0-G5 证据切片） |
-| Stage Exit | Open：ADR-042/043/044 已通过 G0-G5；G6 尚未完成 Commit-scoped 对账 |
-| 当前等级 | 55 项为 L2，31 项为 L1，109 项为 L0；本次无等级变化 |
+| 当前阶段 | S08 Instructions + Settings（Planned，尚未开始） |
+| Stage Exit | S07 Accepted：ADR-042/043/044、离线 Fake、Demo、Gap 与 Commit-scoped G0-G6 对账形成闭环 |
+| 当前等级 | 64 项为 L2，34 项为 L1，97 项为 L0 |
 | 默认最终目标 | 195 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 24.10%（195 项等权、目标 L3） |
-| 下一步 | 进入 S07 G3 独立实现；S08/S12/S13/S14 延期边界不变 |
+| 当前能力覆盖 | 27.69%（195 项等权、目标 L3） |
+| 下一步 | 启动 S08 G0 研究与范围冻结；S12/S13/S14 延期边界不变 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -271,7 +270,7 @@ Stage 完成项。
 | LOOP-08 | Deadline 与取消 | Cancellation 传播 | L1 | S02/S04 | REF-02 |
 | LOOP-09 | 模型错误重试 | 有界 Retry Policy | L2 | S02/S14 | REF-01/AUTH-01 |
 | LOOP-10 | Model Output Length Recovery | S02 识别截断/不完整输出并有界停止或续接 → S14 L3 恢复策略 | L2 | S02/S14 | REF-01/AUTH-01 |
-| LOOP-11 | Context 溢出恢复 | Compact / Stop / Retry | L0 | S07 | REF-01/02 |
+| LOOP-11 | Context 溢出恢复 | typed overflow 后最多一次 C3/C4 恢复；失败或第二次 overflow 明确停止 | L2 | S07 | REF-01/02 |
 | LOOP-12 | Model Fallback | Provider-aware Fallback | L0 | S14 | REF-01 |
 | LOOP-13 | 用户拒绝后继续推理 | Denied Tool Result 回传模型 | L2 | S05 | REF-04 |
 | LOOP-14 | 崩溃和未完成 Tool | Session Recovery Gate | L2 | S06 | REF-06/AUTH-01 |
@@ -378,19 +377,19 @@ Stage 完成项。
 | CTX-03 | Hierarchical Instructions | User/Project/Directory | L0 | S08 | REF-05 |
 | CTX-04 | Path-scoped Rules | 只在相关文件加载 | L0 | S08 | REF-05 |
 | CTX-05 | Tool Result Limits | 类型化裁剪 | L2 | S03/S04 | REF-01 |
-| CTX-06 | Token Budget | Model-aware 预算 | L0 | S07 | REF-01/02 |
-| CTX-07 | Complete Turn Eviction | 保持 Tool 协议成对 | L0 | S07 | REF-01 |
-| CTX-08 | Old Tool Output Clear | 优先释放低价值输出 | L0 | S07 | REF-02 |
-| CTX-09 | Conversation Summary | C3/C4 有界候选、严格提交 Gate 与纯数据 Summarizer Port（离线基础已实现，尚未 Provider/Runtime 接入） | L0 | S07 | REF-01/02 |
-| CTX-10 | Multi-level Compaction | C1/C2 后条件式 C3→C4、预算满足即停（离线基础已实现，尚未 Runtime 接入） | L0 | S07 | REF-01 |
-| CTX-11 | Thrashing Guard | Run/revision/tier 冷却 + 单 overflow retry（离线基础已实现，尚未 Runtime 接入） | L0 | S07 | REF-02 |
-| CTX-12 | Compact Instructions | 用户控制保留内容 | L0 | S07/S08 | REF-02 |
-| CTX-13 | `/context` | 内部数值化 ContextUsageView/Headless Optional latest 查询与固定隐私 reason code 已实现；`/context` 命令、stdio/Slash/TUI UX 延期 S08 | L0 | S07 | REF-02 |
+| CTX-06 | Token Budget | 显式容量元组的 model-aware 预算与来源 Usage View | L2 | S07 | REF-01/02 |
+| CTX-07 | Complete Turn Eviction | 完整 Tool Call/Result 协议边界、C2 占位与 Canonical 不变 | L2 | S07 | REF-01 |
+| CTX-08 | Old Tool Output Clear | 按压力选择 C2 清理低价值旧 Tool 输出 | L2 | S07 | REF-02 |
+| CTX-09 | Conversation Summary | C3/C4 有界候选、严格提交 Gate 与零 Tool Provider Summarizer | L2 | S07 | REF-01/02 |
+| CTX-10 | Multi-level Compaction | C1/C2 后条件式 C3→C4、预算满足即停 | L2 | S07 | REF-01 |
+| CTX-11 | Thrashing Guard | Run/revision/tier 冷却与单次 typed-overflow 恢复 | L2 | S07 | REF-02 |
+| CTX-12 | Compact Instructions | 用户可控保留内容和持久设置 | L1 | S08 | REF-02 |
+| CTX-13 | `/context` | 内部数值化 ContextUsageView、Headless latest 查询与固定隐私 reason code；命令、stdio/Slash/TUI UX 延期 S08 | L1 | S07/S08 | REF-02 |
 | CTX-14 | Skill Lazy Loading | Metadata 先加载 | L0 | S11 | REF-03 |
 | CTX-15 | Sub-Agent Isolation | 独立窗口与摘要返回 | L0 | S12 | REF-02/03 |
 | CTX-16 | Prompt Cache | 稳定前缀和 Tool 顺序 | L0 | S14 | REF-01 |
-| CTX-17 | Auto Memory Index | `MEMORY.md` + 有界 topic Catalog 与可重建索引（M1-M3 离线基础已实现，尚未 Runtime 接入） | L0 | S07 | REF-05/AUTH-01 |
-| CTX-18 | Relevant Memory Prefetch | ready-only、零等待的相关记忆投影（M4/M5 离线基础已实现，尚未 Runtime 接入） | L0 | S07 | REF-05/AUTH-01 |
+| CTX-17 | Auto Memory Index | `MEMORY.md`、有界 topic Catalog、可重建索引与真实 Headless 文件装配 | L2 | S07 | REF-05/AUTH-01 |
+| CTX-18 | Relevant Memory Prefetch | M4/M5 ready-only、零等待相关记忆投影与迟到结果隔离 | L2 | S07 | REF-05/AUTH-01 |
 
 ## 15. Settings / Configuration 对照
 
@@ -484,7 +483,7 @@ Stage 完成项。
 | OBS-01 | Agent Event | 可重放控制流 | L1 | S01 | REF-01 |
 | OBS-02 | Turn/Tool Timing | S02 事件边界采集 L2 → S14 Metrics Backend L3 | L2 | S02/S14 | REF-01/AUTH-01 |
 | OBS-03 | Token / Cost | S02 可信 Provider Usage L2 → S14 Cost 治理 L3 | L2 | S02/S14 | REF-01/AUTH-01 |
-| OBS-04 | Stop / Recovery Analytics | Context preparation/recovery 的 fixed-code latest-only 内部观察基础已实现；分布聚合、持久化与导出延期 S14 | L0 | S07/S14 | REF-01 |
+| OBS-04 | Stop / Recovery Analytics | Context preparation/recovery 的 fixed-code latest-only 内部观察；分布聚合、持久化与导出延期 S14 | L1 | S07/S14 | REF-01 |
 | OBS-05 | Privacy Controls | S02 最小化 Telemetry L2 → S14 Export Policy L3 | L2 | S02/S14 | REF-01/AUTH-01 |
 | OBS-06 | OpenTelemetry | 可选 Trace Export | L0 | S14 | REF-01 |
 | EVAL-01 | Seed Tasks | S04 单个公开 Scripted Java Fixture L1 → S14 任务集与指标 L3 | L1 | S04/S14 | REF-01 |
@@ -639,7 +638,7 @@ S06 授权研究与 Gate，不表示持久 Session 或 Checkpoint 已实现。
 
 ### S07：Context Engineering
 
-G0-G2 已由 ADR-042/043/044 冻结；G3-G6 完成条件：
+已 Accepted。ADR-042/043/044、离线 Fake 长会话 Eval、Demo、Gap 与 Commit-scoped G0-G6 对账已证明以下退出条件；这些 L1/L2 等级不等同于 S08 的用户可见 Context UX 或 S14 的真实模型质量：
 
 - Model-aware Token Budget 与可解释 Context Usage View；
 - Canonical Transcript 保持不变，Projection 中完整 Tool Call/Result 配对；

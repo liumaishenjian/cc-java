@@ -4,7 +4,7 @@
 - Date: 2026-08-04
 - Stage: S07 Context Engineering
 - Capability IDs: `LOOP-11`、`CTX-06/07/08/09/10/11/12/13/17/18`、`OBS-04`
-- Current → S07 Exit Target: `L0 → L2`（本 ADR 仅完成 G0-G2，不提升等级）
+- Current → S07 Exit Target: `L0 → L2`（S07 G0-G6 已完成；CTX-12/13 因 S08 UX 范围保持 L1）
 - Reference Behavior Baseline: `R2026.03`
 - Authorized Snapshot ID: `AUTH-SRC-2026-07-29-A`
 - Classification: 公开资料为 `Documented`；授权快照机制为 `Observed / Inferred / Unknown`；本项目采纳边界为 `Documented`
@@ -16,9 +16,9 @@ S07 要在不改写这份 Canonical Transcript 的前提下，为每次模型请
 并增加可跨 Session 使用的本地文件记忆。按照 ADR-022，成熟 Context 与 Memory 机制在设计前完成了
 仓库外只读研究；历史 ADR-019 仍为 `Superseded`，本 ADR 不恢复其具体表达、阈值或实现布局。
 
-本变更冻结 S07 G0-G2：G0 来源与授权边界通过，G1 Feature、目标等级和可证伪实验通过，G2
-采纳 ADR、独立契约与安全边界通过。G3-G6 保持 Open；没有生产实现、Capability Level 提升或
-Stage Exit 声明。
+本 ADR 在启动时冻结 S07 G0-G2：G0 来源与授权边界、G1 Feature/目标等级/可证伪实验、G2
+采纳 ADR/独立契约/安全边界均通过。后续独立实现、离线 Fake 长会话 Eval、Demo、Gap 与 Commit-scoped
+对账已完成 G3-G6，S07 Stage Exit 为 Accepted；当前矩阵中的 L1/L2 等级与 S08/S14 延期边界见第 97 节。
 
 ## 公开一手资料（Documented）
 
@@ -127,7 +127,7 @@ S07 采纳：Canonical Transcript/Projection 分离、条件式 C1-C4、协议�
 
 ## 可证伪验证
 
-G3-G5 实现阶段至少以离线 Fake 和长会话回放证明：
+S07 已以离线 Fake 和长会话回放证明：
 
 1. 相同 Canonical Transcript 在 Resume 前后生成确定且兼容的 Projection，规范 JSONL 字节不变；
 2. C1-C4 按条件选择而非固定串行，低压力不压缩，预算满足即停止；
@@ -142,4 +142,5 @@ G3-G5 实现阶段至少以离线 Fake 和长会话回放证明：
 ## 停止条件
 
 若授权范围被撤回、快照身份变化、研究结论无法与参考表达分离，或实现需要复制参考字节、内部格式、
-Prompt、命名、常量或布局，立即停止使用该材料。本 ADR 只接受 G0-G2 设计边界，不表示 S07 已实现。
+Prompt、命名、常量或布局，立即停止使用该材料。本 ADR 的研究边界不扩大为复制或稳定兼容承诺；S07
+Accepted 仅表示已验证的独立 L1/L2 契约，不表示 S08/S13/S14 能力已经实现。

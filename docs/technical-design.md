@@ -2,16 +2,16 @@
 
 > 文档状态：Proposed v0.9
 >
-> 最后更新：2026-08-04
+> 最后更新：2026-08-05
 >
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
-> 当前学习阶段：S01-S06 已 Accepted；S07 Context Engineering 已完成 G0-G2 研究与设计冻结
+> 当前学习阶段：S01-S07 已 Accepted；S08 Instructions + Settings 为 Planned，尚未开始
 >
-> 当前实现状态：ADR-042/043/044 已固定 Context Projection、条件式 Reduction、文件记忆和零等待
+> 当前实现状态：ADR-042/043/044 已固定并验证 Context Projection、条件式 Reduction、文件记忆和零等待
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
-> composition、ready-only Memory Core/Domain Runtime seam 与 D2 Headless 文件系统生产装配已形成实现和
-> 离线 Fake；Context View、Demo/Eval、Capability Level 提升与 G3-G6 完整证据仍未完成。
+> composition、ready-only Memory Core/Domain Runtime seam、D2 Headless 文件系统生产装配、Context View 与
+> deterministic Fake Demo/Eval 已完成 Commit-scoped G0-G6 对账。S08 的持久 Settings、Schema 与完整 Context UX 仍未实现。
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 
@@ -966,10 +966,10 @@ SHA-256 后才最终删除；不匹配时原子恢复，恢复碰撞或失败则
 
 ### 16.3 验证与延期边界
 
-G3-G6 必须以离线 Fake 和长会话 Eval 证伪：Tool 协议孤儿数为 `0`，固定事实和硬约束保持率均为
-`100%`，任务完成率不低于未压缩对照；进入 Reduction 的样本中，模型输入 Token 中位数至少下降
-`30%`；慢记忆召回不能增加主模型请求关键路径等待。上述数值是 cc-java 独立 S07 退出阈值，
-不是参考实现常量。
+S07 已以离线 Fake 和长会话 Eval 验证：Tool 协议孤儿数为 `0`，固定事实和硬约束保持率均为
+`100%`，任务完成率不低于未压缩对照；进入 Reduction 的样本中，模型输入 Token 实际中位数下降
+`49%`（阈值至少 `30%`）；慢记忆召回不增加主模型请求关键路径等待。上述数值是 cc-java 独立 S07
+退出阈值，不是参考实现常量。
 
 S08 负责分层 Instructions/Settings 与完整 Context UX；S12 负责 Sub-Agent Context 隔离、后台
 Agent、任务系统、并行 Tool 与 Worktree；S13 才负责 OS Sandbox；S14 负责稳定
@@ -979,8 +979,7 @@ Export/Retention/Migration、SQLite 或大规模索引、Provider Cache Hint、�
 坏文件、去重并执行正文 UTF-8 总预算；`MemoryRecallPlan` 最多携带 20 个候选；
 `MemoryPrefetch.consumeReady()` 使用 `AtomicBoolean` CAS 无锁竞争一次消费，不调用
 `get/join/wait/sleep`，未完成、失败、取消或迟到结果立即降级为空，重复消费者得到
-`ALREADY_CONSUMED`。在 Context View、Stage Demo/Eval、Commit-scoped G3-G6 证据完成前，
-`CTX-17/18` 继续保持 L0。
+`ALREADY_CONSUMED`。Context View、Stage Demo/Eval 与 Commit-scoped G0-G6 对账已完成；`CTX-17/18` 达到 S07 L2，仍不包含 S08 的用户可见记忆管理 UX。
 
 ADR-042 已按 ADR-022 完成新的采纳边界；历史 ADR-019 继续保持 Superseded，不作为实现依据。
 

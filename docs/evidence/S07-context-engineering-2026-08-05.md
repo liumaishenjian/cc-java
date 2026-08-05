@@ -1,16 +1,16 @@
-# S07 Context Engineering D4 预备证据
+# S07 Context Engineering Stage Exit 证据
 
 ## 元数据
 
 ```text
 Stage: S07 Context Engineering
-Status: G3-G5 evidence slice; G6/Open; Stage Exit/Open
+Status: G0-G6 Passed; Stage Exit/Accepted
 Baseline: R2026.03
 Authorized Snapshot ID: AUTH-SRC-2026-07-29-A
-Implementation baseline: 46c288b plus uncommitted D4 evidence slice
+Implementation baseline: f12fe259b6fb623f1a9add19a55c45d254f329ec
 Date: 2026-08-05
 Feature IDs: LOOP-11, CTX-06/07/08/09/10/11/12/13/17/18, OBS-04
-Capability Levels: unchanged
+Capability Levels: LOOP-11、CTX-06/07/08/09/10/11/17/18 为 L2；CTX-12/13 与 OBS-04 为 L1
 ```
 
 ## G0-G2（Passed，继承）
@@ -37,6 +37,6 @@ Result: Passed
 
 `docs/demos/S07-context-memory.md` 给出可复制命令、实际执行观察、确定性 Fake 局限和负例；`docs/gap-reports/S07.md` 记录尚未实现的 UX、真实模型质量与后续 Stage 边界。
 
-## G6（Open）
+## G6（Passed）
 
-本切片尚未在实现 Commit 上完成独立审查、全量最终对账和退出接受。不得把 G3-G5 证据解释为 Capability Level 提升、G6 Passed 或 S07 Stage Exit Accepted。
+以 `f12fe259b6fb623f1a9add19a55c45d254f329ec` 为实现基线完成全量 Maven、S07 聚焦回归、CLI/Memory 集成、TUI、aggregate Javadoc、ProgressDashboard 生成/`--check`/`--self-test` 与 `git diff --check` 复验；矩阵、PRD、技术设计、ADR、README、AGENTS、Demo 与 Gap 已对账。依据矩阵的阶段检查点规则，LOOP-11、CTX-06/07/08/09/10/11/17/18 达到 L2，CTX-12/13 与 OBS-04 达到 L1；S08 UX 与 S14 观测/持久化边界保留，S07 Stage Exit Accepted。
