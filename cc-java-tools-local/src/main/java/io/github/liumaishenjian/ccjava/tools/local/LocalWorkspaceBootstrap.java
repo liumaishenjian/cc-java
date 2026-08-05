@@ -13,31 +13,27 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
- * 一次性组装 S03-S04 WorkspaceGuard、本地 Tool、根指令和安全 Git 摘要。
+ * 一次性组装 S03-S04 WorkspaceGuard、本地 Tool 和安全 Git 摘要。
  *
- * <p>Composition Root 使用该不可变结果，避免为 Tool、Instructions 和 Snapshot 分别解析
- * Workspace。Bootstrap 不创建 Registry 或 Runtime，也不驱动 Agent Loop。</p>
+ * <p>Composition Root 使用该不可变结果，避免为 Tool 与 Snapshot 分别解析 Workspace。
+ * Instructions 必须由 S08 的短生命周期投影单独加载，Bootstrap 不创建 Registry 或 Runtime，
+ * 也不驱动 Agent Loop。</p>
  *
  * @param tools 按稳定协议顺序排列的五个只读、两个写入和一个命令 Tool
- * @param projectInstructions 可选根 AGENTS.md 正文
  * @param snapshot 非 Secret Git 摘要
  * @param workspaceGuard 与文件 Tool 共享的真实路径安全边界
  * @since 0.3.0
  */
 public record LocalWorkspaceBootstrap(
         List<AgentTool> tools,
-        Optional<String> projectInstructions,
         WorkspaceSnapshot snapshot,
         WorkspaceGuard workspaceGuard) {
 
     /** 冻结 Bootstrap 输出。 */
     public LocalWorkspaceBootstrap {
         tools = List.copyOf(Objects.requireNonNull(tools, "tools 不能为空"));
-        projectInstructions = Objects.requireNonNull(
-                projectInstructions, "projectInstructions 不能为空");
         snapshot = Objects.requireNonNull(snapshot, "snapshot 不能为空");
         workspaceGuard = Objects.requireNonNull(workspaceGuard, "workspaceGuard 不能为空");
     }
@@ -60,7 +56,6 @@ public record LocalWorkspaceBootstrap(
         tools.add(new RunCommandTool(new LocalCommandExecutor(guard.workspace())));
         return new LocalWorkspaceBootstrap(
                 tools,
-                new RootInstructionLoader(guard).load(),
                 WorkspaceSnapshot.capture(git),
                 guard);
     }

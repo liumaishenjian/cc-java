@@ -132,6 +132,120 @@ class HeadlessRuntimeSessionTest {
     }
 
     @Test
+    void injectedInstructionHomeNeverReadsTheRealUserHome() throws Exception {
+        Path injectedHome = Files.createDirectory(sessionStoreRoot.resolve("instruction-home"));
+        Path instructionRoot = Files.createDirectories(injectedHome.resolve(".cc-java/instructions"));
+        Files.writeString(instructionRoot.resolve("AGENTS.md"), "INJECTED_INSTRUCTION_SENTINEL");
+        AtomicReference<ModelRequest> request = new AtomicReference<>();
+
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                current -> {
+                    request.set(current);
+                    return ModelTurn.text("done");
+                },
+                AgentEventSink.noop(),
+                testOptions(temporaryWorkspace, Duration.ofMinutes(5)),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny(),
+                ContextPreparationService.noop(),
+                null,
+                HeadlessRuntimeSession.HeadlessMemoryLayout.disabled(),
+                HeadlessRuntimeSession.HeadlessInstructionLayout.forHome(injectedHome))) {
+            application.open();
+            application.run("hello");
+        }
+
+        assertThat(((SystemMessage) request.get().messages().getFirst()).content())
+                .contains("INJECTED_INSTRUCTION_SENTINEL")
+                .doesNotContain(System.getProperty("user.home"));
+    }
+
+    @Test
+    void instructionBodiesStayTransientAcrossDurableSessionArtifactsAndResumeForkRefreshCurrentFiles()
+            throws Exception {
+        Path instructionHome = Files.createDirectory(sessionStoreRoot.resolve("instruction-home"));
+        Files.createDirectories(instructionHome.resolve(".cc-java/instructions"));
+        Path userAgents = Files.writeString(instructionHome.resolve(".cc-java/instructions/AGENTS.md"),
+                "USER_INSTRUCTION_SENTINEL");
+        Path projectAgents = Files.writeString(temporaryWorkspace.resolve("AGENTS.md"),
+                "PROJECT_INSTRUCTION_SENTINEL_V1");
+        Path changed = Files.writeString(temporaryWorkspace.resolve("sample.txt"), "old\n");
+        CopyOnWriteArrayList<ModelRequest> sourceRequests = new CopyOnWriteArrayList<>();
+        CopyOnWriteArrayList<AgentEventEnvelope> lifecycle = new CopyOnWriteArrayList<>();
+        ModelGateway sourceModel = request -> {
+            sourceRequests.add(request);
+            if (sourceRequests.size() != 1) {
+                return ModelTurn.text("done");
+            }
+            ToolCall patch = new ToolCall("call-sentinel-patch", "apply_patch", new JsonObject(Map.of(
+                    "path", "sample.txt", "oldText", "old", "newText", "new")));
+            return new ModelTurn(AssistantMessage.tools(java.util.List.of(patch)), ModelTurnMetadata.unknown());
+        };
+        PermissionRule allowPatch = new PermissionRule(
+                PermissionRuleSource.STARTUP, PermissionDecision.ALLOW,
+                new PermissionSelector("apply_patch", ToolSource.BUILT_IN, "sample.txt"));
+        io.github.liumaishenjian.ccjava.domain.SessionId sourceId;
+        try (HeadlessRuntimeSession source = new HeadlessRuntimeSession(
+                sourceModel, lifecycle::add,
+                testOptions(temporaryWorkspace, Duration.ofSeconds(5), PermissionMode.DEFAULT,
+                        java.util.List.of(allowPatch)),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny(),
+                ContextPreparationService.noop(), null,
+                HeadlessRuntimeSession.HeadlessMemoryLayout.disabled(),
+                HeadlessRuntimeSession.HeadlessInstructionLayout.forHome(instructionHome))) {
+            sourceId = source.open();
+            assertThat(source.run("persist no instruction body").stopReason()).isEqualTo(StopReason.COMPLETED);
+            assertThat(source.checkpoints()).hasSize(1);
+        }
+        assertThat(system(sourceRequests.getFirst())).contains(
+                "USER_INSTRUCTION_SENTINEL", "PROJECT_INSTRUCTION_SENTINEL_V1");
+        String durableText;
+        try (var files = Files.walk(sessionStoreRoot.resolve(sourceId.value()))) {
+            durableText = files.filter(Files::isRegularFile)
+                    .map(path -> {
+                        try {
+                            return Files.readString(path);
+                        } catch (IOException exception) {
+                            throw new AssertionError(exception);
+                        }
+                    }).collect(java.util.stream.Collectors.joining("\n"));
+        }
+        assertThat(durableText).doesNotContain(
+                "USER_INSTRUCTION_SENTINEL", "PROJECT_INSTRUCTION_SENTINEL_V1", instructionHome.toString());
+        assertThat(lifecycle.toString()).doesNotContain(
+                "USER_INSTRUCTION_SENTINEL", "PROJECT_INSTRUCTION_SENTINEL_V1", instructionHome.toString());
+        assertThat(Files.readString(changed)).isEqualTo("new\n");
+
+        Files.writeString(userAgents, "USER_INSTRUCTION_SENTINEL_V2");
+        Files.writeString(projectAgents, "PROJECT_INSTRUCTION_SENTINEL_V2");
+        CopyOnWriteArrayList<ModelRequest> recoveredRequests = new CopyOnWriteArrayList<>();
+        for (io.github.liumaishenjian.ccjava.cli.session.SessionOpenMode mode : java.util.List.of(
+                io.github.liumaishenjian.ccjava.cli.session.SessionOpenMode.RESUME,
+                io.github.liumaishenjian.ccjava.cli.session.SessionOpenMode.FORK)) {
+            try (HeadlessRuntimeSession recovered = new HeadlessRuntimeSession(
+                    request -> {
+                        recoveredRequests.add(request);
+                        return ModelTurn.text("recovered");
+                    },
+                    AgentEventSink.noop(), sessionOptions(mode, sourceId),
+                    (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                            io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny(),
+                    ContextPreparationService.noop(), null,
+                    HeadlessRuntimeSession.HeadlessMemoryLayout.disabled(),
+                    HeadlessRuntimeSession.HeadlessInstructionLayout.forHome(instructionHome))) {
+                recovered.open();
+                assertThat(recovered.run("use current instructions").stopReason())
+                        .isEqualTo(StopReason.COMPLETED);
+            }
+        }
+        assertThat(recoveredRequests).hasSize(2);
+        assertThat(recoveredRequests).allSatisfy(request -> assertThat(system(request))
+                .contains("USER_INSTRUCTION_SENTINEL_V2", "PROJECT_INSTRUCTION_SENTINEL_V2")
+                .doesNotContain("USER_INSTRUCTION_SENTINEL\n", "PROJECT_INSTRUCTION_SENTINEL_V1"));
+    }
+
+    @Test
     void absentContextConfigSendsCanonicalRequestWithoutSummarizing() {
         AtomicReference<ModelRequest> request = new AtomicReference<>();
         ModelGateway model = current -> {
@@ -647,7 +761,7 @@ class HeadlessRuntimeSessionTest {
                         "run_command");
         assertThat(((SystemMessage) requests.getFirst().messages().getFirst()).content())
                 .contains(
-                        "<project-instructions",
+                        "<instructions>",
                         "Only explain evidence",
                         "apply_patch requires exact oldText");
         assertThat(requests.get(1).messages())
@@ -1220,6 +1334,10 @@ class HeadlessRuntimeSessionTest {
         assertThat(result.result().error().orElseThrow().code())
                 .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolErrorCode.SENSITIVE_PATH);
         assertThat(result.result().toString()).doesNotContain("TOP_SECRET", temporaryWorkspace.toString());
+    }
+
+    private static String system(ModelRequest request) {
+        return ((SystemMessage) request.messages().getFirst()).content();
     }
 
     private HeadlessRuntimeOptions sessionOptions(

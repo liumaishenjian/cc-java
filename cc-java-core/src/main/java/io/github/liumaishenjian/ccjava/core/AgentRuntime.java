@@ -17,6 +17,7 @@ import io.github.liumaishenjian.ccjava.domain.ToolErrorCode;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
 import io.github.liumaishenjian.ccjava.domain.ToolResultMessage;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
+import io.github.liumaishenjian.ccjava.core.instructions.InstructionContextService;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -51,6 +52,7 @@ public final class AgentRuntime {
     private final SessionJournal sessionJournal;
     private final ContextPreparationService contextPreparation;
     private final MemoryContextService memoryContext;
+    private final InstructionContextService instructionContext;
     private final ConcurrentMap<SessionId, ActiveRun> activeRuns = new ConcurrentHashMap<>();
 
     /**
@@ -82,7 +84,8 @@ public final class AgentRuntime {
                 lifecycle,
                 SessionJournal.noop(),
                 ContextPreparationService.noop(),
-                MemoryContextService.noop());
+                MemoryContextService.noop(),
+                InstructionContextService.noop());
     }
 
     /**
@@ -116,7 +119,8 @@ public final class AgentRuntime {
                 lifecycle,
                 sessionJournal,
                 ContextPreparationService.noop(),
-                MemoryContextService.noop());
+                MemoryContextService.noop(),
+                InstructionContextService.noop());
     }
 
     /**
@@ -152,7 +156,8 @@ public final class AgentRuntime {
                 lifecycle,
                 sessionJournal,
                 contextPreparation,
-                MemoryContextService.noop());
+                MemoryContextService.noop(),
+                InstructionContextService.noop());
     }
 
     /**
@@ -183,6 +188,47 @@ public final class AgentRuntime {
             SessionJournal sessionJournal,
             ContextPreparationService contextPreparation,
             MemoryContextService memoryContext) {
+        this(
+                sessionStore,
+                idGenerator,
+                modelGateway,
+                contextAssembler,
+                toolRegistry,
+                toolPipeline,
+                lifecycle,
+                sessionJournal,
+                contextPreparation,
+                memoryContext,
+                InstructionContextService.noop());
+    }
+
+    /**
+     * 创建同时启用 Instructions、Memory 与 Context 短生命周期 Projection 的 Runtime。
+     *
+     * @param sessionStore 当前进程的 Session Store
+     * @param idGenerator Run ID 来源
+     * @param modelGateway 单回合模型端口
+     * @param contextAssembler 追加式 Context 组装器
+     * @param toolRegistry 当前可见 Tool Registry
+     * @param toolPipeline 统一 Tool 执行管线
+     * @param lifecycle 可失败的观察生命周期分发器
+     * @param sessionJournal 必须成功的规范 Session journal
+     * @param contextPreparation 每回合 Projection 准备与 Run 终态清理服务
+     * @param memoryContext 每回合 ready-only Memory Projection 服务
+     * @param instructionContext 每回合 Instructions Projection 与成功 Tool 激活服务
+     */
+    public AgentRuntime(
+            SessionStore sessionStore,
+            AgentIdGenerator idGenerator,
+            ModelGateway modelGateway,
+            ContextAssembler contextAssembler,
+            ToolRegistry toolRegistry,
+            ToolExecutionPipeline toolPipeline,
+            LifecycleDispatcher lifecycle,
+            SessionJournal sessionJournal,
+            ContextPreparationService contextPreparation,
+            MemoryContextService memoryContext,
+            InstructionContextService instructionContext) {
         this.sessionStore = Objects.requireNonNull(sessionStore, "sessionStore 不能为空");
         this.idGenerator = Objects.requireNonNull(idGenerator, "idGenerator 不能为空");
         this.modelGateway = Objects.requireNonNull(modelGateway, "modelGateway 不能为空");
@@ -198,6 +244,8 @@ public final class AgentRuntime {
                 contextPreparation, "contextPreparation 不能为空");
         this.memoryContext = Objects.requireNonNull(
                 memoryContext, "memoryContext 不能为空");
+        this.instructionContext = Objects.requireNonNull(
+                instructionContext, "instructionContext 不能为空");
     }
 
     /**
@@ -308,8 +356,11 @@ public final class AgentRuntime {
                         runId,
                         turnNumber,
                         toolRegistry.definitions());
-                ModelRequest withMemory = memoryContext.consumeReady(
+                ModelRequest withInstructions = instructionContext.project(
                         canonicalRequest,
+                        activeRun.cancellation().token());
+                ModelRequest withMemory = memoryContext.consumeReady(
+                        withInstructions,
                         currentUserMessage,
                         memoryPrefetch);
                 ModelRequest modelRequest = contextPreparation.prepare(
@@ -395,6 +446,14 @@ public final class AgentRuntime {
                         return state.stop(StopReason.INTERNAL_ERROR);
                     }
                     session.appendToolResult(new ToolResultMessage(result));
+                    if (result.status() == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS) {
+                        try {
+                            instructionContext.recordSuccessfulTool(
+                                    call, result, activeRun.cancellation().token());
+                        } catch (RuntimeException ignored) {
+                            // Instructions 刷新是短生命周期投影旁路，不能推翻已持久化的 Tool 成功事实。
+                        }
+                    }
                 }
             } finally {
                 memoryPrefetch.close();

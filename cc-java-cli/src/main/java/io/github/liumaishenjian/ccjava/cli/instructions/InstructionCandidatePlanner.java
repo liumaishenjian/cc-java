@@ -30,10 +30,13 @@ public final class InstructionCandidatePlanner {
     }
 
     /**
-     * 生成 Project、Directory 和 Local 候选。
+     * 生成 USER、Project、Directory 和 Local 候选。
+     *
+     * <p>候选固定按 USER → PROJECT → DIRECTORY（由根到目标）→ LOCAL 的低到高优先级输出，
+     * 根项目只出现一次。</p>
      *
      * @param targets 已通过 Workspace Adapter 验证的目标；可为空
-     * @return 低到高优先级的确定性候选，根项目只出现一次
+     * @return 低到高优先级的确定性候选
      */
     public List<InstructionCandidate> plan(List<VerifiedInstructionTarget> targets) {
         targets = List.copyOf(Objects.requireNonNull(targets, "targets 不能为空"));
@@ -45,6 +48,8 @@ public final class InstructionCandidatePlanner {
             directories.addAll(ancestors(startDirectory(verified)));
         }
         List<InstructionCandidate> candidates = new ArrayList<>();
+        candidates.add(new InstructionCandidate(InstructionSourceKind.USER, InstructionScopeKind.USER_GLOBAL,
+                "user-instructions", candidates.size(), InstructionActivation.STARTUP));
         candidates.add(new InstructionCandidate(InstructionSourceKind.PROJECT, InstructionScopeKind.WORKSPACE,
                 ROOT_AGENTS, candidates.size(), InstructionActivation.STARTUP));
         for (String directory : directories) {

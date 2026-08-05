@@ -29,13 +29,15 @@ class InstructionCandidatePlannerTest {
                 VerifiedInstructionTarget.directory(guard, "a")));
 
         assertThat(result).extracting(candidate -> candidate.safeSourceId())
-                .containsExactly("AGENTS.md", "a/AGENTS.md", "a/b/AGENTS.md", ".cc-java/AGENTS.local.md");
+                .containsExactly("user-instructions", "AGENTS.md", "a/AGENTS.md", "a/b/AGENTS.md", ".cc-java/AGENTS.local.md");
         assertThat(result).extracting(candidate -> candidate.sourceKind())
-                .containsExactly(InstructionSourceKind.PROJECT, InstructionSourceKind.DIRECTORY,
-                        InstructionSourceKind.DIRECTORY, InstructionSourceKind.LOCAL);
+                .containsExactly(InstructionSourceKind.USER, InstructionSourceKind.PROJECT,
+                        InstructionSourceKind.DIRECTORY, InstructionSourceKind.DIRECTORY,
+                        InstructionSourceKind.LOCAL);
         assertThat(result).extracting(candidate -> candidate.activation())
-                .containsExactly(InstructionActivation.STARTUP, InstructionActivation.VERIFIED_TARGET,
-                        InstructionActivation.VERIFIED_TARGET, InstructionActivation.STARTUP);
+                .containsExactly(InstructionActivation.STARTUP, InstructionActivation.STARTUP,
+                        InstructionActivation.VERIFIED_TARGET, InstructionActivation.VERIFIED_TARGET,
+                        InstructionActivation.STARTUP);
     }
 
     @Test
@@ -54,10 +56,10 @@ class InstructionCandidatePlannerTest {
 
         assertThat(first).isEqualTo(second);
         assertThat(first).extracting(candidate -> candidate.safeSourceId())
-                .containsExactly("AGENTS.md", "a/AGENTS.md", "x/AGENTS.md", "a/b/AGENTS.md", "x/y/AGENTS.md",
+                .containsExactly("user-instructions", "AGENTS.md", "a/AGENTS.md", "x/AGENTS.md", "a/b/AGENTS.md", "x/y/AGENTS.md",
                         ".cc-java/AGENTS.local.md");
         assertThat(first).extracting(candidate -> candidate.precedence())
-                .containsExactly(0, 1, 2, 3, 4, 5);
+                .containsExactly(0, 1, 2, 3, 4, 5, 6);
     }
 
     @Test
@@ -72,7 +74,7 @@ class InstructionCandidatePlannerTest {
                 VerifiedInstructionTarget.directory(guard, "a/deep")));
 
         assertThat(result).extracting(candidate -> candidate.safeSourceId())
-                .containsExactly("AGENTS.md", "a/AGENTS.md", "z/AGENTS.md",
+                .containsExactly("user-instructions", "AGENTS.md", "a/AGENTS.md", "z/AGENTS.md",
                         "a/deep/AGENTS.md", "z/deep/AGENTS.md", ".cc-java/AGENTS.local.md");
     }
 
@@ -86,7 +88,7 @@ class InstructionCandidatePlannerTest {
                 VerifiedInstructionTarget.file(guard, "readme.txt"),
                 VerifiedInstructionTarget.directory(guard, "."))))
                 .extracting(candidate -> candidate.safeSourceId())
-                .containsExactly("AGENTS.md", ".cc-java/AGENTS.local.md");
+                .containsExactly("user-instructions", "AGENTS.md", ".cc-java/AGENTS.local.md");
     }
 
     @Test

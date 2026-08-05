@@ -16,9 +16,9 @@ import java.util.Objects;
 /**
  * S08 A2 生产装配的显式接缝。
  *
- * <p>本类型只建立 Instructions 发现依赖，尚未将结果接入 Headless Runtime、Canonical
- * Transcript 或模型请求。它把 user/workspace Adapter 路由至同一个确定性 Core 服务，避免
- * 任何来源绕过已验证 Loader。</p>
+ * <p>本类型只建立 Instructions 发现依赖，并由 Headless Composition Root 接入每回合
+ * 模型请求的短生命周期 Projection。它把 user/workspace Adapter 路由至同一个确定性 Core 服务，
+ * 避免任何来源绕过已验证 Loader。</p>
  *
  * @since 0.8.0
  */
@@ -32,26 +32,44 @@ public final class InstructionFoundationFactory {
      *
      * @param userHome 启动环境提供的用户 home，不得来自模型或仓库文本
      * @param workspace 当前 Workspace 根
-     * @return 尚未接入 Runtime 的受限基础设施
+     * @return 可连接 Headless 短生命周期请求 Projection 的受限基础设施
      * @throws IOException Workspace 无法规范化时
      * @throws WorkspaceAccessException Workspace 不满足既有安全边界时
      */
     public static InstructionFoundation open(Path userHome, Path workspace)
             throws IOException, WorkspaceAccessException {
+        return open(userHome, new WorkspaceGuard(
+                Objects.requireNonNull(workspace, "workspace 不能为空")));
+    }
+
+    /**
+     * 复用本次 Headless 会话已装配给所有本地 Tool 的 WorkspaceGuard 建立 A2 基础设施。
+     *
+     * <p>Instructions 只能使用这个既有边界验证 Workspace 候选，不能为同一 Workspace 创建
+     * 第二个 Guard；user root 仍由独立的 {@link UserInstructionRootGuard} 处理。</p>
+     *
+     * @param userHome 启动环境提供的用户 home，不得来自模型或仓库文本
+     * @param workspaceGuard 已由本地 Tool Bootstrap 建立的共享安全边界
+     * @return 已连接 Headless Projection 的受限基础设施
+     * @throws IOException Git ignore 状态无法初始化时
+     */
+    public static InstructionFoundation open(Path userHome, WorkspaceGuard workspaceGuard)
+            throws IOException {
         UserInstructionRootGuard userRoot = new UserInstructionRootGuard(
                 Objects.requireNonNull(userHome, "userHome 不能为空"));
-        WorkspaceGuard workspaceGuard = new WorkspaceGuard(
-                Objects.requireNonNull(workspace, "workspace 不能为空"));
-        GitIgnorePolicy gitIgnorePolicy = new GitIgnorePolicy(workspaceGuard.workspace());
+        WorkspaceGuard checkedWorkspaceGuard = Objects.requireNonNull(
+                workspaceGuard, "workspaceGuard 不能为空");
+        GitIgnorePolicy gitIgnorePolicy = new GitIgnorePolicy(checkedWorkspaceGuard.workspace());
         UserInstructionLoader userLoader = new UserInstructionLoader(userRoot);
-        WorkspaceInstructionLoader workspaceLoader = new WorkspaceInstructionLoader(workspaceGuard, gitIgnorePolicy);
+        WorkspaceInstructionLoader workspaceLoader = new WorkspaceInstructionLoader(
+                checkedWorkspaceGuard, gitIgnorePolicy);
         InstructionLoader routedLoader = new RoutedInstructionLoader(userLoader, workspaceLoader);
-        return new InstructionFoundation(userRoot, workspaceGuard, gitIgnorePolicy, userLoader, workspaceLoader,
+        return new InstructionFoundation(userRoot, checkedWorkspaceGuard, gitIgnorePolicy, userLoader, workspaceLoader,
                 new InstructionCandidatePlanner(), new DeterministicInstructionDiscovery(routedLoader));
     }
 
     /**
-     * 未接入既有 Headless composition 的 A2 基础设施集合。
+     * 已连接既有 Headless 短生命周期请求 Projection 的 A2 基础设施集合。
      *
      * @param userRoot 独立用户级固定路径守卫
      * @param workspaceGuard 仅供 Workspace 内候选验证的既有守卫

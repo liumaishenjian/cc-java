@@ -5,6 +5,9 @@ import io.github.liumaishenjian.ccjava.core.AgentRuntime;
 import io.github.liumaishenjian.ccjava.core.ApprovalHandler;
 import io.github.liumaishenjian.ccjava.core.ContextPreparationService;
 import io.github.liumaishenjian.ccjava.core.ContextSummarizer;
+import io.github.liumaishenjian.ccjava.core.instructions.InstructionContextService;
+import io.github.liumaishenjian.ccjava.cli.instructions.InstructionFoundationFactory;
+import io.github.liumaishenjian.ccjava.cli.instructions.InstructionProjectionState;
 import io.github.liumaishenjian.ccjava.core.LatestContextUsageCollector;
 import io.github.liumaishenjian.ccjava.core.DefaultContextAssembler;
 import io.github.liumaishenjian.ccjava.cli.session.FileCheckpointCoordinator;
@@ -64,7 +67,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     /** S02 单次用户输入的字符上限。 */
     public static final int MAX_PROMPT_CHARS = 8 * 1024;
 
-    private static final String SYSTEM_INSTRUCTIONS =
+    static final String SYSTEM_INSTRUCTIONS =
             "You are the cc-java S04 learning agent. Use only registered workspace tools. "
                     + "Read before editing. apply_patch requires exact oldText and preserves "
                     + "unrelated content; write_file only creates a file whose parent already "
@@ -86,6 +89,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private final AtomicReference<RunId> activeRunId = new AtomicReference<>();
     private final io.github.liumaishenjian.ccjava.core.SessionPermissionState permissionState;
     private final LocalWorkspaceBootstrap workspaceBootstrap;
+    private final InstructionContextService instructionContext;
     private io.github.liumaishenjian.ccjava.core.AgentSession session;
     private SessionOpenResult openResult;
 
@@ -301,8 +305,30 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             ContextPreparationService contextPreparation,
             LatestContextUsageCollector contextUsage,
             HeadlessMemoryLayout memoryLayout) {
+        this(
+                model,
+                eventSink,
+                options,
+                approvalHandler,
+                contextPreparation,
+                contextUsage,
+                memoryLayout,
+                HeadlessInstructionLayout.production());
+    }
+
+    HeadlessRuntimeSession(
+            ModelGateway model,
+            AgentEventSink eventSink,
+            HeadlessRuntimeOptions options,
+            ApprovalHandler approvalHandler,
+            ContextPreparationService contextPreparation,
+            LatestContextUsageCollector contextUsage,
+            HeadlessMemoryLayout memoryLayout,
+            HeadlessInstructionLayout instructionLayout) {
         HeadlessMemoryLayout checkedMemoryLayout = Objects.requireNonNull(
                 memoryLayout, "memoryLayout 不能为空");
+        HeadlessInstructionLayout checkedInstructionLayout = Objects.requireNonNull(
+                instructionLayout, "instructionLayout 不能为空");
         ModelGateway checkedModel;
         AgentEventSink downstream;
         ApprovalHandler approvals;
@@ -319,6 +345,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         this.contextUsage = contextUsage;
         try {
             workspaceBootstrap = LocalWorkspaceBootstrap.open(this.options.workspace());
+            instructionContext = new InstructionProjectionState(InstructionFoundationFactory.open(
+                    checkedInstructionLayout.userHome(), workspaceBootstrap.workspaceGuard()));
         } catch (java.io.IOException | WorkspaceAccessException exception) {
             checkedMemoryLayout.closeUnused();
             throw new IllegalArgumentException("Workspace 只读能力初始化失败");
@@ -380,7 +408,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                         checkedPreparation,
                         memoryPrefetch == null
                                 ? io.github.liumaishenjian.ccjava.core.MemoryContextService.noop()
-                                : memoryPrefetch.contextService());
+                                : memoryPrefetch.contextService(),
+                        instructionContext);
                 memoryResource = memoryPrefetch == null ? () -> { } : memoryPrefetch;
             } catch (RuntimeException | Error failure) {
                 closeMemory(memoryPrefetch);
@@ -414,14 +443,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             throw new IllegalStateException("Headless Session 已经打开");
         }
         var snapshot = workspaceBootstrap.snapshot();
-        String instructions = workspaceBootstrap.projectInstructions()
-                .map(project -> SYSTEM_INSTRUCTIONS
-                        + "\n\n<project-instructions source=\"AGENTS.md\">\n"
-                        + project
-                        + "\n</project-instructions>")
-                .orElse(SYSTEM_INSTRUCTIONS);
         SessionSpec spec = new SessionSpec(
-                instructions,
+                SYSTEM_INSTRUCTIONS,
                 Map.of(
                         "model", options.model(),
                         "timeout", options.timeout().toString(),
@@ -587,6 +610,35 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private record ContextComponents(
             ContextPreparationService service,
             LatestContextUsageCollector usage) {
+    }
+
+    /**
+     * 仅供 Composition Root 和同包测试使用的 user Instructions home 接缝。
+     *
+     * <p>该类型不是公开 Setting，也不进入 Runtime options、Session、stdio 或日志。生产环境仅在
+     * 创建时读取一次 {@code user.home}；测试可以注入临时目录，避免访问真实用户文件。</p>
+     */
+    static final class HeadlessInstructionLayout {
+        private final Path userHome;
+
+        private HeadlessInstructionLayout(Path userHome) {
+            this.userHome = Objects.requireNonNull(userHome, "userHome 不能为空")
+                    .toAbsolutePath()
+                    .normalize();
+        }
+
+        static HeadlessInstructionLayout production() {
+            return new HeadlessInstructionLayout(Path.of(Objects.requireNonNull(
+                    System.getProperty("user.home"), "user.home 不能为空")));
+        }
+
+        static HeadlessInstructionLayout forHome(Path userHome) {
+            return new HeadlessInstructionLayout(userHome);
+        }
+
+        Path userHome() {
+            return userHome;
+        }
     }
 
     /**
