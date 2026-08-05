@@ -6,12 +6,14 @@
 >
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
-> 当前学习阶段：S01-S07 已 Accepted；S08 Instructions + Settings 为 Planned，尚未开始
+> 当前学习阶段：S01-S07 已 Accepted；S08 Instructions + Settings 已完成 G0 受控机制研究，当前为 IN_PROGRESS，
+> G1-G6 仍 Open
 >
 > 当前实现状态：ADR-042/043/044 已固定并验证 Context Projection、条件式 Reduction、文件记忆和零等待
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
 > composition、ready-only Memory Core/Domain Runtime seam、D2 Headless 文件系统生产装配、Context View 与
-> deterministic Fake Demo/Eval 已完成 Commit-scoped G0-G6 对账。S08 的持久 Settings、Schema 与完整 Context UX 仍未实现。
+> deterministic Fake Demo/Eval 已完成 Commit-scoped G0-G6 对账。ADR-045 仅冻结 S08 机制研究与独立设计边界；
+> S08 的持久 Settings、Schema 与完整 Context UX 仍未实现。
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 
@@ -1337,6 +1339,12 @@ CLI
 ```
 
 企业 Managed Policy 在真实需求出现后再设计。数组合并、规则覆盖和不可覆盖项必须有明确语义。
+
+S08 G0 已由 ADR-045 完成授权机制研究：G1 必须冻结逐字段 Schema/version、来源优先级、
+scalar/object/list/delete 语义、Instructions 发现/范围/引用和可证伪实验；G2 才定义独立的
+Domain/Core 有效配置、provenance、诊断与 Command Intent 契约。该研究不创建持久配置格式或实现，
+且不得让项目文本、Settings 或 Slash Command 绕过 S05 Permission Pipeline、S06 Recovery Gate、
+WorkspaceGuard 或 Hard Denial。
 
 ## 21. Trust Boundary 与安全
 
