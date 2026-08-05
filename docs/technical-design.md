@@ -887,8 +887,13 @@ all-or-none、严格校验，不从模型名、Provider 文本、Workspace 或�
 `ChatModel`，普通 Gateway 保留既有重试策略，Summarizer 直接调用底层模型而不递归经过该 Gateway。C1 阈值、
 protected tail 与摘要限制是独立校验的保守项目常量，不是 Provider 容量声明；本切片只有进程启动 opt-in，
 S08 持久 Settings、Schema 和合并层级仍未实现。缺省参数时 Headless/Fake 继续发送未修改 Canonical 请求。内部
-Context Usage View 公开各来源预算、当前压力、应用策略和隐私安全原因码；完整 `/context` 与
-`/compact` 交互 UX 延期 S08。
+Context Usage View 以 `ContextUsageView` 的数值/枚举契约公开各来源预算、maximum/available/reserved output/
+safety margin、free/overflow、estimate kind、source revision、应用策略和隐私安全原因码；它不保留 Prompt、指令正文、
+path、Tool 参数/结果、Memory 正文、模型错误或自由文本。因 root `AGENTS.md` 已合并到 `SystemMessage`，当前
+`instructionTokens=0` 且固定附带 `INSTRUCTIONS_COALESCED_WITH_SYSTEM`，不能宣称精确拆分。Preparation 与 typed overflow
+recovery 后通过异常隔离的 `ContextUsageObserver` 旁路发布；`LatestContextUsageCollector` 只保留线程安全 latest 单槽，
+close 后清空，不写入 Canonical Session/Journal。Headless 只在显式容量装配时提供 Optional 内部查询，no-op/Fake 返回 empty；
+完整 `/context`、`/compact`、stdio/Slash/TUI 交互 UX 延期 S08。
 
 ### 16.2 文件记忆与零等待预取
 

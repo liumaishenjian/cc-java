@@ -4,6 +4,8 @@ import io.github.liumaishenjian.ccjava.domain.ContextCapacity;
 import io.github.liumaishenjian.ccjava.domain.ContextProjection;
 import io.github.liumaishenjian.ccjava.domain.ContextReductionOutcome;
 import io.github.liumaishenjian.ccjava.domain.ContextReductionStatus;
+import io.github.liumaishenjian.ccjava.domain.ContextUsageReasonCode;
+import io.github.liumaishenjian.ccjava.domain.ContextUsageView;
 import io.github.liumaishenjian.ccjava.domain.ModelRequest;
 import io.github.liumaishenjian.ccjava.domain.ProjectionRequest;
 import io.github.liumaishenjian.ccjava.domain.RunId;
@@ -27,21 +29,40 @@ public final class ContextPreparationService {
 
     private final ContextPreparationConfig config;
     private final ContextSummarizer summarizer;
+    private final ContextUsageObserver usageObserver;
     private final boolean enabled;
     private final ConcurrentMap<RunId, RunState> runs = new ConcurrentHashMap<>();
 
-    /** 创建启用 C1-C4 的准备服务。 */
+    /** 创建启用 C1-C4 的准备服务，默认不发布 Context Usage View。 */
     public ContextPreparationService(
             ContextPreparationConfig config,
             ContextSummarizer summarizer) {
+        this(config, summarizer, ContextUsageObserver.noop());
+    }
+
+    /**
+     * 创建启用 C1-C4 与旁路 Context Usage 观察的准备服务。
+     *
+     * <p>观察者仅接收数值化 View；其异常由本服务隔离，不能改变 Runtime 的请求、恢复或终态。</p>
+     *
+     * @param config 已校验的容量与 reduction 配置
+     * @param summarizer C3/C4 摘要 Port
+     * @param usageObserver 非权威的 Usage View 观察端口
+     */
+    public ContextPreparationService(
+            ContextPreparationConfig config,
+            ContextSummarizer summarizer,
+            ContextUsageObserver usageObserver) {
         this.config = Objects.requireNonNull(config, "config 不能为空");
         this.summarizer = Objects.requireNonNull(summarizer, "summarizer 不能为空");
+        this.usageObserver = Objects.requireNonNull(usageObserver, "usageObserver 不能为空");
         this.enabled = true;
     }
 
     private ContextPreparationService() {
         this.config = null;
         this.summarizer = null;
+        this.usageObserver = ContextUsageObserver.noop();
         this.enabled = false;
     }
 
@@ -100,6 +121,7 @@ public final class ContextPreparationService {
                 recoveryRequest,
                 recoveryProjection,
                 policyFor(recoveryProjection, protectedCount)));
+        publish(ContextUsageView.prepared(projection, config.capacity()));
         return prepared;
     }
 
@@ -148,6 +170,7 @@ public final class ContextPreparationService {
                                 : ContextOverflowRetryCoordinator.AttemptResult.failed();
                     }
                 });
+        publishRecovery(context, outcome);
         if (outcome.result().status()
                 == ContextOverflowRetryCoordinator.AttemptStatus.SUCCESS) {
             return outcome.result().value().orElseThrow().value();
@@ -162,6 +185,46 @@ public final class ContextPreparationService {
             throw exception;
         }
         throw new ModelGatewayException("Model request failed");
+    }
+
+    private <T> void publishRecovery(
+            PreparedContext context,
+            ContextOverflowRetryCoordinator.Outcome<T> outcome) {
+        if (outcome.modelRequestAttempts() == 0) {
+            return;
+        }
+        java.util.ArrayList<ContextUsageReasonCode> codes = new java.util.ArrayList<>();
+        if (outcome.result().status() == ContextOverflowRetryCoordinator.AttemptStatus.OVERFLOW
+                || outcome.summaryOutcome().isPresent()
+                || outcome.modelRequestAttempts() == 2) {
+            codes.add(ContextUsageReasonCode.TYPED_CONTEXT_OVERFLOW);
+        }
+        outcome.summaryOutcome().ifPresent(summary -> {
+            if (summary.status() == SummaryOutcome.Status.ADOPTED) {
+                codes.add(ContextUsageReasonCode.OVERFLOW_SUMMARY_ADOPTED);
+            } else if (summary.status() == SummaryOutcome.Status.CANCELLED) {
+                codes.add(ContextUsageReasonCode.OVERFLOW_RECOVERY_CANCELLED);
+            } else {
+                codes.add(ContextUsageReasonCode.OVERFLOW_SUMMARY_UNCHANGED);
+            }
+        });
+        if (outcome.result().status() == ContextOverflowRetryCoordinator.AttemptStatus.CANCELLED) {
+            codes.add(ContextUsageReasonCode.OVERFLOW_RECOVERY_CANCELLED);
+        }
+        if (codes.isEmpty()) {
+            return;
+        }
+        publish(ContextUsageView.recovered(
+                outcome.projection(), context.request().capacity(), codes,
+                outcome.modelRequestAttempts()));
+    }
+
+    private void publish(ContextUsageView view) {
+        try {
+            usageObserver.publish(view);
+        } catch (RuntimeException ignored) {
+            // Usage View 是旁路诊断，观察端故障不能影响模型请求或恢复。
+        }
     }
 
     /** 关闭并移除一个 Run 的所有摘要冷却和 overflow retry 状态。 */

@@ -5,6 +5,7 @@ import io.github.liumaishenjian.ccjava.core.AgentRuntime;
 import io.github.liumaishenjian.ccjava.core.ApprovalHandler;
 import io.github.liumaishenjian.ccjava.core.ContextPreparationService;
 import io.github.liumaishenjian.ccjava.core.ContextSummarizer;
+import io.github.liumaishenjian.ccjava.core.LatestContextUsageCollector;
 import io.github.liumaishenjian.ccjava.core.DefaultContextAssembler;
 import io.github.liumaishenjian.ccjava.cli.session.FileCheckpointCoordinator;
 import io.github.liumaishenjian.ccjava.cli.session.FileSessionStore;
@@ -22,6 +23,7 @@ import io.github.liumaishenjian.ccjava.domain.AgentEventEnvelope;
 import io.github.liumaishenjian.ccjava.domain.AgentLimits;
 import io.github.liumaishenjian.ccjava.domain.AgentRunRequest;
 import io.github.liumaishenjian.ccjava.domain.AgentRunResult;
+import io.github.liumaishenjian.ccjava.domain.ContextUsageView;
 import io.github.liumaishenjian.ccjava.domain.LifecycleEvent;
 import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
@@ -41,6 +43,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ExecutorService;
 
@@ -78,6 +81,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private final AgentRuntime runtime;
     private final HeadlessRuntimeOptions options;
     private final RunTelemetryCollector telemetry;
+    private final LatestContextUsageCollector contextUsage;
     private final AutoCloseable memoryResource;
     private final AtomicReference<RunId> activeRunId = new AtomicReference<>();
     private final io.github.liumaishenjian.ccjava.core.SessionPermissionState permissionState;
@@ -158,6 +162,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 options,
                 approvalHandler,
                 provider.contextPreparation(),
+                provider.contextUsage(),
                 HeadlessMemoryLayout.production());
     }
 
@@ -172,12 +177,16 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         ModelGateway gateway = new RetryingModelGateway(
                 new SpringAiModelGateway(chatModel, settings.model()),
                 ModelRetryPolicy.S02_DEFAULT);
+        LatestContextUsageCollector usage = options.contextPreparation()
+                .map(ignored -> new LatestContextUsageCollector())
+                .orElse(null);
         ContextPreparationService preparation = options.contextPreparation()
                 .<ContextPreparationService>map(config -> new ContextPreparationService(
                         config,
-                        new SpringAiContextSummarizer(chatModel, settings.model())))
+                        new SpringAiContextSummarizer(chatModel, settings.model()),
+                        usage == null ? io.github.liumaishenjian.ccjava.core.ContextUsageObserver.noop() : usage))
                 .orElseGet(ContextPreparationService::noop);
-        return new ProviderComponents(gateway, preparation);
+        return new ProviderComponents(gateway, preparation, usage);
     }
 
     /**
@@ -236,6 +245,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 options,
                 approvalHandler,
                 ContextPreparationService.noop(),
+                null,
                 HeadlessMemoryLayout.disabled());
     }
 
@@ -255,11 +265,18 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 eventSink,
                 options,
                 approvalHandler,
-                options.contextPreparation()
-                        .<ContextPreparationService>map(config ->
-                                new ContextPreparationService(config, summarizer))
-                        .orElseGet(ContextPreparationService::noop),
+                contextComponents(options, summarizer),
                 HeadlessMemoryLayout.disabled());
+    }
+
+    private HeadlessRuntimeSession(
+            ModelGateway model,
+            AgentEventSink eventSink,
+            HeadlessRuntimeOptions options,
+            ApprovalHandler approvalHandler,
+            ContextComponents context,
+            HeadlessMemoryLayout memoryLayout) {
+        this(model, eventSink, options, approvalHandler, context.service(), context.usage(), memoryLayout);
     }
 
     HeadlessRuntimeSession(
@@ -268,6 +285,17 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             HeadlessRuntimeOptions options,
             ApprovalHandler approvalHandler,
             ContextPreparationService contextPreparation,
+            HeadlessMemoryLayout memoryLayout) {
+        this(model, eventSink, options, approvalHandler, contextPreparation, null, memoryLayout);
+    }
+
+    HeadlessRuntimeSession(
+            ModelGateway model,
+            AgentEventSink eventSink,
+            HeadlessRuntimeOptions options,
+            ApprovalHandler approvalHandler,
+            ContextPreparationService contextPreparation,
+            LatestContextUsageCollector contextUsage,
             HeadlessMemoryLayout memoryLayout) {
         HeadlessMemoryLayout checkedMemoryLayout = Objects.requireNonNull(
                 memoryLayout, "memoryLayout 不能为空");
@@ -284,6 +312,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             throw failure;
         }
         telemetry = new RunTelemetryCollector();
+        this.contextUsage = contextUsage;
         try {
             workspaceBootstrap = LocalWorkspaceBootstrap.open(this.options.workspace());
         } catch (java.io.IOException | WorkspaceAccessException exception) {
@@ -521,9 +550,39 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         return telemetry.find(runId);
     }
 
+    /**
+     * 返回显式启用 Context Preparation 后最新的内部 Usage View。
+     *
+     * <p>该查询不写入 Session、不进入 stdio 协议，也不提供 S08 {@code /context} UX。默认、Fake 或
+     * 未提供容量元组的装配返回空值。</p>
+     *
+     * @return 当前 latest-only 隐私安全 View；未显式启用时为空
+     */
+    public Optional<ContextUsageView> latestContextUsage() {
+        return contextUsage == null ? Optional.empty() : contextUsage.latest();
+    }
+
+    private static ContextComponents contextComponents(
+            HeadlessRuntimeOptions options,
+            ContextSummarizer summarizer) {
+        return options.contextPreparation()
+                .<ContextComponents>map(config -> {
+                    LatestContextUsageCollector usage = new LatestContextUsageCollector();
+                    return new ContextComponents(
+                            new ContextPreparationService(config, summarizer, usage), usage);
+                })
+                .orElseGet(() -> new ContextComponents(ContextPreparationService.noop(), null));
+    }
+
     private record ProviderComponents(
             ModelGateway gateway,
-            ContextPreparationService contextPreparation) {
+            ContextPreparationService contextPreparation,
+            LatestContextUsageCollector contextUsage) {
+    }
+
+    private record ContextComponents(
+            ContextPreparationService service,
+            LatestContextUsageCollector usage) {
     }
 
     /**
@@ -652,6 +711,9 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
      */
     @Override
     public void close() {
+        if (contextUsage != null) {
+            contextUsage.close();
+        }
         closeMemory(memoryResource);
         try {
             if (session != null && !session.isClosed()) {

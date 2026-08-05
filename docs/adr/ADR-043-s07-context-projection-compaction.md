@@ -134,9 +134,18 @@ Provider Adapter 把 `ContextSummaryMessage` 固定映射为版本化 User JSON 
 
 ## Context Usage 投影
 
-S07 Core 提供可序列化但非稳定外部协议的 Usage View，至少按 System、Project Instructions、Canonical
-Transcript、Tool Payload、Memory Projection 和 Free/Reserved 分类展示估算。当前只冻结内部 View；完整
-`/context` 命令路由、帮助文本和 Slash Command UX 归 S08。TUI 只消费事件，不决定 Reduction。
+S07 Core 已提供可序列化但非稳定外部协议的 `ContextUsageView`：按 System、Project Instructions、Canonical
+Transcript、Tool Payload、Memory Projection、maximum/available/reserved output/safety margin、free 与 overflow 分类展示数值估算，
+并携带 estimate kind、source revision、已应用 C1-C4 的数值统计、Preparation/recovery 状态和封闭 reason code。View
+不得保存或输出 Prompt、指令正文、路径、Tool 参数或结果、Memory 正文、模型异常/错误文本或任意自由诊断。当前 assembler
+把根 `AGENTS.md` 指令并入 `SystemMessage`，故 `instructionTokens` 固定为 `0`，并始终以
+`INSTRUCTIONS_COALESCED_WITH_SYSTEM` 诚实声明不可精确归因；S08 拆分 Instructions 前不得声称该 bucket 精确。
+
+`ContextPreparationService` 在正常 preparation 与 typed-overflow recovery 的权威终态后，向非权威
+`ContextUsageObserver` 发布 View；观察端异常被隔离，不影响 Runtime、Gateway、取消、Canonical Session 或 Journal。
+`LatestContextUsageCollector` 仅以线程安全单槽保留 latest View，close 后清空并拒绝晚到发布，不建立 per-run registry。
+Headless 仅在显式容量配置的 preparation 装配中提供 `Optional` 查询；no-op/Fake 默认保持 empty。当前只实现内部 View；
+完整 `/context` 命令路由、帮助文本、Slash Command/stdio 协议和 TUI UX 归 S08，TUI 也不决定 Reduction。
 
 ## 可证伪退出测试与度量
 
@@ -166,6 +175,6 @@ S14 负责 Provider Cache/Context Editing、稳定机器协议和跨版本持久
 Provider-neutral typed overflow 与 Runtime 精确一次恢复；旧构造器仍走 no-op，纯数据 `ContextSummarizer`
 Port、候选 Gate 与 per-run cooldown 保持不变。Provider adapter slice B 已提供基于稳定结构化 SDK code 的
 overflow 分类和零 Tool 摘要 Adapter；slice C 又以 all-or-none CLI 容量元组接入 Headless composition，且
-明确不提供、推断或宣称任何真实模型容量默认值。ready-only Memory Runtime 接入、内部 Context View、Stage
-Demo/Eval 与 S08 持久 Settings 仍未完成。G3-G6 完成前，README
+明确不提供、推断或宣称任何真实模型容量默认值。ready-only Memory Runtime 与内部 Context Usage View 已有离线
+基础；Stage Demo/Eval、S08 持久 Settings 与完整 `/context` UX 仍未完成。G3-G6 完成前，README
 和矩阵继续把上述 S07 Capability 标为 L0，不得描述为完整可用。

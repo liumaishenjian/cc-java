@@ -208,6 +208,36 @@ class HeadlessRuntimeSessionTest {
     }
 
     @Test
+    void contextUsageIsAvailableOnlyForExplicitPreparation() {
+        try (HeadlessRuntimeSession defaultApplication = new HeadlessRuntimeSession(
+                request -> ModelTurn.text("done"),
+                AgentEventSink.noop(),
+                testOptions(temporaryWorkspace, Duration.ofSeconds(5)))) {
+            defaultApplication.open();
+            defaultApplication.run("plain");
+            assertThat(defaultApplication.latestContextUsage()).isEmpty();
+        }
+
+        try (HeadlessRuntimeSession configuredApplication = new HeadlessRuntimeSession(
+                request -> ModelTurn.text("done"),
+                AgentEventSink.noop(),
+                contextOptions(temporaryWorkspace),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny(),
+                (request, cancellation) -> java.util.Optional.empty())) {
+            configuredApplication.open();
+            configuredApplication.run("prepared");
+            assertThat(configuredApplication.latestContextUsage()).hasValueSatisfying(view -> {
+                assertThat(view.modelRequestAttempts()).isZero();
+                assertThat(view.usage().instructionTokens()).isZero();
+                assertThat(view.reasonCodes()).contains(
+                        io.github.liumaishenjian.ccjava.domain.ContextUsageReasonCode
+                                .INSTRUCTIONS_COALESCED_WITH_SYSTEM);
+            });
+        }
+    }
+
+    @Test
     void defaultMemoryLayoutUsesHashedCanonicalWorkspaceWithoutPathDisclosure()
             throws Exception {
         Path memoryHome = Files.createDirectory(sessionStoreRoot.resolve("private-memory-home"));

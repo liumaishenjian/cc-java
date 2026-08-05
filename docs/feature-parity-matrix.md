@@ -385,7 +385,7 @@ Stage 完成项。
 | CTX-10 | Multi-level Compaction | C1/C2 后条件式 C3→C4、预算满足即停（离线基础已实现，尚未 Runtime 接入） | L0 | S07 | REF-01 |
 | CTX-11 | Thrashing Guard | Run/revision/tier 冷却 + 单 overflow retry（离线基础已实现，尚未 Runtime 接入） | L0 | S07 | REF-02 |
 | CTX-12 | Compact Instructions | 用户控制保留内容 | L0 | S07/S08 | REF-02 |
-| CTX-13 | `/context` | Context 构成可视化 | L0 | S07 | REF-02 |
+| CTX-13 | `/context` | 内部数值化 ContextUsageView/Headless Optional latest 查询与固定隐私 reason code 已实现；`/context` 命令、stdio/Slash/TUI UX 延期 S08 | L0 | S07 | REF-02 |
 | CTX-14 | Skill Lazy Loading | Metadata 先加载 | L0 | S11 | REF-03 |
 | CTX-15 | Sub-Agent Isolation | 独立窗口与摘要返回 | L0 | S12 | REF-02/03 |
 | CTX-16 | Prompt Cache | 稳定前缀和 Tool 顺序 | L0 | S14 | REF-01 |
@@ -484,7 +484,7 @@ Stage 完成项。
 | OBS-01 | Agent Event | 可重放控制流 | L1 | S01 | REF-01 |
 | OBS-02 | Turn/Tool Timing | S02 事件边界采集 L2 → S14 Metrics Backend L3 | L2 | S02/S14 | REF-01/AUTH-01 |
 | OBS-03 | Token / Cost | S02 可信 Provider Usage L2 → S14 Cost 治理 L3 | L2 | S02/S14 | REF-01/AUTH-01 |
-| OBS-04 | Stop / Recovery Analytics | 失败原因分布 | L0 | S07/S14 | REF-01 |
+| OBS-04 | Stop / Recovery Analytics | Context preparation/recovery 的 fixed-code latest-only 内部观察基础已实现；分布聚合、持久化与导出延期 S14 | L0 | S07/S14 | REF-01 |
 | OBS-05 | Privacy Controls | S02 最小化 Telemetry L2 → S14 Export Policy L3 | L2 | S02/S14 | REF-01/AUTH-01 |
 | OBS-06 | OpenTelemetry | 可选 Trace Export | L0 | S14 | REF-01 |
 | EVAL-01 | Seed Tasks | S04 单个公开 Scripted Java Fixture L1 → S14 任务集与指标 L3 | L1 | S04/S14 | REF-01 |

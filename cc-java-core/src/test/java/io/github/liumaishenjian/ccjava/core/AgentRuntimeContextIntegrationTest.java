@@ -8,6 +8,8 @@ import io.github.liumaishenjian.ccjava.domain.AgentRunRequest;
 import io.github.liumaishenjian.ccjava.domain.AgentRunResult;
 import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
 import io.github.liumaishenjian.ccjava.domain.ContextCapacity;
+import io.github.liumaishenjian.ccjava.domain.ContextPreparationStatus;
+import io.github.liumaishenjian.ccjava.domain.ContextUsageReasonCode;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
 import io.github.liumaishenjian.ccjava.domain.MemoryCatalogRevision;
 import io.github.liumaishenjian.ccjava.domain.MemoryContextMessage;
@@ -393,6 +395,52 @@ class AgentRuntimeContextIntegrationTest {
                 .containsExactlyElementsOf(requests.get(0).toolDefinitions());
         assertCompleteToolBatches(requests.get(1).messages());
         assertThat(preparation.activeRunCount()).isZero();
+    }
+
+    @Test
+    void publishesLatestRecoveryViewWithoutChangingGatewayOutcome() {
+        Fixture fixture = fixtureWithHistory();
+        LatestContextUsageCollector collector = new LatestContextUsageCollector();
+        ContextPreparationService preparation = new ContextPreparationService(
+                new ContextPreparationConfig(
+                        new ContextCapacity("fake-model", 240, 20, 10), 40, 0, 1_000, 120),
+                (request, cancellation) -> Optional.of(candidate(request, "recovered")),
+                collector);
+        AtomicInteger calls = new AtomicInteger();
+
+        AgentRunResult result = fixture.runtime(request -> {
+            if (calls.getAndIncrement() == 0) {
+                throw new ModelGatewayException(
+                        ModelGatewayException.FailureKind.CONTEXT_OVERFLOW, "PRIVATE_MODEL_ERROR");
+            }
+            return ModelTurn.text("done");
+        }, preparation).run(fixture.session().id(), request("active"));
+
+        assertThat(result.stopReason()).isEqualTo(StopReason.COMPLETED);
+        assertThat(collector.latest()).hasValueSatisfying(view -> {
+            assertThat(view.status()).isEqualTo(ContextPreparationStatus.OVERFLOW_RECOVERY_COMPLETED);
+            assertThat(view.reasonCodes()).contains(
+                    ContextUsageReasonCode.TYPED_CONTEXT_OVERFLOW,
+                    ContextUsageReasonCode.OVERFLOW_SUMMARY_ADOPTED,
+                    ContextUsageReasonCode.INSTRUCTIONS_COALESCED_WITH_SYSTEM);
+            assertThat(view.modelRequestAttempts()).isEqualTo(2);
+            assertThat(view.toString()).doesNotContain("PRIVATE_MODEL_ERROR");
+        });
+    }
+
+    @Test
+    void observerFailureCannotChangePreparedRequestOrRuntimeOutcome() {
+        Fixture fixture = fixtureWithHistory();
+        ContextPreparationService preparation = new ContextPreparationService(
+                new ContextPreparationConfig(
+                        new ContextCapacity("fake-model", 10_000, 20, 10), 40, 0, 1_000, 120),
+                (request, cancellation) -> Optional.empty(),
+                ignored -> { throw new IllegalStateException("PRIVATE_OBSERVER_FAILURE"); });
+
+        AgentRunResult result = fixture.runtime(request -> ModelTurn.text("done"), preparation)
+                .run(fixture.session().id(), request("active"));
+
+        assertThat(result.stopReason()).isEqualTo(StopReason.COMPLETED);
     }
 
     @Test
