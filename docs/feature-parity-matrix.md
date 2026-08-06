@@ -8,7 +8,7 @@
 >
 > 当前代码状态：S01-S07 已 Accepted；S07 的 Canonical Transcript/Projection、条件式 C1-C4、文件记忆
 > M1-M5、ready-only 零等待预取、内部 Usage View 与 latest-only Recovery Analytics 已在离线 Fake、Demo、
-> Gap 和 Commit-scoped 对账中达到声明等级。S08 已完成 G0-G2；本次只记录已接受的 G3-E 编辑器与 steering 证据：受控多行编辑、每 Session 内存历史、封闭补全及 Java stdio 有界 steering。未发送文本只留在短生命周期 Surface/Adapter 内存，当前 Run 终态后才按 FIFO 进入下一 Run，取消、clear、成功 resume、transport failure 与 shutdown 均丢弃且不写 Canonical/JSONL/Checkpoint。`CLI-07` 与 `CLI-09` 已由确定性 Java/TUI 回归达到 L2；这不构成 G3 A-F 的完整审计，G3 整体以及 G4-G6、Stage Exit 均保持 Open。S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定协议/Export/Retention/Migration 仍未实现。
+> Gap 和 Commit-scoped 对账中达到声明等级。S08 G0-G3 已 Passed；G3 A-F 审计覆盖 Instructions、Settings/LKG、Runtime 映射、命令投影、编辑/steering 与 recovery-gated Resume，并修复 Workspace 内部 Instructions Symlink 跟随缺陷。`CLI-07` 与 `CLI-09` 已达到 L2；其余 S08 Capability 等级等待 G4-G6 证据闭环后提升。G4-G6 与 Stage Exit 仍 Open；S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定协议/Export/Retention/Migration 仍未实现。
 
 ## 1. 文档目的
 
@@ -153,11 +153,11 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | --- | --- |
 | 纳入追踪的 Capability ID | 195 |
 | 当前阶段 | S08 Instructions + Settings（IN_PROGRESS；G0 受控机制研究、G1 产品契约和 G2 独立架构契约冻结 Passed） |
-| Stage Exit | S07 Accepted：ADR-042/043/044、离线 Fake、Demo、Gap 与 Commit-scoped G0-G6 对账形成闭环；S08 G3-G6 仍 Open |
+| Stage Exit | S07 Accepted：ADR-042/043/044、离线 Fake、Demo、Gap 与 Commit-scoped G0-G6 对账形成闭环；S08 G3 Passed，G4-G6 仍 Open |
 | 当前等级 | 66 项为 L2，34 项为 L1，95 项为 L0（`CLI-07`、`CLI-09` 由 L0 升至 L2） |
 | 默认最终目标 | 195 项达到 L3，或存在明确 `Accepted Deviation` |
 | 当前能力覆盖 | 28.38%（195 项等权、目标 L3） |
-| 下一步 | 独立对账 S08 G3 A-F 后进入 G4 全量回归与 S07 量化复验；Provider discovery/多模型注册、S12/S13/S14 延期边界不变 |
+| 下一步 | 执行 S08 G4 全量回归与 S07 量化复验；Provider discovery/多模型注册、S12/S13/S14 延期边界不变 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -658,7 +658,7 @@ Sub-Agent/后台任务留到 S12，OS Sandbox 留到 S13。
 
 G0 已于 2026-08-05 通过：`ADR-045` 在 `AUTH-SRC-2026-07-29-A` 的登记只读路径上完成了
 分层 Instructions、Settings 合并/来源、模型/权限/Tool 设置、Slash/诊断与失败安全边界的机制研究。G1 已由
-`ADR-046` 冻结项目自有文件位置、Schema v1、逐字段合并、命令最小语义和可证伪切片；`ADR-047` 冻结独立模块契约、user-root guard、严格解析/刷新与 Command Intent/Event。这不代表实现、测试、Demo、G3-G6 或 Capability Level 已完成。
+`ADR-046` 冻结项目自有文件位置、Schema v1、逐字段合并、命令最小语义和可证伪切片；`ADR-047` 冻结独立模块契约、user-root guard、严格解析/刷新与 Command Intent/Event。G3 A-F 已实现并完成独立审计；G4-G6、Stage Exit 与尚未提升的 Capability Level 仍未完成。
 
 完成条件：
 

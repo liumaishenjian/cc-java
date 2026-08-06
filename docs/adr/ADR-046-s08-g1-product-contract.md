@@ -135,7 +135,7 @@ G2 只需在不改变本 ADR 行为契约的前提下确定：(1) Domain/Core/Ap
 
 ## Gate 状态
 
-G1 Passed。ADR-045 保持 G0 研究交接；本 ADR 冻结 S08 独立范围、目标等级、输入/输出、失败语义、延期边界与测试指标。当前 G2 已 Passed，G3-E 已形成下述实现证据；完整 G3 对账、G4-G6 与 Stage Exit 仍 Open，S08 不是 Accepted。
+G1 Passed。ADR-045 保持 G0 研究交接；本 ADR 冻结 S08 独立范围、目标等级、输入/输出、失败语义、延期边界与测试指标。当前 G2、G3 已 Passed；G4-G6 与 Stage Exit 仍 Open，S08 不是 Accepted。
 
 ## G3-E 实现证据（2026-08-06）
 
@@ -149,4 +149,12 @@ JSONL 或 Checkpoint。
 
 对应 Java 聚焦回归为 21/21，TUI build/test 为 77/77，并完成字面 ESC 控制字节与 diff 检查。
 因此 `CLI-07`、`CLI-09` 达到本 ADR 的 S08 L2 目标；这不表示 stdio v0 已成为稳定公共协议，也
-不表示 G3 其余切片、G4-G6 或 S08 Stage Exit 已完成。
+不表示 G4-G6 或 S08 Stage Exit 已完成。
+
+## G3 A-F 审计结论（2026-08-06）
+
+commit-scoped 审计已覆盖 A Instructions、B Settings/LKG、C Runtime 映射、D 命令投影、E 编辑与
+steering、F recovery-gated Resume。A 审计发现并修复 Workspace 内部 Instructions Symlink 可在
+realpath 后被读取的问题；候选逻辑路径现于 WorkspaceGuard 前拒绝链接。B/C/D 未发现新增缺陷，E/F
+维持既有独立 review 结论。G3 Passed；除既有 `CLI-07`、`CLI-09` 外，Capability Level 等待
+G4-G6 的回归、Demo/Gap 与 commit-scoped 对账后提升。

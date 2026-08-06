@@ -164,7 +164,7 @@ React/Ink 维护纯 Reducer 的 ephemeral `InputState`、`HistoryState`、`Compl
 
 ## Gate 状态
 
-G2 Passed。ADR-045 的授权研究边界、ADR-046 的产品契约与本 ADR 的独立架构/安全/测试契约共同形成 G0-G2。当前 G3 A-F 已有独立实现切片，G3-E 形成下述架构证据；完整 G3 对账、G4-G6、Demo/Gap 与 Stage Exit 仍 Open。
+G2 Passed。ADR-045 的授权研究边界、ADR-046 的产品契约与本 ADR 的独立架构/安全/测试契约共同形成 G0-G2。G3 A-F 已完成实现与独立审计；G4-G6、完整 Demo/Gap 与 Stage Exit 仍 Open。
 
 ## G3-E 架构落点（2026-08-06）
 
@@ -178,4 +178,10 @@ G3-E 没有把队列放进 Core、Canonical 或持久 Session。React/Ink 只维
 释放 approval、executor 与 Application。第 101 条以关联 `protocol.error` 拒绝时，Client 和 TUI
 只忘记该 request 的瞬态正文，不改变活动 Run 或权威 queue depth。上述契约已有 FIFO、100/101、
 延迟首个 `run.started`、重复/乱序 lifecycle、取消/clear/resume/shutdown/transport failure 与零
-JSONL 泄漏回归。G2 决策不变；完整 G3/G4-G6 与 Stage Exit 仍需后续对账。
+JSONL 泄漏回归。G2 决策不变。
+
+## G3 架构审计结论（2026-08-06）
+
+A-F 审计确认 Domain/Core/Application/Adapter 所有权、短生命周期 Surface 状态、LKG/RuntimeScope
+原子替换和 S05/S06/S07 Gate 均未被旁路。唯一修复是 A 的 Workspace 候选逻辑路径链接检查；该检查
+发生在 realpath 跟随之前。G3 Passed；G4-G6 与 Stage Exit 仍需后续证据闭环。

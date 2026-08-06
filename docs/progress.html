@@ -223,12 +223,12 @@
     }
   </style>
 </head>
-<body data-matrix-digest="a0268b4997b3" data-state-digest="05f973ffafb1" data-code-digest="c0b34d99d953">
+<body data-matrix-digest="0c039cac9665" data-state-digest="3c013337347a" data-code-digest="c0b34d99d953">
   <main class="shell">
     <section class="hero">
       <p class="eyebrow">Reference-driven Java Agent Runtime</p>
       <h1>cc-java 项目进度看板</h1>
-      <p class="hero-copy">S07 Context Engineering 已在 f12fe259b6fb623f1a9add19a55c45d254f329ec 实现基线上完成 Commit-scoped G0-G6，Stage Exit Accepted。S08 已完成 G0-G2；本次仅记录已接受 G3-E 的 `CLI-07`/`CLI-09` 局部证据：React/Ink 的 Enter 换行、Ctrl+Enter 提交、8,192 Unicode code point 缓冲、每 Session 内存历史 100/草稿恢复、封闭补全最多 32，以及 Java stdio 连接内存 FIFO steering 最多 100。steering 不抢占当前 Model/Tool 批次，仅在当前 Run 权威终态后的下一 Run 边界消费；取消、clear、成功 Resume、transport failure 与 shutdown/close 丢弃未发送项，未发送正文不写 Canonical、JSONL 或 Checkpoint。request/session/lifecycle 错配、未知、重复或乱序事件 fail closed；stdio v0 仍非稳定公共协议。该局部证据使 `CLI-07`、`CLI-09` 达到 L2，但不构成完整 G3 A-F 审计；G3、G4-G6 与 Stage Exit 继续 Open。</p>
+      <p class="hero-copy">S07 Context Engineering 已在 f12fe259b6fb623f1a9add19a55c45d254f329ec 实现基线上完成 Commit-scoped G0-G6，Stage Exit Accepted。S08 G0-G3 已 Passed：G3 A-F commit-scoped 审计覆盖分层 Instructions、Settings v1/LKG、受控 Runtime 映射、Slash/stdio 命令投影、React/Ink 编辑与 steering、以及 recovery-gated Resume。审计修复了 Workspace 内部 Instructions Symlink 可被 realpath 跟随的缺陷；修复后候选逻辑路径在 WorkspaceGuard 前即拒绝链接。B/C/D 无新增缺陷，E/F 维持既有独立 review 结论。除已在 G3-E 达到 L2 的 `CLI-07`/`CLI-09` 外，其余 S08 Capability 等级等待 G4-G6 证据闭环后再提升；stdio v0 仍非稳定公共协议。</p>
       <div class="hero-meta">
         <span class="chip"><span class="dot"></span>当前 S08 · Instructions + Settings</span>
         <span class="chip">Stage Exit · OPEN</span>
@@ -256,14 +256,14 @@
       </article>
       <article class="metric">
         <p class="metric-label">Open Gates</p>
-        <p class="metric-value">4</p>
+        <p class="metric-value">3</p>
         <p class="metric-note">S08 只有 G0-G6 全部 PASSED 才能退出。</p>
       </article>
     </section>
 
     <section class="panel callout">
       <strong>Next allowed action</strong>
-      <p>单独完成 S08 G3 A-F 全切片审计后，才可判定 G3 Gate；随后进入 G4 全量回归与 S07 量化复验。分层 Instructions、Settings v1/LKG、rules 编辑和 Provider discovery/多模型注册仍待该审计确认；S12 Sub-Agent/后台任务/Worktree、S13 OS Sandbox 与 S14 稳定协议/Export/Retention/Migration 继续延期。</p>
+      <p>进入 S08 G4：运行全量离线回归、S07 量化 Eval 与跨 Stage 安全对账。随后完成 G5 Demo/Gap 和 G6 commit-scoped Stage Exit 审核；rules 编辑、Provider discovery/多模型注册、S12 Sub-Agent/后台任务/Worktree、S13 OS Sandbox 与 S14 稳定协议/Export/Retention/Migration 继续延期。</p>
     </section>
 
     <section class="panel" id="gates">
@@ -273,7 +273,7 @@
           <p class="panel-desc">Capability 可以先达到阶段等级，但 Stage 只有 G0-G6 全部通过才退出。</p>
         </div>
       </div>
-      <ol class="gate-grid"><li class="gate passed"><div class="gate-id"><span>G0</span><span class="badge passed">已通过</span></div><p>S08 授权/公开来源边界与 Instructions、Settings、命令、诊断、安全恢复机制研究已由 ADR-045 记录；G1/G2 已在该边界上分别冻结独立产品与架构契约，仍未进入实现。</p></li><li class="gate passed"><div class="gate-id"><span>G1</span><span class="badge passed">已通过</span></div><p>ADR-046 已冻结 S08 Feature/目标等级、AGENTS.md 分层发现、Settings schema v1、逐字段 merge/delete/provenance、Slash/doctor 最小语义、延期边界和可证伪 G3/G4 切片；Capability Level 不变。</p></li><li class="gate passed"><div class="gate-id"><span>G2</span><span class="badge passed">已通过</span></div><p>ADR-047 已冻结 S08 独立 Domain/Core/Application/Adapter、resolved Instructions/Settings/provenance/diagnostic/Command Intent/Event、独立 user-root guard、strict duplicate-key parser、last-known-good 刷新、Gitignore fail-closed 与 G3 A-F/G4 契约；Capability Level 不变。</p></li><li class="gate open"><div class="gate-id"><span>G3</span><span class="badge open">待关闭</span></div><p>已接受的 G3-E 局部证据覆盖 `CLI-07`/`CLI-09`：Enter 换行、Ctrl+Enter 提交、8,192 Unicode code point、每 Session 内存历史 100/草稿恢复、封闭补全最多 32，以及 Java stdio 100 条连接内存 FIFO steering。steering 仅在当前 Run 权威终态后的下一 Run 边界消费；取消、clear、成功 Resume、transport failure、shutdown/close 丢弃未发送项；未发送正文不写 Canonical/JSONL/Checkpoint，transport/lifecycle 违反 fail closed。该证据不足以作出 G3 A-F 全切片结论，故 G3 保持 Open，待单独审计。</p></li><li class="gate open"><div class="gate-id"><span>G4</span><span class="badge open">待关闭</span></div><p>本次仅完成 G3-E 的 `CLI-07`/`CLI-09` 局部文档与等级闭环；未执行完整 G3 A-F 审计、G4 全量离线回归或 S07 量化对账，因此 G4 保持 Open。</p></li><li class="gate open"><div class="gate-id"><span>G5</span><span class="badge open">待关闭</span></div><p>本次更新了已存在的 G3-D/F Demo 与 S08 Gap，使其不再将 G3-E 输入/steering 描述为未实现；未制作完整 S08 用户交互 Demo，故 G5 保持 Open。</p></li><li class="gate open"><div class="gate-id"><span>G6</span><span class="badge open">待关闭</span></div><p>S08 尚未进行 Commit-scoped 对账或 Stage Exit 审核。</p></li></ol>
+      <ol class="gate-grid"><li class="gate passed"><div class="gate-id"><span>G0</span><span class="badge passed">已通过</span></div><p>S08 授权/公开来源边界与 Instructions、Settings、命令、诊断、安全恢复机制研究已由 ADR-045 记录；G1/G2 已在该边界上分别冻结独立产品与架构契约，仍未进入实现。</p></li><li class="gate passed"><div class="gate-id"><span>G1</span><span class="badge passed">已通过</span></div><p>ADR-046 已冻结 S08 Feature/目标等级、AGENTS.md 分层发现、Settings schema v1、逐字段 merge/delete/provenance、Slash/doctor 最小语义、延期边界和可证伪 G3/G4 切片；Capability Level 不变。</p></li><li class="gate passed"><div class="gate-id"><span>G2</span><span class="badge passed">已通过</span></div><p>ADR-047 已冻结 S08 独立 Domain/Core/Application/Adapter、resolved Instructions/Settings/provenance/diagnostic/Command Intent/Event、独立 user-root guard、strict duplicate-key parser、last-known-good 刷新、Gitignore fail-closed 与 G3 A-F/G4 契约；Capability Level 不变。</p></li><li class="gate passed"><div class="gate-id"><span>G3</span><span class="badge passed">已通过</span></div><p>G3 A-F 已完成 commit-scoped 审计：A 分层 Instructions 与投影在补齐内部 Symlink 拒绝后通过；B strict Settings/LKG、C 受控 Runtime 映射、D 命令/compact/context 投影、E 编辑/steering、F recovery-gated Resume 均有确定性回归和独立 review。未发现 Settings/Slash 绕过 S05/S06/S07 Gate、未发送文本持久化或自动重放副作用。除既有 `CLI-07`/`CLI-09` 外，Capability Level 等待 G4-G6 闭环。</p></li><li class="gate open"><div class="gate-id"><span>G4</span><span class="badge open">待关闭</span></div><p>G3 A-F 已通过；尚未执行 G4 全量离线回归、S07 量化 Eval 与跨 Stage 安全对账，因此 G4 保持 Open。</p></li><li class="gate open"><div class="gate-id"><span>G5</span><span class="badge open">待关闭</span></div><p>本次更新了已存在的 G3-D/F Demo 与 S08 Gap，使其不再将 G3-E 输入/steering 描述为未实现；未制作完整 S08 用户交互 Demo，故 G5 保持 Open。</p></li><li class="gate open"><div class="gate-id"><span>G6</span><span class="badge open">待关闭</span></div><p>S08 尚未进行 Commit-scoped 对账或 Stage Exit 审核。</p></li></ol>
     </section>
 
     <section class="panel" id="roadmap">
@@ -330,13 +330,13 @@
         </div>
       </div>
       <dl class="evidence-grid">
-        <div class="evidence-item"><dt>Last change</dt><dd>S08 G3-A Instructions 安全审计修复：WorkspaceInstructionLoader 现于 WorkspaceGuard realpath 解析前拒绝候选逻辑路径本身的 Symlink/Junction，避免 Workspace 内部链接绕过“链接一律拒绝”契约；新增内部 Symlink 回归。Capability Level、S08 G3-G6 与 Stage Exit 均未变化，仍为 Open。聚焦离线 Maven 回归 78 通过、6 项按环境前提跳过；ProgressDashboard generate/check/self-test 已通过。</dd></div>
+        <div class="evidence-item"><dt>Last change</dt><dd>S08 G3 A-F 全切片审计闭环：A 修复 Workspace 内部 Instructions Symlink 跟随并通过聚焦回归；B Settings 79 通过/4 环境跳过，C Runtime 映射 37/37 通过，D 命令/Headless/stdio 78 通过/1 环境跳过，E 编辑/steering 与 F recovery-gated Resume 沿用已接受的独立 review 和确定性证据。G3 标记 Passed；本次不新增 Capability Level，G4-G6 与 Stage Exit 保持 Open。</dd></div>
         <div class="evidence-item"><dt>Evidence stage</dt><dd><code>S07</code></dd></div>
         <div class="evidence-item"><dt>Evidence class</dt><dd><code>IMPLEMENTATION_VERIFIED</code></dd></div>
         <div class="evidence-item"><dt>Code commit</dt><dd><code>f12fe259b6fb623f1a9add19a55c45d254f329ec</code></dd></div>
         <div class="evidence-item"><dt>Standard command</dt><dd><code>.\mvnw.cmd -pl cc-java-core -am -Dtest=S07ContextMemoryEvalTest,AgentRuntimeContextIntegrationTest,SummaryReductionCoordinatorTest,MemoryRecallAndPrefetchTest -Dsurefire.failIfNoSpecifiedTests=false test；.\mvnw.cmd -pl cc-java-cli -am -Dtest=HeadlessRuntimeSessionTest,DeterministicMemoryKeywordPolicyTest,FileMemoryPrefetchAdapterTest,FileMemoryBodyLoaderTest,FileMemoryCatalogAdapterTest,MemoryRecallAndPrefetchTest,AgentRuntimeContextIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test；.\mvnw.cmd test；npm test -- --run；.\mvnw.cmd javadoc:aggregate -Ddoclint=all -DfailOnWarnings=true；java scripts/ProgressDashboard.java；java scripts/ProgressDashboard.java --check；java scripts/ProgressDashboard.java --self-test；git diff --check</code></dd></div>
         <div class="evidence-item"><dt>Result</dt><dd>S07 已完成 C1-C4 AgentRuntime Projection/typed overflow 至多一次恢复、Spring AI 结构化 overflow 分类/零 Tool Summarizer、显式启动容量 Headless composition、内部 Usage View 与 OBS-04 latest-only observer、M1-M5 文件记忆/ready-only Prefetch、D1 Core/Domain seam 和 D2 文件系统 Adapter/真实 Provider Headless composition。D4 deterministic Fake Eval 验证三条完整 Tool 批次样本的 Canonical prefix、零 orphan、事实/硬约束/完成 3/3 与实际中位数 49% Token 降幅；慢预取不阻塞主请求。全量 Maven、TUI、aggregate Javadoc、Demo、Gap、矩阵/能力声明和 ProgressDashboard 已完成 Commit-scoped 对账；S07 Accepted；S08 仅完成 G0 研究，G1-G6 与实现仍 Open。</dd></div>
-        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix a0268b4997b3</code><br><code>state 05f973ffafb1</code><br><code>code/build c0b34d99d953</code></dd></div>
+        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix 0c039cac9665</code><br><code>state 3c013337347a</code><br><code>code/build c0b34d99d953</code></dd></div>
       </dl>
     </section>
 
