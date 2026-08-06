@@ -68,6 +68,60 @@ describe('StdioClient', () => {
     });
   });
 
+  it('仅接受精确关联的 session command terminal result，并保留已签发 commandId', async () => {
+    const client = createClient();
+    const events: ProtocolEvent[] = [];
+    client.onEvent(event => events.push(event));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+
+    const requestId = client.sessionCommand('command-1', 'doctor', {});
+    await waitFor(() => events.some(event => event.type === 'session.command.result'));
+    expect(events.find(event => event.type === 'session.command.result')?.requestId).toBe(requestId);
+    expect(() => client.sessionCommand('command-1', 'doctor', {})).toThrow(/当前连接签发/);
+    await client.shutdown();
+  });
+
+  it('顺序完成的 commandId 也会消耗固定连接预算', async () => {
+    const client = createClient();
+    const events: ProtocolEvent[] = [];
+    client.onEvent(event => events.push(event));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+
+    for (let index = 1; index <= 256; index++) {
+      client.sessionCommand(`command-${index}`, 'doctor', {});
+      await waitFor(() => events.filter(event => event.type === 'session.command.result').length === index);
+    }
+    expect(() => client.sessionCommand('command-overflow', 'doctor', {})).toThrow(/签发数量超过上限/);
+    await client.shutdown();
+  });
+
+  it('重复 commandId、错配和重复 result 均 fail closed', async () => {
+    const delayed = createClient('command-delay');
+    const delayedEvents: ProtocolEvent[] = [];
+    delayed.onEvent(event => delayedEvents.push(event));
+    delayed.initialize();
+    await waitFor(() => delayedEvents.some(event => event.type === 'initialized'));
+    delayed.sessionCommand('same-command', 'doctor', {});
+    expect(() => delayed.sessionCommand('same-command', 'doctor', {})).toThrow(/当前连接签发/);
+    await delayed.shutdown();
+
+    for (const mode of ['command-wrong-request', 'command-duplicate-result']) {
+      const client = createClient(mode);
+      const failures: string[] = [];
+      const events: ProtocolEvent[] = [];
+      client.onFailure(message => failures.push(message));
+      client.onEvent(event => events.push(event));
+      client.initialize();
+      await waitFor(() => events.some(event => event.type === 'initialized'));
+      client.sessionCommand('command-1', 'doctor', {});
+      await waitFor(() => failures.length === 1);
+      expect(failures[0]).toContain('session.command.result');
+      expect(client.isClosed()).toBe(true);
+    }
+  });
+
   it('乱序 stdout 触发失败并终止子进程', async () => {
     const client = createClient('bad-sequence');
     const failures: string[] = [];

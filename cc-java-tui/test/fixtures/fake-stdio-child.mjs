@@ -107,6 +107,27 @@ reader.on('line', line => {
     );
     emit('run.completed', command.requestId, {stopReason: 'completed'}, sessionId, activeRunId);
     activeRunId = undefined;
+  } else if (command.type === 'session.command') {
+    if (mode === 'command-delay') {
+      return;
+    }
+    const requestId = mode === 'command-wrong-request' ? 'wrong-request' : command.requestId;
+    emit('session.command.result', requestId, {
+      commandId: command.payload.commandId,
+      intent: command.payload.intent,
+      status: 'rejected',
+      code: 'deferred',
+      result: {},
+    }, sessionId);
+    if (mode === 'command-duplicate-result') {
+      emit('session.command.result', requestId, {
+        commandId: command.payload.commandId,
+        intent: command.payload.intent,
+        status: 'rejected',
+        code: 'deferred',
+        result: {},
+      }, sessionId);
+    }
   } else if (command.type === 'shutdown') {
     clearTimeout(timer);
     if (mode === 'ignore-shutdown') {

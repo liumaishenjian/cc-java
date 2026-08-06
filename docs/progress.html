@@ -223,12 +223,12 @@
     }
   </style>
 </head>
-<body data-matrix-digest="23345cb9f77d" data-state-digest="d910be1a2223" data-code-digest="f9f6bc509af2">
+<body data-matrix-digest="1d20b146cd90" data-state-digest="0f290efd5dcc" data-code-digest="c3f6bd7751f2">
   <main class="shell">
     <section class="hero">
       <p class="eyebrow">Reference-driven Java Agent Runtime</p>
       <h1>cc-java 项目进度看板</h1>
-      <p class="hero-copy">S07 Context Engineering 已在 f12fe259b6fb623f1a9add19a55c45d254f329ec 实现基线上完成 Commit-scoped G0-G6，Stage Exit Accepted。S08 的 G3-C2b 已完成固定来源、内存 Session/CLI overlay 与 LKG/RuntimeScope idle 事务；G3-D 新增 Java Application 的封闭 Session Command Intent/Event/唯一终态分派基础、只读 Context Usage 投影及 BOOT-06 privacy-safe doctor。doctor 只读取已发布 LKG、Instructions 和 latest Context Usage，不 refresh/discovery、文件 I/O、Provider/Tool 或 JSONL 写入；无安全现有 API 的 compact、热 resume、运行时 model/permissions 修改返回固定终态。完整 stdio/Slash/TUI、G3-G6、Capability Level 与 Stage Exit 继续 Open。</p>
+      <p class="hero-copy">S07 Context Engineering 已在 f12fe259b6fb623f1a9add19a55c45d254f329ec 实现基线上完成 Commit-scoped G0-G6，Stage Exit Accepted。S08 的 G3-C2b 已完成固定来源、内存 Session/CLI overlay 与 LKG/RuntimeScope idle 事务；G3-D 已将封闭 Session Command 分派接入 stdio v0：严格字段/重复字段/参数上限、exact-int protocolVersion 与 commandId 控制字符校验、当前 Session 关联、按 intent 严格的 privacy-safe result 投影。每 accepted commandId 仅发布一次终态；256 ID 预算耗尽时仅发布一次固定拒绝并有序关闭连接，避免无限 ID 占用内存。React/Ink 只解析封闭 Slash 并渲染固定本地结果，缺少 session command 通道时本地拒绝且绝不提交模型提示词；doctor 仍只读取已发布内存状态，不 refresh/discovery、文件 I/O、Provider/Tool 或 JSONL 写入；无安全现有 API 的 compact、热 resume、运行时 model/permissions 修改仍返回固定终态。G3-G6、Capability Level 与 Stage Exit 继续 Open。</p>
       <div class="hero-meta">
         <span class="chip"><span class="dot"></span>当前 S08 · Instructions + Settings</span>
         <span class="chip">Stage Exit · OPEN</span>
@@ -263,7 +263,7 @@
 
     <section class="panel callout">
       <strong>Next allowed action</strong>
-      <p>继续按 ADR-047 为现有 Command foundation 实现安全的 compact/resume/model/permissions Application adapter，并完成 stdio/Slash/TUI codec、完整 Context UX 与其余 G3 B-F 切片；S12 Sub-Agent/后台任务/Worktree、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 继续延期。</p>
+      <p>继续按 ADR-047 完成完整 Context UX 与其余 G3 B-F 切片；只有具备明确安全 Application adapter 后才能实现 compact/resume/model/permissions。S12 Sub-Agent/后台任务/Worktree、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 继续延期。</p>
     </section>
 
     <section class="panel" id="gates">
@@ -330,13 +330,13 @@
         </div>
       </div>
       <dl class="evidence-grid">
-        <div class="evidence-item"><dt>Last change</dt><dd>S08 G3-D 增加封闭 Session Command Domain Intent/Event/Result、每 commandId 唯一终态 dispatcher、只读 Context Usage 投影与 BOOT-06 privacy-safe doctor。doctor 仅读取已发布内存 LKG/Instructions/Context，不触发 refresh/discovery、文件 I/O、Provider/Tool 或 JSONL 写入；compact、热 resume、运行时 model/permissions 的既有安全 API 缺失时返回固定终态，clear 仅可调用 Surface transient port。离线测试覆盖唯一终态、活动 Run Gate、取消、诊断隐私和 JSONL/RuntimeConfiguration 不变；G3-G6、Capability Level 与 Stage Exit 保持 Open。</dd></div>
+        <div class="evidence-item"><dt>Last change</dt><dd>S08 G3-D 收紧 stdio v0 session.command 与封闭 Slash：protocolVersion 采用 exact-int 校验，commandId 控制字符拒绝；256 accepted commandId 预算耗尽时仅发出一个固定 REQUEST_BUDGET_EXHAUSTED terminal 并有序关闭连接，避免无限新 ID 增长。TUI 对 session.command.result 按 intent 严格拒绝未知/泄漏/超限嵌套值，Context overflow 允许负 freeTokens；StdioClient 在连接期最多签发 256 个不可复用 commandId，以 pending commandId→requestId 严格匹配结果，终态仅清除 pending、进程退出才清除签发集合，重复发送、未知/重复/错配终态均 fail closed。缺少 sessionCommand client 时 Slash 本地拒绝、绝不退回 startRun；compact、热 resume、运行时 model/permissions 仍不接真实 adapter 而返回既有 NOT_AVAILABLE/DEFERRED；G3-G6、Capability Level 与 Stage Exit 保持 Open。</dd></div>
         <div class="evidence-item"><dt>Evidence stage</dt><dd><code>S07</code></dd></div>
         <div class="evidence-item"><dt>Evidence class</dt><dd><code>IMPLEMENTATION_VERIFIED</code></dd></div>
         <div class="evidence-item"><dt>Code commit</dt><dd><code>f12fe259b6fb623f1a9add19a55c45d254f329ec</code></dd></div>
         <div class="evidence-item"><dt>Standard command</dt><dd><code>.\mvnw.cmd -pl cc-java-core -am -Dtest=S07ContextMemoryEvalTest,AgentRuntimeContextIntegrationTest,SummaryReductionCoordinatorTest,MemoryRecallAndPrefetchTest -Dsurefire.failIfNoSpecifiedTests=false test；.\mvnw.cmd -pl cc-java-cli -am -Dtest=HeadlessRuntimeSessionTest,DeterministicMemoryKeywordPolicyTest,FileMemoryPrefetchAdapterTest,FileMemoryBodyLoaderTest,FileMemoryCatalogAdapterTest,MemoryRecallAndPrefetchTest,AgentRuntimeContextIntegrationTest -Dsurefire.failIfNoSpecifiedTests=false test；.\mvnw.cmd test；npm test -- --run；.\mvnw.cmd javadoc:aggregate -Ddoclint=all -DfailOnWarnings=true；java scripts/ProgressDashboard.java；java scripts/ProgressDashboard.java --check；java scripts/ProgressDashboard.java --self-test；git diff --check</code></dd></div>
         <div class="evidence-item"><dt>Result</dt><dd>S07 已完成 C1-C4 AgentRuntime Projection/typed overflow 至多一次恢复、Spring AI 结构化 overflow 分类/零 Tool Summarizer、显式启动容量 Headless composition、内部 Usage View 与 OBS-04 latest-only observer、M1-M5 文件记忆/ready-only Prefetch、D1 Core/Domain seam 和 D2 文件系统 Adapter/真实 Provider Headless composition。D4 deterministic Fake Eval 验证三条完整 Tool 批次样本的 Canonical prefix、零 orphan、事实/硬约束/完成 3/3 与实际中位数 49% Token 降幅；慢预取不阻塞主请求。全量 Maven、TUI、aggregate Javadoc、Demo、Gap、矩阵/能力声明和 ProgressDashboard 已完成 Commit-scoped 对账；S07 Accepted；S08 仅完成 G0 研究，G1-G6 与实现仍 Open。</dd></div>
-        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix 23345cb9f77d</code><br><code>state d910be1a2223</code><br><code>code/build f9f6bc509af2</code></dd></div>
+        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix 1d20b146cd90</code><br><code>state 0f290efd5dcc</code><br><code>code/build c3f6bd7751f2</code></dd></div>
       </dl>
     </section>
 

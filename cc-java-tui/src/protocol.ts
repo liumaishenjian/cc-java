@@ -42,6 +42,7 @@ const EVENT_TYPES = new Set([
   'checkpoint.listed',
   'checkpoint.diffed',
   'checkpoint.undone',
+  'session.command.result',
   'protocol.error',
 ]);
 
@@ -60,6 +61,7 @@ export type EventType =
   | 'checkpoint.listed'
   | 'checkpoint.diffed'
   | 'checkpoint.undone'
+  | 'session.command.result'
   | 'protocol.error';
 
 export interface ProtocolEvent {
@@ -82,6 +84,7 @@ export interface ProtocolCommand {
     | 'checkpoint.list'
     | 'checkpoint.diff'
     | 'checkpoint.undo'
+    | 'session.command'
     | 'shutdown';
   readonly requestId: string;
   readonly sessionId?: string;
@@ -169,7 +172,9 @@ function validateEventShape(
   ) {
     throw new ProtocolViolation(`${type} 必须携带 sessionId 且不能携带 runId`);
   }
-  if (type === 'checkpoint.listed') {
+  if (type === 'session.command.result') {
+    validateSessionCommandResult(sessionId, runId, payload);
+  } else if (type === 'checkpoint.listed') {
     validateCheckpointList(payload);
   } else if (type === 'checkpoint.diffed') {
     validateCheckpointDiff(payload);
@@ -248,6 +253,120 @@ function validateEventShape(
     validateOptionalTerminalCount(type, payload, 'toolCalls');
     validateOptionalModelFailure(type, payload);
   }
+}
+
+const SESSION_COMMAND_INTENTS = new Set([
+  'help', 'clear', 'compact', 'context', 'doctor', 'model', 'permissions', 'resume',
+]);
+const SESSION_COMMAND_CODES = new Set([
+  'ok', 'active_run', 'invalid_argument', 'unavailable', 'not_available', 'deferred',
+  'cancelled', 'internal_failure', 'request_budget_exhausted',
+]);
+const SESSION_COMMAND_SUPPORT = new Set(['available', 'deferred', 'not_available']);
+
+function validateSessionCommandResult(
+  sessionId: string | undefined,
+  runId: string | undefined,
+  payload: Readonly<Record<string, unknown>>,
+): void {
+  const fields = new Set(['commandId', 'intent', 'status', 'code', 'result']);
+  if (
+    sessionId === undefined || runId !== undefined
+    || !hasExactFields(payload, fields)
+    || !isBoundedIdentifier(payload.commandId)
+    || typeof payload.intent !== 'string' || !SESSION_COMMAND_INTENTS.has(payload.intent)
+    || typeof payload.status !== 'string'
+    || typeof payload.code !== 'string' || !SESSION_COMMAND_CODES.has(payload.code)
+    || !isRecord(payload.result)
+    || !isValidSessionCommandStatus(payload.status, payload.code)
+  ) {
+    throw new ProtocolViolation('session.command.result 包含无效安全投影');
+  }
+  validateSessionCommandPayload(payload.intent, payload.status, payload.result);
+}
+
+function isValidSessionCommandStatus(status: unknown, code: unknown): boolean {
+  return (status === 'succeeded' && code === 'ok')
+    || (status === 'cancelled' && code === 'cancelled')
+    || (status === 'failed' && code === 'internal_failure')
+    || (status === 'rejected' && typeof code === 'string'
+      && code !== 'ok' && code !== 'cancelled' && code !== 'internal_failure');
+}
+
+function validateSessionCommandPayload(
+  intent: string,
+  status: string,
+  result: Readonly<Record<string, unknown>>,
+): void {
+  if (status !== 'succeeded') {
+    if (!hasExactFields(result, new Set())) throw new ProtocolViolation('session.command.result 拒绝结果不得携带数据');
+    return;
+  }
+  if (intent === 'help') {
+    if (!hasExactFields(result, new Set(['commands'])) || !Array.isArray(result.commands)
+      || result.commands.length !== SESSION_COMMAND_INTENTS.size) {
+      throw new ProtocolViolation('session.command.result help 投影无效');
+    }
+    const seen = new Set<string>();
+    for (const item of result.commands) {
+      if (!isRecord(item) || !hasExactFields(item, new Set(['intent', 'support']))
+        || typeof item.intent !== 'string' || !SESSION_COMMAND_INTENTS.has(item.intent)
+        || typeof item.support !== 'string' || !SESSION_COMMAND_SUPPORT.has(item.support)
+        || seen.has(item.intent)) throw new ProtocolViolation('session.command.result help 条目无效');
+      seen.add(item.intent);
+    }
+    return;
+  }
+  if (intent === 'context') {
+    const fields = new Set(['systemTokens', 'transcriptTokens', 'toolTokens', 'memoryTokens',
+      'totalTokens', 'availableInputTokens', 'freeTokens', 'overflowTokens', 'sourceRevision',
+      'estimateKind', 'contextStatus', 'modelRequestAttempts', 'reductionStrategies', 'reasonCodes']);
+    if (!hasExactFields(result, fields)
+      || !nonNegativeSafeIntegers(result, ['systemTokens', 'transcriptTokens', 'toolTokens', 'memoryTokens',
+        'totalTokens', 'overflowTokens', 'sourceRevision', 'modelRequestAttempts'])
+      || !Number.isSafeInteger(result.freeTokens)
+      || !Number.isSafeInteger(result.availableInputTokens) || (result.availableInputTokens as number) < 1
+      || !isBoundedProjectionEnum(result.estimateKind) || !isBoundedProjectionEnum(result.contextStatus)
+      || !isBoundedProjectionEnumList(result.reductionStrategies) || !isBoundedProjectionEnumList(result.reasonCodes)) {
+      throw new ProtocolViolation('session.command.result context 投影无效');
+    }
+    return;
+  }
+  if (intent === 'doctor') {
+    const fields = new Set(['settingsAvailable', 'settingsRevision', 'instructionCount', 'contextAvailable', 'activeRun', 'entries']);
+    if (!hasExactFields(result, fields) || typeof result.settingsAvailable !== 'boolean'
+      || !Number.isSafeInteger(result.settingsRevision) || (result.settingsRevision as number) < 0
+      || !Number.isSafeInteger(result.instructionCount) || (result.instructionCount as number) < 0
+      || typeof result.contextAvailable !== 'boolean' || typeof result.activeRun !== 'boolean'
+      || !Array.isArray(result.entries) || result.entries.length > 128) {
+      throw new ProtocolViolation('session.command.result doctor 投影无效');
+    }
+    for (const entry of result.entries) {
+      if (!isRecord(entry) || !hasExactFields(entry, new Set(['component', 'sourceKind', 'safeId', 'code', 'severity']))
+        || !isBoundedProjectionEnum(entry.component) || !isBoundedProjectionEnum(entry.sourceKind)
+        || !isSafeRelativeTarget(entry.safeId) || !isBoundedProjectionEnum(entry.code)
+        || !isBoundedProjectionEnum(entry.severity)) throw new ProtocolViolation('session.command.result doctor 条目无效');
+    }
+    return;
+  }
+  if (!hasExactFields(result, new Set())) throw new ProtocolViolation('session.command.result 不应携带数据');
+}
+
+function hasExactFields(value: Readonly<Record<string, unknown>>, fields: ReadonlySet<string>): boolean {
+  const keys = Object.keys(value);
+  return keys.length === fields.size && keys.every(key => fields.has(key));
+}
+
+function nonNegativeSafeIntegers(value: Readonly<Record<string, unknown>>, fields: readonly string[]): boolean {
+  return fields.every(field => Number.isSafeInteger(value[field]) && (value[field] as number) >= 0);
+}
+
+function isBoundedProjectionEnum(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(value);
+}
+
+function isBoundedProjectionEnumList(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.length <= 32 && value.every(isBoundedProjectionEnum);
 }
 
 function validateCheckpointList(

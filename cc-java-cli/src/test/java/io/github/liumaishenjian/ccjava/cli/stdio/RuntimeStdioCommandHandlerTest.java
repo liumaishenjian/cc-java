@@ -482,6 +482,64 @@ class RuntimeStdioCommandHandlerTest {
         assertThat(Files.readString(workspace().resolve("command.txt"))).contains("ok");
     }
 
+    @Test
+    void sessionCommandEmitsOnePrivacySafeTerminalForDuplicateCommandId() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(
+                ignored -> ModelTurn.text("done"), testOptions())) {
+            handler.handle(codec.decodeCommand("{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            String request = "{\"version\":0,\"type\":\"session.command\",\"requestId\":\"command\",\"sessionId\":\"%s\",\"sequence\":%d,\"payload\":{\"protocolVersion\":0,\"commandId\":\"same-command\",\"intent\":\"doctor\",\"arguments\":{}}}";
+            handler.handle(codec.decodeCommand(request.formatted(sessionId, 2)), emitter);
+            handler.handle(codec.decodeCommand(request.formatted(sessionId, 3)), emitter);
+        }
+        assertThat(events).filteredOn(event -> event.type().equals("session.command.result")).hasSize(1);
+        CapturedEvent result = events.stream().filter(event -> event.type().equals("session.command.result")).findFirst().orElseThrow();
+        assertThat(result.payload().toString()).contains("same-command", "doctor", "succeeded", "ok")
+                .doesNotContain("apiKey", "baseUrl", "prompt", "absolute");
+    }
+
+    @Test
+    void sessionCommandEmitsOneBudgetTerminalThenShutsDownWithoutTrackingUnlimitedIds() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(
+                ignored -> ModelTurn.text("done"), testOptions())) {
+            handler.handle(codec.decodeCommand("{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            String request = "{\"version\":0,\"type\":\"session.command\",\"requestId\":\"command-%d\",\"sessionId\":\"%s\",\"sequence\":%d,\"payload\":{\"protocolVersion\":0,\"commandId\":\"command-%d\",\"intent\":\"doctor\",\"arguments\":{}}}";
+            for (int index = 1; index <= 256; index++) {
+                assertThat(handler.handle(codec.decodeCommand(request.formatted(index, sessionId, index + 1, index)), emitter))
+                        .isEqualTo(StdioProtocol.Disposition.CONTINUE);
+            }
+            assertThat(handler.handle(codec.decodeCommand(request.formatted(257, sessionId, 258, 257)), emitter))
+                    .isEqualTo(StdioProtocol.Disposition.SHUTDOWN);
+        }
+        var results = events.stream().filter(event -> event.type().equals("session.command.result")).toList();
+        assertThat(results).hasSize(257);
+        assertThat(results.getLast().payload().toString()).contains("request_budget_exhausted", "command-257");
+    }
+
+    @Test
+    void sessionCommandRejectsSessionMismatchAndActiveRunWithoutMutation() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(
+                ignored -> ModelTurn.text("done"), testOptions())) {
+            handler.handle(codec.decodeCommand("{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand("{\"version\":0,\"type\":\"session.command\",\"requestId\":\"bad\",\"sessionId\":\"other\",\"sequence\":2,\"payload\":{\"protocolVersion\":0,\"commandId\":\"bad-command\",\"intent\":\"context\",\"arguments\":{}}}"), emitter))
+                    .isInstanceOf(StdioProtocolException.class);
+        }
+        assertThat(events).filteredOn(event -> event.type().equals("session.command.result")).isEmpty();
+    }
+
     private static String eventDiagnostics(List<CapturedEvent> events) {
         return events.stream()
                 .map(event -> event.type() + "[status=" + stringField(event, "status")

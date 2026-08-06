@@ -125,6 +125,7 @@ export type TuiAction =
   | {readonly type: 'checkpoint.undo.cancelled'}
   | {readonly type: 'event.received'; readonly event: ProtocolEvent}
   | {readonly type: 'transport.failed'; readonly message: string}
+  | {readonly type: 'slash.notice'; readonly message: string}
   | {readonly type: 'closing'}
   | {readonly type: 'closed'};
 
@@ -206,6 +207,8 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
       return applyEvent(state, action.event);
     case 'transport.failed':
       return {...state, phase: 'failed', notice: action.message, activeRunId: undefined};
+    case 'slash.notice':
+      return {...state, notice: action.message};
     case 'closing':
       return {...state, phase: 'closing'};
     case 'closed':
@@ -309,6 +312,8 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
         pendingUndoCheckpointId: undefined,
         notice: undefined,
       };
+    case 'session.command.result':
+      return state;
     case 'protocol.error':
       return {
         ...state,

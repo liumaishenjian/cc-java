@@ -141,6 +141,63 @@ describe('decodeEvent', () => {
     }), 1)).toThrowError(/checkpoint\.undone/);
   });
 
+  it('接受严格且无 Run 关联的 session command terminal result', () => {
+    const event = decodeEvent(JSON.stringify({
+      version: 0, type: 'session.command.result', requestId: 'req-command',
+      sessionId: 'session-1', sequence: 1,
+      payload: {commandId: 'command-1', intent: 'doctor', status: 'rejected', code: 'deferred', result: {}},
+    }), 1);
+    expect(event.type).toBe('session.command.result');
+    expect(() => decodeEvent(JSON.stringify({
+      ...event, runId: 'run-1', payload: {...event.payload, secret: 'leak'},
+    }), 1)).toThrowError(/session\.command\.result/);
+  });
+
+  it('按 intent 严格校验 session command 投影，拒绝泄漏、未知字段和超限数组', () => {
+    const base = {
+      version: 0, type: 'session.command.result', requestId: 'req-command',
+      sessionId: 'session-1', sequence: 1,
+      payload: {commandId: 'command-1', intent: 'help', status: 'succeeded', code: 'ok', result: {
+        commands: [
+          {intent: 'help', support: 'available'}, {intent: 'clear', support: 'deferred'},
+          {intent: 'compact', support: 'not_available'}, {intent: 'context', support: 'available'},
+          {intent: 'doctor', support: 'available'}, {intent: 'model', support: 'not_available'},
+          {intent: 'permissions', support: 'deferred'}, {intent: 'resume', support: 'deferred'},
+        ],
+      }},
+    };
+    expect(decodeEvent(JSON.stringify(base), 1).payload.intent).toBe('help');
+    expect(() => decodeEvent(JSON.stringify({
+      ...base, payload: {...base.payload, result: {commands: base.payload.result.commands, providerText: 'secret'}},
+    }), 1)).toThrowError(/session\.command\.result/);
+    expect(() => decodeEvent(JSON.stringify({
+      ...base, payload: {...base.payload, result: {commands: [...base.payload.result.commands, ...base.payload.result.commands]}},
+    }), 1)).toThrowError(/session\.command\.result/);
+    expect(() => decodeEvent(JSON.stringify({
+      ...base, payload: {...base.payload, status: 'succeeded', code: 'active_run', result: {}},
+    }), 1)).toThrowError(/session\.command\.result/);
+    expect(() => decodeEvent(JSON.stringify({
+      ...base, payload: {...base.payload, commandId: 'bad\ncommand'},
+    }), 1)).toThrowError(/session\.command\.result/);
+  });
+
+  it('接受 overflow context 的负 freeTokens，但仍拒绝不安全数值', () => {
+    const result = {
+      systemTokens: 10, transcriptTokens: 20, toolTokens: 0, memoryTokens: 0,
+      totalTokens: 30, availableInputTokens: 25, freeTokens: -5, overflowTokens: 5,
+      sourceRevision: 1, estimateKind: 'HEURISTIC', contextStatus: 'OVERFLOW',
+      modelRequestAttempts: 0, reductionStrategies: [], reasonCodes: ['OVERFLOW'],
+    };
+    expect(decodeEvent(JSON.stringify({
+      version: 0, type: 'session.command.result', requestId: 'req-context', sessionId: 'session-1', sequence: 1,
+      payload: {commandId: 'context-1', intent: 'context', status: 'succeeded', code: 'ok', result},
+    }), 1).payload.result).toEqual(result);
+    expect(() => decodeEvent(JSON.stringify({
+      version: 0, type: 'session.command.result', requestId: 'req-context', sessionId: 'session-1', sequence: 1,
+      payload: {commandId: 'context-1', intent: 'context', status: 'succeeded', code: 'ok', result: {...result, freeTokens: Number.MAX_SAFE_INTEGER + 1}},
+    }), 1)).toThrowError(/context/);
+  });
+
   it('拒绝包含控制字符的终止原因', () => {
     expect(() => decodeEvent(JSON.stringify({
       version: 0,

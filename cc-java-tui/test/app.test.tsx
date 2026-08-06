@@ -338,6 +338,44 @@ describe('AgentView', () => {
     view.unmount();
   });
 
+  it('Slash 命令仅经 session command 通道发送，并显示安全终态提示', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'tui-1', sessionId: 'session-1', sequence: 1, payload: {protocolVersion: 0}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+    view.stdin.write('/doctor');
+    view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 1);
+    expect(client.sessionCommands).toEqual(['tui-command-1:doctor:{}']);
+    expect(client.prompts).toEqual([]);
+    client.emit({
+      version: 0, type: 'session.command.result', requestId: 'command-result', sessionId: 'session-1', sequence: 2,
+      payload: {commandId: 'tui-command-1', intent: 'doctor', status: 'rejected', code: 'deferred', result: {}},
+    });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(view.lastFrame()).toContain('/doctor 未执行');
+    view.unmount();
+  });
+
+  it('没有 session command 通道时 Slash 命令本地拒绝而不作为模型提示词提交', async () => {
+    const client = new FakeAgentClient();
+    Object.defineProperty(client, 'sessionCommand', {value: undefined});
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'tui-1', sessionId: 'session-1', sequence: 1, payload: {protocolVersion: 0}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+    view.stdin.write('/doctor');
+    view.stdin.write('\r');
+    await waitForFrame(() => view.lastFrame()?.includes('当前连接不支持 Slash 命令') === true);
+    expect(client.prompts).toEqual([]);
+    view.stdin.write('/unknown');
+    view.stdin.write('\r');
+    await waitForFrame(() => view.lastFrame()?.includes('未知 Slash 命令') === true);
+    expect(client.prompts).toEqual([]);
+    view.unmount();
+  });
+
   it('真实 useInput 链路完整提交含小写 c/d/u 的普通输入且不触发 Checkpoint', async () => {
     const client = new FakeAgentClient();
     const view = render(<AgentTui client={client} />);
@@ -442,6 +480,7 @@ describe('approvalDecision', () => {
 class FakeAgentClient implements AgentClient {
   readonly prompts: string[] = [];
   readonly checkpointCommands: string[] = [];
+  readonly sessionCommands: string[] = [];
   initializeCalls = 0;
   readonly #eventListeners = new Set<(event: ProtocolEvent) => void>();
 
@@ -489,6 +528,11 @@ class FakeAgentClient implements AgentClient {
   public undoCheckpoint(checkpointId: string, confirmed: boolean): string {
     this.checkpointCommands.push(`undo:${checkpointId}:${confirmed}`);
     return 'tui-checkpoint-undo';
+  }
+
+  public sessionCommand(commandId: string, intent: 'help' | 'clear' | 'compact' | 'context' | 'doctor' | 'model' | 'permissions' | 'resume', arguments_: Readonly<Record<string, unknown>>): string {
+    this.sessionCommands.push(`${commandId}:${intent}:${JSON.stringify(arguments_)}`);
+    return 'tui-session-command';
   }
 
   public async shutdown(): Promise<void> {

@@ -8,7 +8,7 @@
 >
 > 当前代码状态：S01-S07 已 Accepted；S07 的 Canonical Transcript/Projection、条件式 C1-C4、文件记忆
 > M1-M5、ready-only 零等待预取、内部 Usage View 与 latest-only Recovery Analytics 已在离线 Fake、Demo、
-> Gap 和 Commit-scoped 对账中达到声明等级。S08 已完成 G0-G2；G3-C2b 已实现真实 Headless 的固定来源读取、内存 Session/CLI overlay 与 LKG/RuntimeScope idle 事务接缝。G3-D 已增加 Java Application 的封闭 Command Intent/Event/单终态分派基础、只读 `/context` 投影与 BOOT-06 隐私安全 doctor 报告；没有安全现有接口的 compact、热 resume、运行时 model/permissions 修改均返回固定受控终态，且不写 JSONL。G3-G6、Capability Level 和 Stage Exit 仍 Open；完整 Context UX、Slash/stdio/TUI、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
+> Gap 和 Commit-scoped 对账中达到声明等级。S08 已完成 G0-G2；G3-C2b 已实现真实 Headless 的固定来源读取、内存 Session/CLI overlay 与 LKG/RuntimeScope idle 事务接缝。G3-D 已增加 Java Application 的封闭 Command Intent/Event/单终态分派基础、只读 `/context` 投影与 BOOT-06 隐私安全 doctor 报告；stdio v0 已接入严格 `session.command` 解码、Session 关联、固定白名单结果投影与每 commandId 至多一次 terminal emission，React/Ink 已提供封闭 Slash 解析和本地结果渲染。没有安全现有接口的 compact、热 resume、运行时 model/permissions 修改仍返回固定受控终态，且不写 JSONL。G3-G6、Capability Level 和 Stage Exit 仍 Open；完整 Context UX、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
 
 ## 1. 文档目的
 

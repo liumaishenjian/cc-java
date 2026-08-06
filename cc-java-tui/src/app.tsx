@@ -11,6 +11,7 @@ import type {
 } from './state.js';
 import {AssistantMarkdown} from './assistant-markdown.js';
 import {ToolActivityGroup} from './tool-activity.js';
+import {parseSlashCommand, renderSlashResult} from './slash-command.js';
 
 export interface AgentTuiProps {
   readonly client: AgentClient;
@@ -30,6 +31,7 @@ export interface AgentClient {
   listCheckpoints?(): string;
   checkpointDiff?(checkpointId: string): string;
   undoCheckpoint?(checkpointId: string, confirmed: boolean): string;
+  sessionCommand?(commandId: string, intent: 'help' | 'clear' | 'compact' | 'context' | 'doctor' | 'model' | 'permissions' | 'resume', arguments_: Readonly<Record<string, unknown>>): string;
   shutdown(): Promise<void>;
   terminate(): void;
 }
@@ -47,6 +49,7 @@ export function AgentTui({client}: AgentTuiProps) {
   const [input, setInput] = useState('');
   const inputRef = useRef('');
   const cancelPending = useRef(false);
+  const nextCommandNumber = useRef(1);
   const pendingApproval = state.runs.findLast(
     run => run.status === 'running',
   )?.pendingApproval;
@@ -64,6 +67,15 @@ export function AgentTui({client}: AgentTuiProps) {
 
   useEffect(() => {
     const offEvent = client.onEvent(event => {
+      if (event.type === 'session.command.result') {
+        const payload = event.payload;
+        dispatch({
+          type: 'slash.notice',
+          message: renderSlashResult(
+            String(payload.intent), String(payload.status), String(payload.code),
+          ),
+        });
+      }
       if (
         event.type === 'run.completed'
         || event.type === 'run.failed'
@@ -180,6 +192,21 @@ export function AgentTui({client}: AgentTuiProps) {
       }
       const prompt = inputRef.current.trim();
       if (prompt.length > 0) {
+        const slash = parseSlashCommand(prompt);
+        if (slash.kind === 'command') {
+          if (client.sessionCommand === undefined) {
+            dispatch({type: 'slash.notice', message: '当前连接不支持 Slash 命令'});
+            return;
+          }
+          client.sessionCommand(`tui-command-${nextCommandNumber.current++}`, slash.command.intent, slash.command.arguments);
+          inputRef.current = '';
+          setInput('');
+          return;
+        }
+        if (slash.kind === 'invalid') {
+          dispatch({type: 'slash.notice', message: slash.message});
+          return;
+        }
         const requestId = client.startRun(prompt);
         dispatch({type: 'run.submitted', requestId, prompt});
         inputRef.current = '';
@@ -547,7 +574,7 @@ export function undoConfirmation(
   if (text === 'Y') {
     return 'confirm';
   }
-  if (text.toLowerCase() === 'n' || text === '') {
+  if (text.toLowerCase() === 'n' || text === '\u001b') {
     return 'cancel';
   }
   return undefined;

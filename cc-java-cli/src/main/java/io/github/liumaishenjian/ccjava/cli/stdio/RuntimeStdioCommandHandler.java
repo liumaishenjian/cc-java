@@ -5,7 +5,15 @@ import io.github.liumaishenjian.ccjava.core.ModelTurnTelemetry;
 import io.github.liumaishenjian.ccjava.core.RunTelemetry;
 import io.github.liumaishenjian.ccjava.core.ToolCallTelemetry;
 import io.github.liumaishenjian.ccjava.core.ContextPreparationConfig;
+import io.github.liumaishenjian.ccjava.core.CancellationToken;
 import io.github.liumaishenjian.ccjava.core.ModelGateway;
+import io.github.liumaishenjian.ccjava.cli.runtime.DoctorReportService;
+import io.github.liumaishenjian.ccjava.cli.runtime.SessionCommandDispatcher;
+import io.github.liumaishenjian.ccjava.domain.SessionId;
+import io.github.liumaishenjian.ccjava.domain.command.CommandId;
+import io.github.liumaishenjian.ccjava.domain.command.SessionCommandEvent;
+import io.github.liumaishenjian.ccjava.domain.command.SessionCommandIntent;
+import io.github.liumaishenjian.ccjava.domain.command.SessionCommandResult;
 import io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeSession;
 import io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeOptions;
 import io.github.liumaishenjian.ccjava.cli.session.SessionOpenRequest;
@@ -28,6 +36,8 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -54,6 +64,10 @@ public final class RuntimeStdioCommandHandler
     private final HeadlessRuntimeSession application;
     private State state = State.NEW;
     private ActiveRun activeRun;
+    private SessionCommandDispatcher commandDispatcher;
+    /** 仅记录 dispatcher 已接受的有限 commandId，拒绝预算外新 ID 后立即关闭连接。 */
+    private final Set<CommandId> emittedCommandResults = new HashSet<>();
+    private boolean commandRequestBudgetExhausted;
 
     /**
      * 使用已校验的本地 Provider 设置装配 Headless Runtime。
@@ -197,6 +211,7 @@ public final class RuntimeStdioCommandHandler
             case "checkpoint.list" -> listCheckpoints(command, events);
             case "checkpoint.diff" -> checkpointDiff(command, events);
             case "checkpoint.undo" -> checkpointUndo(command, events);
+            case "session.command" -> sessionCommand(command, events);
             case "shutdown" -> shutdown();
             default -> throw protocolError(
                     "UNKNOWN_COMMAND",
@@ -259,6 +274,171 @@ public final class RuntimeStdioCommandHandler
         }
         executor.submit(() -> executeRun(run, prompt));
         return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    /**
+     * 将严格解码的 stdio 命令交给 S08 Application dispatcher，并只发布一次安全终态。
+     *
+     * @param command 已通过 v0 传输/字段校验的命令
+     * @param events 当前连接的有序事件出口
+     * @return 连接继续读取下一条命令
+     * @throws StdioProtocolException Session 不匹配或请求状态不合法时
+     */
+    private StdioProtocol.Disposition sessionCommand(
+            StdioProtocol.Command command,
+            StdioProtocol.EventEmitter events) throws StdioProtocolException {
+        SessionCommandResult result;
+        CommandId commandId;
+        synchronized (lock) {
+            ensureStateNotNewOrClosed(command);
+            requireSession(command);
+            if (command.runId().isPresent()) {
+                throw protocolError("INVALID_STATE", command, "session.command 不能携带 Run ID");
+            }
+            if (commandDispatcher == null) {
+                commandDispatcher = new SessionCommandDispatcher(
+                        application, new DoctorReportService(application));
+            }
+            try {
+                commandId = new CommandId(requiredSessionCommandText(command, "commandId"));
+                if (commandRequestBudgetExhausted && !emittedCommandResults.contains(commandId)) {
+                    return StdioProtocol.Disposition.SHUTDOWN;
+                }
+                result = commandDispatcher.dispatch(
+                        commandId,
+                        decodeSessionCommandIntent(command),
+                        CancellationToken.none());
+            } catch (IllegalArgumentException invalid) {
+                throw protocolError("INVALID_PAYLOAD", command, "session.command 参数无效");
+            }
+        }
+        synchronized (lock) {
+            if (!emittedCommandResults.contains(commandId)) {
+                if (result.event().code() == io.github.liumaishenjian.ccjava.domain.command.SessionCommandResultCode.REQUEST_BUDGET_EXHAUSTED) {
+                    commandRequestBudgetExhausted = true;
+                    emitSessionCommandResult(command.requestId(), result, events);
+                    return StdioProtocol.Disposition.SHUTDOWN;
+                }
+                emittedCommandResults.add(commandId);
+                emitSessionCommandResult(command.requestId(), result, events);
+            }
+        }
+        return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    private void emitSessionCommandResult(
+            String requestId,
+            SessionCommandResult result,
+            StdioProtocol.EventEmitter events) {
+        SessionCommandEvent event = result.event();
+        ObjectNode payload = codec.objectNode();
+        payload.put("commandId", event.commandId().value());
+        payload.put("intent", safeIntentName(event.kind()));
+        payload.put("status", event.status().name().toLowerCase(Locale.ROOT));
+        payload.put("code", event.code().name().toLowerCase(Locale.ROOT));
+        payload.set("result", sessionCommandPayload(event.payload()));
+        events.emit("session.command.result", requestId, Optional.of(event.sessionId().value()), Optional.empty(), payload);
+    }
+
+    private ObjectNode sessionCommandPayload(SessionCommandEvent.SessionCommandPayload source) {
+        ObjectNode payload = codec.objectNode();
+        switch (source) {
+            case SessionCommandEvent.EmptyPayload ignored -> { }
+            case SessionCommandEvent.HelpPayload help -> {
+                ArrayNode commands = codec.arrayNode();
+                help.commands().forEach(value -> {
+                    ObjectNode item = codec.objectNode();
+                    item.put("intent", safeIntentName(value.kind()));
+                    item.put("support", value.support().name().toLowerCase(Locale.ROOT));
+                    commands.add(item);
+                });
+                payload.set("commands", commands);
+            }
+            case SessionCommandEvent.ContextPayload context -> {
+                payload.put("systemTokens", context.systemTokens());
+                payload.put("transcriptTokens", context.transcriptTokens());
+                payload.put("toolTokens", context.toolTokens());
+                payload.put("memoryTokens", context.memoryTokens());
+                payload.put("totalTokens", context.totalTokens());
+                payload.put("availableInputTokens", context.availableInputTokens());
+                payload.put("freeTokens", context.freeTokens());
+                payload.put("overflowTokens", context.overflowTokens());
+                payload.put("sourceRevision", context.sourceRevision());
+                payload.put("estimateKind", context.estimateKind());
+                payload.put("contextStatus", context.status());
+                payload.put("modelRequestAttempts", context.modelRequestAttempts());
+                payload.set("reductionStrategies", mapperEnums(context.reductionStrategies()));
+                payload.set("reasonCodes", mapperEnums(context.reasonCodes()));
+            }
+            case SessionCommandEvent.DoctorPayload doctor -> {
+                payload.put("settingsAvailable", doctor.settingsAvailable());
+                payload.put("settingsRevision", doctor.settingsRevision());
+                payload.put("instructionCount", doctor.instructionCount());
+                payload.put("contextAvailable", doctor.contextAvailable());
+                payload.put("activeRun", doctor.activeRun());
+                ArrayNode entries = codec.arrayNode();
+                doctor.entries().forEach(value -> {
+                    ObjectNode item = codec.objectNode();
+                    item.put("component", value.component());
+                    item.put("sourceKind", value.sourceKind());
+                    item.put("safeId", value.safeId());
+                    item.put("code", value.code());
+                    item.put("severity", value.severity());
+                    entries.add(item);
+                });
+                payload.set("entries", entries);
+            }
+        }
+        return payload;
+    }
+
+    private ArrayNode mapperEnums(java.util.List<String> values) {
+        ArrayNode array = codec.arrayNode();
+        values.forEach(array::add);
+        return array;
+    }
+
+    private SessionCommandIntent decodeSessionCommandIntent(StdioProtocol.Command command) throws StdioProtocolException {
+        String intent = requiredSessionCommandText(command, "intent");
+        ObjectNode arguments = (ObjectNode) command.payload().get("arguments");
+        return switch (intent) {
+            case "help" -> new SessionCommandIntent.Help();
+            case "clear" -> new SessionCommandIntent.Clear();
+            case "compact" -> new SessionCommandIntent.Compact(
+                    java.util.stream.StreamSupport.stream(arguments.get("anchors").spliterator(), false)
+                            .map(JsonNode::stringValue).toList());
+            case "context" -> new SessionCommandIntent.Context();
+            case "doctor" -> new SessionCommandIntent.Doctor();
+            case "model" -> new SessionCommandIntent.ModelChange(arguments.get("name").stringValue());
+            case "permissions" -> new SessionCommandIntent.Permissions(
+                    "query".equals(arguments.get("operation").stringValue())
+                            ? SessionCommandIntent.PermissionsOperation.QUERY
+                            : SessionCommandIntent.PermissionsOperation.CHANGE);
+            case "resume" -> new SessionCommandIntent.Resume(new SessionId(arguments.get("sessionId").stringValue()));
+            default -> throw protocolError("INVALID_ARGUMENT", command, "未知 session.command intent");
+        };
+    }
+
+    private String requiredSessionCommandText(StdioProtocol.Command command, String field)
+            throws StdioProtocolException {
+        JsonNode value = command.payload().get(field);
+        if (value == null || !value.isString()) {
+            throw protocolError("INVALID_PAYLOAD", command, "session.command 缺少必填字段");
+        }
+        return value.stringValue();
+    }
+
+    private static String safeIntentName(io.github.liumaishenjian.ccjava.domain.command.SessionCommandKind kind) {
+        return switch (kind) {
+            case HELP -> "help";
+            case CLEAR -> "clear";
+            case COMPACT -> "compact";
+            case CONTEXT -> "context";
+            case DOCTOR -> "doctor";
+            case MODEL_CHANGE -> "model";
+            case PERMISSIONS -> "permissions";
+            case RESUME -> "resume";
+        };
     }
 
     private StdioProtocol.Disposition listCheckpoints(
@@ -692,6 +872,13 @@ public final class RuntimeStdioCommandHandler
                     "run.start.prompt 为空或超过长度限制");
         }
         return prompt.stringValue();
+    }
+
+    private void ensureStateNotNewOrClosed(StdioProtocol.Command command)
+            throws StdioProtocolException {
+        if (state == State.NEW || state == State.CLOSED) {
+            throw protocolError("INVALID_STATE", command, "session.command 需要已初始化且未关闭的 Session");
+        }
     }
 
     private void ensureState(State expected, StdioProtocol.Command command)

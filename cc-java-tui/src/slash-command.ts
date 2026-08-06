@@ -1,0 +1,75 @@
+export type SlashIntent =
+  | 'help'
+  | 'clear'
+  | 'compact'
+  | 'context'
+  | 'doctor'
+  | 'model'
+  | 'permissions'
+  | 'resume';
+
+export interface ParsedSlashCommand {
+  readonly intent: SlashIntent;
+  readonly arguments: Readonly<Record<string, unknown>>;
+}
+
+export type SlashParseResult =
+  | {readonly kind: 'not-command'}
+  | {readonly kind: 'command'; readonly command: ParsedSlashCommand}
+  | {readonly kind: 'invalid'; readonly message: string};
+
+const MAX_ARGUMENT_CHARS = 256;
+const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/u;
+const COMMANDS = new Set<SlashIntent>([
+  'help', 'clear', 'compact', 'context', 'doctor', 'model', 'permissions', 'resume',
+]);
+
+/**
+ * 将 TUI 输入转换为封闭的 S08 命令意图，不猜测路径、配置或权限 selector。
+ */
+export function parseSlashCommand(input: string): SlashParseResult {
+  if (!input.startsWith('/')) return {kind: 'not-command'};
+  const [rawName, ...values] = input.slice(1).trim().split(/\s+/u);
+  if (rawName === undefined || rawName.length === 0 || !COMMANDS.has(rawName as SlashIntent)) {
+    return {kind: 'invalid', message: '未知 Slash 命令'};
+  }
+  const intent = rawName as SlashIntent;
+  if (['help', 'clear', 'context', 'doctor'].includes(intent)) {
+    return values.length === 0
+      ? {kind: 'command', command: {intent, arguments: {}}}
+      : {kind: 'invalid', message: `/${intent} 不接受参数`};
+  }
+  if (intent === 'compact') {
+    if (values.length > 32 || values.some(invalidArgument)) {
+      return {kind: 'invalid', message: '/compact 参数非法或超过上限'};
+    }
+    return {kind: 'command', command: {intent, arguments: {anchors: values}}};
+  }
+  if (intent === 'permissions') {
+    const operation = values[0];
+    return values.length === 1 && (operation === 'query' || operation === 'change')
+      ? {kind: 'command', command: {intent, arguments: {operation}}}
+      : {kind: 'invalid', message: '/permissions 只接受 query 或 change'};
+  }
+  const value = values[0];
+  const key = intent === 'model' ? 'name' : 'sessionId';
+  return values.length === 1 && value !== undefined && !invalidArgument(value)
+    ? {kind: 'command', command: {intent, arguments: {[key]: value}}}
+    : {kind: 'invalid', message: `/${intent} 需要一个有界参数`};
+}
+
+/** 将固定结果代码渲染为不含服务端原文的本地提示。 */
+export function renderSlashResult(intent: string, status: string, code: string): string {
+  if (status === 'succeeded') return `/${intent} 已完成`;
+  const labels: Record<string, string> = {
+    active_run: '当前 Run 仍在执行', unavailable: '当前没有可用视图',
+    not_available: '当前版本尚未提供', deferred: '已延期至后续安全切片',
+    invalid_argument: '参数无效', request_budget_exhausted: '命令请求额度已用尽',
+  };
+  return `/${intent} 未执行：${labels[code] ?? '请求被安全拒绝'}`;
+}
+
+function invalidArgument(value: string): boolean {
+  return value.length === 0 || Array.from(value).length > MAX_ARGUMENT_CHARS
+    || CONTROL_CHARACTER_PATTERN.test(value);
+}

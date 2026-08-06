@@ -48,6 +48,9 @@ export class StdioClient {
   #failureEmitted = false;
   #cancelTimer: NodeJS.Timeout | undefined;
   #stderrBytes = 0;
+  #issuedSessionCommandIds = new Set<string>();
+  #pendingSessionCommands = new Map<string, string>();
+  static readonly #MAX_ISSUED_SESSION_COMMAND_IDS = 256;
 
   public constructor(spec: ChildProcessSpec, options: StdioClientOptions = {}) {
     this.#maxLineBytes = options.maxLineBytes ?? MAX_LINE_BYTES;
@@ -78,6 +81,8 @@ export class StdioClient {
         this.#emitFailure(unexpectedExitMessage(code, signal, this.#stderrBytes));
       }
       this.#closed = true;
+      this.#pendingSessionCommands.clear();
+      this.#issuedSessionCommandIds.clear();
       this.#events.emit('exit', {code, signal, stderrBytes: this.#stderrBytes});
     });
   }
@@ -108,6 +113,28 @@ export class StdioClient {
       throw new Error('Session 尚未初始化');
     }
     return this.#send('run.start', {prompt}, this.#sessionId);
+  }
+
+  public sessionCommand(
+    commandId: string,
+    intent: 'help' | 'clear' | 'compact' | 'context' | 'doctor' | 'model' | 'permissions' | 'resume',
+    arguments_: Readonly<Record<string, unknown>>,
+  ): string {
+    if (this.#sessionId === undefined) {
+      throw new Error('Session 尚未初始化');
+    }
+    if (this.#issuedSessionCommandIds.has(commandId)) {
+      throw new Error('session.command commandId 已在当前连接签发');
+    }
+    if (this.#issuedSessionCommandIds.size >= StdioClient.#MAX_ISSUED_SESSION_COMMAND_IDS) {
+      throw new Error('session.command commandId 签发数量超过上限');
+    }
+    const requestId = this.#send('session.command', {
+      protocolVersion: PROTOCOL_VERSION, commandId, intent, arguments: arguments_,
+    }, this.#sessionId);
+    this.#issuedSessionCommandIds.add(commandId);
+    this.#pendingSessionCommands.set(commandId, requestId);
+    return requestId;
   }
 
   public listCheckpoints(): string {
@@ -261,6 +288,17 @@ export class StdioClient {
   }
 
   #observeAuthority(event: ProtocolEvent): void {
+    if (event.type === 'session.command.result') {
+      const commandId = event.payload.commandId;
+      if (typeof commandId !== 'string') {
+        throw new ProtocolViolation('session.command.result 缺少 commandId');
+      }
+      const requestId = this.#pendingSessionCommands.get(commandId);
+      if (requestId === undefined || event.requestId !== requestId) {
+        throw new ProtocolViolation('session.command.result 与待处理请求不匹配');
+      }
+      this.#pendingSessionCommands.delete(commandId);
+    }
     if (event.type === 'initialized') {
       this.#sessionId = event.sessionId;
     } else if (event.type === 'run.started') {

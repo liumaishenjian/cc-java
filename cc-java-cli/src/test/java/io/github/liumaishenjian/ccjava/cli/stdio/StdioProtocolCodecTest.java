@@ -72,6 +72,41 @@ class StdioProtocolCodecTest {
     }
 
     @Test
+    void decodesStrictBoundedSessionCommandAndRejectsUnknownFields() throws Exception {
+        StdioProtocol.Command command = codec.decodeCommand("""
+                {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
+                 "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"compact",
+                 "arguments":{"anchors":["focus"]}}}
+                """);
+        assertThat(command.type()).isEqualTo("session.command");
+        assertThatThrownBy(() -> codec.decodeCommand("""
+                {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
+                 "sequence":2,"future":true,"payload":{"protocolVersion":0,"commandId":"command-1",
+                 "intent":"help","arguments":{}}}
+                """)).isInstanceOf(StdioProtocolException.class)
+                .extracting(error -> ((StdioProtocolException) error).code()).isEqualTo("UNKNOWN_FIELD");
+        assertThatThrownBy(() -> codec.decodeCommand("""
+                {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
+                 "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"unknown","arguments":{}}}
+                """)).isInstanceOf(StdioProtocolException.class)
+                .extracting(error -> ((StdioProtocolException) error).code()).isEqualTo("INVALID_ARGUMENT");
+        assertThatThrownBy(() -> codec.decodeCommand("""
+                {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
+                 "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"model",
+                 "arguments":{"name":"%s"}}}
+                """.formatted("x".repeat(257)))).isInstanceOf(StdioProtocolException.class)
+                .extracting(error -> ((StdioProtocolException) error).code()).isEqualTo("INVALID_ARGUMENT");
+        assertProtocolError("""
+                {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
+                 "sequence":2,"payload":{"protocolVersion":4294967296,"commandId":"command-1","intent":"help","arguments":{}}}
+                """, "UNSUPPORTED_VERSION");
+        assertProtocolError("""
+                {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
+                 "sequence":2,"payload":{"protocolVersion":0,"commandId":"bad\\ncommand","intent":"help","arguments":{}}}
+                """, "INVALID_PAYLOAD");
+    }
+
+    @Test
     void encodesEventWithoutNullOptionalIds() throws Exception {
         ObjectNode payload = codec.objectNode();
         payload.put("protocolVersion", 0);

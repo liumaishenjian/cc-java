@@ -30,6 +30,7 @@ public final class StdioProtocolCodec {
             "checkpoint.list",
             "checkpoint.diff",
             "checkpoint.undo",
+            "session.command",
             "shutdown");
 
     private final ObjectMapper mapper;
@@ -90,6 +91,9 @@ public final class StdioProtocolCodec {
                     requestId,
                     "payload 必须是 JSON Object");
         }
+        if ("session.command".equals(type)) {
+            validateSessionCommand(root, (ObjectNode) payloadNode, requestId);
+        }
 
         return new StdioProtocol.Command(
                 version,
@@ -135,6 +139,89 @@ public final class StdioProtocolCodec {
      */
     public ArrayNode arrayNode() {
         return mapper.createArrayNode();
+    }
+
+    private void validateSessionCommand(JsonNode root, ObjectNode payload, String requestId)
+            throws StdioProtocolException {
+        Set<String> envelope = Set.of("version", "type", "requestId", "sessionId", "runId", "sequence", "payload");
+        if (root.properties().stream().anyMatch(entry -> !envelope.contains(entry.getKey()))) {
+            throw new StdioProtocolException("UNKNOWN_FIELD", requestId, "session.command 包含未知信封字段");
+        }
+        if (root.get("sessionId") == null || root.get("runId") != null) {
+            throw new StdioProtocolException("INVALID_ENVELOPE", requestId, "session.command 必须携带 Session 且不能携带 Run");
+        }
+        Set<String> fields = Set.of("protocolVersion", "commandId", "intent", "arguments");
+        if (payload.properties().stream().anyMatch(entry -> !fields.contains(entry.getKey()))) {
+            throw new StdioProtocolException("UNKNOWN_FIELD", requestId, "session.command payload 包含未知字段");
+        }
+        JsonNode protocolVersion = payload.get("protocolVersion");
+        if (protocolVersion == null || !protocolVersion.isIntegralNumber()
+                || !protocolVersion.canConvertToInt()
+                || protocolVersion.intValue() != StdioProtocol.VERSION) {
+            throw new StdioProtocolException("UNSUPPORTED_VERSION", requestId, "session.command protocolVersion 不受支持");
+        }
+        String commandId = requiredPayloadText(payload, "commandId", requestId);
+        if (invalidCommandText(commandId)) {
+            throw new StdioProtocolException("INVALID_PAYLOAD", requestId, "commandId 非法");
+        }
+        String intent = requiredPayloadText(payload, "intent", requestId);
+        JsonNode arguments = payload.get("arguments");
+        if (arguments == null || !arguments.isObject()) {
+            throw new StdioProtocolException("INVALID_PAYLOAD", requestId, "arguments 必须是 JSON Object");
+        }
+        validateSessionCommandArguments(intent, (ObjectNode) arguments, requestId);
+    }
+
+    private String requiredPayloadText(ObjectNode payload, String field, String requestId) throws StdioProtocolException {
+        JsonNode value = payload.get(field);
+        if (value == null || !value.isString()) {
+            throw new StdioProtocolException("INVALID_PAYLOAD", requestId, field + " 必须是字符串");
+        }
+        return value.stringValue();
+    }
+
+    private void validateSessionCommandArguments(String intent, ObjectNode arguments, String requestId)
+            throws StdioProtocolException {
+        Set<String> allowed = switch (intent) {
+            case "help", "clear", "context", "doctor" -> Set.of();
+            case "compact" -> Set.of("anchors");
+            case "model" -> Set.of("name");
+            case "permissions" -> Set.of("operation");
+            case "resume" -> Set.of("sessionId");
+            default -> throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "未知 session.command intent");
+        };
+        if (arguments.properties().stream().anyMatch(entry -> !allowed.contains(entry.getKey()))) {
+            throw new StdioProtocolException("UNKNOWN_FIELD", requestId, "arguments 包含未知字段");
+        }
+        if ((intent.equals("help") || intent.equals("clear") || intent.equals("context") || intent.equals("doctor"))
+                && !arguments.isEmpty()) {
+            throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "该 intent 不接受 arguments");
+        }
+        if (intent.equals("compact")) {
+            JsonNode anchors = arguments.get("anchors");
+            if (anchors == null || !anchors.isArray() || anchors.size() > 32
+                    || java.util.stream.StreamSupport.stream(anchors.spliterator(), false)
+                    .anyMatch(value -> !value.isString() || invalidCommandText(value.stringValue()))) {
+                throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "compact anchors 非法");
+            }
+        }
+        if (intent.equals("model") && invalidCommandText(requiredPayloadText(arguments, "name", requestId))) {
+            throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "model name 非法");
+        }
+        if (intent.equals("permissions")) {
+            String operation = requiredPayloadText(arguments, "operation", requestId);
+            if (!operation.equals("query") && !operation.equals("change")) {
+                throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "permissions operation 非法");
+            }
+        }
+        if (intent.equals("resume") && invalidCommandText(requiredPayloadText(arguments, "sessionId", requestId))) {
+            throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "resume sessionId 非法");
+        }
+    }
+
+    private static boolean invalidCommandText(String value) {
+        return value.isBlank() || value.codePointCount(0, value.length()) > 256
+                || value.chars().anyMatch(Character::isISOControl);
     }
 
     private int requiredInt(JsonNode root, String field)
