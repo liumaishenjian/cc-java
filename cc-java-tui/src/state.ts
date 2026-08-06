@@ -313,13 +313,34 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
         notice: undefined,
       };
     case 'session.command.result':
-      return state;
+      return applySessionCommandResult(state, event);
     case 'protocol.error':
       return {
         ...state,
         notice: safeProtocolMessage(event.payload),
       };
   }
+}
+
+function applySessionCommandResult(state: TuiState, event: ProtocolEvent): TuiState {
+  if (
+    event.payload.intent === 'resume'
+    && event.payload.status === 'succeeded'
+    && typeof event.payload.result === 'object'
+    && event.payload.result !== null
+    && !Array.isArray(event.payload.result)
+  ) {
+    const result = event.payload.result as Readonly<Record<string, unknown>>;
+    if (
+      typeof result.previousSessionId === 'string'
+      && result.previousSessionId === state.sessionId
+      && typeof result.resumedSessionId === 'string'
+      && event.sessionId === result.resumedSessionId
+    ) {
+      return {...state, sessionId: result.resumedSessionId};
+    }
+  }
+  return state;
 }
 
 function checkpointList(

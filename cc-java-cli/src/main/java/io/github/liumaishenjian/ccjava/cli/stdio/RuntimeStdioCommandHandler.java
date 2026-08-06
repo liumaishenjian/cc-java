@@ -388,6 +388,10 @@ public final class RuntimeStdioCommandHandler
                 });
                 payload.set("rules", rules);
             }
+            case SessionCommandEvent.ResumePayload resume -> {
+                payload.put("previousSessionId", resume.previousSessionId());
+                payload.put("resumedSessionId", resume.resumedSessionId());
+            }
             case SessionCommandEvent.DoctorPayload doctor -> {
                 payload.put("settingsAvailable", doctor.settingsAvailable());
                 payload.put("settingsRevision", doctor.settingsRevision());

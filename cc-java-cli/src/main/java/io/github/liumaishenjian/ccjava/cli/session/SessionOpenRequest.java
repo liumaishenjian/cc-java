@@ -42,4 +42,14 @@ public record SessionOpenRequest(SessionOpenMode mode, Optional<SessionId> sessi
     public static SessionOpenRequest continueLatest() {
         return new SessionOpenRequest(SessionOpenMode.CONTINUE, Optional.empty());
     }
+
+    /**
+     * 创建按 ID 恢复同一规范 Session 的请求。
+     *
+     * @param sessionId 已由命令边界校验的目标 Session ID
+     * @return Resume 请求
+     */
+    public static SessionOpenRequest resume(SessionId sessionId) {
+        return new SessionOpenRequest(SessionOpenMode.RESUME, Optional.of(Objects.requireNonNull(sessionId, "sessionId 不能为空")));
+    }
 }

@@ -483,6 +483,36 @@ class RuntimeStdioCommandHandlerTest {
     }
 
     @Test
+    void sessionCommandResumeSwitchesToCleanCandidateWithOnlySafeIdentifiers() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        io.github.liumaishenjian.ccjava.domain.SessionId candidateId;
+        try (io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeSession candidate =
+                     new io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeSession(
+                             ignored -> ModelTurn.text("candidate"), io.github.liumaishenjian.ccjava.core.AgentEventSink.noop(),
+                             testOptions())) {
+            candidateId = candidate.open();
+            candidate.run("candidate history");
+        }
+        String previousId;
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(
+                ignored -> ModelTurn.text("done"), testOptions())) {
+            handler.handle(codec.decodeCommand("{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            previousId = events.getFirst().sessionId().orElseThrow();
+            String request = "{\"version\":0,\"type\":\"session.command\",\"requestId\":\"resume\",\"sessionId\":\"%s\",\"sequence\":2,\"payload\":{\"protocolVersion\":0,\"commandId\":\"resume-command\",\"intent\":\"resume\",\"arguments\":{\"sessionId\":\"%s\"}}}";
+            handler.handle(codec.decodeCommand(request.formatted(previousId, candidateId.value())), emitter);
+        }
+        CapturedEvent result = events.stream().filter(event -> event.type().equals("session.command.result"))
+                .findFirst().orElseThrow();
+        assertThat(result.sessionId()).contains(candidateId.value());
+        assertThat(result.payload().toString()).contains("succeeded", "ok", "previousSessionId", "resumedSessionId",
+                        candidateId.value(), previousId)
+                .doesNotContain(temporaryRoot.toString(), "candidate history", "session.jsonl");
+    }
+
+    @Test
     void sessionCommandEmitsOnePrivacySafeTerminalForDuplicateCommandId() throws Exception {
         StdioProtocolCodec codec = new StdioProtocolCodec();
         CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();

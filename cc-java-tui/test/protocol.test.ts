@@ -216,6 +216,22 @@ describe('decodeEvent', () => {
     }), 1)).toThrowError(/context/);
   });
 
+  it('接受 resume 的最小会话切换投影并拒绝路径或额外字段', () => {
+    const base = {
+      version: 0, type: 'session.command.result', requestId: 'req-resume', sessionId: 'session-target', sequence: 1,
+      payload: {commandId: 'resume-1', intent: 'resume', status: 'succeeded', code: 'ok', result: {
+        previousSessionId: 'session-source', resumedSessionId: 'session-target',
+      }},
+    };
+    expect(decodeEvent(JSON.stringify(base), 1).payload.result).toEqual(base.payload.result);
+    expect(() => decodeEvent(JSON.stringify({
+      ...base, payload: {...base.payload, result: {...base.payload.result, storagePath: 'C:\\secret'}},
+    }), 1)).toThrowError(/resume/);
+    expect(() => decodeEvent(JSON.stringify({
+      ...base, payload: {...base.payload, result: {...base.payload.result, resumedSessionId: 'session-source'}},
+    }), 1)).toThrowError(/resume/);
+  });
+
   it('拒绝包含控制字符的终止原因', () => {
     expect(() => decodeEvent(JSON.stringify({
       version: 0,

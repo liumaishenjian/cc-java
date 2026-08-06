@@ -70,6 +70,35 @@ describe('reduceTuiState', () => {
     }));
   });
 
+  it('只在 Java 成功 resume 终态时切换本地 Session 投影', () => {
+    let state = reduceTuiState(initialTuiState, {
+      type: 'event.received', event: event('initialized', 1, {}, 'init', 'session-source'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('session.command.result', 2, {
+        commandId: 'resume-1', intent: 'resume', status: 'succeeded', code: 'ok',
+        result: {previousSessionId: 'session-source', resumedSessionId: 'session-target'},
+      }, 'resume', 'session-target'),
+    });
+    expect(state.sessionId).toBe('session-target');
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('session.command.result', 3, {
+        commandId: 'resume-2', intent: 'resume', status: 'rejected', code: 'recovery_required', result: {},
+      }, 'resume-rejected', 'session-target'),
+    });
+    expect(state.sessionId).toBe('session-target');
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('session.command.result', 4, {
+        commandId: 'resume-3', intent: 'resume', status: 'succeeded', code: 'ok',
+        result: {previousSessionId: 'session-stale', resumedSessionId: 'session-unrelated'},
+      }, 'resume-mismatch', 'session-unrelated'),
+    });
+    expect(state.sessionId).toBe('session-target');
+  });
+
   it('不把协议错误文本原样显示', () => {
     const state = reduceTuiState(initialTuiState, {
       type: 'event.received',

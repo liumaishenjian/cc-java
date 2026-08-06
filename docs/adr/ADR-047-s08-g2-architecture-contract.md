@@ -124,7 +124,7 @@ SessionCommandEvent(kind, commandId, sessionId, payload)
 | `Doctor` | 只读 | 汇总已经可用的 Settings/Instructions/Context/Surface 诊断；不得刷新、写入或回显正文。 |
 | `ModelChange` | idle settings overlay → replaced | 校验后仅替换当前 Session 内存 override，下一 Run 使用；运行中、无效或不支持时旧值不变。 |
 | `Permissions` | query → 安全投影；idle mode overlay → replaced | query 始终投影当前 Runtime effective mode；无 Settings LKG 时以 `BASELINE/runtime-baseline` 报告零条 Settings STARTUP rules。mode 变更先经 S05 类型化 policy 校验，成功后替换内存 overlay；Hard Denial、可信来源、Recovery Gate 和既有 Grant 不可改变。 |
-| `Resume` | current session → candidate open → switched | 调用既有 S06 Create/Resume/Inspect 选择服务；只有 Workspace、Writer、fence 与 incomplete-side-effect Gate 全部通过才替换当前 Session。失败/取消保留当前 Session，绝不自动重放 Tool。 |
+| `Resume` | current session → candidate open → switched | 调用既有 S06 Resume 服务；只有 Workspace、Writer、fence、incomplete-side-effect 与 Checkpoint recovery Gate 全部通过才替换当前 Session。失败/取消/竞争保留当前 Session，绝不自动重放 Tool 或副作用。 |
 
 `/compact`、`/context`、`/doctor` 可以作为无活动 Run 的只读/投影操作；`/model`、`/permissions` 与 `/resume` 必须拒绝活动 Run，避免与模型/Tool durable 顺序竞争。活动 Run 中仅 `steering` 可排队：它是 Surface 受限输入，不是 Slash 的旁路；队列消息只在当前 Run 终态后的下一 Run 边界消费，取消/clear/shutdown 丢弃未发送项，不写 Canonical Transcript 或 Session JSONL。
 

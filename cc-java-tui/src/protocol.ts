@@ -261,6 +261,7 @@ const SESSION_COMMAND_INTENTS = new Set([
 const SESSION_COMMAND_CODES = new Set([
   'ok', 'active_run', 'invalid_argument', 'unavailable', 'not_available', 'deferred',
   'cancelled', 'compaction_rejected', 'internal_failure', 'request_budget_exhausted',
+  'current_session', 'session_active', 'recovery_required',
 ]);
 const SESSION_COMMAND_SUPPORT = new Set(['available', 'deferred', 'not_available']);
 
@@ -350,6 +351,14 @@ function validateSessionCommandPayload(
         || !isBoundedProjectionEnum(rule.operation) || !isBoundedProjectionEnum(rule.validationStatus)) {
         throw new ProtocolViolation('session.command.result permissions 规则投影无效');
       }
+    }
+    return;
+  }
+  if (intent === 'resume') {
+    if (!hasExactFields(result, new Set(['previousSessionId', 'resumedSessionId']))
+      || !isSessionId(result.previousSessionId) || !isSessionId(result.resumedSessionId)
+      || result.previousSessionId === result.resumedSessionId) {
+      throw new ProtocolViolation('session.command.result resume 投影无效');
     }
     return;
   }
@@ -478,6 +487,12 @@ function isBoundedIdentifier(value: unknown): value is string {
     && value.trim().length > 0
     && value.length <= MAX_IDENTIFIER_CHARS
     && !/[\u0000-\u001f\u007f]/u.test(value);
+}
+
+function isSessionId(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length <= MAX_IDENTIFIER_CHARS
+    && /^session-[A-Za-z0-9-]+$/.test(value);
 }
 
 function isSafeRelativeTarget(value: unknown): value is string {

@@ -249,7 +249,7 @@ Stage 完成项。
 | CLI-05 | Permission Prompt | 终端 Approval UI | L2 | S04/S05 | REF-04/AUTH-01 |
 | CLI-06 | Ctrl+C Cancel | 当前 Run/Tool 取消 | L1 | S02/S04 | REF-02 |
 | CLI-07 | Steering | S08 运行中排队用户补充消息 | L0 | S08 | REF-02 |
-| CLI-08 | Slash Commands | S08 G3-C/D 已有 `/help`、`/clear`、显式 `/compact`、`/context`、`/doctor` 与有界 `/model`、`/permissions mode` 的 Java/stdio/封闭 Slash 路径；resume/完整 UX 延期 | L0 | S08 | REF-02 |
+| CLI-08 | Slash Commands | S08 G3-C/D/F 已有 `/help`、`/clear`、显式 `/compact`、`/context`、`/doctor`、有界 `/model`、`/permissions mode` 与 recovery-gated `/resume <session-id>` 的 Java/stdio/封闭 Slash 路径；完整 UX 延期 | L0 | S08 | REF-02 |
 | CLI-09 | 多行、历史、补全 | S08 完整 React/Ink 输入能力 | L0 | S08 | REF-02 |
 | CLI-10 | TTY / Non-TTY 降级 | 无 ANSI 输出与管道模式 | L2 | S02/S14 | REF-02 |
 | CLI-11 | 机器输出协议 | S02 内部 stdio v0 L1 → S14 稳定 JSON/JSONL L3 | L1 | S02/S14 | REF-02 |

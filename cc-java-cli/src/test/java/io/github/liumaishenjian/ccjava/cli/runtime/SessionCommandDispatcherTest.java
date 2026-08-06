@@ -92,11 +92,105 @@ class SessionCommandDispatcherTest {
             assertThat(permissions.event().payload()).isEqualTo(
                     new io.github.liumaishenjian.ccjava.domain.command.SessionCommandEvent.PermissionsPayload(
                             "DEFAULT", "BASELINE", "runtime-baseline", "BASELINE", 0, List.of()));
-            assertCode(dispatcher, "resume", new SessionCommandIntent.Resume(runtime.sessionId()), SessionCommandResultCode.DEFERRED);
+            assertCode(dispatcher, "resume", new SessionCommandIntent.Resume(runtime.sessionId()), SessionCommandResultCode.CURRENT_SESSION);
             assertCode(dispatcher, "clear", new SessionCommandIntent.Clear(), SessionCommandResultCode.DEFERRED);
 
             assertThat(Files.readAllBytes(journal)).isEqualTo(before);
             assertThat(runtime.runtimeConfiguration()).isSameAs(configuration);
+        }
+    }
+
+    @Test
+    void resumeAtomicallySwitchesToCleanCandidateAndPreservesCanonicalHistory() throws Exception {
+        Path workspace = Files.createDirectory(root.resolve("workspace"));
+        Path sessions = root.resolve("sessions");
+        io.github.liumaishenjian.ccjava.domain.SessionId candidateId;
+        try (HeadlessRuntimeSession candidate = runtime(workspace, sessions)) {
+            candidateId = candidate.open();
+            candidate.run("candidate durable history");
+        }
+        try (HeadlessRuntimeSession runtime = runtime(workspace, sessions)) {
+            var previousId = runtime.open();
+            runtime.run("current durable history");
+            SessionCommandDispatcher dispatcher = dispatcher(runtime);
+
+            var result = dispatcher.dispatch(new CommandId("resume-candidate"),
+                    new SessionCommandIntent.Resume(candidateId), CancellationToken.none());
+
+            assertThat(result.event().status()).isEqualTo(SessionCommandStatus.SUCCEEDED);
+            assertThat(result.event().code()).isEqualTo(SessionCommandResultCode.OK);
+            assertThat(result.event().sessionId()).isEqualTo(candidateId);
+            assertThat(result.event().payload()).isEqualTo(
+                    new io.github.liumaishenjian.ccjava.domain.command.SessionCommandEvent.ResumePayload(
+                            previousId.value(), candidateId.value()));
+            assertThat(runtime.sessionId()).isEqualTo(candidateId);
+            runtime.run("after resume");
+
+            try (HeadlessRuntimeSession releasedPrevious = runtime(
+                    workspace, sessions, SessionOpenRequest.resume(previousId))) {
+                assertThat(releasedPrevious.open()).isEqualTo(previousId);
+            }
+        }
+    }
+
+    @Test
+    void resumeRejectedForActiveWriterAndKeepsCurrentSession() throws Exception {
+        Path workspace = Files.createDirectory(root.resolve("workspace"));
+        Path sessions = root.resolve("sessions");
+        try (HeadlessRuntimeSession candidate = runtime(workspace, sessions);
+             HeadlessRuntimeSession runtime = runtime(workspace, sessions)) {
+            var candidateId = candidate.open();
+            var currentId = runtime.open();
+            var result = dispatcher(runtime).dispatch(new CommandId("resume-locked"),
+                    new SessionCommandIntent.Resume(candidateId), CancellationToken.none());
+
+            assertThat(result.event().code()).isEqualTo(SessionCommandResultCode.SESSION_ACTIVE);
+            assertThat(runtime.sessionId()).isEqualTo(currentId);
+        }
+    }
+
+    @Test
+    void resumeRejectedForWorkspaceMismatchAndKeepsCurrentSession() throws Exception {
+        Path sourceWorkspace = Files.createDirectory(root.resolve("source-workspace"));
+        Path candidateWorkspace = Files.createDirectory(root.resolve("candidate-workspace"));
+        Path sessions = root.resolve("sessions");
+        io.github.liumaishenjian.ccjava.domain.SessionId candidateId;
+        try (HeadlessRuntimeSession candidate = runtime(candidateWorkspace, sessions)) {
+            candidateId = candidate.open();
+        }
+        try (HeadlessRuntimeSession runtime = runtime(sourceWorkspace, sessions)) {
+            var currentId = runtime.open();
+
+            var result = dispatcher(runtime).dispatch(new CommandId("resume-wrong-workspace"),
+                    new SessionCommandIntent.Resume(candidateId), CancellationToken.none());
+
+            assertThat(result.event().status()).isEqualTo(SessionCommandStatus.REJECTED);
+            assertThat(result.event().code()).isEqualTo(SessionCommandResultCode.RECOVERY_REQUIRED);
+            assertThat(runtime.sessionId()).isEqualTo(currentId);
+        }
+    }
+
+    @Test
+    void resumeCancellationAndDuplicateCommandIdPreserveCurrentSession() throws Exception {
+        Path workspace = Files.createDirectory(root.resolve("workspace"));
+        Path sessions = root.resolve("sessions");
+        io.github.liumaishenjian.ccjava.domain.SessionId candidateId;
+        try (HeadlessRuntimeSession candidate = runtime(workspace, sessions)) {
+            candidateId = candidate.open();
+        }
+        try (HeadlessRuntimeSession runtime = runtime(workspace, sessions)) {
+            var currentId = runtime.open();
+            CancellationSource cancelled = new CancellationSource();
+            cancelled.cancel();
+            SessionCommandDispatcher dispatcher = dispatcher(runtime);
+            var first = dispatcher.dispatch(new CommandId("resume-cancelled"),
+                    new SessionCommandIntent.Resume(candidateId), cancelled.token());
+            var repeated = dispatcher.dispatch(new CommandId("resume-cancelled"),
+                    new SessionCommandIntent.Resume(candidateId), CancellationToken.none());
+
+            assertThat(first.event().status()).isEqualTo(SessionCommandStatus.CANCELLED);
+            assertThat(repeated).isSameAs(first);
+            assertThat(runtime.sessionId()).isEqualTo(currentId);
         }
     }
 
@@ -235,6 +329,11 @@ class SessionCommandDispatcherTest {
         return new HeadlessRuntimeSession(request -> ModelTurn.text("done"), AgentEventSink.noop(), options(workspace, sessions));
     }
 
+    private HeadlessRuntimeSession runtime(Path workspace, Path sessions, SessionOpenRequest openRequest) {
+        return new HeadlessRuntimeSession(
+                request -> ModelTurn.text("done"), AgentEventSink.noop(), options(workspace, sessions, openRequest));
+    }
+
     private HeadlessRuntimeSession contextRuntime(Path workspace) {
         return new HeadlessRuntimeSession(request -> ModelTurn.text("done"), AgentEventSink.noop(),
                 options(workspace, root.resolve("sessions")), (a, b, c) -> io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny(),
@@ -242,8 +341,13 @@ class SessionCommandDispatcherTest {
     }
 
     private static HeadlessRuntimeOptions options(Path workspace, Path sessions) {
+        return options(workspace, sessions, SessionOpenRequest.create());
+    }
+
+    private static HeadlessRuntimeOptions options(
+            Path workspace, Path sessions, SessionOpenRequest openRequest) {
         return new HeadlessRuntimeOptions(workspace, "fake-model", Duration.ofSeconds(5), PermissionMode.DEFAULT,
-                List.of(), SessionOpenRequest.create(), sessions, Optional.of(new ContextPreparationConfig(
+                List.of(), openRequest, sessions, Optional.of(new ContextPreparationConfig(
                         new ContextCapacity("fake-model", 4_000, 100, 100), 200, 0, 1_024, 256)));
     }
 }

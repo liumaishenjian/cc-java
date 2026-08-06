@@ -13,7 +13,7 @@
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
 > composition、ready-only Memory Core/Domain Runtime seam、D2 Headless 文件系统生产装配、Context View 与
 > deterministic Fake Demo/Eval 已完成 Commit-scoped G0-G6 对账。ADR-045 冻结 S08 机制研究边界，ADR-046 已冻结 G1 独立产品契约；
-> ADR-047 已冻结 S08 的 Domain/Core/Application/Adapter 边界、独立 user-root guard、严格 Settings parser/last-known-good、命令 Intent/Event 与 G3/G4 切片；当前仅完成 G3-C/D 的受限 `/model`、`/permissions`、显式 `/compact`、`/context`/doctor 与 stdio/封闭 Slash 投影实现，持久 Settings、Schema 与完整 Context UX 仍未实现。
+> ADR-047 已冻结 S08 的 Domain/Core/Application/Adapter 边界、独立 user-root guard、严格 Settings parser/last-known-good、命令 Intent/Event 与 G3/G4 切片；当前已完成 G3-C/D/F 的受限 `/model`、`/permissions`、显式 `/compact`、`/context`/doctor 与 recovery-gated `/resume` 的 stdio/封闭 Slash 投影实现。`/resume` 复用 S06 的 Workspace、Writer、fence、incomplete-side-effect 与 Checkpoint Gate，只有候选成功后才切换当前 Session；持久 Settings、Schema 与完整 Context UX 仍未实现。
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 

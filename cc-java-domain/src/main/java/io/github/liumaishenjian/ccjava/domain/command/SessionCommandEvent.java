@@ -30,10 +30,28 @@ public record SessionCommandEvent(SessionCommandKind kind, CommandId commandId, 
     }
 
     /** 命令 Event 的封闭白名单 payload。 */
-    public sealed interface SessionCommandPayload permits EmptyPayload, HelpPayload, ContextPayload, DoctorPayload, PermissionsPayload { }
+    public sealed interface SessionCommandPayload permits EmptyPayload, HelpPayload, ContextPayload, DoctorPayload,
+            PermissionsPayload, ResumePayload { }
 
     /** 无额外数据的安全确认。 */
     public record EmptyPayload() implements SessionCommandPayload { }
+
+    /**
+     * Resume 成功后的最小会话切换投影。
+     *
+     * @param previousSessionId 被替换的旧 Session ID
+     * @param resumedSessionId 已通过 S06 Gate 且成为当前 Session 的 ID
+     */
+    public record ResumePayload(String previousSessionId, String resumedSessionId) implements SessionCommandPayload {
+        /** 验证不包含路径、历史正文或恢复诊断的稳定 Session 标识。 */
+        public ResumePayload {
+            previousSessionId = boundedSessionId(previousSessionId, "previousSessionId");
+            resumedSessionId = boundedSessionId(resumedSessionId, "resumedSessionId");
+            if (previousSessionId.equals(resumedSessionId)) {
+                throw new IllegalArgumentException("Resume 前后 Session 不能相同");
+            }
+        }
+    }
 
     /**
      * 当前命令的可用与延期状态。
@@ -223,6 +241,13 @@ public record SessionCommandEvent(SessionCommandKind kind, CommandId commandId, 
     private static String boundedRuleId(String value) {
         if (value == null || !value.matches("[a-z0-9]+(?:-[a-z0-9]+)*") || value.length() > 64) {
             throw new IllegalArgumentException("ruleId 非法");
+        }
+        return value;
+    }
+
+    private static String boundedSessionId(String value, String name) {
+        if (value == null || value.length() > 128 || !value.matches("session-[A-Za-z0-9-]+")) {
+            throw new IllegalArgumentException(name + " 非法");
         }
         return value;
     }

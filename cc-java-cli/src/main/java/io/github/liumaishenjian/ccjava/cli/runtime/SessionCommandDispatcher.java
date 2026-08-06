@@ -130,13 +130,31 @@ public final class SessionCommandDispatcher {
                         new SessionSettingsPatch.ModelName(model.modelName()), cancellationToken);
                 case SessionCommandIntent.Permissions permissions -> permissions(commandId, sessionId, permissions.operation(),
                         cancellationToken);
-                case SessionCommandIntent.Resume ignored -> rejected(intent.kind(), commandId, sessionId,
-                        SessionCommandResultCode.DEFERRED);
+                case SessionCommandIntent.Resume resume -> resume(commandId, sessionId, resume.sessionId(), cancellationToken);
             };
         } catch (RuntimeException ignored) {
             return terminal(intent.kind(), commandId, safeSessionId(), SessionCommandStatus.FAILED,
                     SessionCommandResultCode.INTERNAL_FAILURE, new SessionCommandEvent.EmptyPayload());
         }
+    }
+
+    private SessionCommandResult resume(CommandId commandId, SessionId sessionId, SessionId targetId,
+                                        CancellationToken cancellationToken) {
+        return switch (runtime.resume(targetId, cancellationToken)) {
+            case RESUMED -> success(SessionCommandKind.RESUME, commandId, runtime.sessionId(),
+                    new SessionCommandEvent.ResumePayload(sessionId.value(), runtime.sessionId().value()));
+            case CANCELLED -> terminal(SessionCommandKind.RESUME, commandId, sessionId, SessionCommandStatus.CANCELLED,
+                    SessionCommandResultCode.CANCELLED, new SessionCommandEvent.EmptyPayload());
+            case ACTIVE_RUN -> rejected(SessionCommandKind.RESUME, commandId, sessionId, SessionCommandResultCode.ACTIVE_RUN);
+            case CURRENT_SESSION -> rejected(SessionCommandKind.RESUME, commandId, sessionId,
+                    SessionCommandResultCode.CURRENT_SESSION);
+            case SESSION_ACTIVE -> rejected(SessionCommandKind.RESUME, commandId, sessionId,
+                    SessionCommandResultCode.SESSION_ACTIVE);
+            case RECOVERY_REQUIRED, STALE -> rejected(SessionCommandKind.RESUME, commandId, sessionId,
+                    SessionCommandResultCode.RECOVERY_REQUIRED);
+            case INTERNAL_FAILURE -> terminal(SessionCommandKind.RESUME, commandId, sessionId, SessionCommandStatus.FAILED,
+                    SessionCommandResultCode.INTERNAL_FAILURE, new SessionCommandEvent.EmptyPayload());
+        };
     }
 
     private SessionCommandResult compact(CommandId commandId, SessionId sessionId, List<String> anchors,
@@ -296,7 +314,7 @@ public final class SessionCommandDispatcher {
             case MODEL_CHANGE -> runtime.settingsSnapshot().isPresent()
                     ? SessionCommandEvent.CommandSupport.AVAILABLE : SessionCommandEvent.CommandSupport.NOT_AVAILABLE;
             case PERMISSIONS -> SessionCommandEvent.CommandSupport.AVAILABLE;
-            case RESUME -> SessionCommandEvent.CommandSupport.DEFERRED;
+            case RESUME -> SessionCommandEvent.CommandSupport.AVAILABLE;
         };
     }
 

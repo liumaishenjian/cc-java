@@ -112,6 +112,16 @@ reader.on('line', line => {
       return;
     }
     const requestId = mode === 'command-wrong-request' ? 'wrong-request' : command.requestId;
+    if (mode === 'resume-mismatched-previous') {
+      emit('session.command.result', requestId, {
+        commandId: command.payload.commandId,
+        intent: 'resume',
+        status: 'succeeded',
+        code: 'ok',
+        result: {previousSessionId: 'session-stale', resumedSessionId: 'session-2'},
+      }, 'session-2');
+      return;
+    }
     emit('session.command.result', requestId, {
       commandId: command.payload.commandId,
       intent: command.payload.intent,

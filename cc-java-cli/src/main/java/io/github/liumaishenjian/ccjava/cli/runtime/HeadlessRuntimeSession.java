@@ -13,6 +13,7 @@ import io.github.liumaishenjian.ccjava.core.settings.EffectiveSettingsSnapshot;
 import io.github.liumaishenjian.ccjava.core.LatestContextUsageCollector;
 import io.github.liumaishenjian.ccjava.cli.session.FileCheckpointCoordinator;
 import io.github.liumaishenjian.ccjava.cli.session.FileSessionStore;
+import io.github.liumaishenjian.ccjava.cli.session.SessionOpenRequest;
 import io.github.liumaishenjian.ccjava.cli.session.SessionOpenResult;
 import io.github.liumaishenjian.ccjava.core.LifecycleDispatcher;
 import io.github.liumaishenjian.ccjava.core.ModelGateway;
@@ -585,6 +586,96 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     public SessionOpenResult sessionOpenResult() {
         requireOpen();
         return openResult;
+    }
+
+    /**
+     * 在 idle 边界按既有 S06 Recovery Gate 恢复另一个 Session，并原子替换当前所有权。
+     *
+     * <p>候选先由 {@link FileSessionStore} 完整重放、检查 Workspace、未完成副作用和 Checkpoint
+     * 不确定性并取得独占 Writer lease。任何拒绝、取消或竞争均保持当前 Session；成功后才关闭旧
+     * Writer 并发布候选。该方法不会重放 Tool、补造 Tool Result 或改变规范历史。</p>
+     *
+     * @param targetId 同一 Workspace 内的目标 Session
+     * @param cancellationToken 本次恢复的协作式取消边界
+     * @return 已替换时为 {@code RESUMED}，其余为未提交终态
+     */
+    public ResumeResult resume(SessionId targetId,
+                               io.github.liumaishenjian.ccjava.core.CancellationToken cancellationToken) {
+        Objects.requireNonNull(targetId, "targetId 不能为空");
+        Objects.requireNonNull(cancellationToken, "cancellationToken 不能为空");
+        final SessionId previousId;
+        synchronized (lifecycleMonitor) {
+            requireOpenLocked();
+            if (cancellationToken.isCancellationRequested()) return ResumeResult.CANCELLED;
+            if (activeRun != null) return ResumeResult.ACTIVE_RUN;
+            previousId = session.id();
+            if (previousId.equals(targetId)) return ResumeResult.CURRENT_SESSION;
+        }
+        final SessionOpenResult candidate;
+        try {
+            candidate = sessions.open(SessionOpenRequest.resume(targetId), session.spec());
+        } catch (io.github.liumaishenjian.ccjava.cli.session.SessionOpenException failure) {
+            return ResumeResult.from(failure.code());
+        } catch (RuntimeException failure) {
+            return ResumeResult.INTERNAL_FAILURE;
+        }
+        synchronized (lifecycleMonitor) {
+            if (cancellationToken.isCancellationRequested()) {
+                closeCandidate(candidate);
+                return ResumeResult.CANCELLED;
+            }
+            if (closed || activeRun != null || !session.id().equals(previousId)) {
+                closeCandidate(candidate);
+                return ResumeResult.STALE;
+            }
+            session = candidate.session();
+            openResult = candidate;
+            permissionState.clear(previousId);
+            closePrevious(previousId);
+            return ResumeResult.RESUMED;
+        }
+    }
+
+    /** Headless Resume 的固定、隐私安全终态。 */
+    public enum ResumeResult {
+        /** 候选通过所有 S06 Gate，且当前所有权已切换。 */
+        RESUMED,
+        /** 调用在候选提交前被取消。 */
+        CANCELLED,
+        /** 当前存在活动 Run。 */
+        ACTIVE_RUN,
+        /** 请求的目标已经是当前 Session。 */
+        CURRENT_SESSION,
+        /** Writer lease 已由其他或当前 Store 持有。 */
+        SESSION_ACTIVE,
+        /** S06 恢复、Workspace、fence 或 Checkpoint Gate 拒绝候选。 */
+        RECOVERY_REQUIRED,
+        /** 候选打开后当前状态变化，未提交。 */
+        STALE,
+        /** 安全收敛后的内部失败。 */
+        INTERNAL_FAILURE;
+
+        private static ResumeResult from(String code) {
+            return "SESSION_ACTIVE".equals(code) ? SESSION_ACTIVE : RECOVERY_REQUIRED;
+        }
+    }
+
+    private void closePrevious(SessionId previousId) {
+        try {
+            sessions.close(previousId);
+        } catch (RuntimeException ignored) {
+            // 新 Session 已经发布；旧 lease 回收失败只能保留给 Store 关闭时统一释放，不能回滚已提交切换。
+        }
+    }
+
+    private void closeCandidate(SessionOpenResult candidate) {
+        try {
+            if (!candidate.readOnly() && !candidate.session().isClosed()) {
+                sessions.close(candidate.session().id());
+            }
+        } catch (RuntimeException ignored) {
+            // 恢复失败路径尽力释放 lease；Store 自身仍以 FileLock 保证第二 Writer 被拒绝。
+        }
     }
 
     /**

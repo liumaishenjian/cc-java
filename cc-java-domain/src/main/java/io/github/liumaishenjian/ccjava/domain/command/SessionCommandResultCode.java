@@ -25,5 +25,11 @@ public enum SessionCommandResultCode {
     /** 内部故障被收敛后的安全代码。 */
     INTERNAL_FAILURE,
     /** 当前 dispatcher 的有界 request budget 已耗尽。 */
-    REQUEST_BUDGET_EXHAUSTED
+    REQUEST_BUDGET_EXHAUSTED,
+    /** Resume 目标已经是当前规范 Session。 */
+    CURRENT_SESSION,
+    /** Resume 目标正由其他或当前 Store Writer 持有。 */
+    SESSION_ACTIVE,
+    /** Resume 目标未通过既有 S06 恢复、Workspace 或 Checkpoint Gate。 */
+    RECOVERY_REQUIRED
 }

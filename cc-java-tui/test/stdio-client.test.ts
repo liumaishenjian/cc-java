@@ -122,6 +122,22 @@ describe('StdioClient', () => {
     }
   });
 
+  it('resume 结果未关联当前 Session 时 fail closed', async () => {
+    const client = createClient('resume-mismatched-previous');
+    const events: ProtocolEvent[] = [];
+    const failures: string[] = [];
+    client.onEvent(event => events.push(event));
+    client.onFailure(message => failures.push(message));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+
+    client.sessionCommand('resume-1', 'resume', {sessionId: 'session-2'});
+    await waitFor(() => failures.length === 1);
+
+    expect(failures[0]).toContain('resume');
+    expect(client.isClosed()).toBe(true);
+  });
+
   it('乱序 stdout 触发失败并终止子进程', async () => {
     const client = createClient('bad-sequence');
     const failures: string[] = [];

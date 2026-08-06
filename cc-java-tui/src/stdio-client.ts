@@ -298,6 +298,18 @@ export class StdioClient {
         throw new ProtocolViolation('session.command.result 与待处理请求不匹配');
       }
       this.#pendingSessionCommands.delete(commandId);
+      if (event.payload.intent === 'resume' && event.payload.status === 'succeeded') {
+        const result = event.payload.result;
+        if (typeof result === 'object' && result !== null && !Array.isArray(result)
+          && typeof (result as Record<string, unknown>).previousSessionId === 'string'
+          && (result as Record<string, unknown>).previousSessionId === this.#sessionId
+          && typeof (result as Record<string, unknown>).resumedSessionId === 'string'
+          && event.sessionId === (result as Record<string, unknown>).resumedSessionId) {
+          this.#sessionId = event.sessionId;
+        } else {
+          throw new ProtocolViolation('session.command.result resume 与当前 Session 不匹配');
+        }
+      }
     }
     if (event.type === 'initialized') {
       this.#sessionId = event.sessionId;

@@ -72,7 +72,8 @@ export function renderSlashResult(intent: string, status: string, code: string):
     not_available: '当前版本尚未提供', deferred: '已延期至后续安全切片',
     invalid_argument: '参数无效', request_budget_exhausted: '命令请求额度已用尽',
     cancelled: '请求已取消', compaction_rejected: '压缩候选未通过安全校验',
-    internal_failure: '内部处理未完成',
+    internal_failure: '内部处理未完成', current_session: '目标已经是当前 Session',
+    session_active: '目标 Session 正由其他 Writer 使用', recovery_required: '目标未通过恢复安全检查',
   };
   return `/${intent} 未执行：${labels[code] ?? '请求被安全拒绝'}`;
 }
