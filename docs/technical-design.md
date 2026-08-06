@@ -1346,7 +1346,7 @@ ADR-047 冻结 Domain/Core/Application/Adapter 的有效配置、provenance、�
 parser、last-known-good 刷新和 G3/G4 切片。Workspace 内 Instructions 继续由 `WorkspaceGuard` 验证；位于 Workspace
 外的固定 user Instructions root 必须由独立 user-root guard 验证，绝不将其误用为 WorkspaceGuard 输入。该冻结不创建持久
 配置格式或实现，且不得让项目文本、Settings 或 Slash Command 绕过 S05 Permission Pipeline、S06 Recovery Gate、
-WorkspaceGuard、独立 user-root guard 或 Hard Denial。
+WorkspaceGuard、独立 user-root guard 或 Hard Denial。G3-D 的 Java Application foundation 只读取已发布的 LKG、Instructions 和 latest Context Usage 形成白名单 doctor/context 投影；不得触发 refresh/discovery、文件 I/O、Provider/Tool 或 JSONL 写入。缺少既有安全 API 的 explicit compact、热 resume、运行时 model/permissions 修改返回固定终态，stdio/Slash/TUI codec 仍延期。
 
 ## 21. Trust Boundary 与安全
 

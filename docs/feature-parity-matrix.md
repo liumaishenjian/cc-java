@@ -8,7 +8,7 @@
 >
 > 当前代码状态：S01-S07 已 Accepted；S07 的 Canonical Transcript/Projection、条件式 C1-C4、文件记忆
 > M1-M5、ready-only 零等待预取、内部 Usage View 与 latest-only Recovery Analytics 已在离线 Fake、Demo、
-> Gap 和 Commit-scoped 对账中达到声明等级。S08 已完成 G0-G2；G3-C2b 已实现真实 Headless 的固定来源读取、内存 Session/CLI overlay 与 LKG/RuntimeScope idle 事务接缝，但 G3-G6、Capability Level 和 Stage Exit 仍 Open；完整 Context UX、doctor、Slash/stdio/TUI、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
+> Gap 和 Commit-scoped 对账中达到声明等级。S08 已完成 G0-G2；G3-C2b 已实现真实 Headless 的固定来源读取、内存 Session/CLI overlay 与 LKG/RuntimeScope idle 事务接缝。G3-D 已增加 Java Application 的封闭 Command Intent/Event/单终态分派基础、只读 `/context` 投影与 BOOT-06 隐私安全 doctor 报告；没有安全现有接口的 compact、热 resume、运行时 model/permissions 修改均返回固定受控终态，且不写 JSONL。G3-G6、Capability Level 和 Stage Exit 仍 Open；完整 Context UX、Slash/stdio/TUI、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
 
 ## 1. 文档目的
 
@@ -235,7 +235,7 @@ Stage 完成项。
 | BOOT-03 | 加载模型、工具和权限 | `SessionBootstrapper` | L2 | S02/S05 | REF-01 |
 | BOOT-04 | 加载项目指令 | `InstructionLoader` | L1 | S03/S08 | REF-05 |
 | BOOT-05 | 创建 Session 和初始 Context | `SessionStore` + `ContextAssembler` | L1 | S01 | REF-02 |
-| BOOT-06 | 启动诊断 | `/doctor` 与配置来源报告 | L0 | S08/S14 | REF-02 |
+| BOOT-06 | 启动诊断 | Java Application 只读 doctor 的来源/状态安全投影；完整 Surface 配置来源报告延期 | L0 | S08/S14 | REF-02 |
 | BOOT-07 | 延迟加载高成本能力 | Lazy Tool/Skill/MCP Metadata | L0 | S07/S10/S11 | REF-01/03 |
 
 ## 7. Terminal / Interface 对照

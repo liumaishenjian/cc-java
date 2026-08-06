@@ -1,0 +1,25 @@
+package io.github.liumaishenjian.ccjava.domain.command;
+
+/**
+ * S08 已声明的封闭 Session Command 类别。
+ *
+ * @since 0.8.0
+ */
+public enum SessionCommandKind {
+    /** 输出命令可用性。 */
+    HELP,
+    /** 清理 Surface 瞬态状态。 */
+    CLEAR,
+    /** 请求执行 Context 压缩。 */
+    COMPACT,
+    /** 读取已发布的 Context Usage。 */
+    CONTEXT,
+    /** 读取隐私安全诊断投影。 */
+    DOCTOR,
+    /** 请求更换模型。 */
+    MODEL_CHANGE,
+    /** 查询或变更 Permission。 */
+    PERMISSIONS,
+    /** 请求恢复指定会话。 */
+    RESUME
+}

@@ -55,6 +55,27 @@ class SettingsApplicationServiceTest {
     }
 
     @Test
+    void currentReadsPublishedLkgWithoutInvokingFixedSourceLoader() throws Exception {
+        Path home = Files.createDirectories(root.resolve("home"));
+        Path workspace = Files.createDirectories(root.resolve("workspace"));
+        try (HeadlessRuntimeSession runtime = runtime(workspace)) {
+            runtime.open();
+            AtomicInteger calls = new AtomicInteger();
+            SettingsApplicationService service = new SettingsApplicationService(runtime, countingLoader(home, runtime, calls),
+                    runtime.builtinToolRegistry());
+
+            assertThat(service.current()).isEmpty();
+            assertThat(calls).hasValue(0);
+            service.refresh(CancellationToken.none());
+            int callsAfterRefresh = calls.get();
+
+            assertThat(service.current()).isPresent();
+            assertThat(service.current()).isPresent();
+            assertThat(calls).hasValue(callsAfterRefresh);
+        }
+    }
+
+    @Test
     void cancellationAndInvalidRefreshRetainExactLastKnownGood() throws Exception {
         Path home = Files.createDirectories(root.resolve("home"));
         Path workspace = Files.createDirectories(root.resolve("workspace"));

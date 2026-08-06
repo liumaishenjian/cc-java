@@ -80,6 +80,27 @@ public final class InstructionProjectionState implements InstructionContextServi
         return snapshot == null ? Optional.empty() : Optional.of(snapshot.revision().value());
     }
 
+    /**
+     * 返回最近已发布 Instructions 的只读诊断摘要。
+     *
+     * <p>本方法绝不触发 discovery、文件读取或投影刷新；正文和 digest 均不会离开本状态对象。</p>
+     *
+     * @return 尚无完整投影时为空的安全摘要
+     */
+    public Optional<InstructionDoctorSnapshot> doctorSnapshot() {
+        ResolvedInstructions snapshot = latest;
+        if (snapshot == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new InstructionDoctorSnapshot(
+                snapshot.revision().value(),
+                snapshot.items().stream().map(item -> new InstructionDoctorSnapshot.Source(
+                        item.provenance().sourceKind().name(), item.provenance().safeSourceId())).toList(),
+                snapshot.diagnostics().stream().map(diagnostic -> new InstructionDoctorSnapshot.Diagnostic(
+                        diagnostic.sourceKind().name(), diagnostic.safeSourceId(), diagnostic.code().name(),
+                        diagnostic.severity().name())).toList()));
+    }
+
     private Optional<ResolvedInstructions> refresh(CancellationToken cancellationToken) {
         try {
             List<VerifiedInstructionTarget> currentTargets;

@@ -8,7 +8,16 @@ import io.github.liumaishenjian.ccjava.core.instructions.DeterministicInstructio
 import io.github.liumaishenjian.ccjava.core.instructions.InstructionDiscovery;
 import io.github.liumaishenjian.ccjava.core.instructions.InstructionDiscoveryRequest;
 import io.github.liumaishenjian.ccjava.core.instructions.InstructionLoader;
+import io.github.liumaishenjian.ccjava.domain.instructions.InstructionActivation;
+import io.github.liumaishenjian.ccjava.domain.instructions.InstructionDiagnostic;
+import io.github.liumaishenjian.ccjava.domain.instructions.InstructionDiagnosticCode;
+import io.github.liumaishenjian.ccjava.domain.instructions.InstructionDiagnosticSeverity;
+import io.github.liumaishenjian.ccjava.domain.instructions.InstructionProvenance;
+import io.github.liumaishenjian.ccjava.domain.instructions.InstructionRevision;
+import io.github.liumaishenjian.ccjava.domain.instructions.InstructionScopeKind;
 import io.github.liumaishenjian.ccjava.domain.instructions.InstructionSourceKind;
+import io.github.liumaishenjian.ccjava.domain.instructions.ResolvedInstruction;
+import io.github.liumaishenjian.ccjava.domain.instructions.ResolvedInstructions;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
 import io.github.liumaishenjian.ccjava.domain.ModelRequest;
 import io.github.liumaishenjian.ccjava.domain.RunId;
@@ -129,6 +138,39 @@ class InstructionProjectionStateTest {
         assertThat(system(state.project(canonical(), cancelled.token())))
                 .contains("B_TWO_WITH_CHANGED_BYTES");
         assertThat(state.latestRevision()).isNotEqualTo(java.util.Optional.of(firstRevision));
+    }
+
+    @Test
+    void doctorSnapshotReadsPublishedStateWithoutRediscoveryOrSensitiveFields() throws Exception {
+        AtomicBoolean discovered = new AtomicBoolean();
+        InstructionDiscovery discovery = (request, token) -> {
+            discovered.set(true);
+            return new ResolvedInstructions(List.of(new ResolvedInstruction(new InstructionProvenance(
+                    InstructionSourceKind.PROJECT, InstructionScopeKind.WORKSPACE, "AGENTS.md", "01234567", 0,
+                    InstructionActivation.STARTUP), "instruction-body-secret-endpoint")), List.of(new InstructionDiagnostic(
+                    InstructionSourceKind.PROJECT, "AGENTS.md", InstructionDiagnosticCode.UNREADABLE, 0,
+                    InstructionDiagnosticSeverity.WARNING)), new InstructionRevision("a".repeat(64)));
+        };
+        Path home = Files.createDirectories(temporary.resolve("home"));
+        Path workspace = Files.createDirectories(temporary.resolve("workspace"));
+        UserInstructionRootGuard userRoot = new UserInstructionRootGuard(home);
+        WorkspaceGuard guard = new WorkspaceGuard(workspace);
+        GitIgnorePolicy policy = ignoredLocalPolicy(workspace);
+        InstructionProjectionState state = new InstructionProjectionState(new InstructionFoundationFactory.InstructionFoundation(
+                userRoot, guard, policy, new UserInstructionLoader(userRoot), new WorkspaceInstructionLoader(guard, policy),
+                new InstructionCandidatePlanner(), discovery));
+
+        state.project(canonical(), CancellationToken.none());
+        discovered.set(false);
+        var snapshot = state.doctorSnapshot().orElseThrow();
+
+        assertThat(discovered).isFalse();
+        assertThat(snapshot.toString()).doesNotContain("instruction-body-secret-endpoint", workspace.toString(),
+                "secret", "endpoint", "Exception");
+        assertThat(snapshot.sources()).singleElement().extracting(InstructionDoctorSnapshot.Source::safeId)
+                .isEqualTo("AGENTS.md");
+        assertThat(snapshot.diagnostics()).singleElement().extracting(InstructionDoctorSnapshot.Diagnostic::code)
+                .isEqualTo("UNREADABLE");
     }
 
     @Test

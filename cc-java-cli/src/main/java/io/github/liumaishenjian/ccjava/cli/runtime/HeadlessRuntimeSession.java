@@ -7,7 +7,9 @@ import io.github.liumaishenjian.ccjava.core.ContextPreparationService;
 import io.github.liumaishenjian.ccjava.core.ContextSummarizer;
 import io.github.liumaishenjian.ccjava.core.instructions.InstructionContextService;
 import io.github.liumaishenjian.ccjava.cli.instructions.InstructionFoundationFactory;
+import io.github.liumaishenjian.ccjava.cli.instructions.InstructionDoctorSnapshot;
 import io.github.liumaishenjian.ccjava.cli.instructions.InstructionProjectionState;
+import io.github.liumaishenjian.ccjava.core.settings.EffectiveSettingsSnapshot;
 import io.github.liumaishenjian.ccjava.core.LatestContextUsageCollector;
 import io.github.liumaishenjian.ccjava.cli.session.FileCheckpointCoordinator;
 import io.github.liumaishenjian.ccjava.cli.session.FileSessionStore;
@@ -772,6 +774,35 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             Optional<DeclaredSettings> overlay, io.github.liumaishenjian.ccjava.core.CancellationToken cancellationToken) {
         SettingsApplicationService application = settingsApplication;
         return application == null ? Optional.empty() : Optional.of(application.replaceCliOverlay(overlay, cancellationToken));
+    }
+
+    /**
+     * 读取已经发布的 doctor 安全快照。
+     *
+     * <p>该方法只读取内存中的 LKG、Instructions 与 Context 投影；绝不刷新来源、读取文件、
+     * 构造 Scope、调用 Provider 或写入 JSONL。</p>
+     */
+    DoctorSnapshot doctorSnapshot() {
+        Optional<EffectiveSettingsSnapshot> settings = settingsApplication == null
+                ? Optional.empty()
+                : settingsApplication.current();
+        Optional<InstructionDoctorSnapshot> instructions = instructionContext instanceof InstructionProjectionState state
+                ? state.doctorSnapshot()
+                : Optional.empty();
+        return new DoctorSnapshot(settings, instructions, latestContextUsage(), activeRun != null, session != null && !closed);
+    }
+
+    /** Headless 已发布状态的只读、安全 doctor 输入。 */
+    record DoctorSnapshot(Optional<EffectiveSettingsSnapshot> settings,
+                          Optional<InstructionDoctorSnapshot> instructions,
+                          Optional<ContextUsageView> contextUsage,
+                          boolean activeRun,
+                          boolean sessionOpen) {
+        DoctorSnapshot {
+            settings = Objects.requireNonNull(settings, "settings 不能为空");
+            instructions = Objects.requireNonNull(instructions, "instructions 不能为空");
+            contextUsage = Objects.requireNonNull(contextUsage, "contextUsage 不能为空");
+        }
     }
 
     ToolRegistry builtinToolRegistry() {
