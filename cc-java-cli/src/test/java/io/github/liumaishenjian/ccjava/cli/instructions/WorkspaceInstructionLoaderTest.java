@@ -126,6 +126,20 @@ class WorkspaceInstructionLoaderTest {
     }
 
     @Test
+    void rejectsInternalSymbolicLinkRatherThanFollowingItInsideWorkspace() throws Exception {
+        Path workspace = Files.createDirectory(temporary.resolve("workspace"));
+        Path target = Files.writeString(workspace.resolve("instructions.md"), "private");
+        try {
+            Files.createSymbolicLink(workspace.resolve("AGENTS.md"), target.getFileName());
+        } catch (UnsupportedOperationException | java.io.IOException exception) {
+            Assumptions.abort("当前环境不能创建 Symlink: " + exception.getClass().getSimpleName());
+        }
+
+        assertFailure(loader(workspace).load(candidate(InstructionSourceKind.PROJECT, "AGENTS.md"),
+                CancellationToken.none()), InstructionDiagnosticCode.UNREADABLE);
+    }
+
+    @Test
     void cancellationFailsClosedBeforeFileRead() throws Exception {
         Path workspace = Files.createDirectory(temporary.resolve("workspace"));
         Files.writeString(workspace.resolve("AGENTS.md"), "project");

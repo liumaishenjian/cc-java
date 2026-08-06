@@ -69,9 +69,11 @@ public final class WorkspaceInstructionLoader implements InstructionLoader {
             return InstructionLoadResult.failure(InstructionDiagnosticCode.LOCAL_INSTRUCTIONS_NOT_GITIGNORED);
         }
         try {
+            InstructionPathSafety.requireNoLink(
+                    guard.workspace().resolve(candidate.safeSourceId()).normalize());
             ValidatedWorkspacePath validated = guard.requireRegularFile(candidate.safeSourceId());
             return read(validated.realPath(), cancellationToken);
-        } catch (WorkspaceAccessException exception) {
+        } catch (WorkspaceAccessException | IOException exception) {
             return InstructionLoadResult.failure(InstructionDiagnosticCode.UNREADABLE);
         }
     }
