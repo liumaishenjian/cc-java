@@ -25,6 +25,9 @@ public final class StdioProtocolCodec {
     private static final Set<String> COMMAND_TYPES = Set.of(
             "initialize",
             "run.start",
+            "input.begin",
+            "input.chunk",
+            "input.commit",
             "run.cancel",
             "approval.resolve",
             "checkpoint.list",

@@ -92,10 +92,20 @@ $childCommand = @(
     '--workspace',
     $options.Workspace,
     '--timeout',
-    $options.Timeout
+    $options.Timeout,
+    '--context-maximum-input-tokens',
+    [string]$options.ContextMaximumInputTokens,
+    '--context-reserved-output-tokens',
+    [string]$options.ContextReservedOutputTokens,
+    '--context-safety-margin-tokens',
+    [string]$options.ContextSafetyMarginTokens
 )
 if (-not [string]::IsNullOrWhiteSpace($options.Model)) {
     $childCommand += @('--model', $options.Model)
+}
+$childCommand += @('--model-diagnostics', $options.ModelDiagnostics)
+if (-not [string]::IsNullOrWhiteSpace($options.ModelDiagnosticsDirectory)) {
+    $childCommand += @('--model-diagnostics-dir', $options.ModelDiagnosticsDirectory)
 }
 if ($options.Continue) {
     $childCommand += '--continue'

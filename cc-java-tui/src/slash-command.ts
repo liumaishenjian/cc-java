@@ -26,6 +26,17 @@ const COMMANDS = new Set<SlashIntent>([
   'help', 'clear', 'compact', 'context', 'doctor', 'model', 'permissions', 'resume',
 ]);
 
+const COMMAND_USAGE: Readonly<Record<SlashIntent, string>> = {
+  help: '/help — 查看命令与可用状态',
+  clear: '/clear — 清除当前界面的瞬态内容',
+  compact: '/compact [anchor...] — 请求压缩下一轮上下文',
+  context: '/context — 查看上下文用量',
+  doctor: '/doctor — 查看安全诊断',
+  model: '/model <name> — 切换到已配置模型',
+  permissions: '/permissions [query|mode MODE] — 查看或切换权限模式',
+  resume: '/resume <session-id> — 安全恢复会话',
+};
+
 /**
  * 将 TUI 输入转换为封闭的 S08 命令意图，不猜测路径、配置或权限 selector。
  */
@@ -64,9 +75,27 @@ export function parseSlashCommand(input: string): SlashParseResult {
     : {kind: 'invalid', message: `/${intent} 需要一个有界参数`};
 }
 
-/** 将固定结果代码渲染为不含服务端原文的本地提示。 */
-export function renderSlashResult(intent: string, status: string, code: string): string {
-  if (status === 'succeeded') return `/${intent} 已完成`;
+/** 返回命令面板使用的本地固定说明，不使用服务端自由文本。 */
+export function slashCommandUsage(candidate: string): string {
+  if (candidate.includes(' ')) {
+    return candidate;
+  }
+  const intent = candidate.slice(1).split(/\s+/u)[0] as SlashIntent | undefined;
+  return intent !== undefined && intent in COMMAND_USAGE
+    ? COMMAND_USAGE[intent]
+    : candidate;
+}
+
+/** 将严格协议结果渲染为不含 Prompt、Secret 或服务端自由文本的本地安全投影。 */
+export function renderSlashResult(
+  intent: string,
+  status: string,
+  code: string,
+  result: Readonly<Record<string, unknown>> = {},
+): string {
+  if (status === 'succeeded') {
+    return renderSuccessfulResult(intent, result);
+  }
   const labels: Record<string, string> = {
     active_run: '当前 Run 仍在执行', unavailable: '当前没有可用视图',
     not_available: '当前版本尚未提供', deferred: '已延期至后续安全切片',
@@ -76,6 +105,73 @@ export function renderSlashResult(intent: string, status: string, code: string):
     session_active: '目标 Session 正由其他 Writer 使用', recovery_required: '目标未通过恢复安全检查',
   };
   return `/${intent} 未执行：${labels[code] ?? '请求被安全拒绝'}`;
+}
+
+function renderSuccessfulResult(
+  intent: string,
+  result: Readonly<Record<string, unknown>>,
+): string {
+  if (intent === 'help' && Array.isArray(result.commands)) {
+    const supportLabels: Readonly<Record<string, string>> = {
+      available: '可用', deferred: '延期', not_available: '不可用',
+    };
+    const lines = result.commands.flatMap(item => {
+      if (!isRecord(item) || typeof item.intent !== 'string' || typeof item.support !== 'string') {
+        return [];
+      }
+      const usage = COMMAND_USAGE[item.intent as SlashIntent] ?? `/${item.intent}`;
+      return [`${usage}　[${supportLabels[item.support] ?? '未知'}]`];
+    });
+    return ['Slash 命令', ...lines].join('\n');
+  }
+  if (intent === 'context') {
+    return [
+      'Context 用量',
+      `总计 ${safeValue(result.totalTokens)} / 可输入 ${safeValue(result.availableInputTokens)} / 剩余 ${safeValue(result.freeTokens)}`,
+      `系统 ${safeValue(result.systemTokens)} · 对话 ${safeValue(result.transcriptTokens)} · 工具 ${safeValue(result.toolTokens)} · 记忆 ${safeValue(result.memoryTokens)}`,
+      `状态 ${safeValue(result.contextStatus)} · 估算 ${safeValue(result.estimateKind)} · 溢出 ${safeValue(result.overflowTokens)}`,
+      `压缩 ${safeList(result.reductionStrategies)} · 原因 ${safeList(result.reasonCodes)}`,
+    ].join('\n');
+  }
+  if (intent === 'permissions') {
+    const rules = Array.isArray(result.rules) ? result.rules : [];
+    const ruleLines = rules.flatMap(rule => isRecord(rule)
+      ? [`- ${safeValue(rule.ruleId)} · ${safeValue(rule.sourceKind)}/${safeValue(rule.safeSourceId)} · ${safeValue(rule.operation)}`]
+      : []);
+    return [
+      'Permissions',
+      `模式 ${safeValue(result.effectiveMode)} · 来源 ${safeValue(result.modeSourceKind)}/${safeValue(result.modeSafeSourceId)} · ${safeValue(result.modeValidationStatus)}`,
+      `启动规则 ${safeValue(result.startupRuleCount)}`,
+      ...ruleLines,
+    ].join('\n');
+  }
+  if (intent === 'doctor') {
+    const entries = Array.isArray(result.entries) ? result.entries : [];
+    const entryLines = entries.flatMap(entry => isRecord(entry)
+      ? [`- ${safeValue(entry.component)} · ${safeValue(entry.sourceKind)}/${safeValue(entry.safeId)} · ${safeValue(entry.code)} · ${safeValue(entry.severity)}`]
+      : []);
+    return [
+      'Doctor',
+      `Settings ${result.settingsAvailable === true ? '可用' : '不可用'} (rev ${safeValue(result.settingsRevision)}) · Instructions ${safeValue(result.instructionCount)}`,
+      `Context ${result.contextAvailable === true ? '可用' : '不可用'} · Run ${result.activeRun === true ? '活动' : '空闲'}`,
+      ...entryLines,
+    ].join('\n');
+  }
+  return `/${intent} 已完成`;
+}
+
+function safeValue(value: unknown): string {
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : '-';
+}
+
+function safeList(value: unknown): string {
+  return Array.isArray(value) && value.every(item => typeof item === 'string') && value.length > 0
+    ? value.join(', ')
+    : '无';
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function invalidArgument(value: string): boolean {

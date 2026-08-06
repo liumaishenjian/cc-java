@@ -8,6 +8,7 @@
 - Reference Behavior Baseline: `R2026.03`（`REF-02`、`REF-04`、`REF-05`）
 - Authorized Snapshot ID: `AUTH-SRC-2026-07-29-A`
 - Classification: 本 ADR 是 cc-java 独立 `Documented` 产品契约；授权机制采纳边界、`Observed`/`Inferred` 与 `Unknown` 见 ADR-045
+- Corrective amendment: [ADR-048](./ADR-048-s08-corrective-composer-model-diagnostics.md) 已重开 S08，并取代本文关于 Composer、Paste、CLI-08/09 与模型诊断的过窄验收契约；其余 Instructions/Settings/Safety 决策继续有效。
 
 ## 决策
 
@@ -139,9 +140,11 @@ G1 Passed。ADR-045 保持 G0 研究交接；本 ADR 冻结 S08 独立范围、�
 
 ## G3-E 实现证据（2026-08-06）
 
-G3-E 已按本 ADR 的独立契约实现并通过确定性反证：React/Ink 使用 Enter 写入换行、Ctrl+Enter
-显式提交，缓冲按 Unicode code point 限制为 8,192；每 Session 仅在进程内保存最多 100 条历史并
-恢复草稿；补全仅来自封闭命令/参数集合且最多 32 项。运行中普通文本继续通过 `run.start` 进入
+G3-E 已按本 ADR 的独立契约实现并通过确定性反证：React/Ink 使用 Enter 显式提交、Ctrl+Enter
+写入换行，缓冲按 Unicode code point 限制为 8,192；每 Session 仅在进程内保存最多 100 条历史并
+恢复草稿；输入 `/` 展示封闭命令面板，方向键选择，Tab/Enter 补全，候选仅来自封闭命令/参数集合
+且最多 32 项。help/context/doctor/permissions 的成功结果只消费已通过协议校验的白名单字段并用本地
+固定标签渲染，拒绝结果仍只显示固定原因码。运行中普通文本继续通过 `run.start` 进入
 Java stdio Adapter 的 100 条内存 FIFO，当前模型/Tool 批次不被抢占，只有权威终态之后才启动下一
 Run。取消、`/clear`、成功 Resume、transport failure、shutdown/close 会清除未发送项；队列满、
 重复/乱序事件与 request/session 错配均 fail closed，未发送正文不进入 Canonical Transcript、Session

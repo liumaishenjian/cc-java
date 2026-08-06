@@ -4,7 +4,7 @@
 >
 > 最后更新：2026-08-06
 >
-> 当前阶段：S01-S08 已 Accepted。S08 已在实现 Commit `7bac8ea` 上完成 Commit-scoped G0-G6；18 个目标 Feature 达到 L2。下一步进入 S09 Hooks G0，S12-S14 延期边界不变。
+> 当前阶段：S01-S07 已 Accepted；S08 已按 ADR-048 重开为 Corrective / Reopened，并完成 corrective G3-G5。唯一缺口是尚无新的固定 implementation Commit，因此 G6/Stage Exit 仍 Open，`CLI-08`/`CLI-09` 暂保持 L1；S09 暂不启动，S12-S14 延期边界不变。
 >
 > 产品负责人：项目维护者
 
@@ -358,7 +358,9 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
 - FR-CTX-014：M1 创建仅允许目标不存在，更新和删除必须匹配读取时 SHA-256；同目录随机暂存只用
   `ATOMIC_MOVE` 提交且不回退非原子写入。M1 成功后 M2 重建失败不得回滚 topic，而应返回不回显
   内容的结构化诊断。
-- FR-CTX-015：S08 G3-D 的显式 `/compact` 在 idle 边界构造候选：即使 C1/C2 已满足预算，仍可在
+ - FR-CTX-015：S08 G3-D 的显式 `/compact` 在 idle 边界构造候选；无参数时 anchors 为空且使用
+   当前 Session 的 Canonical Transcript。普通 `codej` 必须显式装配受控 Context 容量三元组，不能因
+   启动器遗漏而把已声明可用的命令固定降级为 `UNAVAILABLE`。即使 C1/C2 已满足预算，仍可在
   原有 S07 C3/C4 Gate 下尝试摘要；只有候选来源仍是下一 Run Canonical 前缀时，才一次性用于该
   下一 Run 的首个模型请求。它不得覆盖整个 Run、不得改变自动 reduction、Canonical Transcript、
   Tool Call/Result 配对、取消或 JSONL/Checkpoint。
@@ -466,14 +468,9 @@ Sandbox。历史 ADR-019 继续 Superseded。
 S08 的 G0 受控机制研究已由 ADR-045 完成；G1 已由 ADR-046 冻结项目自有 Instructions 文件位置、
 Settings schema v1、逐字段 merge/delete/provenance、最小 Slash/doctor 语义和可证伪切片；G2 已由 ADR-047 冻结
 Domain/Core/Application/Adapter 契约、独立 user-root guard、严格 duplicate-key parser、last-known-good 刷新、
-Command Intent/Event 与 G3/G4 测试矩阵。G3-C/D/F 的有界子切片现已接入内存 Session patch、stdio v0 与封闭 Slash/TUI：`/model` 只接受当前启动模型名，`/permissions` 可查询实际 Runtime mode 或将 mode 改为 `DEFAULT`、`PLAN`、`ACCEPT_EDITS`；两者均只作用于下一 Run，保留 CLI precedence，且不读取 Settings 文件、不写 JSONL/Checkpoint。`/resume <session-id>` 仅在 idle 边界通过既有 S06 Workspace、Writer、fence、incomplete-side-effect 与 Checkpoint recovery Gate 后原子切换当前 Session；拒绝、取消或竞争保留原 Session，绝不自动重放 Tool 或副作用。permissions query 只显示无 selector 的 Settings-derived STARTUP rules provenance；无 LKG 时如实显示 Runtime baseline。
+Command Intent/Event 与 G3/G4 测试矩阵。G3-C/D/F 的有界子切片现已接入内存 Session patch、stdio v0 与封闭 Slash/TUI：输入 `/` 显示固定命令面板，方向键选择且由 Tab/Enter 补全；`/help`、`/context`、`/doctor`、`/permissions` 的严格结果使用本地固定标签渲染，不显示服务端自由文本。`/model` 只接受当前启动模型名，`/permissions` 可查询实际 Runtime mode 或将 mode 改为 `DEFAULT`、`PLAN`、`ACCEPT_EDITS`；两者均只作用于下一 Run，保留 CLI precedence，且不读取 Settings 文件、不写 JSONL/Checkpoint。`/resume <session-id>` 仅在 idle 边界通过既有 S06 Workspace、Writer、fence、incomplete-side-effect 与 Checkpoint recovery Gate 后原子切换当前 Session；拒绝、取消或竞争保留原 Session，绝不自动重放 Tool 或副作用。permissions query 只显示无 selector 的 Settings-derived STARTUP rules provenance；无 LKG 时如实显示 Runtime baseline。
 
-G3-E 已完成 React/Ink 受控多行编辑、每 Session 内存历史、封闭补全与运行中 steering：Enter
-换行、Ctrl+Enter 提交，缓冲/历史/候选上限分别为 8,192 Unicode code point、100、32；Java
-stdio Adapter 以 100 条内存 FIFO 持有未发送补充，只在当前 Run 权威终态后开始下一 Run。取消、
-`/clear`、成功 Resume、transport failure 与 shutdown/close 均丢弃未发送项，且不写 Canonical、
-JSONL 或 Checkpoint。规则编辑和 Provider discovery/多模型注册继续延期，稳定机器协议仍属 S14；
-G3 A-F、G4 全量/量化验证、G5 Demo/Gap 与 G6 commit-scoped 对账已完成，S08 Stage Exit Accepted。S07 摘要重注入和 Context Usage 量化回归保持通过。
+历史 G3-E 实现提供了受限多行、进程内历史、封闭补全与 steering，但其字符串缓冲与证据没有证明 grapheme 光标、视觉多行导航、完整编辑键、History/Completion 优先级、viewport 和无损大 Paste；8,192 只能约束可见 grapheme/token 结构，不能约束展开后的用户内容，且旧契约未与 Java UTF-16 和 stdio 64 KiB 单行预算形成无歧义边界。因此 [ADR-048](./adr/ADR-048-s08-corrective-composer-model-diagnostics.md) 重开 S08，并完成 `ComposerState` 纯 Reducer、约 1 MiB UTF-8 的有界无损 payload/展开预算、stdio v0 原子 begin/chunk/commit 及独立 privacy-safe ModelDiagnostic。完整 Reactor 各模块 45/172/43/101/227（Spring/Tools/CLI 分别 2/8/11 skipped，0 failures/errors）、TUI 111/111、launcher 59/59、真实 TTY G5 与独立最终 review 均通过；成功组装后的输入仍由 256K Token Context pipeline 权威治理，不得截断、提前写 Session/Canonical 或创建部分 Run。唯一未满足项是新的 corrective implementation 固定 Commit，故 G6/S08 Exit 仍 Open，`CLI-08`/`CLI-09` 暂保持 L1；内部分块不恢复 `DIST-04`，规则编辑、Provider discovery/多模型注册、稳定机器协议与 OTel/诊断导出仍属后续 Stage。
 
 ## 14. S09-S11：扩展系统重实现
 
@@ -579,6 +576,8 @@ S14 按 `Eval/Observability → SDK/Headless → Distribution/Compatibility` 三
 - NFR-030：统计模型轮次、工具次数、耗时、Token 和 Stop Reason。
 - NFR-031：Prompt、Completion、文件内容和命令输出默认不导出到遥测系统。
 - NFR-032：Agent Event 可以重建控制流，但不要求保存完整敏感内容。
+- NFR-033：可选模型诊断必须与用户可见失败摘要、Agent Event 和 Session durable 事实分离；默认 OFF，SAFE/VERBOSE 也只能使用封闭枚举、Run/turn/attempt 关联及有界本地轮转 JSONL，任何 sink 失败不得改变 Run。
+- NFR-034：Prompt/Completion、Provider 原始响应、Header、Request ID、Endpoint、异常文本/栈、Tool/命令/文件正文、selector、Secret 和绝对路径不得进入模型诊断。
 
 ## 18. 成功指标
 

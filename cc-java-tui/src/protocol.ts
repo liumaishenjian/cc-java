@@ -83,6 +83,9 @@ export interface ProtocolCommand {
   readonly type:
     | 'initialize'
     | 'run.start'
+    | 'input.begin'
+    | 'input.chunk'
+    | 'input.commit'
     | 'run.cancel'
     | 'approval.resolve'
     | 'checkpoint.list'

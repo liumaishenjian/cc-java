@@ -19,7 +19,11 @@ import io.github.liumaishenjian.ccjava.cli.session.SessionOpenRequest;
 import io.github.liumaishenjian.ccjava.domain.PermissionMode;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -580,10 +584,18 @@ class RuntimeStdioCommandHandlerTest {
             handler.handle(codec.decodeCommand(runStart("first-request", sessionId, 2, "first prompt")), emitter);
             assertThat(firstEntered.await(3, TimeUnit.SECONDS)).isTrue();
             handler.handle(codec.decodeCommand(runStart("steering-request", sessionId, 3, "CANCELLED_STEERING")), emitter);
+            handler.handle(codec.decodeCommand(inputBegin(
+                    "cancel-input", "logical-cancel", sessionId, 4, 3, 1, sha256("abc"))), emitter);
             CapturedEvent started = awaitEvent(events, "run.started");
             handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"run.cancel\",\"requestId\":\"cancel\","
-                    + "\"sessionId\":\"%s\",\"runId\":\"%s\",\"sequence\":4,\"payload\":{}}")
+                    + "\"sessionId\":\"%s\",\"runId\":\"%s\",\"sequence\":5,\"payload\":{}}")
                     .formatted(sessionId, started.runId().orElseThrow())), emitter);
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand(
+                    inputChunk("cancel-replay", sessionId, 6, "cancel-input", 0, "abc")), emitter))
+                    .isInstanceOfSatisfying(StdioProtocolException.class, failure -> {
+                        assertThat(failure.code()).isEqualTo("INPUT_REPLAY");
+                        assertThat(failure.requestId()).isEqualTo("cancel-replay");
+                    });
             releaseFirst.countDown();
             awaitAnyTerminal(events);
         }
@@ -898,6 +910,254 @@ class RuntimeStdioCommandHandlerTest {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException(exception);
+        }
+    }
+
+    @Test
+    void conflictingBeginTerminatesBothIdsCancelsTimerAndCorrelatesOriginal() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        FakeAssemblyScheduler scheduler = new FakeAssemblyScheduler();
+        AtomicInteger calls = new AtomicInteger();
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            calls.incrementAndGet(); return ModelTurn.text("unexpected");
+        }, testOptions(), Clock.systemUTC(), scheduler)) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(inputBegin("first-id", "logical-first", sessionId, 2, 3, 1, sha256("abc"))), emitter);
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand(
+                    inputBegin("second-id", "logical-second", sessionId, 3, 3, 1, sha256("xyz"))), emitter))
+                    .isInstanceOfSatisfying(StdioProtocolException.class, failure -> {
+                        assertThat(failure.code()).isEqualTo("INPUT_IN_FLIGHT");
+                        assertThat(failure.requestId()).isEqualTo("logical-first");
+                    });
+            assertThat(scheduler.cancelled()).isOne();
+            for (String id : List.of("first-id", "second-id")) {
+                assertThatThrownBy(() -> handler.handle(codec.decodeCommand(
+                        inputCommit("replay-" + id, sessionId, id.equals("first-id") ? 4 : 5, id)), emitter))
+                        .isInstanceOfSatisfying(StdioProtocolException.class, failure ->
+                                assertThat(failure.code()).isEqualTo("INPUT_REPLAY"));
+            }
+            assertThat(calls).hasValue(0);
+        }
+    }
+
+    @Test
+    void mismatchedIdTerminatesBothIdsCancelsTimerAndCorrelatesOriginal() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        FakeAssemblyScheduler scheduler = new FakeAssemblyScheduler();
+        AtomicInteger calls = new AtomicInteger();
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            calls.incrementAndGet(); return ModelTurn.text("unexpected");
+        }, testOptions(), Clock.systemUTC(), scheduler)) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(inputBegin("owned-id", "logical-owned", sessionId, 2, 3, 1, sha256("abc"))), emitter);
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand(
+                    inputChunk("wrong-chunk", sessionId, 3, "foreign-id", 0, "abc")), emitter))
+                    .isInstanceOfSatisfying(StdioProtocolException.class, failure -> {
+                        assertThat(failure.code()).isEqualTo("INPUT_ID_MISMATCH");
+                        assertThat(failure.requestId()).isEqualTo("logical-owned");
+                    });
+            assertThat(scheduler.cancelled()).isOne();
+            for (String id : List.of("owned-id", "foreign-id")) {
+                assertThatThrownBy(() -> handler.handle(codec.decodeCommand(
+                        inputCommit("replay-" + id, sessionId, id.equals("owned-id") ? 4 : 5, id)), emitter))
+                        .isInstanceOfSatisfying(StdioProtocolException.class, failure ->
+                                assertThat(failure.code()).isEqualTo("INPUT_REPLAY"));
+            }
+            assertThat(calls).hasValue(0);
+        }
+    }
+
+    @Test
+    void activeExpiryTombstonesInputAndCorrelatesReplayToLogicalRequest() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        FakeAssemblyScheduler scheduler = new FakeAssemblyScheduler();
+        Clock clock = Clock.fixed(Instant.parse("2026-08-07T00:00:00Z"), ZoneOffset.UTC);
+        AtomicInteger calls = new AtomicInteger();
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            calls.incrementAndGet(); return ModelTurn.text("unexpected");
+        }, testOptions(), clock, scheduler)) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(inputBegin("expire", "logical-expire", sessionId, 2, 3, 1, sha256("abc"))), emitter);
+            assertThat(scheduler.pending()).isOne();
+            scheduler.fireFirst();
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand(
+                    inputChunk("chunk-request", sessionId, 3, "expire", 0, "abc")), emitter))
+                    .isInstanceOfSatisfying(StdioProtocolException.class, failure -> {
+                        assertThat(failure.code()).isEqualTo("INPUT_REPLAY");
+                        assertThat(failure.requestId()).isEqualTo("chunk-request");
+                    });
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand(
+                    inputBegin("expire", "logical-replay", sessionId, 4, 3, 1, sha256("abc"))), emitter))
+                    .isInstanceOfSatisfying(StdioProtocolException.class, failure -> {
+                        assertThat(failure.code()).isEqualTo("INPUT_REPLAY");
+                        assertThat(failure.requestId()).isEqualTo("logical-replay");
+                    });
+            assertThat(calls).hasValue(0);
+            assertThat(events).noneMatch(RuntimeStdioCommandHandlerTest::isTerminal);
+        }
+    }
+
+    @Test
+    void atomicallyCommitsLargeUtf8InputAndRejectsTamperingBeforeRun() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        String text = "中文😀".repeat(20_000);
+        byte[] bytes = text.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        String digest = java.util.HexFormat.of().formatHex(
+                java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(
+                request -> ModelTurn.text(((io.github.liumaishenjian.ccjava.domain.UserMessage)
+                        request.messages().getLast()).content()), testOptions())) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            String first = text.substring(0, text.length() / 2);
+            String second = text.substring(text.length() / 2);
+            handler.handle(codec.decodeCommand(inputBegin("large", "begin-large", sessionId, 2, bytes.length, 2, digest)), emitter);
+            handler.handle(codec.decodeCommand(inputChunk("chunk-0", sessionId, 3, "large", 0, first)), emitter);
+            handler.handle(codec.decodeCommand(inputChunk("chunk-1", sessionId, 4, "large", 1, second)), emitter);
+            handler.handle(codec.decodeCommand(inputCommit("commit", sessionId, 5, "large")), emitter);
+            Thread.sleep(200);
+            assertThat(events).withFailMessage(eventDiagnostics(events))
+                    .anyMatch(event -> event.type().equals("run.started"));
+            CapturedEvent terminal = awaitAnyTerminal(events);
+            assertThat(terminal.type()).withFailMessage(eventDiagnostics(events)).isEqualTo("run.completed");
+            assertThat(terminal.payload().get("finalText").stringValue()).isEqualTo(text);
+
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand(
+                    inputCommit("duplicate", sessionId, 6, "large")), emitter))
+                    .isInstanceOfSatisfying(StdioProtocolException.class, failure -> {
+                        assertThat(failure.code()).isEqualTo("INPUT_REPLAY");
+                        assertThat(failure.requestId()).isEqualTo("duplicate");
+                    });
+        }
+    }
+
+    @Test
+    void rejectsOutOfOrderAndDigestMismatchWithoutStartingRun() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        AtomicInteger modelCalls = new AtomicInteger();
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            modelCalls.incrementAndGet(); return ModelTurn.text("unexpected");
+        }, testOptions())) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(inputBegin("bad-order", "begin-bad-order", sessionId, 2, 3, 1, "0".repeat(64))), emitter);
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand(
+                    inputChunk("chunk", sessionId, 3, "bad-order", 1, "abc")), emitter))
+                    .isInstanceOf(StdioProtocolException.class)
+                    .extracting(error -> ((StdioProtocolException) error).code()).isEqualTo("INPUT_CHUNK_ORDER");
+            handler.handle(codec.decodeCommand(inputBegin("bad-digest", "begin-bad-digest", sessionId, 4, 3, 1, "0".repeat(64))), emitter);
+            handler.handle(codec.decodeCommand(inputChunk("chunk", sessionId, 5, "bad-digest", 0, "abc")), emitter);
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand(
+                    inputCommit("commit", sessionId, 6, "bad-digest")), emitter))
+                    .isInstanceOfSatisfying(StdioProtocolException.class, failure -> {
+                        assertThat(failure.code()).isEqualTo("INPUT_COMMIT_MISMATCH");
+                        assertThat(failure.requestId()).isEqualTo("begin-bad-digest");
+                    });
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand(
+                    inputCommit("failed-replay", sessionId, 7, "bad-digest")), emitter))
+                    .isInstanceOfSatisfying(StdioProtocolException.class, failure -> {
+                        assertThat(failure.code()).isEqualTo("INPUT_REPLAY");
+                        assertThat(failure.requestId()).isEqualTo("failed-replay");
+                    });
+            assertThat(modelCalls).hasValue(0);
+            assertThat(events).noneMatch(RuntimeStdioCommandHandlerTest::isTerminal);
+        }
+    }
+
+    private static String sha256(String text) throws Exception {
+        return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(text.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+    }
+
+    private static String inputBegin(String id, String requestId, String sessionId, long sequence, int bytes, int chunks, String digest) {
+        return "{\"version\":0,\"type\":\"input.begin\",\"requestId\":\"" + requestId
+                + "\",\"sessionId\":\"" + sessionId + "\",\"sequence\":" + sequence
+                + ",\"payload\":{\"inputId\":\"" + id + "\",\"byteCount\":" + bytes
+                + ",\"chunkCount\":" + chunks + ",\"sha256\":\"" + digest + "\"}}";
+    }
+
+    private static String inputChunk(String requestId, String sessionId, long sequence, String id, int ordinal, String text) {
+        return "{\"version\":0,\"type\":\"input.chunk\",\"requestId\":\"" + requestId
+                + "\",\"sessionId\":\"" + sessionId + "\",\"sequence\":" + sequence
+                + ",\"payload\":{\"inputId\":\"" + id + "\",\"ordinal\":" + ordinal
+                + ",\"text\":" + tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(text) + "}}";
+    }
+
+    private static String inputCommit(String requestId, String sessionId, long sequence, String id) {
+        return "{\"version\":0,\"type\":\"input.commit\",\"requestId\":\"" + requestId
+                + "\",\"sessionId\":\"" + sessionId + "\",\"sequence\":" + sequence
+                + ",\"payload\":{\"inputId\":\"" + id + "\"}}";
+    }
+
+    private static final class FakeAssemblyScheduler
+            implements RuntimeStdioCommandHandler.InputAssemblyScheduler {
+        private final List<FakeExpiry> tasks = new ArrayList<>();
+
+        @Override
+        public RuntimeStdioCommandHandler.ExpiryHandle schedule(Duration delay, Runnable task) {
+            FakeExpiry expiry = new FakeExpiry(task);
+            tasks.add(expiry);
+            return expiry::cancel;
+        }
+
+        int pending() {
+            return (int) tasks.stream().filter(task -> !task.cancelled && !task.fired).count();
+        }
+
+        int cancelled() {
+            return (int) tasks.stream().filter(task -> task.cancelled).count();
+        }
+
+        void fireFirst() {
+            tasks.stream().filter(task -> !task.cancelled && !task.fired).findFirst().orElseThrow().fire();
+        }
+
+        @Override
+        public void close() {
+            tasks.forEach(FakeExpiry::cancel);
+        }
+    }
+
+    private static final class FakeExpiry {
+        private final Runnable task;
+        private boolean cancelled;
+        private boolean fired;
+
+        private FakeExpiry(Runnable task) {
+            this.task = task;
+        }
+
+        private void cancel() {
+            cancelled = true;
+        }
+
+        private void fire() {
+            fired = true;
+            task.run();
         }
     }
 

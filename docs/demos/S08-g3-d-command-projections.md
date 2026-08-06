@@ -6,7 +6,7 @@
 >
 > 参考：公开行为基线 `R2026.03`；授权参考快照 `AUTH-SRC-2026-07-29-A` 的受控机制研究结论见 ADR-045；本演示只验证项目独立 Java/TypeScript 契约，不包含参考源码表达。
 >
-> 状态：G0-G6 Passed；S08 Stage Exit Accepted。
+> 状态：ADR-048 Corrective G5 Passed；G6 与 S08 Stage Exit 仅等待新的固定 implementation Commit。
 
 ## 可复现验证
 
@@ -40,12 +40,26 @@ orphan 为 0 且事实、硬约束、完成率不退化；全量 Maven 成功，
 ## 已验证行为
 
 1. `session.command` 只接受封闭 intent、严格 arguments、无 Run 关联及最多 128 code point 的非控制字符 `commandId`；重复 ID 复用同一终态，有界 budget 耗尽拒绝新的 ID。
-2. `/compact [anchor...]` 最多接受 16 个、每项最多 512 code point 的无控制字符锚点。它先执行 S07 C1/C2；即使预算已满足仍可经原 C3/C4 Gate 尝试摘要。成功候选不改 Canonical Transcript、JSONL 或 Checkpoint，只在 Canonical 前缀未变化时一次性用于**下一 Run 的首个模型请求**。
+2. `/compact [anchor...]` 最多接受 16 个、每项最多 512 code point 的无控制字符锚点；无参数时 anchors 为空并直接针对当前 Session 的 Canonical Transcript。`codej` 开发入口默认显式传入 256,000/8,192/4,096 Context 容量三元组，因此不会因启动器漏装配而返回 `UNAVAILABLE`。它先执行 S07 C1/C2；即使预算已满足仍可经原 C3/C4 Gate 尝试摘要。成功候选不改 Canonical Transcript、JSONL 或 Checkpoint，只在 Canonical 前缀未变化时一次性用于**下一 Run 的首个模型请求**。
 3. `/context` 只投影 latest `ContextUsageView` 的 token 数值、状态/策略/原因枚举；stdio Client 对未知字段、Secret 泄漏、越界数字、错误 session/run 关联和非法结果状态 fail closed。
-4. React/Ink Slash parser 与 Java codec 对 compact anchors、mode、resume session ID、commandId 上限及控制字符使用一致的封闭输入边界；本地渲染仅使用固定状态代码，不显示服务端自由文本。
+4. React/Ink 输入 `/` 显示 8 个封闭命令，方向键选择并以 Tab/Enter 补全；Slash parser 与 Java codec 对 compact anchors、mode、resume session ID、commandId 上限及控制字符使用一致的封闭输入边界。help/context/doctor/permissions 成功结果只渲染协议已验证字段与本地固定标签，拒绝结果只使用固定状态代码，不显示服务端自由文本。
 5. `/resume <session-id>` 先复用 S06 writable Resume Gate 检查 Workspace identity、writer lease、fence、incomplete side effect 与 Checkpoint recovery；active Run、取消、当前目标、锁定或任一恢复拒绝均保留旧 Session。成功仅发布 `previousSessionId` 与 `resumedSessionId`，TUI 仅在 event Session ID 与目标 ID 一致时切换本地投影。
-6. React/Ink 编辑器以 Enter 换行、Ctrl+Enter 提交；缓冲、每 Session 内存历史和封闭补全候选分别限制为 8,192 Unicode code point、100 条和 32 项。历史与草稿不持久化。
+6. React/Ink 编辑器以 Enter 提交、Ctrl+Enter 换行；缓冲、每 Session 内存历史和封闭补全候选分别限制为 8,192 Unicode code point、100 条和 32 项。历史与草稿不持久化。
 7. 活动 Run 中普通提交由 Java stdio Adapter 放入最多 100 条的 FIFO。测试覆盖严格 FIFO、100/101、首个 `run.started` 延迟竞态、重复/乱序事件、queue-full 关联拒绝、取消/clear/resume/shutdown/transport failure 清理，以及未发送标记不进入 Session JSONL。
+
+## ADR-048 Corrective G4/G5 证据
+
+完整 Maven Reactor 已全绿：Domain 45、Core 172、Spring 43（2 skipped）、Tools 101（8 skipped）、CLI 227（11 skipped），全部 0 failures / 0 errors；TUI 9 files 111/111，launcher 59/59。独立最终 review 无 blocking finding；全部 findings 与最终修复见 ADR-048。
+
+真实 TTY 验收结果：
+
+1. launcher 正常启动；真实 Provider prompt 在 1 turn、0 tools 返回 `OK`。
+2. `/context` 显示 total 16,721、available-input 243,712、remaining 226,991，状态为 prepared/estimated 且未发生 compaction。
+3. 无参数 `/compact` 作用于当前 Session，并安全拒绝无意义的一轮候选，而不是要求先存在 Context View。
+4. 2,006-byte bracketed paste 折叠为 `[粘贴 #1 · <64KiB]`，正文不暴露；raw Left 将光标移到折叠 Paste 前，随后输入 `Z` 正确插入该位置。
+5. Shift+Enter 产生第二个视觉行。
+
+该结果关闭 ADR-048 G5；G6 唯一剩余条件是取得新的固定 corrective implementation Commit 并完成 Commit-scoped 对账。
 
 ## 保持的不变量
 

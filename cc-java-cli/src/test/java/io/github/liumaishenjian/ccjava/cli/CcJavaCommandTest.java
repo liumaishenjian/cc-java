@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.liumaishenjian.ccjava.cli.session.SessionOpenMode;
 import io.github.liumaishenjian.ccjava.domain.ContextCapacity;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
+import io.github.liumaishenjian.ccjava.domain.ModelDiagnosticMode;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.file.Path;
@@ -55,6 +56,36 @@ class CcJavaCommandTest {
                 .isEqualTo(Path.of("").toAbsolutePath().normalize());
         assertThat(runner.overrides.model()).contains("override-model");
         assertThat(runner.overrides.timeout()).isEqualTo(Duration.ofMillis(250));
+    }
+
+    @Test
+    void defaultsDiagnosticsOffAndParsesTrustedLocalSelection() {
+        FakeCliModeRunner defaultRunner = new FakeCliModeRunner(0, 0);
+        FakeCliModeRunner enabledRunner = new FakeCliModeRunner(0, 0);
+        Path directory = Path.of("target", "diagnostics-test").toAbsolutePath().normalize();
+
+        assertThat(execute(defaultRunner, "--print", "hello").exitCode()).isZero();
+        assertThat(execute(enabledRunner,
+                "--model-diagnostics", "safe",
+                "--model-diagnostics-dir", directory.toString(),
+                "--print", "hello").exitCode()).isZero();
+
+        assertThat(defaultRunner.overrides.diagnosticMode()).isEqualTo(ModelDiagnosticMode.OFF);
+        assertThat(defaultRunner.overrides.diagnosticDirectory()).isEmpty();
+        assertThat(enabledRunner.overrides.diagnosticMode()).isEqualTo(ModelDiagnosticMode.SAFE);
+        assertThat(enabledRunner.overrides.diagnosticDirectory()).contains(directory);
+    }
+
+    @Test
+    void rejectsDiagnosticDirectoryWhileModeIsOff() {
+        FakeCliModeRunner runner = new FakeCliModeRunner(0, 0);
+
+        Invocation invocation = execute(runner,
+                "--model-diagnostics-dir", Path.of("target", "diagnostics").toString(),
+                "--print", "hello");
+
+        assertThat(invocation.exitCode()).isEqualTo(CliExitCode.USAGE_OR_CONFIGURATION);
+        assertThat(runner.overrides).isNull();
     }
 
     @Test

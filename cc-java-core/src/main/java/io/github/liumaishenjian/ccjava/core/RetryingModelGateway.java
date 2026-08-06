@@ -55,7 +55,7 @@ public final class RetryingModelGateway implements StreamingModelGateway {
         for (int attempt = 1; attempt <= policy.maxAttempts(); attempt++) {
             throwIfCancelled(cancellation);
             AtomicBoolean emittedText = new AtomicBoolean();
-            try {
+            try (ModelDiagnosticAttempt.Scope ignored = ModelDiagnosticAttempt.open(attempt)) {
                 if (delegate instanceof StreamingModelGateway streaming) {
                     return streaming.complete(
                             request,

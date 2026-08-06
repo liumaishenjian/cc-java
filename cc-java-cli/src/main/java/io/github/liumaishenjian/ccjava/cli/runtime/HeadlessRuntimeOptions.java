@@ -8,6 +8,7 @@ import io.github.liumaishenjian.ccjava.core.ContextPreparationConfig;
 import io.github.liumaishenjian.ccjava.domain.ContextCapacity;
 import io.github.liumaishenjian.ccjava.domain.PermissionMode;
 import io.github.liumaishenjian.ccjava.domain.PermissionRule;
+import io.github.liumaishenjian.ccjava.domain.ModelDiagnosticMode;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -26,6 +27,8 @@ import java.util.Optional;
  * @param sessionOpenRequest S06 Session 选择
  * @param sessionStoreRoot Workspace 外的本机私有 Store root
  * @param contextPreparation S07 显式启动容量配置；空表示保持 Canonical no-op 路径
+ * @param diagnosticMode 本机模型诊断模式
+ * @param diagnosticDirectory 可选可信诊断目录
  * @since 0.1.0
  */
 public record HeadlessRuntimeOptions(
@@ -36,7 +39,9 @@ public record HeadlessRuntimeOptions(
         List<PermissionRule> startupPermissionRules,
         SessionOpenRequest sessionOpenRequest,
         Path sessionStoreRoot,
-        Optional<ContextPreparationConfig> contextPreparation) {
+        Optional<ContextPreparationConfig> contextPreparation,
+        ModelDiagnosticMode diagnosticMode,
+        Optional<Path> diagnosticDirectory) {
 
     /**
      * 使用 DEFAULT 且无 Startup Rule 创建兼容 S04 调用方的配置。
@@ -54,6 +59,8 @@ public record HeadlessRuntimeOptions(
                 List.of(),
                 SessionOpenRequest.create(),
                 SessionStorage.defaultRoot(),
+                Optional.empty(),
+                ModelDiagnosticMode.OFF,
                 Optional.empty());
     }
 
@@ -80,6 +87,8 @@ public record HeadlessRuntimeOptions(
                 startupPermissionRules,
                 SessionOpenRequest.create(),
                 SessionStorage.defaultRoot(),
+                Optional.empty(),
+                ModelDiagnosticMode.OFF,
                 Optional.empty());
     }
 
@@ -110,7 +119,35 @@ public record HeadlessRuntimeOptions(
                 startupPermissionRules,
                 sessionOpenRequest,
                 sessionStoreRoot,
+                Optional.empty(),
+                ModelDiagnosticMode.OFF,
                 Optional.empty());
+    }
+
+    /**
+     * 使用显式 S07 配置且保持诊断关闭的兼容构造器。
+     *
+     * @param workspace 已解析 Workspace
+     * @param model Provider 模型标识
+     * @param timeout Run 墙钟限制
+     * @param permissionMode 权限模式
+     * @param startupPermissionRules 启动规则
+     * @param sessionOpenRequest Session 选择
+     * @param sessionStoreRoot Session Store
+     * @param contextPreparation Context 配置
+     */
+    public HeadlessRuntimeOptions(
+            Path workspace,
+            String model,
+            Duration timeout,
+            PermissionMode permissionMode,
+            List<PermissionRule> startupPermissionRules,
+            SessionOpenRequest sessionOpenRequest,
+            Path sessionStoreRoot,
+            Optional<ContextPreparationConfig> contextPreparation) {
+        this(workspace, model, timeout, permissionMode, startupPermissionRules,
+                sessionOpenRequest, sessionStoreRoot, contextPreparation,
+                ModelDiagnosticMode.OFF, Optional.empty());
     }
 
     /**
@@ -141,6 +178,13 @@ public record HeadlessRuntimeOptions(
                 .normalize();
         contextPreparation = Objects.requireNonNull(
                 contextPreparation, "contextPreparation 不能为空");
+        diagnosticMode = Objects.requireNonNull(diagnosticMode, "diagnosticMode 不能为空");
+        diagnosticDirectory = Objects.requireNonNull(
+                diagnosticDirectory, "diagnosticDirectory 不能为空")
+                .map(path -> path.toAbsolutePath().normalize());
+        if (diagnosticMode == ModelDiagnosticMode.OFF && diagnosticDirectory.isPresent()) {
+            throw new IllegalArgumentException("OFF 模式不能指定诊断目录");
+        }
         if (model.isBlank()) {
             throw new IllegalArgumentException("model 不能为空白");
         }

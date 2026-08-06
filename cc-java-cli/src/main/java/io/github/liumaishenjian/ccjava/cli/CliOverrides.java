@@ -5,6 +5,7 @@ import java.time.Duration;
 import io.github.liumaishenjian.ccjava.cli.session.SessionOpenRequest;
 import io.github.liumaishenjian.ccjava.core.ContextPreparationConfig;
 import io.github.liumaishenjian.ccjava.domain.PermissionMode;
+import io.github.liumaishenjian.ccjava.domain.ModelDiagnosticMode;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -20,6 +21,8 @@ import java.util.Optional;
  * @param permissionMode 当前 S05 Permission Mode
  * @param sessionOpenRequest S06 Session 选择
  * @param contextPreparation S07 显式启动容量配置；空表示保持 Canonical no-op 路径
+ * @param diagnosticMode 本机模型诊断模式，默认 OFF
+ * @param diagnosticDirectory 可选可信诊断目录；不进入协议或 Session
  * @since 0.1.0
  */
 record CliOverrides(
@@ -28,7 +31,9 @@ record CliOverrides(
         Duration timeout,
         PermissionMode permissionMode,
         SessionOpenRequest sessionOpenRequest,
-        Optional<ContextPreparationConfig> contextPreparation) {
+        Optional<ContextPreparationConfig> contextPreparation,
+        ModelDiagnosticMode diagnosticMode,
+        Optional<Path> diagnosticDirectory) {
 
     CliOverrides(
             Path workspace,
@@ -41,6 +46,8 @@ record CliOverrides(
                 timeout,
                 permissionMode,
                 SessionOpenRequest.create(),
+                Optional.empty(),
+                ModelDiagnosticMode.OFF,
                 Optional.empty());
     }
 
@@ -56,6 +63,8 @@ record CliOverrides(
                 timeout,
                 permissionMode,
                 sessionOpenRequest,
+                Optional.empty(),
+                ModelDiagnosticMode.OFF,
                 Optional.empty());
     }
 
@@ -76,6 +85,13 @@ record CliOverrides(
                 sessionOpenRequest, "sessionOpenRequest 不能为空");
         contextPreparation = Objects.requireNonNull(
                 contextPreparation, "contextPreparation 不能为空");
+        diagnosticMode = Objects.requireNonNull(diagnosticMode, "diagnosticMode 不能为空");
+        diagnosticDirectory = Objects.requireNonNull(
+                diagnosticDirectory, "diagnosticDirectory 不能为空")
+                .map(path -> path.toAbsolutePath().normalize());
+        if (diagnosticMode == ModelDiagnosticMode.OFF && diagnosticDirectory.isPresent()) {
+            throw new IllegalArgumentException("diagnostics-dir 仅可与 safe 或 verbose 一起使用");
+        }
         if (model.isPresent()) {
             String value = model.orElseThrow();
             if (value.isBlank()

@@ -17,7 +17,7 @@ import type {AgentClient} from '../src/app.js';
 import type {ProtocolEvent} from '../src/protocol.js';
 import type {TuiState} from '../src/state.js';
 
-const CTRL_ENTER = String.fromCharCode(27) + '[13;5u';
+const SHIFT_ENTER = String.fromCharCode(27) + '[13;2u';
 
 describe('AgentView', () => {
   it('窄窗口仍能渲染中文、输入和完成状态', () => {
@@ -306,11 +306,9 @@ describe('AgentView', () => {
     expect(undoConfirmation('N')).toBe('cancel');
   });
 
-  it('Paste 按 Unicode Code Point 截断到输入上限', () => {
-    const result = appendInput('前缀', '你'.repeat(MAX_INPUT_CHARS));
-
-    expect(Array.from(result)).toHaveLength(MAX_INPUT_CHARS);
-    expect(result.startsWith('前缀')).toBe(true);
+  it('可见结构超过上限时显式拒绝，绝不静默截断', () => {
+    expect(() => appendInput('前缀', '你'.repeat(MAX_INPUT_CHARS)))
+      .toThrowError(new RangeError('VISIBLE_STRUCTURE_LIMIT'));
   });
 
   it('连接期间真实 useInput 链路立即回显，ready 后可以提交', async () => {
@@ -333,67 +331,124 @@ describe('AgentView', () => {
     });
     await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
     view.stdin.write('任务');
-    view.stdin.write(CTRL_ENTER);
+    view.stdin.write('\r');
     await waitForFrame(() => client.prompts.length === 1);
 
     expect(client.prompts).toEqual(['预输入任务']);
     view.unmount();
   });
 
-  it('Enter 写入多行缓冲，Ctrl+Enter 显式提交完整内容', async () => {
+  it('延迟 run.started 期间的后续编辑不会被确认快照覆盖', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+
+    view.stdin.write('first');
+    view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 1);
+    view.stdin.write('after');
+    await waitForFrame(() => view.lastFrame()?.includes('after') === true);
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1', runId: 'run-1', sequence: 2, payload: {}});
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    expect(view.lastFrame()).toContain('after');
+    expect(view.lastFrame()).not.toContain('firstafter');
+    view.unmount();
+  });
+
+  it('上一条未确认时阻止第二笔提交但保留全部键入草稿', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+
+    view.stdin.write('one'); view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 1);
+    view.stdin.write('two'); view.stdin.write('\r'); view.stdin.write('draft');
+    await waitForFrame(() => view.lastFrame()?.includes('twodraft') === true);
+    expect(client.prompts).toEqual(['one']);
+    expect(view.lastFrame()).toContain('上一条输入仍在等待 Java 接受');
+
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1', runId: 'run-1', sequence: 2, payload: {}});
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(view.lastFrame()).toContain('twodraft');
+    view.unmount();
+  });
+
+  it('协议拒绝把已发送内容恢复到后续编辑之前', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+    view.stdin.write('rejected'); view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 1);
+    view.stdin.write('after');
+    client.emit({version: 0, type: 'protocol.error', requestId: 'tui-2', sessionId: 'session-1', sequence: 2, payload: {code: 'INPUT_COMMIT_MISMATCH'}});
+    await waitForFrame(() => view.lastFrame()?.includes('rejectedafter') === true);
+
+    expect(view.lastFrame()).toContain('rejectedafter');
+    view.unmount();
+  });
+
+  it('Shift+Enter 写入多行缓冲，Enter 显式提交完整内容', async () => {
     const client = new FakeAgentClient();
     const view = render(<AgentTui client={client} />);
     await waitForFrame(() => client.initializeCalls === 1);
     client.emit({version: 0, type: 'initialized', requestId: 'tui-1', sessionId: 'session-1', sequence: 1, payload: {protocolVersion: 0}});
     await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+    expect(view.lastFrame()).toContain('Enter 发送，Shift+Enter 换行');
 
     view.stdin.write('first');
-    view.stdin.write('\r');
+    view.stdin.write(SHIFT_ENTER);
     view.stdin.write('second');
     expect(client.prompts).toEqual([]);
-    view.stdin.write(CTRL_ENTER);
+    view.stdin.write('\r');
     await waitForFrame(() => client.prompts.length === 1);
 
     expect(client.prompts).toEqual(['first\nsecond']);
     view.unmount();
   });
 
-  it('运行中仍可编辑并以 Ctrl+Enter 排队普通多行补充，不改变当前 Run 投影', async () => {
+  it('运行中仍可编辑并以 Enter 排队普通多行补充，不改变当前 Run 投影', async () => {
     const client = new FakeAgentClient();
     const view = render(<AgentTui client={client} />);
     await waitForFrame(() => client.initializeCalls === 1);
     client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
     await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
     view.stdin.write('initial');
-    view.stdin.write(CTRL_ENTER);
+    view.stdin.write('\r');
     await waitForFrame(() => client.prompts.length === 1);
     await waitForFrame(() => view.lastFrame()?.includes('运行中') === true);
     client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1', runId: 'run-1', sequence: 2, payload: {}});
     view.stdin.write('follow');
-    view.stdin.write('\r');
+    view.stdin.write(SHIFT_ENTER);
     view.stdin.write('up');
-    view.stdin.write(CTRL_ENTER);
+    view.stdin.write('\r');
     await waitForFrame(() => client.prompts.length === 2);
 
     expect(client.prompts).toEqual(['initial', 'follow\nup']);
     expect(view.lastFrame()).toContain('正在处理');
-    expect(view.lastFrame()).toContain('Ctrl+Enter 排队补充');
+    expect(view.lastFrame()).toContain('Enter 排队补充');
     view.unmount();
   });
 
-  it('steering 队列满拒绝会遗忘本地 prompt，且后续 started 不会物化它', async () => {
+  it('steering 队列满拒绝会恢复本地草稿，且后续 started 不会物化它', async () => {
     const client = new FakeAgentClient();
     const view = render(<AgentTui client={client} />);
     await waitForFrame(() => client.initializeCalls === 1);
     client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
     await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
     view.stdin.write('initial');
-    view.stdin.write(CTRL_ENTER);
+    view.stdin.write('\r');
     await waitForFrame(() => client.prompts.length === 1);
     await waitForFrame(() => view.lastFrame()?.includes('运行中') === true);
     client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1', runId: 'run-1', sequence: 2, payload: {}});
     view.stdin.write('REJECTED_STEERING_SECRET');
-    view.stdin.write(CTRL_ENTER);
+    view.stdin.write('\r');
     await waitForFrame(() => client.prompts.length === 2);
     client.emit({
       version: 0, type: 'protocol.error', requestId: 'tui-3', sessionId: 'session-1', sequence: 3,
@@ -402,7 +457,7 @@ describe('AgentView', () => {
     await new Promise(resolve => setTimeout(resolve, 20));
 
     expect(view.lastFrame()).toContain('Java 协议错误：STEERING_QUEUE_FULL');
-    expect(view.lastFrame()).not.toContain('REJECTED_STEERING_SECRET');
+    expect(view.lastFrame()).toContain('REJECTED_STEERING_SECRET');
     expect(view.lastFrame()).not.toContain('（1/100）');
     view.unmount();
   });
@@ -414,12 +469,12 @@ describe('AgentView', () => {
     client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
     await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
     view.stdin.write('initial');
-    view.stdin.write(CTRL_ENTER);
+    view.stdin.write('\r');
     await waitForFrame(() => client.prompts.length === 1);
     await waitForFrame(() => view.lastFrame()?.includes('运行中') === true);
     client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1', runId: 'run-1', sequence: 2, payload: {}});
     view.stdin.write('/doctor');
-    view.stdin.write(CTRL_ENTER);
+    view.stdin.write('\r');
     await waitForFrame(() => client.sessionCommands.length === 1);
 
     expect(client.prompts).toEqual(['initial']);
@@ -434,7 +489,7 @@ describe('AgentView', () => {
     client.emit({version: 0, type: 'initialized', requestId: 'tui-1', sessionId: 'session-1', sequence: 1, payload: {protocolVersion: 0}});
     await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
     view.stdin.write('/doctor');
-    view.stdin.write(CTRL_ENTER);
+    view.stdin.write('\r');
     await waitForFrame(() => client.sessionCommands.length === 1);
     expect(client.sessionCommands).toEqual(['tui-command-1:doctor:{}']);
     expect(client.prompts).toEqual([]);
@@ -447,6 +502,53 @@ describe('AgentView', () => {
     view.unmount();
   });
 
+  it('输入斜杠显示命令面板，方向键选择并以 Enter 补全后提交', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'tui-1', sessionId: 'session-1', sequence: 1, payload: {protocolVersion: 0}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+
+    view.stdin.write('/');
+    await waitForFrame(() => view.lastFrame()?.includes('Slash 命令 · ↑/↓ 选择') === true);
+    expect(view.lastFrame()).toContain('/help — 查看命令与可用状态');
+    view.stdin.write('\u001b[B');
+    await waitForFrame(() => view.lastFrame()?.includes('❯ /compact') === true);
+    view.stdin.write('\r');
+    await waitForFrame(() => view.lastFrame()?.includes('/compact') === true);
+    expect(client.sessionCommands).toEqual([]);
+    view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 1);
+
+    expect(client.sessionCommands).toEqual(['tui-command-1:compact:{"anchors":[]}']);
+    view.unmount();
+  });
+
+  it('/help 将 Java 安全投影渲染为可读命令清单', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'tui-1', sessionId: 'session-1', sequence: 1, payload: {protocolVersion: 0}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+    view.stdin.write('/help');
+    view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 1);
+    client.emit({
+      version: 0, type: 'session.command.result', requestId: 'command-result', sessionId: 'session-1', sequence: 2,
+      payload: {commandId: 'tui-command-1', intent: 'help', status: 'succeeded', code: 'ok', result: {commands: [
+        {intent: 'help', support: 'available'}, {intent: 'clear', support: 'available'},
+        {intent: 'compact', support: 'available'}, {intent: 'context', support: 'available'},
+        {intent: 'doctor', support: 'available'}, {intent: 'model', support: 'available'},
+        {intent: 'permissions', support: 'available'}, {intent: 'resume', support: 'available'},
+      ]}},
+    });
+    await waitForFrame(() => view.lastFrame()?.includes('Slash 命令') === true);
+
+    expect(view.lastFrame()).toContain('/context — 查看上下文用量　[可用]');
+    expect(view.lastFrame()).toContain('/resume <session-id> — 安全恢复会话　[可用]');
+    view.unmount();
+  });
+
   it('没有 session command 通道时 Slash 命令本地拒绝而不作为模型提示词提交', async () => {
     const client = new FakeAgentClient();
     Object.defineProperty(client, 'sessionCommand', {value: undefined});
@@ -455,11 +557,11 @@ describe('AgentView', () => {
     client.emit({version: 0, type: 'initialized', requestId: 'tui-1', sessionId: 'session-1', sequence: 1, payload: {protocolVersion: 0}});
     await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
     view.stdin.write('/doctor');
-    view.stdin.write(CTRL_ENTER);
+    view.stdin.write('\r');
     await waitForFrame(() => view.lastFrame()?.includes('当前连接不支持 Slash 命令') === true);
     expect(client.prompts).toEqual([]);
     view.stdin.write('/unknown');
-    view.stdin.write(CTRL_ENTER);
+    view.stdin.write('\r');
     await waitForFrame(() => view.lastFrame()?.includes('未知 Slash 命令') === true);
     expect(client.prompts).toEqual([]);
     view.unmount();
@@ -481,7 +583,7 @@ describe('AgentView', () => {
 
     view.stdin.write('coding');
     await waitForFrame(() => view.lastFrame()?.includes('coding') === true);
-    view.stdin.write(CTRL_ENTER);
+    view.stdin.write('\r');
     await waitForFrame(() => client.prompts.length === 1);
 
     expect(client.prompts).toEqual(['coding']);

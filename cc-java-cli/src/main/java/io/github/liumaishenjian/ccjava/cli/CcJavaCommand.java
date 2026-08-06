@@ -5,6 +5,7 @@ import io.github.liumaishenjian.ccjava.cli.session.SessionOpenRequest;
 import io.github.liumaishenjian.ccjava.core.ContextPreparationConfig;
 import io.github.liumaishenjian.ccjava.domain.ContextCapacity;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
+import io.github.liumaishenjian.ccjava.domain.ModelDiagnosticMode;
 import picocli.CommandLine.ArgGroup;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
@@ -73,6 +74,19 @@ final class CcJavaCommand implements Callable<Integer> {
             description = "Permission 模式：default、plan 或 accept-edits；默认 default")
     private PermissionMode permissionMode = PermissionMode.DEFAULT;
 
+    @Option(
+            names = "--model-diagnostics",
+            paramLabel = "<mode>",
+            converter = ModelDiagnosticModeConverter.class,
+            description = "本机模型诊断：off、safe 或 verbose；默认 off")
+    private ModelDiagnosticMode diagnosticMode = ModelDiagnosticMode.OFF;
+
+    @Option(
+            names = "--model-diagnostics-dir",
+            paramLabel = "<path>",
+            description = "可信本机诊断目录；仅在 safe/verbose 模式使用")
+    private Path diagnosticDirectory;
+
     @ArgGroup(exclusive = true)
     private SessionSelection sessionSelection;
 
@@ -96,7 +110,9 @@ final class CcJavaCommand implements Callable<Integer> {
                     timeout,
                     permissionMode,
                     sessionOpenRequest(),
-                    contextPreparation());
+                    contextPreparation(),
+                    diagnosticMode,
+                    Optional.ofNullable(diagnosticDirectory));
         } catch (IllegalArgumentException exception) {
             throw new ParameterException(
                     commandSpec.commandLine(),

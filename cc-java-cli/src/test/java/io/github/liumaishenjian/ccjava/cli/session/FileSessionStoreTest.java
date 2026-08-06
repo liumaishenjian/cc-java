@@ -443,7 +443,7 @@ class FileSessionStoreTest {
     void recordEncodingFailureReleasesWriterAndAllowsSameIdRetry() throws IOException {
         Path workspace = workspace("encoding-failure-release");
         Path storeRoot = storeRoot("encoding-failure-release");
-        SessionSpec oversized = new SessionSpec("x".repeat(64_001), Map.of());
+        SessionSpec oversized = new SessionSpec("x".repeat(1_048_577), Map.of());
         SessionId sessionId = new SessionId("session-test-1");
 
         try (FileSessionStore failing = store(storeRoot, workspace, 1)) {
@@ -475,6 +475,26 @@ class FileSessionStoreTest {
                     SPEC);
             assertThat(resumed.session().id()).isEqualTo(sessionId);
             assertThat(resumed.readOnly()).isFalse();
+        }
+    }
+
+    @Test
+    void persistsEscapeHeavyOneMibPromptWithoutTruncation() throws IOException {
+        Path workspace = workspace("escape-heavy");
+        Path root = storeRoot("escape-heavy");
+        String prompt = "".repeat(1_048_576);
+        SessionId id;
+        try (FileSessionStore store = store(root, workspace, 1)) {
+            id = store.create(SPEC).id();
+            store.runStarted(id, new RunId("run-large"), new UserMessage(prompt));
+            store.runCompleted(id, new RunId("run-large"), StopReason.COMPLETED);
+            store.close(id);
+        }
+        assertThat(Files.size(journal(root, id))).isGreaterThan(6L * 1_048_576L);
+        try (FileSessionStore resumed = store(root, workspace, 10)) {
+            SessionOpenResult result = resumed.open(
+                    new SessionOpenRequest(SessionOpenMode.RESUME, java.util.Optional.of(id)), SPEC);
+            assertThat(((UserMessage) result.session().messages().getLast()).content()).isEqualTo(prompt);
         }
     }
 

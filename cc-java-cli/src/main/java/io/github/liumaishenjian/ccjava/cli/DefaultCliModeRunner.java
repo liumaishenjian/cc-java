@@ -74,7 +74,9 @@ final class DefaultCliModeRunner implements CliModeRunner {
                                          java.util.List.of(),
                                          overrides.sessionOpenRequest(),
                                          SessionStorage.defaultRoot(),
-                                         overrides.contextPreparation()))) {
+                                         overrides.contextPreparation(),
+                                         overrides.diagnosticMode(),
+                                         overrides.diagnosticDirectory()))) {
                 application.open();
                 Thread shutdownHook = Thread.ofPlatform()
                         .name("cc-java-print-cancel")
@@ -112,7 +114,9 @@ final class DefaultCliModeRunner implements CliModeRunner {
                     overrides.timeout(),
                     overrides.permissionMode(),
                     overrides.sessionOpenRequest(),
-                    overrides.contextPreparation());
+                    overrides.contextPreparation(),
+                    overrides.diagnosticMode(),
+                    overrides.diagnosticDirectory());
             StdioProtocolServer.ExitReason reason =
                     new StdioProtocolServer(input, output, handler).run();
             return reason == StdioProtocolServer.ExitReason.INTERNAL_ERROR

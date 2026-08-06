@@ -1,5 +1,6 @@
 import {spawn, type ChildProcessWithoutNullStreams} from 'node:child_process';
 import {EventEmitter} from 'node:events';
+import {createHash} from 'node:crypto';
 import {TextDecoder} from 'node:util';
 import {
   MAX_LINE_BYTES,
@@ -116,7 +117,40 @@ export class StdioClient {
     if (this.#sessionId === undefined) {
       throw new Error('Session 尚未初始化');
     }
-    const requestId = this.#send('run.start', {prompt}, this.#sessionId);
+    const encoded = Buffer.from(prompt, 'utf8');
+    const requestId = `tui-${this.#nextRequestNumber++}`;
+    const direct = this.#command(
+      'run.start', {prompt}, requestId, this.#nextCommandSequence, this.#sessionId,
+    );
+    if (commandBytes(direct) < this.#maxLineBytes) {
+      this.#write(direct);
+    } else {
+      const inputId = `input-${requestId}`;
+      const chunks = protocolTextChunks(
+        prompt,
+        this.#maxLineBytes,
+        (text, ordinal, sequence) => this.#command(
+          'input.chunk', {inputId, ordinal, text}, requestId, sequence, this.#sessionId,
+        ),
+        this.#nextCommandSequence + 1,
+      );
+      if (chunks.length > 64) throw new Error('输入编码后需要超过 64 个协议分块');
+      this.#write(this.#command('input.begin', {
+        inputId,
+        byteCount: encoded.byteLength,
+        chunkCount: chunks.length,
+        sha256: createHash('sha256').update(encoded).digest('hex'),
+      }, requestId, this.#nextCommandSequence, this.#sessionId));
+      chunks.forEach((text, ordinal) => {
+        this.#write(this.#command(
+          'input.chunk', {inputId, ordinal, text}, requestId,
+          this.#nextCommandSequence, this.#sessionId,
+        ));
+      });
+      this.#write(this.#command(
+        'input.commit', {inputId}, requestId, this.#nextCommandSequence, this.#sessionId,
+      ));
+    }
     if (this.#activeRunId !== undefined || this.#pendingRunStartRequestId !== undefined) {
       this.#pendingSteeringRequests.set(requestId, 'awaiting_queued');
     } else {
@@ -244,22 +278,44 @@ export class StdioClient {
     payload: Readonly<Record<string, unknown>>,
     sessionId?: string,
     runId?: string,
+    fixedRequestId?: string,
   ): string {
-    if (this.#closed || !this.#child.stdin.writable) {
-      throw new Error('Java 子进程连接已关闭');
-    }
-    const requestId = `tui-${this.#nextRequestNumber++}`;
-    const command: ProtocolCommand = {
+    const requestId = fixedRequestId ?? `tui-${this.#nextRequestNumber++}`;
+    this.#write(this.#command(
+      type, payload, requestId, this.#nextCommandSequence, sessionId, runId,
+    ));
+    return requestId;
+  }
+
+  #command(
+    type: ProtocolCommand['type'],
+    payload: Readonly<Record<string, unknown>>,
+    requestId: string,
+    sequence: number,
+    sessionId?: string,
+    runId?: string,
+  ): ProtocolCommand {
+    return {
       version: PROTOCOL_VERSION,
       type,
       requestId,
       ...(sessionId === undefined ? {} : {sessionId}),
       ...(runId === undefined ? {} : {runId}),
-      sequence: this.#nextCommandSequence++,
+      sequence,
       payload,
     };
-    this.#child.stdin.write(encodeCommand(command), 'utf8');
-    return requestId;
+  }
+
+  #write(command: ProtocolCommand): void {
+    if (this.#closed || !this.#child.stdin.writable) {
+      throw new Error('Java 子进程连接已关闭');
+    }
+    const encoded = encodeCommand(command);
+    if (Buffer.byteLength(encoded, 'utf8') >= this.#maxLineBytes) {
+      throw new Error('Client 协议行超过 Java reader 限制');
+    }
+    this.#child.stdin.write(encoded, 'utf8');
+    this.#nextCommandSequence++;
   }
 
   #acceptStdout(chunk: Buffer): void {
@@ -416,6 +472,49 @@ export class StdioClient {
       this.#child.once('exit', onExit);
     });
   }
+}
+
+function protocolTextChunks(
+  text: string,
+  maximumLineBytes: number,
+  command: (text: string, ordinal: number, sequence: number) => ProtocolCommand,
+  firstSequence: number,
+): readonly string[] {
+  const chunks: string[] = [];
+  let points: string[] = [];
+  let encodedTextBytes = 0;
+  for (const point of text) {
+    const pointBytes = jsonStringContentBytes(point);
+    const ordinal = chunks.length;
+    const emptyLineBytes = commandBytes(command('', ordinal, firstSequence + ordinal));
+    if (points.length > 0 && emptyLineBytes + encodedTextBytes + pointBytes >= maximumLineBytes) {
+      chunks.push(points.join(''));
+      points = [];
+      encodedTextBytes = 0;
+    }
+    const nextOrdinal = chunks.length;
+    const nextEmptyLineBytes = commandBytes(command('', nextOrdinal, firstSequence + nextOrdinal));
+    if (nextEmptyLineBytes + pointBytes >= maximumLineBytes) {
+      throw new Error('单个 Unicode 字符无法放入协议分块');
+    }
+    points.push(point);
+    encodedTextBytes += pointBytes;
+  }
+  if (points.length > 0) chunks.push(points.join(''));
+  for (let ordinal = 0; ordinal < chunks.length; ordinal++) {
+    if (commandBytes(command(chunks[ordinal]!, ordinal, firstSequence + ordinal)) >= maximumLineBytes) {
+      throw new Error('Client 无法生成受限协议分块');
+    }
+  }
+  return chunks;
+}
+
+function jsonStringContentBytes(text: string): number {
+  return Buffer.byteLength(JSON.stringify(text), 'utf8') - 2;
+}
+
+function commandBytes(command: ProtocolCommand): number {
+  return Buffer.byteLength(encodeCommand(command), 'utf8');
 }
 
 function unexpectedExitMessage(

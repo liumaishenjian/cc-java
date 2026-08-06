@@ -71,10 +71,22 @@ try {
 
     $empty = ConvertFrom-CodejArguments -Arguments @() -InvocationDirectory $temp
     Assert-True ($empty.Workspace -eq [IO.Path]::GetFullPath($temp) -and $null -eq $empty.Print) 'empty arguments select interactive mode'
+    Assert-True ($empty.ContextMaximumInputTokens -eq 256000 -and $empty.ContextReservedOutputTokens -eq 8192 -and $empty.ContextSafetyMarginTokens -eq 4096) 'interactive defaults enable the 256k context pipeline'
 
     $parsed = ConvertFrom-CodejArguments -Arguments @('--workspace', '目录 with spaces', '--model=x', '--timeout', '30s', '--print', 'hello') -InvocationDirectory $temp
     Assert-True ($parsed.Workspace -eq [IO.Path]::GetFullPath((Join-Path $temp '目录 with spaces'))) 'workspace pair syntax'
     Assert-True ($parsed.Model -eq 'x' -and $parsed.Timeout -eq '30s' -and $parsed.Print -eq 'hello') 'value parameters'
+    $contextOverride = ConvertFrom-CodejArguments -Arguments @(
+        '--context-maximum-input-tokens', '128000',
+        '--context-reserved-output-tokens', '4096',
+        '--context-safety-margin-tokens', '2048') -InvocationDirectory $temp
+    Assert-True ($contextOverride.ContextMaximumInputTokens -eq 128000 -and $contextOverride.ContextReservedOutputTokens -eq 4096 -and $contextOverride.ContextSafetyMarginTokens -eq 2048) 'context capacity overrides are forwarded as validated integers'
+    Assert-Throws { ConvertFrom-CodejArguments -Arguments @('--context-maximum-input-tokens', 'oops') -InvocationDirectory $temp } '必须是 1 到'
+    Assert-Throws { ConvertFrom-CodejArguments -Arguments @('--context-maximum-input-tokens', '1000') -InvocationDirectory $temp } '必须大于输出保留'
+    $diagnostics = ConvertFrom-CodejArguments -Arguments @('--model-diagnostics', 'safe', '--model-diagnostics-dir', '诊断 dir') -InvocationDirectory $temp
+    Assert-True ($diagnostics.ModelDiagnostics -eq 'safe' -and $diagnostics.ModelDiagnosticsDirectory -eq [IO.Path]::GetFullPath((Join-Path $temp '诊断 dir'))) 'diagnostic mode and trusted local directory are forwarded'
+    Assert-Throws { ConvertFrom-CodejArguments -Arguments @('--model-diagnostics', 'raw') -InvocationDirectory $temp } '只接受 off'
+    Assert-Throws { ConvertFrom-CodejArguments -Arguments @('--model-diagnostics-dir', 'diagnostics') -InvocationDirectory $temp } '仅可与 safe'
     $inline = ConvertFrom-CodejArguments -Arguments @("--workspace=$temp") -InvocationDirectory 'C:\'
     Assert-True ($inline.Workspace -eq [IO.Path]::GetFullPath($temp)) 'workspace inline syntax'
     $splitInline = ConvertFrom-CodejArguments -Arguments @('--workspace=G', '\AI Cloud\cc-java', '--doctor') -InvocationDirectory $temp
@@ -241,6 +253,12 @@ try {
     $spikeText = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'RunS02TuiSpike.ps1') -Raw -Encoding UTF8
     Assert-True ($spikeText.Contains("`$workspaceRoot = if") -and $spikeText.Contains("`$repositoryRoot")) 'legacy spike defaults workspace to repository'
     Assert-True ($spikeText.Contains("StartCodejDev.ps1") -and -not $spikeText.Contains('mvnw.cmd')) 'legacy spike delegates build and launch'
+    $startText = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'StartCodejDev.ps1') -Raw -Encoding UTF8
+    Assert-True ($startText.Contains("'--context-maximum-input-tokens'") -and
+        $startText.Contains("'--context-reserved-output-tokens'") -and
+        $startText.Contains("'--context-safety-margin-tokens'")) 'development launcher always forwards the validated context capacity tuple'
+    Assert-True ($startText.Contains("'--model-diagnostics'") -and
+        $startText.Contains("'--model-diagnostics-dir'")) 'development launcher forwards explicit diagnostic flags without changing stdio'
 
     [Console]::Out.WriteLine("CodejDevLauncher self-test passed: $passed assertions.")
 }

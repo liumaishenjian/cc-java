@@ -11,15 +11,27 @@ import type {
 } from './state.js';
 import {AssistantMarkdown} from './assistant-markdown.js';
 import {ToolActivityGroup} from './tool-activity.js';
-import {parseSlashCommand, renderSlashResult} from './slash-command.js';
 import {
+  parseSlashCommand,
+  renderSlashResult,
+  slashCommandUsage,
+} from './slash-command.js';
+import {
+  acceptPendingComposer,
+  acceptSubmittedComposer,
   appendInput,
+  beginPendingComposer,
   completionCandidates,
-  initialInputHistoryState,
-  navigateInputHistory,
-  recordInputHistory,
+  createComposerState,
+  projectComposer,
+  reduceComposer,
   removeLastCodePoint,
-  type InputHistoryState,
+  renderComposerViewport,
+  restoreRejectedComposer,
+  submittedComposerLabel,
+  type ComposerAction,
+  type ComposerLayout,
+  type ComposerState,
 } from './input-editor.js';
 
 export interface AgentTuiProps {
@@ -58,11 +70,14 @@ export {
  */
 export function AgentTui({client}: AgentTuiProps) {
   const [state, dispatch] = useReducer(reduceTuiState, initialTuiState);
-  const [input, setInput] = useState('');
-  const inputRef = useRef('');
-  const historyRef = useRef<InputHistoryState>(initialInputHistoryState);
+  const [composer, setComposer] = useState<ComposerState>(() => createComposerState(4));
+  const composerRef = useRef(composer);
   const historySessionIdRef = useRef<string | undefined>(undefined);
   const pendingSteeringPromptsRef = useRef(new Map<string, string>());
+  const pendingSubmissionsRef = useRef(new Map<string, {
+    readonly composer: ComposerState;
+    readonly label: string;
+  }>());
   const cancelPending = useRef(false);
   const nextCommandNumber = useRef(1);
   const pendingApproval = state.runs.findLast(
@@ -78,35 +93,69 @@ export function AgentTui({client}: AgentTuiProps) {
     && client.checkpointDiff !== undefined
     && client.undoCheckpoint !== undefined;
   const {exit} = useApp();
-  const {columns} = useWindowSize();
+  const {columns, rows} = useWindowSize();
+  const composerLayout: ComposerLayout = {
+    width: Math.max(1, columns - 6),
+    height: Math.max(1, Math.min(8, rows - 6)),
+  };
+  const replaceComposer = (next: ComposerState) => {
+    composerRef.current = next;
+    setComposer(next);
+  };
+  const applyComposer = (action: ComposerAction) => {
+    const transition = reduceComposer(composerRef.current, action, composerLayout);
+    replaceComposer(transition.state);
+    return transition;
+  };
 
   useEffect(() => {
     const offEvent = client.onEvent(event => {
       if (event.type === 'initialized') {
         if (historySessionIdRef.current !== event.sessionId) {
+          const switchingSession = historySessionIdRef.current !== undefined;
           historySessionIdRef.current = event.sessionId;
-          historyRef.current = initialInputHistoryState;
+          if (switchingSession) replaceComposer(createComposerState(4));
           pendingSteeringPromptsRef.current.clear();
+          pendingSubmissionsRef.current.clear();
         }
       }
       if (event.type === 'session.command.result') {
         if (event.payload.intent === 'resume' && event.payload.status === 'succeeded') {
           historySessionIdRef.current = event.sessionId;
-          historyRef.current = initialInputHistoryState;
+          replaceComposer(createComposerState(4));
           pendingSteeringPromptsRef.current.clear();
+          pendingSubmissionsRef.current.clear();
         }
         const payload = event.payload;
         dispatch({
           type: 'slash.notice',
           message: renderSlashResult(
             String(payload.intent), String(payload.status), String(payload.code),
+            payload.result as Readonly<Record<string, unknown>>,
           ),
         });
       }
       if (event.type === 'steering.discarded' || event.type === 'protocol.error') {
         pendingSteeringPromptsRef.current.delete(event.requestId);
+        const rejected = pendingSubmissionsRef.current.get(event.requestId);
+        if (rejected !== undefined) {
+          replaceComposer(restoreRejectedComposer(composerRef.current, rejected.composer));
+          pendingSubmissionsRef.current.delete(event.requestId);
+        }
+      }
+      if (event.type === 'steering.queued') {
+        const pending = pendingSubmissionsRef.current.get(event.requestId);
+        if (pending !== undefined) {
+          replaceComposer(acceptPendingComposer(composerRef.current, pending.composer));
+          pendingSubmissionsRef.current.delete(event.requestId);
+        }
       }
       if (event.type === 'run.started') {
+        const pending = pendingSubmissionsRef.current.get(event.requestId);
+        if (pending !== undefined) {
+          replaceComposer(acceptPendingComposer(composerRef.current, pending.composer));
+          pendingSubmissionsRef.current.delete(event.requestId);
+        }
         const prompt = pendingSteeringPromptsRef.current.get(event.requestId);
         if (prompt !== undefined) {
           pendingSteeringPromptsRef.current.delete(event.requestId);
@@ -125,11 +174,13 @@ export function AgentTui({client}: AgentTuiProps) {
     const offFailure = client.onFailure(message => {
       cancelPending.current = false;
       pendingSteeringPromptsRef.current.clear();
+          pendingSubmissionsRef.current.clear();
       dispatch({type: 'transport.failed', message});
     });
     const offExit = client.onExit(() => {
       cancelPending.current = false;
       pendingSteeringPromptsRef.current.clear();
+          pendingSubmissionsRef.current.clear();
       dispatch({type: 'closed'});
       exit();
     });
@@ -139,15 +190,18 @@ export function AgentTui({client}: AgentTuiProps) {
       offFailure();
       offExit();
       pendingSteeringPromptsRef.current.clear();
+          pendingSubmissionsRef.current.clear();
       client.terminate();
     };
   }, [client, exit]);
 
+  useEffect(() => {
+    applyComposer({type: 'Resize', width: composerLayout.width, height: composerLayout.height});
+  }, [columns, rows]);
+
   usePaste(pasted => {
     if (canEditInput(state.phase)) {
-      const next = appendInput(inputRef.current, pasted);
-      inputRef.current = next;
-      setInput(next);
+      applyComposer({type: 'Paste', text: pasted});
     }
   });
 
@@ -193,7 +247,7 @@ export function AgentTui({client}: AgentTuiProps) {
     if (
       state.phase === 'ready'
       && checkpointSupported
-      && inputRef.current.length === 0
+      && composerRef.current.text.length === 0
     ) {
       const action = checkpointAction(text, key, state.checkpointPanelOpen);
       if (action === 'list') {
@@ -226,70 +280,91 @@ export function AgentTui({client}: AgentTuiProps) {
     if (!canEditInput(state.phase)) {
       return;
     }
-    if (key.ctrl && key.return) {
-      const prompt = inputRef.current.trim();
-      if (prompt.length > 0) {
-        const slash = parseSlashCommand(prompt);
-        if (slash.kind === 'command') {
-          if (client.sessionCommand === undefined) {
-            dispatch({type: 'slash.notice', message: '当前连接不支持 Slash 命令'});
-            return;
-          }
-          client.sessionCommand(`tui-command-${nextCommandNumber.current++}`, slash.command.intent, slash.command.arguments);
-        } else if (slash.kind === 'invalid') {
-          dispatch({type: 'slash.notice', message: slash.message});
-          return;
-        } else {
-          const requestId = client.startRun(prompt);
-          if (state.phase === 'ready') {
-            dispatch({type: 'run.submitted', requestId, prompt});
-          } else {
-            pendingSteeringPromptsRef.current.set(requestId, prompt);
-          }
-        }
-        historyRef.current = recordInputHistory(historyRef.current, prompt);
-        inputRef.current = '';
-        setInput('');
-      }
+    const current = composerRef.current;
+    const candidates = completionCandidates(current.text);
+    if (key.shift && key.return) {
+      applyComposer({type: 'InsertText', text: '\n'});
+      return;
+    }
+    if (key.escape) {
+      applyComposer({type: 'CloseCompletion'});
       return;
     }
     if (key.return) {
-      const next = appendInput(inputRef.current, '\n');
-      inputRef.current = next;
-      setInput(next);
+      if (current.completionCandidates.length > 0) {
+        applyComposer({type: 'AcceptCompletion'});
+        return;
+      }
+      if (pendingSubmissionsRef.current.size > 0) {
+        dispatch({type: 'slash.notice', message: '上一条输入仍在等待 Java 接受，当前草稿已保留'});
+        return;
+      }
+      const submission = applyComposer({type: 'Submit'});
+      if (submission.kind !== 'submit-ready') return;
+      const prompt = submission.expandedText;
+      if (prompt.trim().length === 0) return;
+      const slash = parseSlashCommand(prompt.trim());
+      if (slash.kind === 'command') {
+        if (client.sessionCommand === undefined) {
+          dispatch({type: 'slash.notice', message: '当前连接不支持 Slash 命令'});
+          return;
+        }
+        client.sessionCommand(`tui-command-${nextCommandNumber.current++}`, slash.command.intent, slash.command.arguments);
+      } else if (slash.kind === 'invalid') {
+        dispatch({type: 'slash.notice', message: slash.message});
+        return;
+      } else {
+        try {
+          const requestId = client.startRun(prompt);
+          const label = submittedComposerLabel(submission.state);
+          const asSteering = state.phase !== 'ready' || pendingSubmissionsRef.current.size > 0;
+          pendingSubmissionsRef.current.set(requestId, {composer: submission.state, label});
+          replaceComposer(beginPendingComposer(submission.state));
+          if (asSteering) {
+            pendingSteeringPromptsRef.current.set(requestId, label);
+          } else {
+            dispatch({type: 'run.submitted', requestId, prompt: label});
+          }
+        } catch {
+          dispatch({type: 'slash.notice', message: '输入传输未被接受，草稿已保留'});
+          return;
+        }
+      }
+      if (slash.kind === 'command') replaceComposer(acceptSubmittedComposer(submission.state));
       return;
     }
     if (key.upArrow || key.downArrow) {
-      const result = navigateInputHistory(
-        historyRef.current,
-        inputRef.current,
-        key.upArrow ? 'previous' : 'next',
-      );
-      historyRef.current = result.state;
-      if (result.input !== undefined) {
-        inputRef.current = result.input;
-        setInput(result.input);
-      }
+      applyComposer({type: key.upArrow ? 'MoveUp' : 'MoveDown'});
+      return;
+    }
+    if (key.leftArrow || key.rightArrow) {
+      applyComposer({type: key.leftArrow
+        ? key.ctrl || key.meta ? 'MoveWordLeft' : 'MoveLeft'
+        : key.ctrl || key.meta ? 'MoveWordRight' : 'MoveRight'});
+      return;
+    }
+    if (key.home || key.end) {
+      applyComposer({type: key.home ? 'MoveHome' : 'MoveEnd'});
       return;
     }
     if (key.tab) {
-      const candidate = completionCandidates(inputRef.current)[0];
-      if (candidate !== undefined) {
-        inputRef.current = candidate;
-        setInput(candidate);
-      }
+      if (current.completionCandidates.length > 0) applyComposer({type: 'AcceptCompletion'});
       return;
     }
-    if (key.backspace) {
-      const next = removeLastCodePoint(inputRef.current);
-      inputRef.current = next;
-      setInput(next);
+    if (key.backspace || key.delete) {
+      applyComposer({type: key.backspace ? 'Backspace' : 'DeleteForward'});
       return;
     }
     if (!key.ctrl && !key.meta && text.length > 0) {
-      const next = appendInput(inputRef.current, text);
-      inputRef.current = next;
-      setInput(next);
+      const transition = applyComposer({type: 'InsertText', text});
+      if (transition.kind === 'updated') {
+        const nextCandidates = completionCandidates(transition.state.text)
+          .filter(candidate => candidate !== transition.state.text);
+        const completion = reduceComposer(
+          transition.state, {type: 'SetCompletions', candidates: nextCandidates}, composerLayout,
+        );
+        replaceComposer(completion.state);
+      }
     }
   }, {
     isActive: state.phase === 'connecting'
@@ -297,20 +372,36 @@ export function AgentTui({client}: AgentTuiProps) {
       || state.phase === 'running',
   });
 
-  return <AgentView state={state} input={input} columns={columns} />;
+  return <AgentView
+    state={state}
+    composer={composer}
+    columns={columns}
+    composerLayout={composerLayout}
+  />;
 }
 
 export interface AgentViewProps {
   readonly state: ReturnType<typeof reduceTuiState>;
-  readonly input: string;
+  readonly composer?: ComposerState;
+  /** 兼容纯展示测试；生产路径使用 composer。 */
+  readonly input?: string;
   readonly columns: number;
+  readonly composerLayout?: ComposerLayout;
 }
 
 /**
  * 纯展示组件，使宽字符、窄窗口和各 Run 终态无需真实终端即可验证。
  */
-export function AgentView({state, input, columns}: AgentViewProps) {
+export function AgentView({state, composer, input = '', columns, composerLayout}: AgentViewProps) {
   const width = Math.max(20, columns);
+  const effectiveComposer = composer ?? reduceComposer(
+    createComposerState(4), {type: 'InsertText', text: input}, {width: Math.max(1, width - 6), height: 4},
+  ).state;
+  const layout = composerLayout ?? {width: Math.max(1, width - 6), height: 4};
+  const projection = projectComposer(effectiveComposer, layout);
+  const renderedLines = renderComposerViewport(effectiveComposer, layout);
+  const candidates = canEditInput(state.phase) ? effectiveComposer.completionCandidates : [];
+  const selectedCompletion = effectiveComposer.completionIndex ?? 0;
   return (
     <Box flexDirection="column" width={width}>
       <Box>
@@ -379,16 +470,42 @@ export function AgentView({state, input, columns}: AgentViewProps) {
         paddingX={1}
       >
         <Text color="cyan">❯ </Text>
-        <Text>{canEditInput(state.phase) ? input : ''}</Text>
+        {canEditInput(state.phase) ? (
+          <Box flexDirection="column">
+            {renderedLines.map((line, index) => (
+              <Text key={`${projection.viewportTop + index}-${line.beforeCursor.length}`}>
+                {line.beforeCursor}
+                {line.cursorText === undefined ? null : <Text inverse>{line.cursorText}</Text>}
+                {line.afterCursor}
+              </Text>
+            ))}
+          </Box>
+        ) : null}
         {state.phase === 'running'
           ? <Text dimColor>
-              正在处理… Ctrl+Enter 排队补充{(state.steeringQueueDepth ?? 0) > 0
+              正在处理… Enter 排队补充{(state.steeringQueueDepth ?? 0) > 0
                 ? `（${state.steeringQueueDepth}/100）` : ''}　Ctrl+C 取消
             </Text>
-          : input.length === 0
+          : effectiveComposer.text.length === 0
             ? <Text dimColor>{inputHint(state.phase)}</Text>
             : null}
       </Box>
+      {effectiveComposer.validationCode === undefined ? null : (
+        <Text color="red">输入未接受：{validationMessage(effectiveComposer.validationCode)}</Text>
+      )}
+      <Text dimColor>
+        光标 {projection.cursorRow - projection.viewportTop + 1}:{projection.cursorColumn + 1}
+      </Text>
+      {candidates.length === 0 ? null : (
+        <Box flexDirection="column" marginLeft={2}>
+          <Text dimColor>Slash 命令 · ↑/↓ 选择 · Tab/Enter 补全</Text>
+          {candidates.map((candidate, index) => (
+            <Text key={candidate} color={index === selectedCompletion ? 'cyan' : 'white'}>
+              {index === selectedCompletion ? '❯ ' : '  '}{slashCommandUsage(candidate)}
+            </Text>
+          ))}
+        </Box>
+      )}
     </Box>
   );
 }
@@ -601,7 +718,24 @@ function runStatusLabel(status: Exclude<RunView['status'], 'running' | 'complete
 function inputHint(phase: ReturnType<typeof reduceTuiState>['phase']): string {
   return phase === 'connecting'
     ? '连接中，可以先输入任务'
-    : 'Enter 换行，Ctrl+Enter 发送';
+    : 'Enter 发送，Shift+Enter 换行';
+}
+
+function validationMessage(code: ComposerState['validationCode']): string {
+  switch (code) {
+    case 'VISIBLE_STRUCTURE_LIMIT': return '可见输入结构超过 8192 单元';
+    case 'PASTE_COUNT_LIMIT': return '折叠粘贴数量超过上限';
+    case 'PASTE_ITEM_LIMIT': return '单次粘贴超过 1 MiB';
+    case 'PASTE_TOTAL_LIMIT': return '粘贴总量超过 1 MiB';
+    case 'PASTE_REFERENCE_FORGED': return '粘贴引用格式无效';
+    case 'PASTE_REFERENCE_STALE': return '粘贴内容已失效';
+    case 'PASTE_REFERENCE_DUPLICATE': return '粘贴引用重复';
+    case 'PASTE_REFERENCE_ORPHAN': return '粘贴内容缺少引用';
+    case 'SUBMISSION_CODE_POINT_LIMIT': return '展开内容的 Unicode 字符数超过上限';
+    case 'SUBMISSION_UTF16_LIMIT': return '展开内容的 Java 字符数超过上限';
+    case 'SUBMISSION_UTF8_LIMIT': return '展开内容的 UTF-8 字节数超过 1 MiB';
+    case undefined: return '';
+  }
 }
 
 export function checkpointAction(

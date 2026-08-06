@@ -6,14 +6,14 @@
 >
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
-> 当前学习阶段：S01-S08 已 Accepted；S08 实现 Commit `7bac8ea` 的 Commit-scoped G0-G6 已通过，
-> 下一步进入 S09 Hooks G0
+> 当前学习阶段：S01-S07 已 Accepted；S08 已按 ADR-048 重开为 Corrective / Reopened，
+> Composer、无损大 Paste 与 ModelDiagnostic 已完成 G3-G5；仅 G6 固定 Commit 对账仍 Open；S09 暂不启动
 >
 > 当前实现状态：ADR-042/043/044 已固定并验证 Context Projection、条件式 Reduction、文件记忆和零等待
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
 > composition、ready-only Memory Core/Domain Runtime seam、D2 Headless 文件系统生产装配、Context View 与
 > deterministic Fake Demo/Eval 已完成 Commit-scoped G0-G6 对账。ADR-045 冻结 S08 机制研究边界，ADR-046 已冻结 G1 独立产品契约；
-> ADR-047 已冻结 S08 的 Domain/Core/Application/Adapter 边界、独立 user-root guard、严格 Settings parser/last-known-good、命令 Intent/Event 与 G3/G4 切片。G3 A-F、G4 全量/量化验证、G5 Demo/Gap 与 G6 对账均已通过；审计补齐 Workspace 内部 Instructions Symlink 的逻辑路径拒绝。S08 Stage Exit Accepted。
+> ADR-047 已冻结 S08 的 Domain/Core/Application/Adapter 边界、独立 user-root guard、严格 Settings parser/last-known-good、命令 Intent/Event 与历史 G3/G4 切片。ADR-048 因 CLI-08/09 验收不足重开 S08，并实现 `ComposerState`、无损 Paste、显式提交预算和独立 `ModelDiagnostic` 平面；完整 Reactor、TUI 111/111、launcher 59/59、真实 TTY G5 与独立 review 已通过，唯一缺口是 G6 固定 implementation Commit 对账。
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 
@@ -1188,10 +1188,9 @@ Java 已经给出的失败分类。失败 Run 的恢复元数据尚不写入下�
 未完成运行并避免自动重放副作用属于 S06 `SESSION-09`，不能伪造 Assistant Message
 提前实现。
 
-S04～S05 已加入 Tool/Approval 展示。S08 G3-E 在该 Surface 上增加受控编辑器：Enter 插入换行、
-Ctrl+Enter 显式提交，缓冲最多 8,192 Unicode code point；每 Session 内存历史最多 100 条并支持
-草稿恢复；补全只使用封闭命令/参数表且最多 32 项。UI 仍由纯 Reducer 驱动，不断言整屏 ANSI
-Golden Output，也不把历史或未发送输入写入 Session 文件。
+S04～S05 已加入 Tool/Approval 展示。历史 S08 G3-E 只提供字符串式受限编辑、进程内历史与封闭补全，不能作为成熟 Composer 的完成证据。ADR-048 要求 `cc-java-tui` 以唯一 `ComposerState` 和纯 Reducer 管理 grapheme 边界光标、任意位置插入、Backspace/Delete、Left/Right、逻辑 Home/End、稳定 word movement、显式/自动换行的视觉 Up/Down 与 preferred column、History/Completion 固定优先级以及跟随光标的 viewport；Resize 只重算布局，不改变逻辑文本或光标身份。当前工作树已由 `input-editor.ts` reducer 与 `app.tsx` Action/Projection 集成实现，并以 reducer 23/23、完整 TUI 100/100 验证；Review 还修复了 Completion 丢 payload、legacy 静默截断、可伪造 token、History payload 保留过大及 regional-indicator 宽度。
+
+大 Paste 保存为短生命周期无损 payload，并在 Composer 文本中使用原子占位；提交前按顺序逐字展开。8,192 只约束可见 grapheme/token 结构；展开后另设 1,048,576 Unicode code point、1,048,576 UTF-16 unit、1 MiB UTF-8、单/总 payload 1 MiB 与 payload 32 项的独立有界预算。既有 64 KiB 完整 NDJSON 单行安全边界不放宽：stdio v0 协议边缘已实现 begin 元数据（request/input ID、总 bytes、chunk count、SHA-256）、连续有界 text chunk 和校验 commit；每连接只允许一个限时 assembly，重复/乱序/缺失/错配、cancel、timeout 或 transport close 均 fail closed 并清理。只有 count/bytes/digest 全部匹配、严格 UTF-8 解码成功后，完整文本才原子进入 Slash/steering/`run.start`；此前不写 Session/Canonical/Checkpoint、不创建部分 Run。成功组装后的输入继续由 256K Token Context pipeline 权威接受、类型化拒绝或压缩，任何层都禁止静默截断；CLI transport 聚焦测试 43/43 通过。该内部扩展不恢复 `DIST-04`；精确类型、清理和测试见 ADR-048。
 
 运行中普通提交仍编码为 `run.start`，由 Java `RuntimeStdioCommandHandler` 根据权威状态转为
 最多 100 条的连接内存 FIFO；当前 Model/Tool batch 不被抢占，前一 Run 唯一终态投影后才通过
@@ -1252,7 +1251,10 @@ S04 Accepted 后的维护切片增加 Windows 用户级开发 shim，但不改�
 保持分离。
 
 启动参数由共享 PowerShell 模块从原始数组解析，支持 GNU 风格 `--workspace`、`--model`、
-`--timeout`、`--print`、`--rebuild`、`--doctor` 和 `--help`。`--print` 进入现有 TUI
+`--timeout`、`--print`、`--rebuild`、`--doctor`、`--help` 和 Context 容量三元组。开发入口默认
+显式传递 256,000/8,192/4,096 的输入上限、输出保留和安全余量，使普通 `codej` 装配真实
+`ContextPreparationService`；用户可显式覆盖，启动器只验证数值关系而不推断 Provider 能力。
+`--print` 进入现有 TUI
 非交互路径；不增加预填交互消息协议。构建缓存对 POM、Wrapper、Java 生产源码/资源、
 JDK 和 runtime classpath 输入计算内容摘要，并同时验证全部模块产物。仓库级开发锁阻止
 并发 Maven 写入同一组 `target`。
@@ -1353,7 +1355,7 @@ S08 G0 已由 ADR-045 完成授权机制研究，G1 已由 ADR-046 冻结逐字�
 scalar/object/list/delete 语义、Instructions 发现/范围/不支持 import、Slash/doctor 最小语义与可证伪实验；G2 已由
 ADR-047 冻结 Domain/Core/Application/Adapter 的有效配置、provenance、诊断、Command Intent/Event、严格 duplicate-key
 parser、last-known-good 刷新和 G3/G4 切片。Workspace 内 Instructions 继续由 `WorkspaceGuard` 验证；位于 Workspace
-外的固定 user Instructions root 必须由独立 user-root guard 验证，绝不将其误用为 WorkspaceGuard 输入。G3-C/D 的受限实现使用 sealed Session patch 从当前内存 overlay 复制所有非目标字段，经 `SettingsResolver`、`RuntimeSettingsApplier`、LKG CAS 与 RuntimeScope 原子替换后才提交；取消、active、无效模型/mode、CAS 或 Scope/internal 失败均保留旧 overlay/LKG/scope。`/model` 仅接受启动时配置的单一模型名，Provider discovery/多模型注册延期；`/permissions` 只接受 `DEFAULT`、`PLAN`、`ACCEPT_EDITS`，query 返回当前 Runtime mode 与仅 Settings-derived STARTUP rules 的无 selector provenance，并在无 LKG 时返回 `BASELINE/runtime-baseline`。显式 `/compact` 先执行 C1/C2，并且即使预算已满足仍可在既有 C3/C4 Gate 下尝试摘要；成功候选仅在 Canonical 前缀未变化时一次性安装给下一 Run 的首个模型请求，绝不覆盖整个 Run 或改变自动 S07 reduction。`/context` 只投影 latest `ContextUsageView` 的数值/枚举白名单，不可用时返回固定 code。这些路径不触发 fixed-source refresh/discovery、文件 I/O、Provider/Tool、JSONL 或 Checkpoint 写入；不得让项目文本、Settings 或 Slash Command 绕过 S05 Permission Pipeline、S06 Recovery Gate、WorkspaceGuard、独立 user-root guard 或 Hard Denial。G3-E 的多行/历史/补全/steering 已按 8,192/100/32/100 的固定上限实现；规则编辑与 Provider discovery/多模型注册继续延期。
+外的固定 user Instructions root 必须由独立 user-root guard 验证，绝不将其误用为 WorkspaceGuard 输入。G3-C/D 的受限实现使用 sealed Session patch 从当前内存 overlay 复制所有非目标字段，经 `SettingsResolver`、`RuntimeSettingsApplier`、LKG CAS 与 RuntimeScope 原子替换后才提交；取消、active、无效模型/mode、CAS 或 Scope/internal 失败均保留旧 overlay/LKG/scope。`/model` 仅接受启动时配置的单一模型名，Provider discovery/多模型注册延期；`/permissions` 只接受 `DEFAULT`、`PLAN`、`ACCEPT_EDITS`，query 返回当前 Runtime mode 与仅 Settings-derived STARTUP rules 的无 selector provenance，并在无 LKG 时返回 `BASELINE/runtime-baseline`。显式 `/compact` 先执行 C1/C2，并且即使预算已满足仍可在既有 C3/C4 Gate 下尝试摘要；成功候选仅在 Canonical 前缀未变化时一次性安装给下一 Run 的首个模型请求，绝不覆盖整个 Run 或改变自动 S07 reduction。`/context` 只投影 latest `ContextUsageView` 的数值/枚举白名单，不可用时返回固定 code。React/Ink 输入 `/` 即展示固定命令面板，方向键选择且由 Tab/Enter 补全；help/context/doctor/permissions 的成功结果只按已验证白名单字段和本地固定标签渲染。这些路径不触发 fixed-source refresh/discovery、文件 I/O、Provider/Tool、JSONL 或 Checkpoint 写入；不得让项目文本、Settings 或 Slash Command 绕过 S05 Permission Pipeline、S06 Recovery Gate、WorkspaceGuard、独立 user-root guard 或 Hard Denial。G3-E 的多行/历史/补全/steering 已按 8,192/100/32/100 的固定上限实现；规则编辑与 Provider discovery/多模型注册继续延期。
 
 ## 21. Trust Boundary 与安全
 
@@ -1396,6 +1398,8 @@ parser、last-known-good 刷新和 G3/G4 切片。Workspace 内 Instructions 继
 - 完整命令输出；
 - API Key；
 - 未脱敏绝对路径。
+
+ADR-048 另行冻结尚未实现的本机 `ModelDiagnostic` 平面。它与 `ModelFailureSummary`、Agent Event、stdio/TUI 和 Session JSONL 分离，默认 `OFF`；`SAFE` 只记录失败，`VERBOSE` 也只增加固定 lifecycle/耗时。Domain 使用封闭 Stage/Reason 和 Session/Run/Turn/Attempt 关联，CLI sink 使用 4 KiB record、1 MiB file、5 file、7 day、256 queue 的有界轮转 JSONL；sink 任何失败都只关闭观察面，不能改变 Run。所有模式在类型上禁止 Prompt/Completion、响应/frame、Header、Endpoint、Provider request ID、异常文本/栈、Tool/文件/命令正文、selector、Secret 和绝对路径；OTel/导出仍属 S14。
 
 ## 22. 测试策略
 

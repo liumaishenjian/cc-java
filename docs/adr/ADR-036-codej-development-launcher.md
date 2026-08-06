@@ -51,8 +51,11 @@ Git 和命令 Tool 只作用于 `workspaceRoot`。
 误覆盖和误删，不是签名或信任证明。
 
 `StartCodejDev.ps1` 接收原始参数数组并独立解析 GNU 风格参数，支持
-`--workspace`、`--model`、`--timeout`、`--print`、`--rebuild`、`--doctor` 和
-`--help`。`--print` 明确是一次性非交互 Run；本切片不实现 TUI 预填首条消息。
+`--workspace`、`--model`、`--timeout`、`--print`、`--rebuild`、`--doctor`、`--help` 和三个
+Context 容量参数。S07/S08 Accepted 后，开发入口默认向 Java 显式传递 256,000 Token 输入上限、
+8,192 Token 输出保留与 4,096 Token 安全余量，使自动 Context Preparation、`/context` 和无参数
+`/compact` 在普通 `codej` 启动中可用；三元组可显式覆盖且在启动前验证，不从模型名或 Provider
+响应推断。`--print` 明确是一次性非交互 Run；本切片不实现 TUI 预填首条消息。
 
 ### 3. 开发构建缓存
 

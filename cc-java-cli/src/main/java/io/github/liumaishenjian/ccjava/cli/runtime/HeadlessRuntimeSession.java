@@ -7,6 +7,7 @@ import io.github.liumaishenjian.ccjava.core.ContextPreparationService;
 import io.github.liumaishenjian.ccjava.core.ContextSummarizer;
 import io.github.liumaishenjian.ccjava.core.instructions.InstructionContextService;
 import io.github.liumaishenjian.ccjava.cli.instructions.InstructionFoundationFactory;
+import io.github.liumaishenjian.ccjava.cli.diagnostics.ModelDiagnostics;
 import io.github.liumaishenjian.ccjava.cli.instructions.InstructionDoctorSnapshot;
 import io.github.liumaishenjian.ccjava.cli.instructions.InstructionProjectionState;
 import io.github.liumaishenjian.ccjava.core.settings.EffectiveSettingsSnapshot;
@@ -73,8 +74,9 @@ import java.util.function.Supplier;
  */
 public final class HeadlessRuntimeSession implements AutoCloseable {
 
-    /** S02 单次用户输入的字符上限。 */
-    public static final int MAX_PROMPT_CHARS = 8 * 1024;
+    /** ADR-048 展开后输入的 Unicode、UTF-16 与 UTF-8 独立上限。 */
+    public static final int MAX_PROMPT_CHARS = 1_048_576;
+    public static final int MAX_PROMPT_UTF8_BYTES = 1_048_576;
 
     static final String SYSTEM_INSTRUCTIONS =
             "You are the cc-java S04 learning agent. Use only registered workspace tools. "
@@ -108,6 +110,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private final UuidAgentIdGenerator ids;
     private final AtomicReference<HeadlessRuntimeScope> scope;
     private final RuntimeScopeFactory runtimeScopeFactory;
+    private ModelDiagnostics diagnosticResource;
     private io.github.liumaishenjian.ccjava.core.AgentSession session;
     private SessionOpenResult openResult;
     private SettingsApplicationService settingsApplication;
@@ -198,6 +201,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 provider.contextUsage(),
                 HeadlessMemoryLayout.production(),
                 instructionLayout);
+        diagnosticResource = provider.diagnostics();
         try {
             settingsApplication = SettingsApplicationService.production(this, instructionLayout.userHome());
             settingsApplication.refresh(io.github.liumaishenjian.ccjava.core.CancellationToken.none());
@@ -215,8 +219,10 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         }
         org.springframework.ai.chat.model.ChatModel chatModel =
                 new OpenAiCompatibleModelFactory().create(settings);
+        ModelDiagnostics diagnostics = ModelDiagnostics.open(
+                options.diagnosticMode(), options.diagnosticDirectory());
         ModelGateway gateway = new RetryingModelGateway(
-                new SpringAiModelGateway(chatModel, settings.model()),
+                new SpringAiModelGateway(chatModel, settings.model(), diagnostics.recorder()),
                 ModelRetryPolicy.S02_DEFAULT);
         LatestContextUsageCollector usage = options.contextPreparation()
                 .map(ignored -> new LatestContextUsageCollector())
@@ -227,7 +233,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                         new SpringAiContextSummarizer(chatModel, settings.model()),
                         usage == null ? io.github.liumaishenjian.ccjava.core.ContextUsageObserver.noop() : usage))
                 .orElseGet(ContextPreparationService::noop);
-        return new ProviderComponents(gateway, preparation, usage);
+        return new ProviderComponents(gateway, preparation, usage, diagnostics);
     }
 
     /**
@@ -502,8 +508,11 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
      */
     public AgentRunResult run(String prompt) {
         Objects.requireNonNull(prompt, "prompt 不能为空");
-        if (prompt.isBlank() || prompt.length() > MAX_PROMPT_CHARS) {
-            throw new IllegalArgumentException("prompt 为空或超过长度限制");
+        if (prompt.isBlank()
+                || prompt.length() > MAX_PROMPT_CHARS
+                || prompt.codePointCount(0, prompt.length()) > MAX_PROMPT_CHARS
+                || prompt.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_PROMPT_UTF8_BYTES) {
+            throw new IllegalArgumentException("prompt 为空或超过展开输入限制");
         }
         ActiveRun captured;
         synchronized (lifecycleMonitor) {
@@ -1088,7 +1097,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private record ProviderComponents(
             ModelGateway gateway,
             ContextPreparationService contextPreparation,
-            LatestContextUsageCollector contextUsage) {
+            LatestContextUsageCollector contextUsage,
+            ModelDiagnostics diagnostics) {
     }
 
     private record ContextComponents(
@@ -1275,6 +1285,9 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             closed = true;
             if (contextUsage != null) {
                 contextUsage.close();
+            }
+            if (diagnosticResource != null) {
+                diagnosticResource.close();
             }
             closeMemory(memoryResource);
             try {

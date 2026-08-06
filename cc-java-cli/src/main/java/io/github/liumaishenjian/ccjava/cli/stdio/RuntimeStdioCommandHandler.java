@@ -24,6 +24,7 @@ import io.github.liumaishenjian.ccjava.domain.ApprovalResponse;
 import io.github.liumaishenjian.ccjava.domain.LifecycleEvent;
 import io.github.liumaishenjian.ccjava.domain.ModelTextDelta;
 import io.github.liumaishenjian.ccjava.domain.PermissionMode;
+import io.github.liumaishenjian.ccjava.domain.ModelDiagnosticMode;
 import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.domain.ToolCall;
 import io.github.liumaishenjian.ccjava.model.springai.config.OpenAiCompatibleSettings;
@@ -43,8 +44,19 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.HexFormat;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 
 /**
  * 把 stdio v0 命令适配到真实 {@link HeadlessRuntimeSession}。
@@ -60,11 +72,17 @@ public final class RuntimeStdioCommandHandler
 
     /** 当前连接允许保留的未发送 steering 数量。 */
     static final int MAX_STEERING_MESSAGES = 100;
+    static final int MAX_EXPANDED_INPUT_BYTES = 1_048_576;
+    static final int MAX_INPUT_CHUNKS = 64;
+    static final Duration INPUT_ASSEMBLY_TIMEOUT = Duration.ofSeconds(30);
+    static final int MAX_INPUT_TOMBSTONES = 256;
 
     private final Object lock = new Object();
     private final StdioProtocolCodec codec = new StdioProtocolCodec();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(
             Thread.ofPlatform().name("cc-java-runtime-run").daemon(true).factory());
+    private final InputAssemblyScheduler assemblyScheduler;
+    private final Clock clock;
     private final StdioApprovalCoordinator approvals;
     private final HeadlessRuntimeSession application;
     private final Deque<QueuedSteering> steeringQueue = new ArrayDeque<>();
@@ -74,6 +92,9 @@ public final class RuntimeStdioCommandHandler
     /** 仅记录 dispatcher 已接受的有限 commandId，拒绝预算外新 ID 后立即关闭连接。 */
     private final Set<CommandId> emittedCommandResults = new HashSet<>();
     private boolean commandRequestBudgetExhausted;
+    private final LinkedHashMap<String, InputTerminal> inputTombstones = new LinkedHashMap<>();
+    private InputAssembly inputAssembly;
+    private ExpiryHandle inputExpiry;
 
     /**
      * 使用已校验的本地 Provider 设置装配 Headless Runtime。
@@ -138,6 +159,8 @@ public final class RuntimeStdioCommandHandler
                 timeout,
                 permissionMode,
                 sessionOpenRequest,
+                Optional.empty(),
+                ModelDiagnosticMode.OFF,
                 Optional.empty());
     }
 
@@ -158,6 +181,33 @@ public final class RuntimeStdioCommandHandler
             PermissionMode permissionMode,
             SessionOpenRequest sessionOpenRequest,
             Optional<ContextPreparationConfig> contextPreparation) {
+        this(settings, workspace, timeout, permissionMode, sessionOpenRequest,
+                contextPreparation, ModelDiagnosticMode.OFF, Optional.empty());
+    }
+
+    /**
+     * 使用显式本机诊断配置装配 Headless Runtime；目录不会进入 stdio 事件。
+     *
+     * @param settings Provider 设置
+     * @param workspace 已解析 Workspace
+     * @param timeout Run 墙钟限制
+     * @param permissionMode 权限模式
+     * @param sessionOpenRequest Session 选择
+     * @param contextPreparation Context 配置
+     * @param diagnosticMode 模型诊断模式
+     * @param diagnosticDirectory 可选可信目录
+     */
+    public RuntimeStdioCommandHandler(
+            OpenAiCompatibleSettings settings,
+            Path workspace,
+            Duration timeout,
+            PermissionMode permissionMode,
+            SessionOpenRequest sessionOpenRequest,
+            Optional<ContextPreparationConfig> contextPreparation,
+            ModelDiagnosticMode diagnosticMode,
+            Optional<Path> diagnosticDirectory) {
+        clock = Clock.systemUTC();
+        assemblyScheduler = InputAssemblyScheduler.production();
         approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
         application = new HeadlessRuntimeSession(
                 Objects.requireNonNull(settings, "settings 不能为空"),
@@ -170,7 +220,9 @@ public final class RuntimeStdioCommandHandler
                         java.util.List.of(),
                         Objects.requireNonNull(sessionOpenRequest, "sessionOpenRequest 不能为空"),
                         SessionStorage.defaultRoot(),
-                        Objects.requireNonNull(contextPreparation, "contextPreparation 不能为空")),
+                        Objects.requireNonNull(contextPreparation, "contextPreparation 不能为空"),
+                        Objects.requireNonNull(diagnosticMode, "diagnosticMode 不能为空"),
+                        Objects.requireNonNull(diagnosticDirectory, "diagnosticDirectory 不能为空")),
                 approvals);
     }
 
@@ -197,6 +249,16 @@ public final class RuntimeStdioCommandHandler
     RuntimeStdioCommandHandler(
             ModelGateway model,
             HeadlessRuntimeOptions options) {
+        this(model, options, Clock.systemUTC(), InputAssemblyScheduler.production());
+    }
+
+    RuntimeStdioCommandHandler(
+            ModelGateway model,
+            HeadlessRuntimeOptions options,
+            Clock clock,
+            InputAssemblyScheduler assemblyScheduler) {
+        this.clock = Objects.requireNonNull(clock, "clock 不能为空");
+        this.assemblyScheduler = Objects.requireNonNull(assemblyScheduler, "assemblyScheduler 不能为空");
         approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
         application = new HeadlessRuntimeSession(
                 Objects.requireNonNull(model, "model 不能为空"),
@@ -212,6 +274,9 @@ public final class RuntimeStdioCommandHandler
         return switch (command.type()) {
             case "initialize" -> initialize(command, events);
             case "run.start" -> startRun(command, events);
+            case "input.begin" -> beginInput(command);
+            case "input.chunk" -> appendInputChunk(command);
+            case "input.commit" -> commitInput(command, events);
             case "run.cancel" -> cancelRun(command);
             case "approval.resolve" -> resolveApproval(command);
             case "checkpoint.list" -> listCheckpoints(command, events);
@@ -264,6 +329,13 @@ public final class RuntimeStdioCommandHandler
             StdioProtocol.Command command,
             StdioProtocol.EventEmitter events) throws StdioProtocolException {
         String prompt = requiredPrompt(command);
+        return startAcceptedInput(command, events, prompt);
+    }
+
+    private StdioProtocol.Disposition startAcceptedInput(
+            StdioProtocol.Command command,
+            StdioProtocol.EventEmitter events,
+            String prompt) throws StdioProtocolException {
         ActiveRun run;
         synchronized (lock) {
             ensureStateReadyOrRunning(command);
@@ -293,6 +365,208 @@ public final class RuntimeStdioCommandHandler
         }
         executor.submit(() -> executeRun(run, prompt));
         return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    private StdioProtocol.Disposition beginInput(StdioProtocol.Command command)
+            throws StdioProtocolException {
+        synchronized (lock) {
+            ensureStateReadyOrRunning(command);
+            requireSession(command);
+            requireNoRunId(command);
+            expireInputAssembly();
+            String inputId = requiredAssemblyText(command, "inputId");
+            rejectTerminalInputId(command, inputId);
+            if (inputAssembly != null) {
+                InputAssembly abandoned = inputAssembly;
+                failAssemblyLocked(abandoned, InputTerminal.FAILED);
+                recordInputTombstone(inputId, InputTerminal.FAILED);
+                throw correlatedError("INPUT_IN_FLIGHT", command, abandoned.requestId, "已有输入正在组装");
+            }
+            int byteCount;
+            int chunkCount;
+            String digest;
+            try {
+                byteCount = requiredAssemblyInt(command, "byteCount", 1, MAX_EXPANDED_INPUT_BYTES);
+                chunkCount = requiredAssemblyInt(command, "chunkCount", 1, MAX_INPUT_CHUNKS);
+                digest = requiredAssemblyText(command, "sha256");
+            } catch (StdioProtocolException invalid) {
+                recordInputTombstone(inputId, InputTerminal.FAILED);
+                throw invalid;
+            }
+            if (!digest.matches("[0-9a-f]{64}")) {
+                recordInputTombstone(inputId, InputTerminal.FAILED);
+                throw protocolError("INPUT_DIGEST_INVALID", command, "输入摘要格式无效");
+            }
+            inputAssembly = new InputAssembly(
+                    command.requestId(), inputId, byteCount, chunkCount, digest,
+                    clock.instant().plus(INPUT_ASSEMBLY_TIMEOUT), new java.io.ByteArrayOutputStream(byteCount));
+            InputAssembly captured = inputAssembly;
+            inputExpiry = assemblyScheduler.schedule(INPUT_ASSEMBLY_TIMEOUT, () -> expireInputAssembly(captured));
+        }
+        return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    private StdioProtocol.Disposition appendInputChunk(StdioProtocol.Command command)
+            throws StdioProtocolException {
+        synchronized (lock) {
+            ensureStateReadyOrRunning(command);
+            requireSession(command);
+            requireNoRunId(command);
+            InputAssembly assembly = requireAssembly(command);
+            requireAssemblyId(command, assembly);
+            int ordinal = requiredAssemblyInt(command, "ordinal", 0, MAX_INPUT_CHUNKS - 1);
+            if (ordinal != assembly.receivedChunks) {
+                failAssemblyLocked(assembly, InputTerminal.FAILED);
+                throw correlatedError("INPUT_CHUNK_ORDER", command, assembly.requestId, "输入分块顺序不连续");
+            }
+            JsonNode value = command.payload().get("text");
+            if (value == null || !value.isString() || value.stringValue().isEmpty()) {
+                failAssemblyLocked(assembly, InputTerminal.FAILED);
+                throw correlatedError("INPUT_CHUNK_INVALID", command, assembly.requestId, "输入分块必须是非空文本");
+            }
+            byte[] bytes = value.stringValue().getBytes(StandardCharsets.UTF_8);
+            if (assembly.bytes.size() + bytes.length > assembly.byteCount
+                    || assembly.receivedChunks >= assembly.chunkCount) {
+                failAssemblyLocked(assembly, InputTerminal.FAILED);
+                throw correlatedError("INPUT_SIZE_MISMATCH", command, assembly.requestId, "输入分块超过声明边界");
+            }
+            assembly.bytes.writeBytes(bytes);
+            assembly.receivedChunks++;
+        }
+        return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    private StdioProtocol.Disposition commitInput(
+            StdioProtocol.Command command,
+            StdioProtocol.EventEmitter events) throws StdioProtocolException {
+        String prompt;
+        synchronized (lock) {
+            ensureStateReadyOrRunning(command);
+            requireSession(command);
+            requireNoRunId(command);
+            InputAssembly assembly = requireAssembly(command);
+            requireAssemblyId(command, assembly);
+            byte[] bytes = assembly.bytes.toByteArray();
+            if (assembly.receivedChunks != assembly.chunkCount || bytes.length != assembly.byteCount
+                    || !sha256(bytes).equals(assembly.sha256)) {
+                failAssemblyLocked(assembly, InputTerminal.FAILED);
+                throw correlatedError("INPUT_COMMIT_MISMATCH", command, assembly.requestId, "输入分块校验失败");
+            }
+            try {
+                prompt = StandardCharsets.UTF_8.newDecoder()
+                        .onMalformedInput(CodingErrorAction.REPORT)
+                        .onUnmappableCharacter(CodingErrorAction.REPORT)
+                        .decode(ByteBuffer.wrap(bytes)).toString();
+            } catch (CharacterCodingException invalid) {
+                failAssemblyLocked(assembly, InputTerminal.FAILED);
+                throw correlatedError("INPUT_UTF8_INVALID", command, assembly.requestId, "输入不是严格 UTF-8");
+            }
+            if (prompt.isBlank() || prompt.length() > MAX_EXPANDED_INPUT_BYTES) {
+                failAssemblyLocked(assembly, InputTerminal.FAILED);
+                throw correlatedError("INVALID_PAYLOAD", command, assembly.requestId, "展开输入为空或超过限制");
+            }
+            completeAssemblyLocked(assembly, InputTerminal.COMPLETED);
+            command = new StdioProtocol.Command(
+                    command.version(), "run.start", assembly.requestId, command.sessionId(),
+                    Optional.empty(), command.sequence(), command.payload());
+        }
+        return startAcceptedInput(command, events, prompt);
+    }
+
+    private InputAssembly requireAssembly(StdioProtocol.Command command) throws StdioProtocolException {
+        expireInputAssembly();
+        String inputId = requiredAssemblyText(command, "inputId");
+        InputTerminal terminal = inputTombstones.get(inputId);
+        if (terminal != null) {
+            throw correlatedError("INPUT_REPLAY", command, command.requestId(), "输入 ID 已终结：" + terminal.name());
+        }
+        if (inputAssembly == null) {
+            throw protocolError("INPUT_NOT_IN_FLIGHT", command, "没有正在组装的输入");
+        }
+        return inputAssembly;
+    }
+
+    private void requireAssemblyId(StdioProtocol.Command command, InputAssembly assembly)
+            throws StdioProtocolException {
+        String mismatchedId = requiredAssemblyText(command, "inputId");
+        if (!assembly.inputId.equals(mismatchedId)) {
+            failAssemblyLocked(assembly, InputTerminal.FAILED);
+            recordInputTombstone(mismatchedId, InputTerminal.FAILED);
+            throw correlatedError("INPUT_ID_MISMATCH", command, assembly.requestId, "输入 ID 不匹配");
+        }
+    }
+
+    private void expireInputAssembly() {
+        if (inputAssembly != null && !clock.instant().isBefore(inputAssembly.deadline)) {
+            failAssemblyLocked(inputAssembly, InputTerminal.EXPIRED);
+        }
+    }
+
+    private void expireInputAssembly(InputAssembly expected) {
+        synchronized (lock) {
+            if (inputAssembly == expected) failAssemblyLocked(expected, InputTerminal.EXPIRED);
+        }
+    }
+
+    private void rejectTerminalInputId(StdioProtocol.Command command, String inputId)
+            throws StdioProtocolException {
+        InputTerminal terminal = inputTombstones.get(inputId);
+        if (terminal != null) {
+            throw correlatedError("INPUT_REPLAY", command, command.requestId(), "输入 ID 已终结：" + terminal.name());
+        }
+    }
+
+    private void failAssemblyLocked(InputAssembly assembly, InputTerminal terminal) {
+        completeAssemblyLocked(assembly, terminal);
+    }
+
+    private void completeAssemblyLocked(InputAssembly assembly, InputTerminal terminal) {
+        if (inputAssembly == assembly) inputAssembly = null;
+        if (inputExpiry != null) {
+            inputExpiry.cancel();
+            inputExpiry = null;
+        }
+        recordInputTombstone(assembly.inputId, terminal);
+    }
+
+    private void recordInputTombstone(String inputId, InputTerminal terminal) {
+        inputTombstones.put(inputId, terminal);
+        while (inputTombstones.size() > MAX_INPUT_TOMBSTONES) {
+            inputTombstones.remove(inputTombstones.keySet().iterator().next());
+        }
+    }
+
+    private StdioProtocolException correlatedError(
+            String code, StdioProtocol.Command command, String logicalRequestId, String message) {
+        return new StdioProtocolException(code, logicalRequestId, message);
+    }
+
+    private String requiredAssemblyText(StdioProtocol.Command command, String field)
+            throws StdioProtocolException {
+        JsonNode value = command.payload().get(field);
+        if (value == null || !value.isString() || value.stringValue().isBlank()
+                || value.stringValue().length() > StdioProtocolCodec.MAX_IDENTIFIER_CHARS && !field.equals("sha256")) {
+            throw protocolError("INVALID_PAYLOAD", command, field + " 无效");
+        }
+        return value.stringValue();
+    }
+
+    private int requiredAssemblyInt(StdioProtocol.Command command, String field, int minimum, int maximum)
+            throws StdioProtocolException {
+        JsonNode value = command.payload().get(field);
+        if (value == null || !value.isIntegralNumber() || !value.canConvertToInt()
+                || value.intValue() < minimum || value.intValue() > maximum) {
+            throw protocolError("INVALID_PAYLOAD", command, field + " 超过边界");
+        }
+        return value.intValue();
+    }
+
+    private static String sha256(byte[] bytes) {
+        try {
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("Java 运行时缺少 SHA-256", impossible);
+        }
     }
 
     private ActiveRun startRunLocked(String requestId, int promptChars, StdioProtocol.EventEmitter events) {
@@ -604,6 +878,7 @@ public final class RuntimeStdioCommandHandler
                         command,
                         "run.cancel 与活动 Run 不匹配或取消已经发生");
             }
+            if (inputAssembly != null) failAssemblyLocked(inputAssembly, InputTerminal.CANCELLED);
             discardSteering(DiscardReason.CANCELLED);
         }
         return StdioProtocol.Disposition.CONTINUE;
@@ -614,6 +889,7 @@ public final class RuntimeStdioCommandHandler
         try {
             synchronized (lock) {
                 state = State.CLOSED;
+                if (inputAssembly != null) failAssemblyLocked(inputAssembly, InputTerminal.CANCELLED);
                 cancelActiveRunLocked();
                 discardSteering(DiscardReason.SHUTDOWN);
             }
@@ -1016,7 +1292,9 @@ public final class RuntimeStdioCommandHandler
         if (prompt == null
                 || !prompt.isString()
                 || prompt.stringValue().isBlank()
-                || prompt.stringValue().length() > HeadlessRuntimeSession.MAX_PROMPT_CHARS) {
+                || prompt.stringValue().length() > HeadlessRuntimeSession.MAX_PROMPT_CHARS
+                || prompt.stringValue().codePointCount(0, prompt.stringValue().length()) > HeadlessRuntimeSession.MAX_PROMPT_CHARS
+                || prompt.stringValue().getBytes(StandardCharsets.UTF_8).length > HeadlessRuntimeSession.MAX_PROMPT_UTF8_BYTES) {
             throw protocolError(
                     "INVALID_PAYLOAD",
                     command,
@@ -1100,6 +1378,7 @@ public final class RuntimeStdioCommandHandler
         try {
             synchronized (lock) {
                 state = State.CLOSED;
+                if (inputAssembly != null) failAssemblyLocked(inputAssembly, InputTerminal.CANCELLED);
                 cancelActiveRunLocked();
                 discardSteering(DiscardReason.SHUTDOWN);
             }
@@ -1111,6 +1390,7 @@ public final class RuntimeStdioCommandHandler
         } catch (RuntimeException closeFailure) {
             failure = retainFirstFailure(failure, closeFailure);
         }
+        assemblyScheduler.close();
         executor.shutdown();
         try {
             if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
@@ -1132,6 +1412,42 @@ public final class RuntimeStdioCommandHandler
         if (failure != null) {
             throw failure;
         }
+    }
+
+    @FunctionalInterface
+    interface ExpiryHandle {
+        void cancel();
+    }
+
+    interface InputAssemblyScheduler extends AutoCloseable {
+        ExpiryHandle schedule(Duration delay, Runnable task);
+
+        static InputAssemblyScheduler production() {
+            ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor(
+                    Thread.ofPlatform().name("cc-java-input-expiry").daemon(true).factory());
+            return new InputAssemblyScheduler() {
+                @Override
+                public ExpiryHandle schedule(Duration delay, Runnable task) {
+                    ScheduledFuture<?> future = executor.schedule(task, delay.toMillis(), TimeUnit.MILLISECONDS);
+                    return () -> future.cancel(false);
+                }
+
+                @Override
+                public void close() {
+                    executor.shutdownNow();
+                }
+            };
+        }
+
+        @Override
+        void close();
+    }
+
+    private enum InputTerminal {
+        COMPLETED,
+        FAILED,
+        EXPIRED,
+        CANCELLED
     }
 
     private enum State {
@@ -1171,6 +1487,34 @@ public final class RuntimeStdioCommandHandler
             Objects.requireNonNull(sessionId, "sessionId 不能为空");
             Objects.requireNonNull(prompt, "prompt 不能为空");
             Objects.requireNonNull(events, "events 不能为空");
+        }
+    }
+
+    private static final class InputAssembly {
+        private final String requestId;
+        private final String inputId;
+        private final int byteCount;
+        private final int chunkCount;
+        private final String sha256;
+        private final Instant deadline;
+        private final java.io.ByteArrayOutputStream bytes;
+        private int receivedChunks;
+
+        private InputAssembly(
+                String requestId,
+                String inputId,
+                int byteCount,
+                int chunkCount,
+                String sha256,
+                Instant deadline,
+                java.io.ByteArrayOutputStream bytes) {
+            this.requestId = requestId;
+            this.inputId = inputId;
+            this.byteCount = byteCount;
+            this.chunkCount = chunkCount;
+            this.sha256 = sha256;
+            this.deadline = deadline;
+            this.bytes = bytes;
         }
     }
 

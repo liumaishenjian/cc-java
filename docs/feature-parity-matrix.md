@@ -8,7 +8,7 @@
 >
 > 当前代码状态：S01-S07 已 Accepted；S07 的 Canonical Transcript/Projection、条件式 C1-C4、文件记忆
 > M1-M5、ready-only 零等待预取、内部 Usage View 与 latest-only Recovery Analytics 已在离线 Fake、Demo、
-> Gap 和 Commit-scoped 对账中达到声明等级。S08 已在实现 Commit `7bac8ea` 上完成 Commit-scoped G0-G6，Stage Exit Accepted：分层 Instructions、Settings v1/LKG、受控 Runtime 映射、命令投影、编辑/steering 与 recovery-gated Resume 均达到退出目标；审计修复 Workspace 内部 Instructions Symlink 跟随缺陷。S09 Hooks 为下一 Stage；rules 编辑、Provider discovery/多模型注册、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定协议/Export/Retention/Migration 仍未实现。
+> Gap 和 Commit-scoped 对账中达到声明等级。S08 历史实现 Commit `7bac8ea` 的证据继续保留，但已按 ADR-048 重开为 Corrective：`CLI-08`/`CLI-09` 暂回 L1，等待成熟 Composer、无损大 Paste、独立隐私安全 ModelDiagnostic 及新 Commit-scoped G3-G6；Instructions、Settings、Runtime 映射、Context/Resume 安全 Gate 保持既有等级并纳入回归。S09 暂不启动；rules 编辑、Provider discovery/多模型注册、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定协议/Export/Retention/Migration 仍未实现。
 
 ## 1. 文档目的
 
@@ -152,12 +152,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 195 |
-| 当前阶段 | S08 Instructions + Settings（Accepted；实现 Commit `7bac8ea` 的 Commit-scoped G0-G6 已通过） |
-| Stage Exit | S08 Accepted：ADR-045/046/047、离线 Fake、S07 定量复验、Demo、Gap 与 Commit-scoped G0-G6 对账形成闭环 |
-| 当前等级 | 81 项为 L2，31 项为 L1，83 项为 L0（18 项 S08 Feature 达到退出目标） |
+| 当前阶段 | S08 Instructions + Settings（Corrective / Reopened；ADR-048 G3-G5 Passed） |
+| Stage Exit | Open：唯一缺口是尚无新的 corrective implementation 固定 Commit，G6 未对账 |
+| 当前等级 | 79 项为 L2，33 项为 L1，83 项为 L0（`CLI-08`/`CLI-09` 暂保持 L1，待 G6 恢复） |
 | 默认最终目标 | 195 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 32.99%（195 项等权、目标 L3） |
-| 下一步 | 进入 S09 Hooks G0 授权机制研究与范围冻结；Provider discovery/多模型注册、S12/S13/S14 延期边界不变 |
+| 当前能力覆盖 | 32.65%（195 项等权、目标 L3） |
+| 下一步 | 固定 corrective implementation Commit 并完成 ADR-048 G6；S09 暂不启动，Provider discovery/多模型注册、S12/S13/S14 延期边界不变 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -249,8 +249,8 @@ Stage 完成项。
 | CLI-05 | Permission Prompt | 终端 Approval UI | L2 | S04/S05 | REF-04/AUTH-01 |
 | CLI-06 | Ctrl+C Cancel | 当前 Run/Tool 取消 | L1 | S02/S04 | REF-02 |
 | CLI-07 | Steering | Java stdio 连接内存 FIFO 上限 100；只在当前 Run 终态后启动下一 Run，取消/clear/成功 resume/transport failure/shutdown 丢弃未发送项且不持久化 | L2 | S08 | REF-02 |
-| CLI-08 | Slash Commands | `/help`、`/clear`、显式 `/compact`、`/context`、`/doctor`、有界 `/model`、`/permissions mode` 与 recovery-gated `/resume <session-id>` 的 Java/stdio/封闭 Slash 路径 | L2 | S08 | REF-02 |
-| CLI-09 | 多行、历史、补全 | React/Ink：Enter 换行、Ctrl+Enter 显式提交、8,192 code point、每 Session 内存历史 100 与草稿恢复、封闭稳定补全最多 32 | L2 | S08 | REF-02 |
+| CLI-08 | Slash Commands | 封闭 Command Catalog、可见选择与类型化安全结果 Projection；历史命令范围保持，等待 ADR-048 新 Commit 复验 | L1 | S08 | REF-02 |
+| CLI-09 | 多行、历史、补全 | `ComposerState` grapheme 光标、视觉多行/viewport、完整编辑键、History/Completion 优先级；8,192 仅限可见结构，约 1 MiB 无损大 Paste 经 W4 stdio v0 原子分块提交后仍受 256K Token Context pipeline 权威治理；ADR-048 契约已冻结、实现待验证 | L1 | S08 | REF-02 |
 | CLI-10 | TTY / Non-TTY 降级 | 无 ANSI 输出与管道模式 | L2 | S02/S14 | REF-02 |
 | CLI-11 | 机器输出协议 | S02 内部 stdio v0 L1 → S14 稳定 JSON/JSONL L3 | L1 | S02/S14 | REF-02 |
 | CLI-12 | 多 Surface 共用引擎 | CLI/SDK/API 共用 Runtime | L0 | S14 | REF-02 |
@@ -376,13 +376,13 @@ Stage 完成项。
 | CTX-03 | Hierarchical Instructions | User/Project/Directory | L2 | S08 | REF-05 |
 | CTX-04 | Path-scoped Rules | 只在相关目标路径加载并保持固定顺序 | L2 | S08 | REF-05 |
 | CTX-05 | Tool Result Limits | 类型化裁剪 | L2 | S03/S04 | REF-01 |
-| CTX-06 | Token Budget | 显式容量元组的 model-aware 预算与来源 Usage View | L2 | S07 | REF-01/02 |
+| CTX-06 | Token Budget | 显式容量元组的 model-aware 预算与来源 Usage View；`codej` 默认显式传递 256,000/8,192/4,096 且允许覆盖 | L2 | S07 | REF-01/02 |
 | CTX-07 | Complete Turn Eviction | 完整 Tool Call/Result 协议边界、C2 占位与 Canonical 不变 | L2 | S07 | REF-01 |
 | CTX-08 | Old Tool Output Clear | 按压力选择 C2 清理低价值旧 Tool 输出 | L2 | S07 | REF-02 |
 | CTX-09 | Conversation Summary | C3/C4 有界候选、严格提交 Gate 与零 Tool Provider Summarizer | L2 | S07 | REF-01/02 |
 | CTX-10 | Multi-level Compaction | C1/C2 后条件式 C3→C4、预算满足即停 | L2 | S07 | REF-01 |
 | CTX-11 | Thrashing Guard | Run/revision/tier 冷却与单次 typed-overflow 恢复 | L2 | S07 | REF-02 |
-| CTX-12 | Compact Instructions | 有界 anchors 的显式 compact 经既有 S07 Gate 生成一次性下一 Run 首个模型请求 Projection | L2 | S08 | REF-02 |
+| CTX-12 | Compact Instructions | 无参数时针对当前 Session、有界 anchors 可选的显式 compact，经既有 S07 Gate 生成一次性下一 Run 首个模型请求 Projection | L2 | S08 | REF-02 |
 | CTX-13 | `/context` | 最新 `ContextUsageView` 的数值/枚举白名单命令、stdio/封闭 Slash/TUI 协议投影 | L2 | S07/S08 | REF-02 |
 | CTX-14 | Skill Lazy Loading | Metadata 先加载 | L0 | S11 | REF-03 |
 | CTX-15 | Sub-Agent Isolation | 独立窗口与摘要返回 | L0 | S12 | REF-02/03 |
@@ -482,7 +482,7 @@ Stage 完成项。
 | OBS-01 | Agent Event | 可重放控制流 | L1 | S01 | REF-01 |
 | OBS-02 | Turn/Tool Timing | S02 事件边界采集 L2 → S14 Metrics Backend L3 | L2 | S02/S14 | REF-01/AUTH-01 |
 | OBS-03 | Token / Cost | S02 可信 Provider Usage L2 → S14 Cost 治理 L3 | L2 | S02/S14 | REF-01/AUTH-01 |
-| OBS-04 | Stop / Recovery Analytics | Context preparation/recovery 的 fixed-code latest-only 内部观察；分布聚合、持久化与导出延期 S14 | L1 | S07/S14 | REF-01 |
+| OBS-04 | Stop / Recovery Analytics | Context latest-only 内部观察；ADR-048 冻结 OFF 默认的本地封闭 ModelDiagnostic 纠错契约，尚未实现；分布聚合、OTel 与导出延期 S14 | L1 | S07/S08/S14 | REF-01 |
 | OBS-05 | Privacy Controls | S02 最小化 Telemetry L2 → S14 Export Policy L3 | L2 | S02/S14 | REF-01/AUTH-01 |
 | OBS-06 | OpenTelemetry | 可选 Trace Export | L0 | S14 | REF-01 |
 | EVAL-01 | Seed Tasks | S04 单个公开 Scripted Java Fixture L1 → S14 任务集与指标 L3 | L1 | S04/S14 | REF-01 |
@@ -657,8 +657,7 @@ Sub-Agent/后台任务留到 S12，OS Sandbox 留到 S13。
 ### S08：Instructions + Settings
 
 G0 已于 2026-08-05 通过：`ADR-045` 在 `AUTH-SRC-2026-07-29-A` 的登记只读路径上完成了
-分层 Instructions、Settings 合并/来源、模型/权限/Tool 设置、Slash/诊断与失败安全边界的机制研究。G1 已由
-`ADR-046` 冻结项目自有文件位置、Schema v1、逐字段合并、命令最小语义和可证伪切片；`ADR-047` 冻结独立模块契约、user-root guard、严格解析/刷新与 Command Intent/Event。实现 Commit `7bac8ea` 的 G3 A-F 审计、G4 全量/定量验证、G5 Demo/Gap 与 G6 对账已通过，S08 Stage Exit Accepted。
+分层 Instructions、Settings 合并/来源、模型/权限/Tool 设置、Slash/诊断与失败安全边界的机制研究。ADR-046/047 的历史 G1/G2 契约继续约束 Instructions、Settings 与安全所有权；[ADR-048](./adr/ADR-048-s08-corrective-composer-model-diagnostics.md) 因旧 CLI-08/09 证据不足重开 S08。当前 G3-G5 已通过：完整 Reactor 各模块 45/172/43/101/227（Spring/Tools/CLI 分别 2/8/11 skipped，0 failures/errors）、TUI 111/111、launcher 59/59、真实 TTY 与独立最终 review 均通过。唯一剩余条件是新的 corrective implementation 固定 Commit；在其 G6 对账前 Stage Exit 不是 Accepted，`CLI-08`/`CLI-09` 暂不恢复 L2。
 
 完成条件：
 
@@ -669,9 +668,11 @@ G0 已于 2026-08-05 通过：`ADR-045` 在 `AUTH-SRC-2026-07-29-A` 的登记只
 - `/help`、`/clear`、`/compact`、`/context`、`/model`、`/permissions`、`/resume`；
 - `/doctor` 来源诊断；
 - 基础配置 Schema 与版本字段；
-- 分层 Instructions 接入后的 S07 重注入和 Usage 对账回归。
+- 分层 Instructions 接入后的 S07 重注入和 Usage 对账回归；
+- ADR-048 的 grapheme-safe Composer、视觉导航/viewport、无损大 Paste 与 OFF/SAFE/VERBOSE 本地 ModelDiagnostic；
+- 新实现 Commit 上的完整 G3-G6、真实 TTY Demo、隐私 sentinel 与 commit-scoped 对账。
 
-跨版本配置迁移兼容属于 S14。
+跨版本配置迁移兼容、OTel 与诊断导出属于 S14。
 
 ### S09：Hooks
 

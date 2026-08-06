@@ -4,15 +4,45 @@ let eventSequence = 1;
 let sessionId;
 let activeRunId;
 let timer;
+let inputAssembly;
 const mode = process.argv[2] ?? 'normal';
 
 const reader = readline.createInterface({input: process.stdin, crlfDelay: Infinity});
 reader.on('line', line => {
-  const command = JSON.parse(line);
+  if (Buffer.byteLength(`${line}\n`, 'utf8') >= 64 * 1024) process.exit(23);
+  let command = JSON.parse(line);
   if (command.type === 'initialize') {
     sessionId = 'session-1';
     emit('initialized', command.requestId, {protocolVersion: 0}, sessionId);
-  } else if (command.type === 'run.start') {
+  } else if (command.type === 'input.begin') {
+    inputAssembly = {requestId: command.requestId, inputId: command.payload.inputId, chunks: []};
+    if (mode === 'chunk-error-begin') {
+      emit('protocol.error', command.requestId, {code: 'INPUT_BEGIN_REJECTED'}, sessionId);
+      inputAssembly = undefined;
+    }
+  } else if (command.type === 'input.chunk') {
+    if (mode === 'chunk-error-chunk' && inputAssembly?.chunks.length === 0) {
+      emit('protocol.error', command.requestId, {code: 'INPUT_CHUNK_REJECTED'}, sessionId);
+      inputAssembly = undefined;
+    } else if (inputAssembly !== undefined) {
+      inputAssembly.chunks.push(command.payload.text);
+    }
+  } else if (command.type === 'input.commit') {
+    if (mode === 'chunk-error-commit') {
+      emit('protocol.error', command.requestId, {code: 'INPUT_COMMIT_REJECTED'}, sessionId);
+      inputAssembly = undefined;
+      return;
+    }
+    if (inputAssembly === undefined) return;
+    command = {
+      ...command,
+      type: 'run.start',
+      requestId: inputAssembly.requestId,
+      payload: {prompt: inputAssembly.chunks.join('')},
+    };
+    inputAssembly = undefined;
+  }
+  if (command.type === 'run.start') {
     if (activeRunId !== undefined && mode.startsWith('steering')) {
       if (mode === 'steering-invalid-payload') {
         emit('steering.queued', command.requestId, {queueDepth: 1, prompt: 'LEAK'}, sessionId);

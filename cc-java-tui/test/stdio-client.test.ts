@@ -28,6 +28,41 @@ describe('StdioClient', () => {
       .map(event => event.payload.text).join('')).toBe('你好 agent');
   });
 
+  it('按实际 NDJSON 编码大小分块并保持 Unicode 无损', async () => {
+    const client = createClient();
+    const events: ProtocolEvent[] = [];
+    client.onEvent(event => events.push(event));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+
+    const text = `${'\\\"\n\t'.repeat(20_000)}${'中文😀'.repeat(5_000)}`;
+    const requestId = client.startRun(text);
+    await waitFor(() => events.some(event => event.type === 'run.started'));
+
+    expect(events.find(event => event.type === 'run.started')?.requestId).toBe(requestId);
+    expect(client.isClosed()).toBe(false);
+    await client.shutdown();
+  });
+
+  it.each(['chunk-error-begin', 'chunk-error-chunk', 'chunk-error-commit'])(
+    '%s 将整条分块 submission 关联为同一拒绝并清理',
+    async mode => {
+      const client = createClient(mode);
+      const events: ProtocolEvent[] = [];
+      const failures: string[] = [];
+      client.onEvent(event => events.push(event));
+      client.onFailure(message => failures.push(message));
+      client.initialize();
+      await waitFor(() => events.some(event => event.type === 'initialized'));
+      const requestId = client.startRun('x'.repeat(100_000));
+      await waitFor(() => events.some(event => event.type === 'protocol.error'));
+      expect(events.find(event => event.type === 'protocol.error')?.requestId).toBe(requestId);
+      expect(failures).toEqual([]);
+      expect(client.isClosed()).toBe(false);
+      await client.shutdown();
+    },
+  );
+
   it('活动 Run 可以通过命令取消', async () => {
     const client = createClient();
     const events: ProtocolEvent[] = [];

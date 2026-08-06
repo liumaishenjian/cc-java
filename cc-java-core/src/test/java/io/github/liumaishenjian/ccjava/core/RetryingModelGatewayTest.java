@@ -116,6 +116,26 @@ class RetryingModelGatewayTest {
     }
 
     @Test
+    void exposesExactAttemptScopeWithoutChangingRetryBehavior() throws Exception {
+        List<Integer> correlatedAttempts = new java.util.ArrayList<>();
+        AtomicInteger attempts = new AtomicInteger();
+        StreamingModelGateway delegate = (request, observer, cancellation) -> {
+            correlatedAttempts.add(ModelDiagnosticAttempt.current());
+            if (attempts.incrementAndGet() < 3) {
+                throw new ModelGatewayException(RETRYABLE, "transient");
+            }
+            return ModelTurn.text("ok");
+        };
+
+        ModelTurn turn = new RetryingModelGateway(delegate, immediatePolicy(3)).complete(
+                request(), ignored -> { }, CancellationToken.none());
+
+        assertThat(turn.assistantMessage().text()).isEqualTo("ok");
+        assertThat(correlatedAttempts).containsExactly(1, 2, 3);
+        assertThat(ModelDiagnosticAttempt.current()).isEqualTo(1);
+    }
+
+    @Test
     void cancellationInterruptsBackoffBeforeNextAttempt() throws Exception {
         CountDownLatch firstFailure = new CountDownLatch(1);
         AtomicInteger attempts = new AtomicInteger();

@@ -8,6 +8,7 @@
 - Reference Behavior Baseline: `R2026.03`（`REF-02`、`REF-04`、`REF-05`）
 - Authorized Snapshot ID: `AUTH-SRC-2026-07-29-A`
 - Classification: 本 ADR 是 cc-java 独立 `Documented` 架构契约；受控机制研究及 `Observed`/`Inferred`/`Unknown` 见 ADR-045
+- Corrective amendment: [ADR-048](./ADR-048-s08-corrective-composer-model-diagnostics.md) 已重开 S08，并以 `ComposerState`、无损 Paste 与独立 `ModelDiagnostic` 平面补充/取代本文相应 Surface 契约；其余分层、Settings、Permission、Session 与 Context 所有权继续有效。
 
 ## 决策
 

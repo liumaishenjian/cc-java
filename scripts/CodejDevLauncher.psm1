@@ -10,6 +10,9 @@ $script:CodejJavaModules = @(
 $script:CodejShimMarker = 'CC_JAVA_CODEJ_DEV_SHIM'
 $script:CodejShimSchema = '1'
 $script:CodejMetadataSchema = 1
+$script:DefaultContextMaximumInputTokens = 256000L
+$script:DefaultContextReservedOutputTokens = 8192L
+$script:DefaultContextSafetyMarginTokens = 4096L
 
 function ConvertTo-CodejAbsolutePath {
     param(
@@ -87,7 +90,11 @@ function ConvertFrom-CodejArguments {
             continue
         }
 
-        if ($name -notin @('--workspace', '--model', '--timeout', '--print', '--resume', '--fork')) {
+        if ($name -notin @(
+            '--workspace', '--model', '--timeout', '--print', '--resume', '--fork',
+            '--context-maximum-input-tokens', '--context-reserved-output-tokens',
+            '--context-safety-margin-tokens', '--model-diagnostics', '--model-diagnostics-dir'
+        )) {
             throw "未知参数：$argument"
         }
         if ($values.ContainsKey($name)) {
@@ -126,6 +133,25 @@ function ConvertFrom-CodejArguments {
         throw '--continue、--resume 和 --fork 只能选择一个。'
     }
 
+    $contextMaximum = Get-CodejTokenOption -Values $values -Name '--context-maximum-input-tokens' `
+        -DefaultValue $script:DefaultContextMaximumInputTokens
+    $contextReserved = Get-CodejTokenOption -Values $values -Name '--context-reserved-output-tokens' `
+        -DefaultValue $script:DefaultContextReservedOutputTokens
+    $contextMargin = Get-CodejTokenOption -Values $values -Name '--context-safety-margin-tokens' `
+        -DefaultValue $script:DefaultContextSafetyMarginTokens
+    if ($contextMaximum -le $contextReserved + $contextMargin) {
+        throw 'Context 输入上限必须大于输出保留与安全余量之和。'
+    }
+    $diagnosticMode = if ($values.ContainsKey('--model-diagnostics')) {
+        ([string]$values['--model-diagnostics']).ToLowerInvariant()
+    } else { 'off' }
+    if ($diagnosticMode -notin @('off', 'safe', 'verbose')) {
+        throw '--model-diagnostics 只接受 off、safe 或 verbose。'
+    }
+    if ($diagnosticMode -eq 'off' -and $values.ContainsKey('--model-diagnostics-dir')) {
+        throw '--model-diagnostics-dir 仅可与 safe 或 verbose 一起使用。'
+    }
+
     $workspace = if ($values.ContainsKey('--workspace')) {
         ConvertTo-CodejAbsolutePath -Path $values['--workspace'] -BasePath $InvocationDirectory
     }
@@ -141,10 +167,31 @@ function ConvertFrom-CodejArguments {
         Continue = $flags.ContainsKey('--continue')
         Resume = if ($values.ContainsKey('--resume')) { $values['--resume'] } else { $null }
         Fork = if ($values.ContainsKey('--fork')) { $values['--fork'] } else { $null }
+        ContextMaximumInputTokens = $contextMaximum
+        ContextReservedOutputTokens = $contextReserved
+        ContextSafetyMarginTokens = $contextMargin
+        ModelDiagnostics = $diagnosticMode
+        ModelDiagnosticsDirectory = if ($values.ContainsKey('--model-diagnostics-dir')) {
+            ConvertTo-CodejAbsolutePath -Path $values['--model-diagnostics-dir'] -BasePath $InvocationDirectory
+        } else { $null }
         Rebuild = $flags.ContainsKey('--rebuild')
         Doctor = $flags.ContainsKey('--doctor')
         Help = $flags.ContainsKey('--help')
     }
+}
+
+function Get-CodejTokenOption {
+    param(
+        [Parameter(Mandatory = $true)][hashtable]$Values,
+        [Parameter(Mandatory = $true)][string]$Name,
+        [Parameter(Mandatory = $true)][long]$DefaultValue
+    )
+    if (-not $Values.ContainsKey($Name)) { return $DefaultValue }
+    $parsed = 0L
+    if (-not [long]::TryParse([string]$Values[$Name], [ref]$parsed) -or $parsed -le 0 -or $parsed -gt [int]::MaxValue) {
+        throw "参数 $Name 必须是 1 到 $([int]::MaxValue) 之间的整数。"
+    }
+    return $parsed
 }
 
 function Get-CodejHelpText {
@@ -162,6 +209,8 @@ codej - cc-java 源码开发启动器
   未指定 --workspace 时，使用执行 codej 时的当前目录。
   --print 是一次性非交互 Run；不表示进入 TUI 后预填消息。
   --continue、--resume 和 --fork 选择同一 Workspace 下的持久 Session。
+  默认启用 256000 Token Context 管线；可用 --context-maximum-input-tokens、
+  --context-reserved-output-tokens 和 --context-safety-margin-tokens 显式覆盖。
   --rebuild 忽略开发构建缓存并强制执行 Maven 增量构建。
 '@
 }

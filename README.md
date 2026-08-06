@@ -49,7 +49,7 @@
 > Workspace-aware metadata、本机单 Writer、未完成 Tool Recovery Gate、写前 ordinary-file
 > Checkpoint、有界 Diff 与逐项显式 Undo；Java CLI/Print/stdio/TUI 共用同一 Runtime，Behavior Replay
 > 已验证 Resume/Fork canonical history。任何有副作用操作都绝不自动重放；`SESSION-08` 仍仅为 L1；
-> S07 Context Engineering 已在 Commit-scoped G0-G6 对账后 Accepted：生产路径提供短生命周期 Context Projection、条件式 C1-C4、typed overflow 至多一次恢复、内部 Usage View、M1-M5 文件记忆及 ready-only 零等待预取；离线长会话 Eval 保持 Canonical/Tool 协议、事实/硬约束与完成率，并取得 49% 的估算 Token 降幅中位数。S08 Instructions + Settings 已在实现 Commit `7bac8ea` 上完成 Commit-scoped G0-G6 并 Accepted：生产路径提供 user/project/directory/local 分层 Instructions、Settings v1/LKG、受控 Runtime 映射、`/help`、`/clear`、`/doctor`、`/model`、`/permissions`、`/compact`、`/context`、recovery-gated `/resume`，以及 React/Ink 多行/历史/补全与有界 steering。Settings 写入/迁移、rules 编辑、Provider discovery/多模型注册、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
+> S07 Context Engineering 已在 Commit-scoped G0-G6 对账后 Accepted：生产路径提供短生命周期 Context Projection、条件式 C1-C4、typed overflow 至多一次恢复、内部 Usage View、M1-M5 文件记忆及 ready-only 零等待预取；离线长会话 Eval 保持 Canonical/Tool 协议、事实/硬约束与完成率，并取得 49% 的估算 Token 降幅中位数。S08 的历史实现 Commit `7bac8ea` 保留分层 Instructions、Settings v1/LKG、受控 Runtime 映射、封闭 Slash/Context/Resume 与 steering 证据，并已按 ADR-048 完成 Composer reducer/TUI、折叠无损 Paste、stdio 原子提交和本机 ModelDiagnostic 的 corrective G3-G5：完整 Reactor、TUI 111/111、launcher 59/59、真实 TTY 和独立最终 review 均通过。唯一未满足项是尚无新的固定 corrective implementation Commit，故 G6/S08 Exit 仍 Open，`CLI-08`/`CLI-09` 暂保持 L1；Settings 写入/迁移、rules 编辑、Provider discovery/多模型注册、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
 
 ## 项目目标
 
@@ -265,6 +265,12 @@ codej --doctor         # 只检查路径、运行时、产物和配置来源存�
 codej --rebuild        # 强制重新构建 Java 开发产物
 codej --print "解释这个项目"  # 一次性非交互 Run
 ```
+
+普通 `codej` 默认显式启用 256,000 Token Context 管线（8,192 输出保留、4,096 安全余量），
+因此自动 C1-C4 与无参数 `/compact` 会作用于当前 Session。需要验证其他模型容量时，可通过
+`--context-maximum-input-tokens`、`--context-reserved-output-tokens` 和
+`--context-safety-margin-tokens` 三个参数一起覆盖；这些数值是开发启动契约，不是自动发现的
+Provider 能力。
 
 `codej` 调用目录是 Agent Workspace；cc-java 源码仓库仍负责构建并提供本地 Provider
 配置。仓库移动后 shim 会明确要求重新安装。卸载前可先加 `-WhatIf`：

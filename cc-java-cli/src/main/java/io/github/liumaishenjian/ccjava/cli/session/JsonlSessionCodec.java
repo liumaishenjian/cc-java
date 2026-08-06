@@ -46,10 +46,11 @@ import tools.jackson.databind.node.ObjectNode;
 final class JsonlSessionCodec {
 
     static final int SCHEMA_MAJOR = 1;
-    static final int MAX_LINE_BYTES = 1_048_576;
-    static final long MAX_FILE_BYTES = 16L * 1_048_576L;
+    /** 1 MiB UTF-8 用户文本按 JSON 最坏 6 字节转义后再预留信封。 */
+    static final int MAX_LINE_BYTES = 7 * 1_048_576;
+    static final long MAX_FILE_BYTES = 64L * 1_048_576L;
     static final int MAX_RECORDS = 20_000;
-    private static final int MAX_TEXT_CHARS = 64_000;
+    private static final int MAX_TEXT_CHARS = 1_048_576;
     private static final int MAX_IDENTIFIER_CHARS = 200;
     private static final int MAX_COLLECTION_ITEMS = 256;
     private static final int MAX_JSON_DEPTH = 16;
