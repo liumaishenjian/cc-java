@@ -4,7 +4,7 @@
 >
 > 最后更新：2026-08-06
 >
-> 当前阶段：S01-S07 已 Accepted；S08 Instructions + Settings 已完成 G0-G3。G3 A-F 审计覆盖 Instructions、Settings/LKG、Runtime 映射、命令投影、编辑/steering 与 recovery-gated Resume；`CLI-07`、`CLI-09` 已达到 L2，其余等级等待 G4-G6 闭环。G4-G6 与 Stage Exit 仍 Open。
+> 当前阶段：S01-S07 已 Accepted；S08 Instructions + Settings 已完成 G0-G5。G3 A-F 审计、G4 全量/量化验证与 G5 完整 Demo 已通过；`CLI-07`、`CLI-09` 已达到 L2，其余等级等待 G6 commit-scoped 对账。G6 与 Stage Exit 仍 Open。
 >
 > 产品负责人：项目维护者
 

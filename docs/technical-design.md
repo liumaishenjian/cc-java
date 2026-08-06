@@ -6,14 +6,14 @@
 >
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
-> 当前学习阶段：S01-S07 已 Accepted；S08 Instructions + Settings 已完成 G0-G3，当前为 IN_PROGRESS，
-> G4-G6 仍 Open
+> 当前学习阶段：S01-S07 已 Accepted；S08 Instructions + Settings 已完成 G0-G5，当前为 IN_PROGRESS，
+> G6 仍 Open
 >
 > 当前实现状态：ADR-042/043/044 已固定并验证 Context Projection、条件式 Reduction、文件记忆和零等待
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
 > composition、ready-only Memory Core/Domain Runtime seam、D2 Headless 文件系统生产装配、Context View 与
 > deterministic Fake Demo/Eval 已完成 Commit-scoped G0-G6 对账。ADR-045 冻结 S08 机制研究边界，ADR-046 已冻结 G1 独立产品契约；
-> ADR-047 已冻结 S08 的 Domain/Core/Application/Adapter 边界、独立 user-root guard、严格 Settings parser/last-known-good、命令 Intent/Event 与 G3/G4 切片。G3 A-F 已完成实现与独立审计；审计补齐 Workspace 内部 Instructions Symlink 的逻辑路径拒绝。G4-G6 与 Stage Exit 仍 Open。
+> ADR-047 已冻结 S08 的 Domain/Core/Application/Adapter 边界、独立 user-root guard、严格 Settings parser/last-known-good、命令 Intent/Event 与 G3/G4 切片。G3 A-F 已完成实现与独立审计；审计补齐 Workspace 内部 Instructions Symlink 的逻辑路径拒绝。G4 全量/量化验证与 G5 Demo/Gap 已通过；G6 与 Stage Exit 仍 Open。
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 
