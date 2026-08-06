@@ -317,8 +317,13 @@ export class StdioClient {
     if (this.#closed || this.#failureEmitted) {
       return;
     }
+    this.#closed = true;
+    this.#shutdownRequested = true;
+    this.#clearCancelTimer();
+    this.#pendingSessionCommands.clear();
+    this.#issuedSessionCommandIds.clear();
     this.#emitFailure(message);
-    this.terminate();
+    this.#child.kill();
   }
 
   #emitFailure(message: string): void {

@@ -1,5 +1,6 @@
 package io.github.liumaishenjian.ccjava.domain.command;
 
+import io.github.liumaishenjian.ccjava.domain.PermissionMode;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
 import java.util.List;
 import java.util.Objects;
@@ -81,15 +82,15 @@ public sealed interface SessionCommandIntent permits SessionCommandIntent.Help, 
     }
 
     /**
-     * 请求权限信息或受控变更；本切片不暴露 selector 文本。
+     * 请求权限安全视图或仅变更 PermissionMode；本切片不暴露或编辑 selector/规则。
      *
-     * @param operation 封闭权限动作类别
+     * @param operation 封闭查询或模式变更
      */
     record Permissions(PermissionsOperation operation) implements SessionCommandIntent {
         /**
-         * 验证封闭权限动作。
+         * 创建不含规则文本的封闭权限请求。
          *
-         * @param operation 权限动作类别
+         * @param operation 封闭权限动作
          */
         public Permissions { operation = Objects.requireNonNull(operation, "operation 不能为空"); }
         @Override public SessionCommandKind kind() { return SessionCommandKind.PERMISSIONS; }
@@ -111,12 +112,24 @@ public sealed interface SessionCommandIntent permits SessionCommandIntent.Help, 
         @Override public String toString() { return "Resume[sessionId=<redacted>]"; }
     }
 
-    /** 不解析 selector 的封闭权限动作种类。 */
-    enum PermissionsOperation {
-        /** 仅查询当前权限状态。 */
-        QUERY,
-        /** 请求受控权限变更。 */
-        CHANGE
+    /** 不解析 selector、规则或 grant 的封闭权限动作。 */
+    sealed interface PermissionsOperation permits PermissionsOperation.Query, PermissionsOperation.ModeChange {
+        /** 仅查询当前已发布安全状态。 */
+        record Query() implements PermissionsOperation { }
+
+        /**
+         * 仅替换下一 Run 的 PermissionMode 默认值。
+         *
+         * @param mode 已封闭的 S05 PermissionMode
+         */
+        record ModeChange(PermissionMode mode) implements PermissionsOperation {
+            /**
+             * 验证已封闭的 S05 PermissionMode。
+             *
+             * @param mode 已封闭的 S05 PermissionMode
+             */
+            public ModeChange { mode = Objects.requireNonNull(mode, "mode 不能为空"); }
+        }
     }
 
     private static boolean invalidText(String value) {

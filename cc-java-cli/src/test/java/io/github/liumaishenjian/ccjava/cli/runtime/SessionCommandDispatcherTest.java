@@ -84,7 +84,14 @@ class SessionCommandDispatcherTest {
 
             assertCode(dispatcher, "compact", new SessionCommandIntent.Compact(List.of()), SessionCommandResultCode.NOT_AVAILABLE);
             assertCode(dispatcher, "model", new SessionCommandIntent.ModelChange("other"), SessionCommandResultCode.NOT_AVAILABLE);
-            assertCode(dispatcher, "permissions", new SessionCommandIntent.Permissions(SessionCommandIntent.PermissionsOperation.QUERY), SessionCommandResultCode.DEFERRED);
+            var permissions = dispatcher.dispatch(new CommandId("permissions"),
+                    new SessionCommandIntent.Permissions(new SessionCommandIntent.PermissionsOperation.Query()),
+                    CancellationToken.none());
+            assertThat(permissions.event().status()).isEqualTo(SessionCommandStatus.SUCCEEDED);
+            assertThat(permissions.event().code()).isEqualTo(SessionCommandResultCode.OK);
+            assertThat(permissions.event().payload()).isEqualTo(
+                    new io.github.liumaishenjian.ccjava.domain.command.SessionCommandEvent.PermissionsPayload(
+                            "DEFAULT", "BASELINE", "runtime-baseline", "BASELINE", 0, List.of()));
             assertCode(dispatcher, "resume", new SessionCommandIntent.Resume(runtime.sessionId()), SessionCommandResultCode.DEFERRED);
             assertCode(dispatcher, "clear", new SessionCommandIntent.Clear(), SessionCommandResultCode.DEFERRED);
 
@@ -160,7 +167,7 @@ class SessionCommandDispatcherTest {
 
             assertCode(dispatcher, "compact", new SessionCommandIntent.Compact(List.of()), SessionCommandResultCode.ACTIVE_RUN);
             assertCode(dispatcher, "model", new SessionCommandIntent.ModelChange("fake-model"), SessionCommandResultCode.ACTIVE_RUN);
-            assertCode(dispatcher, "permissions", new SessionCommandIntent.Permissions(SessionCommandIntent.PermissionsOperation.CHANGE), SessionCommandResultCode.ACTIVE_RUN);
+            assertCode(dispatcher, "permissions", new SessionCommandIntent.Permissions(new SessionCommandIntent.PermissionsOperation.ModeChange(io.github.liumaishenjian.ccjava.domain.PermissionMode.PLAN)), SessionCommandResultCode.ACTIVE_RUN);
             assertCode(dispatcher, "resume", new SessionCommandIntent.Resume(runtime.sessionId()), SessionCommandResultCode.ACTIVE_RUN);
             assertThat(dispatcher.dispatch(new CommandId("help"), new SessionCommandIntent.Help(), CancellationToken.none()).event().status())
                     .isEqualTo(SessionCommandStatus.SUCCEEDED);

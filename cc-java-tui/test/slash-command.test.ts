@@ -9,8 +9,14 @@ describe('parseSlashCommand', () => {
     expect(parseSlashCommand('/compact focus release')).toEqual({
       kind: 'command', command: {intent: 'compact', arguments: {anchors: ['focus', 'release']}},
     });
+    expect(parseSlashCommand('/permissions')).toEqual({
+      kind: 'command', command: {intent: 'permissions', arguments: {}},
+    });
     expect(parseSlashCommand('/permissions query')).toEqual({
-      kind: 'command', command: {intent: 'permissions', arguments: {operation: 'query'}},
+      kind: 'command', command: {intent: 'permissions', arguments: {}},
+    });
+    expect(parseSlashCommand('/permissions mode ACCEPT_EDITS')).toEqual({
+      kind: 'command', command: {intent: 'permissions', arguments: {mode: 'ACCEPT_EDITS'}},
     });
   });
 
@@ -19,6 +25,9 @@ describe('parseSlashCommand', () => {
     expect(parseSlashCommand('/unknown')).toEqual({kind: 'invalid', message: '未知 Slash 命令'});
     expect(parseSlashCommand('/doctor extra').kind).toBe('invalid');
     expect(parseSlashCommand(`/model ${'x'.repeat(257)}`).kind).toBe('invalid');
+    expect(parseSlashCommand('/permissions change').kind).toBe('invalid');
+    expect(parseSlashCommand('/permissions mode plan').kind).toBe('invalid');
+    expect(parseSlashCommand('/permissions mode PLAN extra').kind).toBe('invalid');
   });
 
   it('renders fixed local status without server-provided text', () => {

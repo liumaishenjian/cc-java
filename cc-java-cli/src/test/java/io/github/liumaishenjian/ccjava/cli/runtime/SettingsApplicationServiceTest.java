@@ -55,6 +55,67 @@ class SettingsApplicationServiceTest {
     }
 
     @Test
+    void sessionPatchPreservesOtherOverlayFieldsAndCliPrecedenceWithoutFixedReads() throws Exception {
+        Path home = Files.createDirectories(root.resolve("home"));
+        Path workspace = Files.createDirectories(root.resolve("workspace"));
+        try (HeadlessRuntimeSession runtime = runtime(workspace)) {
+            runtime.open();
+            AtomicInteger calls = new AtomicInteger();
+            SettingsApplicationService service = new SettingsApplicationService(runtime, countingLoader(home, runtime, calls),
+                    runtime.builtinToolRegistry());
+            DeclaredSettings session = new DeclaredSettings(Optional.of("fake-model"), Optional.of("PLAN"), List.of(),
+                    Optional.of(List.of("read_file")), Map.of(), List.of("retain"), Optional.of("DETAIL"));
+            assertThat(service.replaceSessionOverlay(Optional.of(session), CancellationToken.none()).published()).isTrue();
+            int callsBeforePatch = calls.get();
+            assertThat(service.patchSessionOverlay(new io.github.liumaishenjian.ccjava.domain.settings.SessionSettingsPatch.PermissionModeChange(PermissionMode.DEFAULT),
+                    CancellationToken.none()).published()).isTrue();
+            var patched = service.current().orElseThrow().settings();
+            assertThat(patched.modelName().orElseThrow().value()).isEqualTo("fake-model");
+            assertThat(patched.permissionMode().orElseThrow().value()).isEqualTo("DEFAULT");
+            assertThat(patched.permissionRules()).isEmpty();
+            assertThat(patched.enabledTools().orElseThrow().value()).extracting(value -> value.value()).containsExactly("read_file");
+            assertThat(patched.toolConfigurations()).isEmpty();
+            assertThat(patched.compactInstructions()).extracting(value -> value.instruction()).containsExactly("retain");
+            assertThat(patched.diagnosticsVerbosity().orElseThrow().value()).isEqualTo("DETAIL");
+            assertThat(calls).hasValue(callsBeforePatch);
+            assertThat(service.replaceCliOverlay(Optional.of(declaredMode("PLAN")), CancellationToken.none()).published()).isTrue();
+            assertThat(runtime.runtimeConfiguration().permissionMode()).isEqualTo(PermissionMode.PLAN);
+            assertThat(service.patchSessionOverlay(new io.github.liumaishenjian.ccjava.domain.settings.SessionSettingsPatch.PermissionModeChange(PermissionMode.ACCEPT_EDITS),
+                    CancellationToken.none()).published()).isTrue();
+            assertThat(runtime.runtimeConfiguration().permissionMode()).isEqualTo(PermissionMode.PLAN);
+        }
+    }
+
+    @Test
+    void cancellationAtCommitBoundaryRetainsLkgRuntimeScopeAndSessionOverlay() throws Exception {
+        Path home = Files.createDirectories(root.resolve("home"));
+        Path workspace = Files.createDirectories(root.resolve("workspace"));
+        try (HeadlessRuntimeSession runtime = runtime(workspace)) {
+            runtime.open();
+            SettingsApplicationService service = new SettingsApplicationService(runtime,
+                    countingLoader(home, runtime, new AtomicInteger()), runtime.builtinToolRegistry());
+            assertThat(service.replaceSessionOverlay(Optional.of(declaredMode("PLAN")), CancellationToken.none()).published()).isTrue();
+            var lkg = service.current().orElseThrow();
+            var scope = runtime.runtimeConfiguration();
+            AtomicInteger checks = new AtomicInteger();
+            CancellationToken cancelledBeforeCommit = new CancellationToken() {
+                @Override public boolean isCancellationRequested() { return checks.incrementAndGet() >= 6; }
+                @Override public Registration onCancellation(Runnable action) { return () -> { }; }
+            };
+
+            var result = service.patchSessionOverlay(
+                    new io.github.liumaishenjian.ccjava.domain.settings.SessionSettingsPatch.PermissionModeChange(PermissionMode.ACCEPT_EDITS),
+                    cancelledBeforeCommit);
+
+            assertThat(result.published()).isFalse();
+            assertThat(result.diagnostics()).singleElement().hasToString(
+                    "ConfigurationFailure[code=CANCELLED, sourceKind=DEFAULTS, fieldPath=Optional.empty]");
+            assertThat(service.current()).contains(lkg);
+            assertThat(runtime.runtimeConfiguration()).isSameAs(scope);
+        }
+    }
+
+    @Test
     void currentReadsPublishedLkgWithoutInvokingFixedSourceLoader() throws Exception {
         Path home = Files.createDirectories(root.resolve("home"));
         Path workspace = Files.createDirectories(root.resolve("workspace"));

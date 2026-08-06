@@ -2,6 +2,8 @@ package io.github.liumaishenjian.ccjava.cli.runtime;
 
 import io.github.liumaishenjian.ccjava.core.CancellationToken;
 import io.github.liumaishenjian.ccjava.domain.ContextUsageView;
+import io.github.liumaishenjian.ccjava.domain.settings.EffectivePermissionRule;
+import io.github.liumaishenjian.ccjava.domain.settings.SessionSettingsPatch;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
 import io.github.liumaishenjian.ccjava.domain.command.CommandId;
 import io.github.liumaishenjian.ccjava.domain.command.SessionCommandEvent;
@@ -125,10 +127,10 @@ public final class SessionCommandDispatcher {
                         SessionCommandResultCode.NOT_AVAILABLE);
                 case SessionCommandIntent.Context ignored -> context(commandId, sessionId);
                 case SessionCommandIntent.Doctor ignored -> success(intent.kind(), commandId, sessionId, doctor.report());
-                case SessionCommandIntent.ModelChange ignored -> rejected(intent.kind(), commandId, sessionId,
-                        SessionCommandResultCode.NOT_AVAILABLE);
-                case SessionCommandIntent.Permissions ignored -> rejected(intent.kind(), commandId, sessionId,
-                        SessionCommandResultCode.DEFERRED);
+                case SessionCommandIntent.ModelChange model -> applyPatch(commandId, sessionId,
+                        new SessionSettingsPatch.ModelName(model.modelName()), cancellationToken);
+                case SessionCommandIntent.Permissions permissions -> permissions(commandId, sessionId, permissions.operation(),
+                        cancellationToken);
                 case SessionCommandIntent.Resume ignored -> rejected(intent.kind(), commandId, sessionId,
                         SessionCommandResultCode.DEFERRED);
             };
@@ -136,6 +138,96 @@ public final class SessionCommandDispatcher {
             return terminal(intent.kind(), commandId, safeSessionId(), SessionCommandStatus.FAILED,
                     SessionCommandResultCode.INTERNAL_FAILURE, new SessionCommandEvent.EmptyPayload());
         }
+    }
+
+    private SessionCommandResult permissions(CommandId commandId, SessionId sessionId,
+                                             SessionCommandIntent.PermissionsOperation operation,
+                                             CancellationToken cancellationToken) {
+        return switch (operation) {
+            case SessionCommandIntent.PermissionsOperation.Query ignored -> permissionsView(commandId, sessionId);
+            case SessionCommandIntent.PermissionsOperation.ModeChange change -> applyPatch(commandId, sessionId,
+                    new SessionSettingsPatch.PermissionModeChange(change.mode()), cancellationToken);
+        };
+    }
+
+    /**
+     * 通过 Session Settings Application 事务应用下一 Run 的受限标量更新。
+     *
+     * <p>调用方的取消 token 原样交给 Application，避免命令层把取消误报为参数错误。除成功、
+     * 已知拒绝和取消外，Scope/CAS 构建故障统一收敛为内部失败，且不会回显配置值。</p>
+     */
+    private SessionCommandResult applyPatch(CommandId commandId, SessionId sessionId, SessionSettingsPatch patch,
+                                            CancellationToken cancellationToken) {
+        SessionCommandKind kind = patch instanceof SessionSettingsPatch.ModelName
+                ? SessionCommandKind.MODEL_CHANGE : SessionCommandKind.PERMISSIONS;
+        return runtime.patchSessionSettings(patch, cancellationToken)
+                .<SessionCommandResult>map(result -> result.published()
+                        ? success(kind, commandId, sessionId, new SessionCommandEvent.EmptyPayload())
+                        : mappedPatchFailure(kind, commandId, sessionId, result))
+                .orElseGet(() -> rejected(kind, commandId, sessionId, SessionCommandResultCode.NOT_AVAILABLE));
+    }
+
+    private static SessionCommandResult mappedPatchFailure(SessionCommandKind kind, CommandId commandId, SessionId sessionId,
+                                                           SettingsApplicationService.SettingsApplicationResult result) {
+        if (result.diagnostics().stream().anyMatch(diagnostic -> diagnostic instanceof SettingsApplicationService.ConfigurationFailure failure
+                && failure.code() == io.github.liumaishenjian.ccjava.domain.settings.ConfigurationDiagnosticCode.CANCELLED)) {
+            return terminal(kind, commandId, sessionId, SessionCommandStatus.CANCELLED, SessionCommandResultCode.CANCELLED,
+                    new SessionCommandEvent.EmptyPayload());
+        }
+        if (result.diagnostics().stream().anyMatch(SessionCommandDispatcher::isInternalFailure)) {
+            return terminal(kind, commandId, sessionId, SessionCommandStatus.FAILED, SessionCommandResultCode.INTERNAL_FAILURE,
+                    new SessionCommandEvent.EmptyPayload());
+        }
+        return rejected(kind, commandId, sessionId, code(result));
+    }
+
+    private static boolean isInternalFailure(SettingsApplicationService.ApplicationDiagnostic diagnostic) {
+        if (diagnostic instanceof SettingsApplicationService.RuntimeFailure failure) {
+            return failure.code() == io.github.liumaishenjian.ccjava.domain.settings.RuntimeSettingsDiagnosticCode.INTERNAL_FAILURE;
+        }
+        if (diagnostic instanceof SettingsApplicationService.ConfigurationFailure failure) {
+            return failure.code() == io.github.liumaishenjian.ccjava.domain.settings.ConfigurationDiagnosticCode.CAS_CONFLICT
+                    || failure.code() == io.github.liumaishenjian.ccjava.domain.settings.ConfigurationDiagnosticCode.REVISION_EXHAUSTED
+                    || failure.code() == io.github.liumaishenjian.ccjava.domain.settings.ConfigurationDiagnosticCode.INTERNAL_FAILURE;
+        }
+        return false;
+    }
+
+    /**
+     * 读取下一 Run 的实际 PermissionMode 与已发布 Settings 派生规则来源。
+     *
+     * <p>Runtime baseline mode 在无 LKG 时仍可查询；规则列表只报告 EffectiveSettings 中会映射为
+     * STARTUP 的声明，绝不把 Session grant、Hard Denial 或其他 Runtime 规则误称为 Settings 规则。</p>
+     */
+    private SessionCommandResult permissionsView(CommandId commandId, SessionId sessionId) {
+        var runtimeConfiguration = runtime.runtimeConfiguration();
+        return runtime.settingsSnapshot().<SessionCommandResult>map(snapshot -> {
+            var settings = snapshot.settings();
+            var provenance = settings.permissionMode().map(value -> value.provenance());
+            List<SessionCommandEvent.PermissionRuleProvenance> rules = settings.permissionRules().stream()
+                    .map(this::safeRule).toList();
+            return success(SessionCommandKind.PERMISSIONS, commandId, sessionId,
+                    new SessionCommandEvent.PermissionsPayload(runtimeConfiguration.permissionMode().name(),
+                            provenance.map(value -> value.sourceId().kind().name()).orElse("BASELINE"),
+                            provenance.map(value -> value.sourceId().safeId()).orElse("runtime-baseline"),
+                            provenance.map(value -> value.validationStatus().name()).orElse("BASELINE"), rules.size(), rules));
+        }).orElseGet(() -> success(SessionCommandKind.PERMISSIONS, commandId, sessionId,
+                new SessionCommandEvent.PermissionsPayload(runtimeConfiguration.permissionMode().name(), "BASELINE",
+                        "runtime-baseline", "BASELINE", 0, List.of())));
+    }
+
+    private SessionCommandEvent.PermissionRuleProvenance safeRule(EffectivePermissionRule rule) {
+        var provenance = rule.provenance();
+        return new SessionCommandEvent.PermissionRuleProvenance(rule.definition().ruleId(),
+                provenance.sourceId().kind().name(), provenance.sourceId().safeId(), provenance.operation().name(),
+                provenance.validationStatus().name());
+    }
+
+    private static SessionCommandResultCode code(SettingsApplicationService.SettingsApplicationResult result) {
+        return result.diagnostics().stream().anyMatch(diagnostic -> diagnostic instanceof SettingsApplicationService.RuntimeFailure failure
+                && failure.code() == io.github.liumaishenjian.ccjava.domain.settings.RuntimeSettingsDiagnosticCode.ACTIVE_RUN)
+                ? SessionCommandResultCode.ACTIVE_RUN
+                : SessionCommandResultCode.INVALID_ARGUMENT;
     }
 
     private SessionCommandResult clear(CommandId commandId, SessionId sessionId) {
@@ -172,8 +264,11 @@ public final class SessionCommandDispatcher {
             case HELP, CONTEXT, DOCTOR -> SessionCommandEvent.CommandSupport.AVAILABLE;
             case CLEAR -> hasTransientSurface ? SessionCommandEvent.CommandSupport.AVAILABLE
                     : SessionCommandEvent.CommandSupport.DEFERRED;
-            case COMPACT, MODEL_CHANGE -> SessionCommandEvent.CommandSupport.NOT_AVAILABLE;
-            case PERMISSIONS, RESUME -> SessionCommandEvent.CommandSupport.DEFERRED;
+            case COMPACT -> SessionCommandEvent.CommandSupport.NOT_AVAILABLE;
+            case MODEL_CHANGE -> runtime.settingsSnapshot().isPresent()
+                    ? SessionCommandEvent.CommandSupport.AVAILABLE : SessionCommandEvent.CommandSupport.NOT_AVAILABLE;
+            case PERMISSIONS -> SessionCommandEvent.CommandSupport.AVAILABLE;
+            case RESUME -> SessionCommandEvent.CommandSupport.DEFERRED;
         };
     }
 

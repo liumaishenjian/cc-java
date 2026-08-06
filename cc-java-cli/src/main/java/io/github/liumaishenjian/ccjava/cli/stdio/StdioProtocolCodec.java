@@ -186,7 +186,7 @@ public final class StdioProtocolCodec {
             case "help", "clear", "context", "doctor" -> Set.of();
             case "compact" -> Set.of("anchors");
             case "model" -> Set.of("name");
-            case "permissions" -> Set.of("operation");
+            case "permissions" -> Set.of("mode");
             case "resume" -> Set.of("sessionId");
             default -> throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "未知 session.command intent");
         };
@@ -208,10 +208,10 @@ public final class StdioProtocolCodec {
         if (intent.equals("model") && invalidCommandText(requiredPayloadText(arguments, "name", requestId))) {
             throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "model name 非法");
         }
-        if (intent.equals("permissions")) {
-            String operation = requiredPayloadText(arguments, "operation", requestId);
-            if (!operation.equals("query") && !operation.equals("change")) {
-                throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "permissions operation 非法");
+        if (intent.equals("permissions") && !arguments.isEmpty()) {
+            String mode = requiredPayloadText(arguments, "mode", requestId);
+            if (!mode.equals("DEFAULT") && !mode.equals("PLAN") && !mode.equals("ACCEPT_EDITS")) {
+                throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "permissions mode 非法");
             }
         }
         if (intent.equals("resume") && invalidCommandText(requiredPayloadText(arguments, "sessionId", requestId))) {

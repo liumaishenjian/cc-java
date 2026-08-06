@@ -95,8 +95,8 @@ SettingsSnapshotStore.current() / replaceIfCurrent(expectedRevision, replacement
 
 `RuntimeSettingsApplier` 是 Application 层唯一的投影入口。它接受 `EffectiveSettings`，仅把经过 Domain 校验的 `model.name`、Permission mode/rules、Tool visibility、Tool config 和 compact anchors 转换为下一 Run 的 `RuntimeConfiguration`。映射只在无活动 Run 的会话安全边界执行；失败时保持上一 `RuntimeConfiguration`。
 
-- `model.name` 只选择已由现有 Provider 装配接受的名称；它不能提供 Base URL、凭证、能力声明、Context 容量或重试策略。
-- `permission.mode` 和 `permission.rules` 进入既有 S05 `PermissionPolicy`，仍按 Hard Denial → DENY → PLAN → ASK → ALLOW → Mode/Effect default 决策；设置来源、项目指令、命令或 provenance 绝不成为可信 ToolSource 或超越此顺序的权限来源。
+- `model.name` 只选择已由现有 Provider 装配接受的名称；本 G3-C/D 子切片只允许当前启动时配置的单一模型名，Provider discovery 和多模型注册延期。它不能提供 Base URL、凭证、能力声明、Context 容量或重试策略。
+- `permission.mode` 和 `permission.rules` 进入既有 S05 `PermissionPolicy`，仍按 Hard Denial → DENY → PLAN → ASK → ALLOW → Mode/Effect default 决策；本子切片的 Slash/stdio 只允许 `PermissionMode`，rules/selector 编辑延期。设置来源、项目指令、命令或 provenance 绝不成为可信 ToolSource 或超越此顺序的权限来源。
 - Tool visibility 仅从已注册 builtin 集合取交集，能缩小但不能增加 Tool、发现 Tool、变更 Effect/ToolSource、改变 Workspace 或放松参数/输出上限。
 - Tool config 仅传给对应 Tool 已注册的非 Secret、非执行策略 schema；不得更改 Shell、超时硬上限、网络、Sandbox、敏感路径、WorkspaceGuard 或结果上限。
 - Session/CLI 权限更新也必须经过既有 selector 提取、审批与 Lifecycle/Pipeline；不得把 `/permissions` 或磁盘 JSON 直接写入内存 Grant、跳过 `DENY`/`PLAN`、解除 Hard Denial 或放行 S06 fenced/incomplete Session。
@@ -123,7 +123,7 @@ SessionCommandEvent(kind, commandId, sessionId, payload)
 | `Context` | 只读 | 只投影最新 `ContextUsageView` 的数值/枚举；不可用返回固定 code。 |
 | `Doctor` | 只读 | 汇总已经可用的 Settings/Instructions/Context/Surface 诊断；不得刷新、写入或回显正文。 |
 | `ModelChange` | idle settings overlay → replaced | 校验后仅替换当前 Session 内存 override，下一 Run 使用；运行中、无效或不支持时旧值不变。 |
-| `Permissions` | idle policy overlay → replaced | 先经 S05 类型化 policy 校验，成功后替换内存 overlay；Hard Denial、可信来源、Recovery Gate 和既有 Grant 不可改变。 |
+| `Permissions` | query → 安全投影；idle mode overlay → replaced | query 始终投影当前 Runtime effective mode；无 Settings LKG 时以 `BASELINE/runtime-baseline` 报告零条 Settings STARTUP rules。mode 变更先经 S05 类型化 policy 校验，成功后替换内存 overlay；Hard Denial、可信来源、Recovery Gate 和既有 Grant 不可改变。 |
 | `Resume` | current session → candidate open → switched | 调用既有 S06 Create/Resume/Inspect 选择服务；只有 Workspace、Writer、fence 与 incomplete-side-effect Gate 全部通过才替换当前 Session。失败/取消保留当前 Session，绝不自动重放 Tool。 |
 
 `/compact`、`/context`、`/doctor` 可以作为无活动 Run 的只读/投影操作；`/model`、`/permissions` 与 `/resume` 必须拒绝活动 Run，避免与模型/Tool durable 顺序竞争。活动 Run 中仅 `steering` 可排队：它是 Surface 受限输入，不是 Slash 的旁路；队列消息只在当前 Run 终态后的下一 Run 边界消费，取消/clear/shutdown 丢弃未发送项，不写 Canonical Transcript 或 Session JSONL。

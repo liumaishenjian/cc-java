@@ -46,10 +46,14 @@ export function parseSlashCommand(input: string): SlashParseResult {
     return {kind: 'command', command: {intent, arguments: {anchors: values}}};
   }
   if (intent === 'permissions') {
-    const operation = values[0];
-    return values.length === 1 && (operation === 'query' || operation === 'change')
-      ? {kind: 'command', command: {intent, arguments: {operation}}}
-      : {kind: 'invalid', message: '/permissions 只接受 query 或 change'};
+    if (values.length === 0 || (values.length === 1 && values[0] === 'query')) {
+      return {kind: 'command', command: {intent, arguments: {}}};
+    }
+    const [operation, mode] = values;
+    return values.length === 2 && operation === 'mode' && mode !== undefined
+      && (mode === 'DEFAULT' || mode === 'PLAN' || mode === 'ACCEPT_EDITS')
+      ? {kind: 'command', command: {intent, arguments: {mode}}}
+      : {kind: 'invalid', message: '/permissions 只接受 query 或 mode DEFAULT|PLAN|ACCEPT_EDITS'};
   }
   const value = values[0];
   const key = intent === 'model' ? 'name' : 'sessionId';

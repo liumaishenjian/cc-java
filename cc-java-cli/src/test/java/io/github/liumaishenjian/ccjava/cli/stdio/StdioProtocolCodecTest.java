@@ -104,6 +104,22 @@ class StdioProtocolCodecTest {
                 {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
                  "sequence":2,"payload":{"protocolVersion":0,"commandId":"bad\\ncommand","intent":"help","arguments":{}}}
                 """, "INVALID_PAYLOAD");
+        assertThat(codec.decodeCommand("""
+                {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
+                 "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"permissions","arguments":{}}}
+                """).type()).isEqualTo("session.command");
+        assertThat(codec.decodeCommand("""
+                {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
+                 "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"permissions","arguments":{"mode":"PLAN"}}}
+                """).type()).isEqualTo("session.command");
+        assertProtocolError("""
+                {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
+                 "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"permissions","arguments":{"operation":"query"}}}
+                """, "UNKNOWN_FIELD");
+        assertProtocolError("""
+                {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
+                 "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"permissions","arguments":{"mode":"INVALID"}}}
+                """, "INVALID_ARGUMENT");
     }
 
     @Test

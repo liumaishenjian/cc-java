@@ -1344,9 +1344,7 @@ S08 G0 已由 ADR-045 完成授权机制研究，G1 已由 ADR-046 冻结逐字�
 scalar/object/list/delete 语义、Instructions 发现/范围/不支持 import、Slash/doctor 最小语义与可证伪实验；G2 已由
 ADR-047 冻结 Domain/Core/Application/Adapter 的有效配置、provenance、诊断、Command Intent/Event、严格 duplicate-key
 parser、last-known-good 刷新和 G3/G4 切片。Workspace 内 Instructions 继续由 `WorkspaceGuard` 验证；位于 Workspace
-外的固定 user Instructions root 必须由独立 user-root guard 验证，绝不将其误用为 WorkspaceGuard 输入。该冻结不创建持久
-配置格式或实现，且不得让项目文本、Settings 或 Slash Command 绕过 S05 Permission Pipeline、S06 Recovery Gate、
-WorkspaceGuard、独立 user-root guard 或 Hard Denial。G3-D 的 Java Application foundation 只读取已发布的 LKG、Instructions 和 latest Context Usage 形成白名单 doctor/context 投影；不得触发 refresh/discovery、文件 I/O、Provider/Tool 或 JSONL 写入。缺少既有安全 API 的 explicit compact、热 resume、运行时 model/permissions 修改返回固定终态，stdio/Slash/TUI codec 仍延期。
+外的固定 user Instructions root 必须由独立 user-root guard 验证，绝不将其误用为 WorkspaceGuard 输入。G3-C/D 的受限实现使用 sealed Session patch 从当前内存 overlay 复制所有非目标字段，经 `SettingsResolver`、`RuntimeSettingsApplier`、LKG CAS 与 RuntimeScope 原子替换后才提交；取消、active、无效模型/mode、CAS 或 Scope/internal 失败均保留旧 overlay/LKG/scope。`/model` 仅接受启动时配置的单一模型名，Provider discovery/多模型注册延期；`/permissions` 只接受 `DEFAULT`、`PLAN`、`ACCEPT_EDITS`，query 返回当前 Runtime mode 与仅 Settings-derived STARTUP rules 的无 selector provenance，并在无 LKG 时返回 `BASELINE/runtime-baseline`。这一路径不触发 fixed-source refresh/discovery、文件 I/O、Provider/Tool、JSONL 或 Checkpoint 写入；不得让项目文本、Settings 或 Slash Command 绕过 S05 Permission Pipeline、S06 Recovery Gate、WorkspaceGuard、独立 user-root guard 或 Hard Denial。explicit compact、热 resume、多行/历史/补全/steering 和规则编辑继续延期。
 
 ## 21. Trust Boundary 与安全
 

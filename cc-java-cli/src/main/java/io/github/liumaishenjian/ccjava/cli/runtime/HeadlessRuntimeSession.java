@@ -36,6 +36,7 @@ import io.github.liumaishenjian.ccjava.domain.ToolSource;
 import io.github.liumaishenjian.ccjava.domain.settings.DeclaredSettings;
 import io.github.liumaishenjian.ccjava.domain.settings.RuntimeConfiguration;
 import io.github.liumaishenjian.ccjava.domain.settings.RuntimeDiagnosticsVerbosity;
+import io.github.liumaishenjian.ccjava.domain.settings.SessionSettingsPatch;
 import io.github.liumaishenjian.ccjava.model.springai.OpenAiCompatibleModelFactory;
 import io.github.liumaishenjian.ccjava.model.springai.SpringAiContextSummarizer;
 import io.github.liumaishenjian.ccjava.model.springai.SpringAiModelGateway;
@@ -677,17 +678,27 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
      * 在单一生命周期边界内提交已准备 Scope 与 Settings LKG CAS。
      *
      * <p>仅同包 Settings Application 可调用，避免公开 API 在 lifecycle lock 内执行任意回调。
-     * 文件/Git I/O 与候选 Scope 构建均由调用方在锁外完成；回调异常、活动 Run 或关闭均保持旧状态。</p>
+     * 文件/Git I/O 与候选 Scope 构建均由调用方在锁外完成；回调异常、活动 Run、关闭或 CAS 前取消均保持旧状态。</p>
+     *
+     * @param configuration 已准备的完整 Runtime 配置
+     * @param store Settings LKG 的 compare-and-set 存储
+     * @param expectedRevision 当前 LKG revision 或首次发布标记
+     * @param snapshot 候选完整 LKG
+     * @param cancellationToken 调用方的协作式取消边界
+     * @return Scope/LKG 的原子提交分类
      */
     SettingsCommitResult replaceRuntimeConfigurationAtomically(
             RuntimeConfiguration configuration,
             io.github.liumaishenjian.ccjava.core.settings.SettingsSnapshotStore store,
             Optional<Long> expectedRevision,
-            io.github.liumaishenjian.ccjava.core.settings.EffectiveSettingsSnapshot snapshot) {
+            io.github.liumaishenjian.ccjava.core.settings.EffectiveSettingsSnapshot snapshot,
+            io.github.liumaishenjian.ccjava.core.CancellationToken cancellationToken) {
         Objects.requireNonNull(configuration, "configuration 不能为空");
         Objects.requireNonNull(store, "store 不能为空");
         Objects.requireNonNull(expectedRevision, "expectedRevision 不能为空");
         Objects.requireNonNull(snapshot, "snapshot 不能为空");
+        Objects.requireNonNull(cancellationToken, "cancellationToken 不能为空");
+        if (cancellationToken.isCancellationRequested()) return SettingsCommitResult.CANCELLED;
         if (isClosedOrActive()) return SettingsCommitResult.ACTIVE_OR_CLOSED;
         final HeadlessRuntimeScope candidate;
         try {
@@ -696,6 +707,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             return SettingsCommitResult.INTERNAL_FAILURE;
         }
         synchronized (lifecycleMonitor) {
+            if (cancellationToken.isCancellationRequested()) return SettingsCommitResult.CANCELLED;
             if (closed || activeRun != null) return SettingsCommitResult.ACTIVE_OR_CLOSED;
             try {
                 if (!store.replaceIfCurrent(expectedRevision, snapshot)) return SettingsCommitResult.CAS_CONFLICT;
@@ -714,6 +726,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     enum SettingsCommitResult {
         COMMITTED,
         ACTIVE_OR_CLOSED,
+        CANCELLED,
         CAS_CONFLICT,
         INTERNAL_FAILURE
     }
@@ -764,6 +777,22 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     }
 
     /**
+     * 对下一 Run 的 Session 内存 Settings overlay 应用受限标量补丁。
+     *
+     * <p>补丁不会读取 Settings 文件或写入 Session JSONL、Checkpoint；未接线 Settings 的 Fake
+     * Session 返回空，以便调用方固定报告当前功能不可用。</p>
+     *
+     * @param patch 仅模型或 PermissionMode 的封闭更新
+     * @param cancellationToken 本次替换的取消边界
+     * @return Settings 启用时的发布或拒绝结果；Fake Session 为空
+     */
+    public Optional<SettingsApplicationService.SettingsApplicationResult> patchSessionSettings(
+            SessionSettingsPatch patch, io.github.liumaishenjian.ccjava.core.CancellationToken cancellationToken) {
+        SettingsApplicationService application = settingsApplication;
+        return application == null ? Optional.empty() : Optional.of(application.patchSessionOverlay(patch, cancellationToken));
+    }
+
+    /**
      * 替换下一 Run 的 CLI 内存 Settings overlay；不会持久化到文件或 Session JSONL。
      *
      * @param overlay 已验证的 CLI 声明；空值移除 overlay
@@ -777,10 +806,22 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     }
 
     /**
+     * 读取当前已发布 Settings LKG，绝不刷新来源、读取文件、构造 Scope、调用 Provider 或写入 JSONL。
+     *
+     * @return 当前 Settings 未启用或尚未发布时为空
+     */
+    Optional<EffectiveSettingsSnapshot> settingsSnapshot() {
+        SettingsApplicationService application = settingsApplication;
+        return application == null ? Optional.empty() : application.current();
+    }
+
+    /**
      * 读取已经发布的 doctor 安全快照。
      *
      * <p>该方法只读取内存中的 LKG、Instructions 与 Context 投影；绝不刷新来源、读取文件、
      * 构造 Scope、调用 Provider 或写入 JSONL。</p>
+     *
+     * @return 供 DoctorReportService 使用的只读安全输入
      */
     DoctorSnapshot doctorSnapshot() {
         Optional<EffectiveSettingsSnapshot> settings = settingsApplication == null

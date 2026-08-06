@@ -181,6 +181,24 @@ describe('decodeEvent', () => {
     }), 1)).toThrowError(/session\.command\.result/);
   });
 
+  it('严格校验 permissions 安全投影且不接受 selector 泄漏', () => {
+    const result = {
+      effectiveMode: 'PLAN', modeSourceKind: 'PROJECT_SHARED', modeSafeSourceId: 'project-shared',
+      modeValidationStatus: 'VALID', startupRuleCount: 1,
+      rules: [{ruleId: 'project-read', sourceKind: 'PROJECT_SHARED', safeSourceId: 'project-shared',
+        operation: 'REPLACE', validationStatus: 'VALID'}],
+    };
+    expect(decodeEvent(JSON.stringify({
+      version: 0, type: 'session.command.result', requestId: 'req-permissions', sessionId: 'session-1', sequence: 1,
+      payload: {commandId: 'permissions-1', intent: 'permissions', status: 'succeeded', code: 'ok', result},
+    }), 1).payload.result).toEqual(result);
+    expect(() => decodeEvent(JSON.stringify({
+      version: 0, type: 'session.command.result', requestId: 'req-permissions', sessionId: 'session-1', sequence: 1,
+      payload: {commandId: 'permissions-1', intent: 'permissions', status: 'succeeded', code: 'ok',
+        result: {...result, rules: [{...result.rules[0], selector: 'secret'}]}},
+    }), 1)).toThrowError(/permissions/);
+  });
+
   it('接受 overflow context 的负 freeTokens，但仍拒绝不安全数值', () => {
     const result = {
       systemTokens: 10, transcriptTokens: 20, toolTokens: 0, memoryTokens: 0,

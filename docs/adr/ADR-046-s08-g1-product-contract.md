@@ -107,8 +107,8 @@ Rule `ruleId` 必须为小写 kebab-case、1–64 ASCII 字符；rule 的 `effec
 | `/clear` | 清除当前 TUI 输入缓冲、展示历史和未发送 steering；不删除 Session | 仅 Surface transient | 活动 Run 不自动取消；失败无状态变化 |
 | `/compact [anchor...]` | 请求现有 S07 C3/C4 路径，并把有效 `compactInstructions` 作为 protected anchors | 仅短生命周期 Projection/本次命令状态；Canonical 不变 | 无容量/取消/摘要 Gate 失败不重试或提交；显示固定原因码 |
 | `/context` | 读取最新 `ContextUsageView` 的数值/枚举安全投影与已应用 reduction | 无 | 没有 View 显示 `UNAVAILABLE`；不输出 Prompt、正文、路径、Tool 参数或结果 |
-| `/model <name>` | 校验并写入当前内存 Session override；下一 Run 使用它 | Session transient only | 运行中拒绝变更；无效/不支持不替换旧值；不写 JSONL/文件 |
-| `/permissions [mode|rules]` | 无参数显示有效 mode、规则 provenance 与固定安全状态；参数只创建经 S05 校验的内存 override | Session transient only | 运行中拒绝变更；不能修改 Hard Denial/可信来源/Recovery Gate；无 selector 原文 |
+| `/model <name>` | 校验并写入当前内存 Session override；本 G3-C/D 子切片仅接受启动时已配置的同一模型名，下一 Run 使用它 | Session transient only | 运行中拒绝变更；无效/不支持不替换旧值；不写 JSONL/文件；Provider discovery、多模型注册延期 |
+| `/permissions [mode]` | 无参数显示当前 Runtime effective mode、Settings 派生 STARTUP rules provenance 与固定安全状态；`mode` 仅创建受限内存 override | Session transient only | 运行中拒绝变更；rules/selector 编辑延期；不能修改 Hard Denial/可信来源/Recovery Gate；无 selector 原文 |
 | `/resume <session-id>` | 调用既有 S06 Resume/Inspect Gate，成功后切换到其规范 Session | S06 已允许的打开状态 | 未完成副作用、fenced、锁、Workspace mismatch 或取消保持当前 Session；不自动重放 |
 | `/doctor` | 读取有效 Settings/Instruction/Context/Surface 诊断，按来源和状态码报告 | 无；绝不刷新或写入 | 文件缺失/非法/竞态产生可恢复诊断；无 Secret、正文、绝对路径、端点或原始异常 |
 
@@ -120,8 +120,8 @@ CLI-09 的 L2 需要 React/Ink 同时支持：受控多行编辑（显式提交�
 | --- | --- | --- | --- |
 | A | `BOOT-04`、`CTX-03`、`CTX-04` | Framework-free resolved instruction/provenance/diagnostic 值对象与 local loader；将只读投影接入请求准备 | User/project/directory/local 顺序、根不重复、路径命中/未命中、16/8/32KiB/128KiB 上限、重复抑制、UTF-8/普通文件/realpath/Symlink/Junction/TOCTOU 拒绝；指令不能提权 |
 | B | `CFG-03/04/05/06/08/09`、`BOOT-06` | v1 parser、快照 loader、field merger、provenance/doctor adapter | 每字段覆盖/替换/追加/去重/rule 替换与 remove；未知/重复 key/版本/类型/超限令整源失效；local Gitignore fixture；刷新竞态保持最后有效快照；诊断不含 Secret/正文/绝对路径 |
-| C | `MODEL-08`、`PERM-06`、`PERM-12` | Session/CLI override intent 到现有 model/policy/tool visibility 的受控映射 | settings/project instruction 不可覆盖 Hard Denial、DENY、PLAN、ToolSource-bound selector、审批或 Recovery Gate；Tool allowlist 只能缩小；Provider credential 不可配置/回显 |
-| D | `CTX-12`、`CTX-13`、`CLI-08` | Command dispatcher、`/compact`/`/context`/`/doctor` safety projections 和 stdio/TUI events | `/clear` 不改 JSONL；compact failure/cancel 不提交；Usage 与 S07 view 对账；命令输出零正文/零 Secret；S07 summary reinjection、Tool Call/Result pairing、ready-only Memory 迟到不注入回归均通过 |
+| C | `MODEL-08`、`PERM-06`、`PERM-12` | Session/CLI override intent 到现有 model/policy/tool visibility 的受控映射；本子切片只接受启动模型、仅允许 PermissionMode | settings/project instruction 不可覆盖 Hard Denial、DENY、PLAN、ToolSource-bound selector、审批或 Recovery Gate；Tool allowlist 只能缩小；Provider credential 不可配置/回显；无效/取消/CAS/Scope 失败不提交 |
+| D | `CTX-12`、`CTX-13`、`CLI-08` | Command dispatcher、`/compact`/`/context`/`/doctor` safety projections 和 stdio/TUI events；`/permissions` 查询投影实际 Runtime mode 和仅 Settings 派生的 STARTUP rules | `/clear` 不改 JSONL；compact failure/cancel 不提交；Usage 与 S07 view 对账；命令输出零正文/零 Secret/零 selector；S07 summary reinjection、Tool Call/Result pairing、ready-only Memory 迟到不注入回归均通过 |
 | E | `CLI-07`、`CLI-09` | Ink 多行/有界历史/补全与 steering queue | steering 只在安全边界进入下一 Run；取消不遗留 queued message；8,192/100/32 上限；TTY/stdio reducer 不把 Surface 状态写进 Canonical Session |
 | F | `CLI-08`、`SESSION-04/05/09` 回归 | `/resume` Intent 连接既有 S06 service | locked/fenced/workspace mismatch/incomplete side-effect 均拒绝；没有 Tool 自动重放；Resume/Fork canonical history 与唯一终态保持 |
 

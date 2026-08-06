@@ -21,6 +21,7 @@ import io.github.liumaishenjian.ccjava.domain.settings.SettingsRevision;
 import io.github.liumaishenjian.ccjava.domain.settings.SettingsSourceId;
 import io.github.liumaishenjian.ccjava.domain.settings.SettingsSourceKind;
 import io.github.liumaishenjian.ccjava.domain.settings.SettingsSourceSnapshot;
+import io.github.liumaishenjian.ccjava.domain.settings.SessionSettingsPatch;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -123,6 +124,37 @@ public final class SettingsApplicationService {
     }
 
     /**
+     * 在保留全部现有 Session 字段的前提下应用受限标量补丁。
+     *
+     * <p>该操作不读取固定来源，也不写入文件、JSONL 或 Checkpoint。候选 overlay 只有在既有
+     * LKG/Scope 配对事务成功后才成为当前值，因此取消、活动 Run、验证失败和 CAS 冲突均保留旧值。</p>
+     *
+     * @param patch 只能是模型或 PermissionMode 的封闭更新
+     * @param cancellationToken 发布取消边界
+     * @return 完整发布结果或保留 LKG 的安全诊断
+     */
+    public SettingsApplicationResult patchSessionOverlay(SessionSettingsPatch patch, CancellationToken cancellationToken) {
+        Objects.requireNonNull(patch, "patch 不能为空");
+        Objects.requireNonNull(cancellationToken, "cancellationToken 不能为空");
+        if (cancellationToken.isCancellationRequested()) return rejected(ConfigurationDiagnosticCode.CANCELLED);
+        if (runtime.isClosedOrActiveForSettings()) return rejected(RuntimeSettingsDiagnosticCode.ACTIVE_RUN);
+        synchronized (applicationMonitor) {
+            if (runtime.isClosedOrActiveForSettings()) return rejected(RuntimeSettingsDiagnosticCode.ACTIVE_RUN);
+            DeclaredSettings base = session == null ? emptySettings() : session.declaredValues();
+            DeclaredSettings patched = switch (patch) {
+                case SessionSettingsPatch.ModelName model -> new DeclaredSettings(Optional.of(model.value()),
+                        base.permissionMode(), base.permissionRules(), base.enabledTools(), base.toolConfigurations(),
+                        base.compactInstructions(), base.diagnosticsVerbosity());
+                case SessionSettingsPatch.PermissionModeChange mode -> new DeclaredSettings(base.modelName(),
+                        Optional.of(mode.value().name()), base.permissionRules(), base.enabledTools(),
+                        base.toolConfigurations(), base.compactInstructions(), base.diagnosticsVerbosity());
+            };
+            return publish(user, projectShared, projectLocal, snapshot(SettingsSourceKind.SESSION, patched), cli,
+                    cancellationToken);
+        }
+    }
+
+    /**
      * 替换 CLI 内存 overlay；空值移除该 overlay，且不读取固定文件。
      *
      * @param overlay 已验证 overlay 或空值
@@ -192,7 +224,7 @@ public final class SettingsApplicationService {
         EffectiveSettingsSnapshot candidate = new EffectiveSettingsSnapshot(revision + 1,
                 resolution.effectiveSettings().orElseThrow());
         HeadlessRuntimeSession.SettingsCommitResult committed = runtime.replaceRuntimeConfigurationAtomically(
-                prepared.configuration(), store, previous.map(EffectiveSettingsSnapshot::revision), candidate);
+                prepared.configuration(), store, previous.map(EffectiveSettingsSnapshot::revision), candidate, token);
         return switch (committed) {
             case COMMITTED -> {
                 applier.commitPrepared(prepared.configuration());
@@ -204,6 +236,7 @@ public final class SettingsApplicationService {
                 yield SettingsApplicationResult.published(candidate, prepared.configuration());
             }
             case ACTIVE_OR_CLOSED -> rejected(RuntimeSettingsDiagnosticCode.ACTIVE_RUN);
+            case CANCELLED -> rejected(ConfigurationDiagnosticCode.CANCELLED);
             case CAS_CONFLICT -> rejected(ConfigurationDiagnosticCode.CAS_CONFLICT);
             case INTERNAL_FAILURE -> rejected(RuntimeSettingsDiagnosticCode.INTERNAL_FAILURE);
         };

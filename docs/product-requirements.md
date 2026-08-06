@@ -460,7 +460,7 @@ Sandbox。历史 ADR-019 继续 Superseded。
 S08 的 G0 受控机制研究已由 ADR-045 完成；G1 已由 ADR-046 冻结项目自有 Instructions 文件位置、
 Settings schema v1、逐字段 merge/delete/provenance、最小 Slash/doctor 语义和可证伪切片；G2 已由 ADR-047 冻结
 Domain/Core/Application/Adapter 契约、独立 user-root guard、严格 duplicate-key parser、last-known-good 刷新、
-Command Intent/Event 与 G3/G4 测试矩阵。G3-D 当前仅实现 Java Application 的封闭命令/单终态基础、只读 Context Usage 投影和不刷新、不写入的 privacy-safe doctor；未接入 Slash、stdio 或 TUI。没有既有安全入口的 explicit compact、热 resume、运行时 model/permissions 修改保持固定受控终态，不能绕过 S05/S06/S07。跨版本迁移兼容留在 S14；层级 Instructions 接入后，必须重新运行 S07 的摘要重注入和 Context Usage 对账回归测试。
+Command Intent/Event 与 G3/G4 测试矩阵。G3-C/D 的有界子切片现已接入内存 Session patch、stdio v0 与封闭 Slash/TUI：`/model` 只接受当前启动模型名，`/permissions` 可查询实际 Runtime mode 或将 mode 改为 `DEFAULT`、`PLAN`、`ACCEPT_EDITS`；两者均只作用于下一 Run，保留 CLI precedence，且不读取 Settings 文件、不写 JSONL/Checkpoint。permissions query 只显示无 selector 的 Settings-derived STARTUP rules provenance；无 LKG 时如实显示 Runtime baseline。规则编辑、Provider discovery/多模型注册、explicit compact、热 resume、多行/历史/补全/steering 继续延期，且不得绕过 S05/S06/S07。G3-G6、Capability Level 与 Stage Exit 仍 Open；跨版本迁移兼容留在 S14；层级 Instructions 接入后，必须重新运行 S07 的摘要重注入和 Context Usage 对账回归测试。
 
 ## 14. S09-S11：扩展系统重实现
 

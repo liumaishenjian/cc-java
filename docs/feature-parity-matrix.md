@@ -249,7 +249,7 @@ Stage 完成项。
 | CLI-05 | Permission Prompt | 终端 Approval UI | L2 | S04/S05 | REF-04/AUTH-01 |
 | CLI-06 | Ctrl+C Cancel | 当前 Run/Tool 取消 | L1 | S02/S04 | REF-02 |
 | CLI-07 | Steering | S08 运行中排队用户补充消息 | L0 | S08 | REF-02 |
-| CLI-08 | Slash Commands | S08 提供 help/clear/compact/context/model/permissions/resume | L0 | S08 | REF-02 |
+| CLI-08 | Slash Commands | S08 已有 `/help`、`/clear`、`/context`、`/doctor` 与有界 `/model`、`/permissions mode` 的 Java/stdio/封闭 Slash 路径；compact/resume/完整 UX 延期 | L0 | S08 | REF-02 |
 | CLI-09 | 多行、历史、补全 | S08 完整 React/Ink 输入能力 | L0 | S08 | REF-02 |
 | CLI-10 | TTY / Non-TTY 降级 | 无 ANSI 输出与管道模式 | L2 | S02/S14 | REF-02 |
 | CLI-11 | 机器输出协议 | S02 内部 stdio v0 L1 → S14 稳定 JSON/JSONL L3 | L1 | S02/S14 | REF-02 |
@@ -285,7 +285,7 @@ Stage 完成项。
 | MODEL-05 | Tool Call Streaming | Chunk 聚合 | L2 | S02 | REF-08/AUTH-01 |
 | MODEL-06 | Usage / Finish Reason | 规范化 Capability | L2 | S02 | REF-08 |
 | MODEL-07 | 第二 Provider | S14 验证 Provider-neutral Port | L0 | S14 | REF-02 |
-| MODEL-08 | Model Switching | Session Command | L0 | S08 | REF-02 |
+| MODEL-08 | Model Switching | 有界 Session Command：仅接受启动时配置的当前单一模型名；Provider discovery/多模型注册延期 | L0 | S08 | REF-02 |
 | MODEL-09 | Prompt Cache | 稳定前缀和 Provider Hint | L0 | S07/S14 | REF-01 |
 | MODEL-10 | Rate Limit / Retry | Provider Error Policy | L0 | S14 | REF-01 |
 | MODEL-11 | Cost Budget | Token 与价格模型 | L0 | S14 | REF-01 |
@@ -399,7 +399,7 @@ Stage 完成项。
 | CFG-03 | User Settings | `~/.cc-java/` | L0 | S08 | REF-01 |
 | CFG-04 | Project Settings | 版本控制配置 | L0 | S08 | REF-01 |
 | CFG-05 | Local Settings | Gitignored 本地覆盖 | L0 | S08 | REF-01 |
-| CFG-06 | Session Overrides | Slash Command 临时设置 | L0 | S08 | REF-01 |
+| CFG-06 | Session Overrides | 有界 Slash/stdio Session patch：仅 model 或 PermissionMode，保留其余 overlay 和 CLI precedence；rules 编辑延期 | L0 | S08 | REF-01 |
 | CFG-07 | Managed Policy | 不可覆盖组织策略 | L0 | S13/S14 | REF-01 |
 | CFG-08 | Merge Semantics | Scalar/Object/List 明确规则 | L0 | S08 | REF-01 |
 | CFG-09 | Config Diagnostics | 来源与最终值 | L0 | S08 | REF-01 |

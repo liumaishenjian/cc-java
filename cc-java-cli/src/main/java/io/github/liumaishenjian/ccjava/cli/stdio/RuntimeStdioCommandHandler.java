@@ -370,6 +370,24 @@ public final class RuntimeStdioCommandHandler
                 payload.set("reductionStrategies", mapperEnums(context.reductionStrategies()));
                 payload.set("reasonCodes", mapperEnums(context.reasonCodes()));
             }
+            case SessionCommandEvent.PermissionsPayload permissions -> {
+                payload.put("effectiveMode", permissions.effectiveMode());
+                payload.put("modeSourceKind", permissions.modeSourceKind());
+                payload.put("modeSafeSourceId", permissions.modeSafeSourceId());
+                payload.put("modeValidationStatus", permissions.modeValidationStatus());
+                payload.put("startupRuleCount", permissions.startupRuleCount());
+                ArrayNode rules = codec.arrayNode();
+                permissions.rules().forEach(value -> {
+                    ObjectNode item = codec.objectNode();
+                    item.put("ruleId", value.ruleId());
+                    item.put("sourceKind", value.sourceKind());
+                    item.put("safeSourceId", value.safeSourceId());
+                    item.put("operation", value.operation());
+                    item.put("validationStatus", value.validationStatus());
+                    rules.add(item);
+                });
+                payload.set("rules", rules);
+            }
             case SessionCommandEvent.DoctorPayload doctor -> {
                 payload.put("settingsAvailable", doctor.settingsAvailable());
                 payload.put("settingsRevision", doctor.settingsRevision());
@@ -410,10 +428,10 @@ public final class RuntimeStdioCommandHandler
             case "context" -> new SessionCommandIntent.Context();
             case "doctor" -> new SessionCommandIntent.Doctor();
             case "model" -> new SessionCommandIntent.ModelChange(arguments.get("name").stringValue());
-            case "permissions" -> new SessionCommandIntent.Permissions(
-                    "query".equals(arguments.get("operation").stringValue())
-                            ? SessionCommandIntent.PermissionsOperation.QUERY
-                            : SessionCommandIntent.PermissionsOperation.CHANGE);
+            case "permissions" -> new SessionCommandIntent.Permissions(arguments.isEmpty()
+                    ? new SessionCommandIntent.PermissionsOperation.Query()
+                    : new SessionCommandIntent.PermissionsOperation.ModeChange(
+                            io.github.liumaishenjian.ccjava.domain.PermissionMode.valueOf(arguments.get("mode").stringValue())));
             case "resume" -> new SessionCommandIntent.Resume(new SessionId(arguments.get("sessionId").stringValue()));
             default -> throw protocolError("INVALID_ARGUMENT", command, "未知 session.command intent");
         };

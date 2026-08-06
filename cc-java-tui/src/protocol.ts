@@ -332,6 +332,27 @@ function validateSessionCommandPayload(
     }
     return;
   }
+  if (intent === 'permissions') {
+    const fields = new Set(['effectiveMode', 'modeSourceKind', 'modeSafeSourceId', 'modeValidationStatus', 'startupRuleCount', 'rules']);
+    if (!hasExactFields(result, fields)
+      || (result.effectiveMode !== 'DEFAULT' && result.effectiveMode !== 'PLAN' && result.effectiveMode !== 'ACCEPT_EDITS')
+      || !isBoundedProjectionEnum(result.modeSourceKind) || !isSafeRelativeTarget(result.modeSafeSourceId)
+      || !isBoundedProjectionEnum(result.modeValidationStatus)
+      || !Number.isSafeInteger(result.startupRuleCount) || (result.startupRuleCount as number) < 0
+      || (result.startupRuleCount as number) > 128 || !Array.isArray(result.rules)
+      || result.rules.length !== result.startupRuleCount) {
+      throw new ProtocolViolation('session.command.result permissions 投影无效');
+    }
+    for (const rule of result.rules) {
+      if (!isRecord(rule) || !hasExactFields(rule, new Set(['ruleId', 'sourceKind', 'safeSourceId', 'operation', 'validationStatus']))
+        || typeof rule.ruleId !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(rule.ruleId) || rule.ruleId.length > 64
+        || !isBoundedProjectionEnum(rule.sourceKind) || !isSafeRelativeTarget(rule.safeSourceId)
+        || !isBoundedProjectionEnum(rule.operation) || !isBoundedProjectionEnum(rule.validationStatus)) {
+        throw new ProtocolViolation('session.command.result permissions 规则投影无效');
+      }
+    }
+    return;
+  }
   if (intent === 'doctor') {
     const fields = new Set(['settingsAvailable', 'settingsRevision', 'instructionCount', 'contextAvailable', 'activeRun', 'entries']);
     if (!hasExactFields(result, fields) || typeof result.settingsAvailable !== 'boolean'

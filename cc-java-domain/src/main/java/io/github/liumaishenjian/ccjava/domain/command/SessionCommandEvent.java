@@ -30,7 +30,7 @@ public record SessionCommandEvent(SessionCommandKind kind, CommandId commandId, 
     }
 
     /** 命令 Event 的封闭白名单 payload。 */
-    public sealed interface SessionCommandPayload permits EmptyPayload, HelpPayload, ContextPayload, DoctorPayload { }
+    public sealed interface SessionCommandPayload permits EmptyPayload, HelpPayload, ContextPayload, DoctorPayload, PermissionsPayload { }
 
     /** 无额外数据的安全确认。 */
     public record EmptyPayload() implements SessionCommandPayload { }
@@ -76,6 +76,52 @@ public record SessionCommandEvent(SessionCommandKind kind, CommandId commandId, 
         DEFERRED,
         /** 当前不存在可安全调用的实现。 */
         NOT_AVAILABLE
+    }
+
+    /**
+     * 已发布权限设置的无 selector 安全投影。
+     *
+     * @param effectiveMode 当前 Runtime 实际使用的 S05 PermissionMode 枚举名
+     * @param modeSourceKind 有效 mode 的安全来源类别，未由 Settings 提供时为 BASELINE
+     * @param modeSafeSourceId 有效 mode 的安全来源标识，基线时为 runtime-baseline
+     * @param modeValidationStatus 来源校验状态，基线时为 BASELINE
+     * @param startupRuleCount 仅 Settings 派生的最终 STARTUP 规则总数，不表示全部 Runtime 规则
+     * @param rules 每项仅包含规则稳定 ID 和 Settings 来源安全投影
+     */
+    public record PermissionsPayload(String effectiveMode, String modeSourceKind, String modeSafeSourceId,
+                                     String modeValidationStatus, int startupRuleCount,
+                                     List<PermissionRuleProvenance> rules) implements SessionCommandPayload {
+        /** 验证并冻结不含规则正文的权限投影。 */
+        public PermissionsPayload {
+            effectiveMode = boundedEnum(effectiveMode, "effectiveMode");
+            modeSourceKind = boundedEnum(modeSourceKind, "modeSourceKind");
+            modeSafeSourceId = boundedSafeId(modeSafeSourceId);
+            modeValidationStatus = boundedEnum(modeValidationStatus, "modeValidationStatus");
+            if (startupRuleCount < 0 || startupRuleCount > 128) throw new IllegalArgumentException("startupRuleCount 非法");
+            rules = List.copyOf(Objects.requireNonNull(rules, "rules 不能为空"));
+            if (rules.size() != startupRuleCount) throw new IllegalArgumentException("rules 数量不一致");
+        }
+    }
+
+    /**
+     * 单条最终规则的来源安全投影，不携带 selector 或 Tool 参数。
+     *
+     * @param ruleId 稳定规则标识
+     * @param sourceKind 来源类别枚举名
+     * @param safeSourceId 不含路径的来源标识
+     * @param operation provenance 操作枚举名
+     * @param validationStatus provenance 校验状态枚举名
+     */
+    public record PermissionRuleProvenance(String ruleId, String sourceKind, String safeSourceId,
+                                           String operation, String validationStatus) {
+        /** 验证有界 provenance 投影。 */
+        public PermissionRuleProvenance {
+            ruleId = boundedRuleId(ruleId);
+            sourceKind = boundedEnum(sourceKind, "sourceKind");
+            safeSourceId = boundedSafeId(safeSourceId);
+            operation = boundedEnum(operation, "operation");
+            validationStatus = boundedEnum(validationStatus, "validationStatus");
+        }
     }
 
     /**
@@ -170,6 +216,13 @@ public record SessionCommandEvent(SessionCommandKind kind, CommandId commandId, 
     private static String boundedEnum(String value, String name) {
         if (value == null || value.isBlank() || value.length() > 64 || !value.matches("[A-Z0-9_]+")) {
             throw new IllegalArgumentException(name + " 非法");
+        }
+        return value;
+    }
+
+    private static String boundedRuleId(String value) {
+        if (value == null || !value.matches("[a-z0-9]+(?:-[a-z0-9]+)*") || value.length() > 64) {
+            throw new IllegalArgumentException("ruleId 非法");
         }
         return value;
     }
