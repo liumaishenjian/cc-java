@@ -11,7 +11,7 @@
 
 ## 决策
 
-本 ADR 完成 S08 G1：冻结独立命名的行为、文件位置、输入上限、逐字段合并、Surface 最小语义和 G3/G4 可证伪标准。它不创建 Java/TypeScript、测试、Demo 或配置文件，所有 Capability Level 保持不变；S08 仍为 `IN_PROGRESS`，G2-G6 与 Stage Exit 保持 Open。
+本 ADR 完成 S08 G1：冻结独立命名的行为、文件位置、输入上限、逐字段合并、Surface 最小语义和 G3/G4 可证伪标准。它本身不创建 Java/TypeScript、测试、Demo 或配置文件；“G2-G6 Open”是本 ADR 通过时的历史状态，后续实现与 Stage Exit 结论见文末 Gate 状态。
 
 所有候选 Instructions、Settings、命令参数和仓库内容是不可信输入。它们只能生成经校验的 Context 或设置投影，不能扩大 Workspace、注册 Tool、改变可信 `ToolSource`、解除 Hard Denial、跨过 `DENY`/`PLAN`、跳过审批或绕过 S06 Recovery Gate。
 
@@ -135,7 +135,7 @@ G2 只需在不改变本 ADR 行为契约的前提下确定：(1) Domain/Core/Ap
 
 ## Gate 状态
 
-G1 Passed。ADR-045 保持 G0 研究交接；本 ADR 冻结 S08 独立范围、目标等级、输入/输出、失败语义、延期边界与测试指标。当前 G2、G3 已 Passed；G4-G6 与 Stage Exit 仍 Open，S08 不是 Accepted。
+G1 Passed。ADR-045 保持 G0 研究交接；本 ADR 冻结 S08 独立范围、目标等级、输入/输出、失败语义、延期边界与测试指标。实现 Commit `7bac8ea` 的 G0-G6 与 Stage Exit 已完成，S08 Accepted。
 
 ## G3-E 实现证据（2026-08-06）
 
@@ -157,4 +157,4 @@ commit-scoped 审计已覆盖 A Instructions、B Settings/LKG、C Runtime 映射
 steering、F recovery-gated Resume。A 审计发现并修复 Workspace 内部 Instructions Symlink 可在
 realpath 后被读取的问题；候选逻辑路径现于 WorkspaceGuard 前拒绝链接。B/C/D 未发现新增缺陷，E/F
 维持既有独立 review 结论。G3 Passed；除既有 `CLI-07`、`CLI-09` 外，Capability Level 等待
-G4-G6 的回归、Demo/Gap 与 commit-scoped 对账后提升。
+G4-G6 的回归、Demo/Gap 与 commit-scoped 对账后提升；上述证据现已完成，18 个目标 Feature 达到 L2。

@@ -8,7 +8,7 @@
 >
 > 当前代码状态：S01-S07 已 Accepted；S07 的 Canonical Transcript/Projection、条件式 C1-C4、文件记忆
 > M1-M5、ready-only 零等待预取、内部 Usage View 与 latest-only Recovery Analytics 已在离线 Fake、Demo、
-> Gap 和 Commit-scoped 对账中达到声明等级。S08 G0-G5 已 Passed；G3 A-F 审计覆盖 Instructions、Settings/LKG、Runtime 映射、命令投影、编辑/steering 与 recovery-gated Resume，并修复 Workspace 内部 Instructions Symlink 跟随缺陷。G4 全量/量化验证和 G5 完整 Demo 已通过。`CLI-07` 与 `CLI-09` 已达到 L2；其余 S08 Capability 等级等待 G6 commit-scoped 对账后提升。G6 与 Stage Exit 仍 Open；S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定协议/Export/Retention/Migration 仍未实现。
+> Gap 和 Commit-scoped 对账中达到声明等级。S08 已在实现 Commit `7bac8ea` 上完成 Commit-scoped G0-G6，Stage Exit Accepted：分层 Instructions、Settings v1/LKG、受控 Runtime 映射、命令投影、编辑/steering 与 recovery-gated Resume 均达到退出目标；审计修复 Workspace 内部 Instructions Symlink 跟随缺陷。S09 Hooks 为下一 Stage；rules 编辑、Provider discovery/多模型注册、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定协议/Export/Retention/Migration 仍未实现。
 
 ## 1. 文档目的
 
@@ -152,12 +152,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 195 |
-| 当前阶段 | S08 Instructions + Settings（IN_PROGRESS；G0 受控机制研究、G1 产品契约和 G2 独立架构契约冻结 Passed） |
-| Stage Exit | S07 Accepted：ADR-042/043/044、离线 Fake、Demo、Gap 与 Commit-scoped G0-G6 对账形成闭环；S08 G0-G5 Passed，G6 仍 Open |
-| 当前等级 | 66 项为 L2，34 项为 L1，95 项为 L0（`CLI-07`、`CLI-09` 由 L0 升至 L2） |
+| 当前阶段 | S08 Instructions + Settings（Accepted；实现 Commit `7bac8ea` 的 Commit-scoped G0-G6 已通过） |
+| Stage Exit | S08 Accepted：ADR-045/046/047、离线 Fake、S07 定量复验、Demo、Gap 与 Commit-scoped G0-G6 对账形成闭环 |
+| 当前等级 | 81 项为 L2，31 项为 L1，83 项为 L0（18 项 S08 Feature 达到退出目标） |
 | 默认最终目标 | 195 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 28.38%（195 项等权、目标 L3） |
-| 下一步 | 执行 S08 G6 commit-scoped 对账与 Stage Exit 审核；Provider discovery/多模型注册、S12/S13/S14 延期边界不变 |
+| 当前能力覆盖 | 32.99%（195 项等权、目标 L3） |
+| 下一步 | 进入 S09 Hooks G0 授权机制研究与范围冻结；Provider discovery/多模型注册、S12/S13/S14 延期边界不变 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -233,9 +233,9 @@ Stage 完成项。
 | BOOT-01 | CLI 启动并识别运行模式 | Picocli Headless + React/Ink Interactive | L2 | S02 | REF-02/AUTH-01 |
 | BOOT-02 | 确定 Workspace 与 Git 状态 | `WorkspaceSnapshot` | L2 | S03 | REF-02 |
 | BOOT-03 | 加载模型、工具和权限 | `SessionBootstrapper` | L2 | S02/S05 | REF-01 |
-| BOOT-04 | 加载项目指令 | `InstructionLoader` | L1 | S03/S08 | REF-05 |
+| BOOT-04 | 加载项目指令 | user/project/directory/local 分层发现、预算、去重与请求投影 | L2 | S03/S08 | REF-05 |
 | BOOT-05 | 创建 Session 和初始 Context | `SessionStore` + `ContextAssembler` | L1 | S01 | REF-02 |
-| BOOT-06 | 启动诊断 | Java Application 只读 doctor 的来源/状态安全投影；完整 Surface 配置来源报告延期 | L0 | S08/S14 | REF-02 |
+| BOOT-06 | 启动诊断 | Java Application 只读 doctor 的来源/状态安全投影；完整 Surface 配置来源报告延期 | L2 | S08/S14 | REF-02 |
 | BOOT-07 | 延迟加载高成本能力 | Lazy Tool/Skill/MCP Metadata | L0 | S07/S10/S11 | REF-01/03 |
 
 ## 7. Terminal / Interface 对照
@@ -249,7 +249,7 @@ Stage 完成项。
 | CLI-05 | Permission Prompt | 终端 Approval UI | L2 | S04/S05 | REF-04/AUTH-01 |
 | CLI-06 | Ctrl+C Cancel | 当前 Run/Tool 取消 | L1 | S02/S04 | REF-02 |
 | CLI-07 | Steering | Java stdio 连接内存 FIFO 上限 100；只在当前 Run 终态后启动下一 Run，取消/clear/成功 resume/transport failure/shutdown 丢弃未发送项且不持久化 | L2 | S08 | REF-02 |
-| CLI-08 | Slash Commands | S08 G3-C/D/F 已有 `/help`、`/clear`、显式 `/compact`、`/context`、`/doctor`、有界 `/model`、`/permissions mode` 与 recovery-gated `/resume <session-id>` 的 Java/stdio/封闭 Slash 路径；完整 UX 延期 | L0 | S08 | REF-02 |
+| CLI-08 | Slash Commands | `/help`、`/clear`、显式 `/compact`、`/context`、`/doctor`、有界 `/model`、`/permissions mode` 与 recovery-gated `/resume <session-id>` 的 Java/stdio/封闭 Slash 路径 | L2 | S08 | REF-02 |
 | CLI-09 | 多行、历史、补全 | React/Ink：Enter 换行、Ctrl+Enter 显式提交、8,192 code point、每 Session 内存历史 100 与草稿恢复、封闭稳定补全最多 32 | L2 | S08 | REF-02 |
 | CLI-10 | TTY / Non-TTY 降级 | 无 ANSI 输出与管道模式 | L2 | S02/S14 | REF-02 |
 | CLI-11 | 机器输出协议 | S02 内部 stdio v0 L1 → S14 稳定 JSON/JSONL L3 | L1 | S02/S14 | REF-02 |
@@ -285,7 +285,7 @@ Stage 完成项。
 | MODEL-05 | Tool Call Streaming | Chunk 聚合 | L2 | S02 | REF-08/AUTH-01 |
 | MODEL-06 | Usage / Finish Reason | 规范化 Capability | L2 | S02 | REF-08 |
 | MODEL-07 | 第二 Provider | S14 验证 Provider-neutral Port | L0 | S14 | REF-02 |
-| MODEL-08 | Model Switching | 有界 Session Command：仅接受启动时配置的当前单一模型名；Provider discovery/多模型注册延期 | L0 | S08 | REF-02 |
+| MODEL-08 | Model Switching | 有界 Session Command：仅接受启动时配置的当前单一模型名；Provider discovery/多模型注册延期 | L2 | S08 | REF-02 |
 | MODEL-09 | Prompt Cache | 稳定前缀和 Provider Hint | L0 | S07/S14 | REF-01 |
 | MODEL-10 | Rate Limit / Retry | Provider Error Policy | L0 | S14 | REF-01 |
 | MODEL-11 | Cost Budget | Token 与价格模型 | L0 | S14 | REF-01 |
@@ -329,7 +329,7 @@ Stage 完成项。
 | PERM-09 | Hard Denial | 不可被项目配置覆盖 | L2 | S05/S13 | REF-01/04 |
 | PERM-10 | Permission Event | 可观察与 Hook | L2 | S05/S09 | REF-07 |
 | PERM-11 | Denial Tracking | 重复拒绝降级 | L2 | S05/S14 | REF-01/04 |
-| PERM-12 | Project/User/Managed Scope | 分层策略 | L0 | S08/S13 | REF-04 |
+| PERM-12 | Project/User/Managed Scope | user/project/local Settings 来源与 Session overlay；Managed Policy 延期 S13 | L2 | S08/S13 | REF-04 |
 | PERM-13 | Print Mode Policy | 无交互时确定性处理 ASK | L2 | S05 | REF-04 |
 
 ## 12. Lifecycle / Hooks 对照
@@ -373,8 +373,8 @@ Stage 完成项。
 | --- | --- | --- | --- | --- | --- |
 | CTX-01 | System Context Assembly | 稳定策略 + Runtime Metadata | L2 | S01/S02 | REF-02 |
 | CTX-02 | Project Instructions | 根 AGENTS.md | L2 | S03 | REF-05 |
-| CTX-03 | Hierarchical Instructions | User/Project/Directory | L0 | S08 | REF-05 |
-| CTX-04 | Path-scoped Rules | 只在相关文件加载 | L0 | S08 | REF-05 |
+| CTX-03 | Hierarchical Instructions | User/Project/Directory | L2 | S08 | REF-05 |
+| CTX-04 | Path-scoped Rules | 只在相关目标路径加载并保持固定顺序 | L2 | S08 | REF-05 |
 | CTX-05 | Tool Result Limits | 类型化裁剪 | L2 | S03/S04 | REF-01 |
 | CTX-06 | Token Budget | 显式容量元组的 model-aware 预算与来源 Usage View | L2 | S07 | REF-01/02 |
 | CTX-07 | Complete Turn Eviction | 完整 Tool Call/Result 协议边界、C2 占位与 Canonical 不变 | L2 | S07 | REF-01 |
@@ -382,8 +382,8 @@ Stage 完成项。
 | CTX-09 | Conversation Summary | C3/C4 有界候选、严格提交 Gate 与零 Tool Provider Summarizer | L2 | S07 | REF-01/02 |
 | CTX-10 | Multi-level Compaction | C1/C2 后条件式 C3→C4、预算满足即停 | L2 | S07 | REF-01 |
 | CTX-11 | Thrashing Guard | Run/revision/tier 冷却与单次 typed-overflow 恢复 | L2 | S07 | REF-02 |
-| CTX-12 | Compact Instructions | S08 G3-D：有界 anchors 的显式 compact 经既有 S07 Gate 生成一次性下一 Run 首个模型请求 Projection；分层/持久 Settings 延期 | L1 | S08 | REF-02 |
-| CTX-13 | `/context` | S08 G3-D：最新 `ContextUsageView` 的数值/枚举白名单命令、stdio/封闭 Slash/TUI 协议投影；完整 UX 延期 | L1 | S07/S08 | REF-02 |
+| CTX-12 | Compact Instructions | 有界 anchors 的显式 compact 经既有 S07 Gate 生成一次性下一 Run 首个模型请求 Projection | L2 | S08 | REF-02 |
+| CTX-13 | `/context` | 最新 `ContextUsageView` 的数值/枚举白名单命令、stdio/封闭 Slash/TUI 协议投影 | L2 | S07/S08 | REF-02 |
 | CTX-14 | Skill Lazy Loading | Metadata 先加载 | L0 | S11 | REF-03 |
 | CTX-15 | Sub-Agent Isolation | 独立窗口与摘要返回 | L0 | S12 | REF-02/03 |
 | CTX-16 | Prompt Cache | 稳定前缀和 Tool 顺序 | L0 | S14 | REF-01 |
@@ -396,13 +396,13 @@ Stage 完成项。
 | --- | --- | --- | --- | --- | --- |
 | CFG-01 | CLI Overrides | Picocli 参数 | L2 | S02 | REF-02 |
 | CFG-02 | Provider Runtime Configuration | Git 忽略的 Provider 本地文件 + 环境变量覆盖 | L2 | S02 | REF-02 |
-| CFG-03 | User Settings | `~/.cc-java/` | L0 | S08 | REF-01 |
-| CFG-04 | Project Settings | 版本控制配置 | L0 | S08 | REF-01 |
-| CFG-05 | Local Settings | Gitignored 本地覆盖 | L0 | S08 | REF-01 |
-| CFG-06 | Session Overrides | 有界 Slash/stdio Session patch：仅 model 或 PermissionMode，保留其余 overlay 和 CLI precedence；rules 编辑延期 | L0 | S08 | REF-01 |
+| CFG-03 | User Settings | `~/.cc-java/` 固定来源、严格解析与 provenance | L2 | S08 | REF-01 |
+| CFG-04 | Project Settings | Workspace 固定版本控制来源 | L2 | S08 | REF-01 |
+| CFG-05 | Local Settings | 仅 Gitignore 可证明时加载的本地覆盖 | L2 | S08 | REF-01 |
+| CFG-06 | Session Overrides | 有界 Slash/stdio Session patch：仅 model 或 PermissionMode，保留其余 overlay 和 CLI precedence；rules 编辑延期 | L2 | S08 | REF-01 |
 | CFG-07 | Managed Policy | 不可覆盖组织策略 | L0 | S13/S14 | REF-01 |
-| CFG-08 | Merge Semantics | Scalar/Object/List 明确规则 | L0 | S08 | REF-01 |
-| CFG-09 | Config Diagnostics | 来源与最终值 | L0 | S08 | REF-01 |
+| CFG-08 | Merge Semantics | Scalar/Object/List/delete/rule 的确定性逐字段合并 | L2 | S08 | REF-01 |
+| CFG-09 | Config Diagnostics | 来源、provenance、LKG 状态与隐私安全 doctor | L2 | S08 | REF-01 |
 | CFG-10 | Migration | Schema Version 与升级 | L0 | S14 | REF-01 |
 | CFG-11 | Feature Gates | 实验能力开关 | L0 | S14 | REF-01 |
 
@@ -658,7 +658,7 @@ Sub-Agent/后台任务留到 S12，OS Sandbox 留到 S13。
 
 G0 已于 2026-08-05 通过：`ADR-045` 在 `AUTH-SRC-2026-07-29-A` 的登记只读路径上完成了
 分层 Instructions、Settings 合并/来源、模型/权限/Tool 设置、Slash/诊断与失败安全边界的机制研究。G1 已由
-`ADR-046` 冻结项目自有文件位置、Schema v1、逐字段合并、命令最小语义和可证伪切片；`ADR-047` 冻结独立模块契约、user-root guard、严格解析/刷新与 Command Intent/Event。G3 A-F 已实现并完成独立审计；G4-G6、Stage Exit 与尚未提升的 Capability Level 仍未完成。
+`ADR-046` 冻结项目自有文件位置、Schema v1、逐字段合并、命令最小语义和可证伪切片；`ADR-047` 冻结独立模块契约、user-root guard、严格解析/刷新与 Command Intent/Event。实现 Commit `7bac8ea` 的 G3 A-F 审计、G4 全量/定量验证、G5 Demo/Gap 与 G6 对账已通过，S08 Stage Exit Accepted。
 
 完成条件：
 

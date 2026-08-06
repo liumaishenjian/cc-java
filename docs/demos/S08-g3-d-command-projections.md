@@ -6,7 +6,7 @@
 >
 > 参考：公开行为基线 `R2026.03`；授权参考快照 `AUTH-SRC-2026-07-29-A` 的受控机制研究结论见 ADR-045；本演示只验证项目独立 Java/TypeScript 契约，不包含参考源码表达。
 >
-> 状态：G0-G4 Passed；本演示与 S08 Gap 构成 G5 证据，G6 与 Stage Exit 仍 Open。
+> 状态：G0-G6 Passed；S08 Stage Exit Accepted。
 
 ## 可复现验证
 

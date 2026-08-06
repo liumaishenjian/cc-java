@@ -49,7 +49,7 @@
 > Workspace-aware metadata、本机单 Writer、未完成 Tool Recovery Gate、写前 ordinary-file
 > Checkpoint、有界 Diff 与逐项显式 Undo；Java CLI/Print/stdio/TUI 共用同一 Runtime，Behavior Replay
 > 已验证 Resume/Fork canonical history。任何有副作用操作都绝不自动重放；`SESSION-08` 仍仅为 L1；
-> S07 Context Engineering 已在 Commit-scoped G0-G6 对账后 Accepted：生产路径提供短生命周期 Context Projection、条件式 C1-C4、typed overflow 至多一次恢复、内部 Usage View、M1-M5 文件记忆及 ready-only 零等待预取；离线长会话 Eval 保持 Canonical/Tool 协议、事实/硬约束与完成率，并取得 49% 的估算 Token 降幅中位数。S08 已完成 G0 授权机制研究并处于 IN_PROGRESS，G1-G6 仍 Open；分层 Instructions/Settings、完整 Context UX、S13 OS Sandbox、S14 稳定 Export/Retention/Migration 仍未实现。
+> S07 Context Engineering 已在 Commit-scoped G0-G6 对账后 Accepted：生产路径提供短生命周期 Context Projection、条件式 C1-C4、typed overflow 至多一次恢复、内部 Usage View、M1-M5 文件记忆及 ready-only 零等待预取；离线长会话 Eval 保持 Canonical/Tool 协议、事实/硬约束与完成率，并取得 49% 的估算 Token 降幅中位数。S08 Instructions + Settings 已在实现 Commit `7bac8ea` 上完成 Commit-scoped G0-G6 并 Accepted：生产路径提供 user/project/directory/local 分层 Instructions、Settings v1/LKG、受控 Runtime 映射、`/help`、`/clear`、`/doctor`、`/model`、`/permissions`、`/compact`、`/context`、recovery-gated `/resume`，以及 React/Ink 多行/历史/补全与有界 steering。Settings 写入/迁移、rules 编辑、Provider discovery/多模型注册、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
 
 ## 项目目标
 
@@ -85,9 +85,9 @@ Stage 证据为准。
 | L3 | 关键行为和异常路径可与参考基线比较 |
 | L4 | 在评测数据支持下形成 Java 生态差异化 |
 
-R2026.03 基线目前追踪 195 个 Capability ID。S01-S07 已完成 Accepted Stage Exit；当前
-64 项为 L2、34 项为 L1、97 项为 L0。S07 的 `CTX-17/18` 已达到 L2，可在受限 Headless
-生产路径中提供文件记忆与零等待预取；这不表示 S08 的用户可见管理 UX 或 S14 的稳定持久化能力已经实现。
+R2026.03 基线目前追踪 195 个 Capability ID。S01-S08 已完成 Accepted Stage Exit；当前
+81 项为 L2、31 项为 L1、83 项为 L0。S07 的 `CTX-17/18` 与 S08 的 18 个 Instructions/Settings/
+CLI Feature 已达到 L2；这不表示已有 Managed Policy、OS Sandbox 或 S14 稳定持久化能力。
 默认最终目标为 L3，任何不实现项都必须记录 `Accepted Deviation`。
 
 项目同时度量四件事：
@@ -183,6 +183,10 @@ Spring AI 只位于模型和集成适配层，React/Ink 只位于终端前端。
 27. [S06 Gate 证据](./docs/evidence/S06-session-checkpoint-gate-2026-08-03.md)：G0-G6、自动验证、Demo、Gap 与退出对账；
 28. [S06 Demo](./docs/demos/S06-session-checkpoint.md)：Create/Resume/Fork、崩溃恢复、Behavior Replay、Diff/Undo 与 TUI 二次确认；
 29. [S06 差距报告](./docs/gap-reports/S06.md)：本机 lease、内部协议、普通文件恢复和后续 Stage 边界；
+30. [ADR-045](./docs/adr/ADR-045-s08-authorized-instructions-settings-study.md)、[ADR-046](./docs/adr/ADR-046-s08-g1-product-contract.md)、[ADR-047](./docs/adr/ADR-047-s08-g2-architecture-contract.md)：S08 受控研究、产品范围与独立架构契约；
+31. [S08 Stage Exit 证据](./docs/evidence/S08-instructions-settings-2026-08-06.md)：实现 Commit 的 G0-G6、测试/Eval、Demo/Gap 与延期边界；
+32. [S08 Demo](./docs/demos/S08-g3-d-command-projections.md)：Instructions、Settings、命令、编辑/steering 与 Resume 可复现场景；
+33. [S08 差距报告](./docs/gap-reports/S08.md)：Settings 写入/迁移、规则编辑、多模型与 S12-S14 延期能力；
 30. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：仍有效的 Provider 与 Streaming 目标；
 26. [ADR-020（历史）](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)：此前暂停研究的审计记录；
 27. [Stage 证据包模板](./docs/templates/stage-evidence-package.md)：每个阶段统一的 G0-G6 Gate；

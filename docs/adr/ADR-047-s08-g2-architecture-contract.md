@@ -11,7 +11,7 @@
 
 ## 决策
 
-本 ADR 完成 S08 G2：在不改变 ADR-046 已冻结的产品行为、来源优先级、字段、上限、合并语义或延期边界下，确定独立的 Domain/Core/Application/Adapter 类型、依赖方向、失败原子性与 G3/G4 接口。它不创建生产 Java/TypeScript、测试、Demo 或持久配置文件，不提升任何 Capability Level；S08 保持 `IN_PROGRESS`，仅 G0-G2 Passed，G3-G6 和 Stage Exit 仍 Open。
+本 ADR 完成 S08 G2：在不改变 ADR-046 已冻结的产品行为、来源优先级、字段、上限、合并语义或延期边界下，确定独立的 Domain/Core/Application/Adapter 类型、依赖方向、失败原子性与 G3/G4 接口。它本身不创建生产 Java/TypeScript、测试、Demo 或持久配置文件；“G3-G6 Open”是本 ADR 通过时的历史状态，后续实现与 Stage Exit 结论见文末 Gate 状态。
 
 `cc-java-domain` 保存不可变的输入、投影、provenance、诊断、命令 Intent/Event 与状态枚举；`cc-java-core` 只保存无 `Path`、JSON、Git、终端、Spring AI、React/Ink 或 Node 类型的解析后 Port 和用例服务；`cc-java-cli` 负责 JSON、真实路径、Gitignore、stdio 编解码和 Composition Root；`cc-java-tui` 只把用户交互转换为 Intent 并渲染 Event。`cc-java-tools-local` 继续是 Workspace 文件 Tool 的 Adapter；S08 不把 user-root 访问伪装成 Workspace Tool，也不改变已有 `WorkspaceGuard` 的责任。
 
@@ -164,7 +164,7 @@ React/Ink 维护纯 Reducer 的 ephemeral `InputState`、`HistoryState`、`Compl
 
 ## Gate 状态
 
-G2 Passed。ADR-045 的授权研究边界、ADR-046 的产品契约与本 ADR 的独立架构/安全/测试契约共同形成 G0-G2。G3 A-F 已完成实现与独立审计；G4-G6、完整 Demo/Gap 与 Stage Exit 仍 Open。
+G2 Passed。ADR-045 的授权研究边界、ADR-046 的产品契约与本 ADR 的独立架构/安全/测试契约共同形成 G0-G2。实现 Commit `7bac8ea` 的 G3-G6 与 Stage Exit 已完成，S08 Accepted。
 
 ## G3-E 架构落点（2026-08-06）
 
@@ -184,4 +184,4 @@ JSONL 泄漏回归。G2 决策不变。
 
 A-F 审计确认 Domain/Core/Application/Adapter 所有权、短生命周期 Surface 状态、LKG/RuntimeScope
 原子替换和 S05/S06/S07 Gate 均未被旁路。唯一修复是 A 的 Workspace 候选逻辑路径链接检查；该检查
-发生在 realpath 跟随之前。G3 Passed；G4-G6 与 Stage Exit 仍需后续证据闭环。
+发生在 realpath 跟随之前。G3-G6 与 Stage Exit 证据现已闭环，S08 Accepted。

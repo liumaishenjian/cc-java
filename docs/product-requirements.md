@@ -4,7 +4,7 @@
 >
 > 最后更新：2026-08-06
 >
-> 当前阶段：S01-S07 已 Accepted；S08 Instructions + Settings 已完成 G0-G5。G3 A-F 审计、G4 全量/量化验证与 G5 完整 Demo 已通过；`CLI-07`、`CLI-09` 已达到 L2，其余等级等待 G6 commit-scoped 对账。G6 与 Stage Exit 仍 Open。
+> 当前阶段：S01-S08 已 Accepted。S08 已在实现 Commit `7bac8ea` 上完成 Commit-scoped G0-G6；18 个目标 Feature 达到 L2。下一步进入 S09 Hooks G0，S12-S14 延期边界不变。
 >
 > 产品负责人：项目维护者
 
@@ -473,7 +473,7 @@ G3-E 已完成 React/Ink 受控多行编辑、每 Session 内存历史、封闭�
 stdio Adapter 以 100 条内存 FIFO 持有未发送补充，只在当前 Run 权威终态后开始下一 Run。取消、
 `/clear`、成功 Resume、transport failure 与 shutdown/close 均丢弃未发送项，且不写 Canonical、
 JSONL 或 Checkpoint。规则编辑和 Provider discovery/多模型注册继续延期，稳定机器协议仍属 S14；
-G3 A-F 已完成独立对账；G4-G6 与 Stage Exit 保持 Open，后续必须重跑 S07 摘要重注入和 Context Usage 量化回归。
+G3 A-F、G4 全量/量化验证、G5 Demo/Gap 与 G6 commit-scoped 对账已完成，S08 Stage Exit Accepted。S07 摘要重注入和 Context Usage 量化回归保持通过。
 
 ## 14. S09-S11：扩展系统重实现
 

@@ -74,4 +74,4 @@ S08 以独立的 Java 契约实现分层 Instructions、Settings 与交互命令
 
 ## Gate 状态
 
-本 ADR 和来源登记满足 S08 G0 的受控机制研究材料：授权范围、只读位置、抽象观察、独立采纳边界、未知项和 G1-G2 可证伪交接均已记录。后续 ADR-046 已使 G1 Passed；G2-G6、Stage Exit、实现证据、Demo 与所有 Capability Level 仍 Open/不变，S08 不是 Accepted。
+本 ADR 和来源登记满足 S08 G0 的受控机制研究材料：授权范围、只读位置、抽象观察、独立采纳边界、未知项和 G1-G2 可证伪交接均已记录。该段原始 Gate 结论只代表 G0 当时状态；后续 ADR-046/047、实现 Commit `7bac8ea`、测试/Eval、Demo/Gap 与 commit-scoped 对账已完成 G1-G6，S08 Stage Exit Accepted。
