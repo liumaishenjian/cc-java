@@ -99,6 +99,27 @@ describe('reduceTuiState', () => {
     expect(state.sessionId).toBe('session-target');
   });
 
+  it('只投影 steering 深度与固定丢弃原因，不把文本写入 Run 或 notice', () => {
+    let state = reduceTuiState(initialTuiState, {
+      type: 'event.received', event: event('initialized', 1, {}, 'init', 'session-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('steering.queued', 2, {queueDepth: 1}, 'steering-1', 'session-1'),
+    });
+    expect(state.steeringQueueDepth).toBe(1);
+    expect(state.notice).toBe('补充消息已排队（1/100）');
+    expect(JSON.stringify(state)).not.toContain('SECRET_PROMPT');
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('steering.discarded', 3, {reason: 'cancelled'}, 'steering-1', 'session-1'),
+    });
+    expect(state.steeringQueueDepth).toBe(0);
+    expect(state.notice).toBe('当前 Run 取消，已丢弃一条未发送补充消息');
+    state = reduceTuiState(state, {type: 'transport.failed', message: 'transport closed'});
+    expect(state.steeringQueueDepth).toBe(0);
+  });
+
   it('不把协议错误文本原样显示', () => {
     const state = reduceTuiState(initialTuiState, {
       type: 'event.received',

@@ -17,6 +17,8 @@ import type {AgentClient} from '../src/app.js';
 import type {ProtocolEvent} from '../src/protocol.js';
 import type {TuiState} from '../src/state.js';
 
+const CTRL_ENTER = String.fromCharCode(27) + '[13;5u';
+
 describe('AgentView', () => {
   it('窄窗口仍能渲染中文、输入和完成状态', () => {
     const state: TuiState = {
@@ -331,10 +333,97 @@ describe('AgentView', () => {
     });
     await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
     view.stdin.write('任务');
-    view.stdin.write('\r');
+    view.stdin.write(CTRL_ENTER);
     await waitForFrame(() => client.prompts.length === 1);
 
     expect(client.prompts).toEqual(['预输入任务']);
+    view.unmount();
+  });
+
+  it('Enter 写入多行缓冲，Ctrl+Enter 显式提交完整内容', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'tui-1', sessionId: 'session-1', sequence: 1, payload: {protocolVersion: 0}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+
+    view.stdin.write('first');
+    view.stdin.write('\r');
+    view.stdin.write('second');
+    expect(client.prompts).toEqual([]);
+    view.stdin.write(CTRL_ENTER);
+    await waitForFrame(() => client.prompts.length === 1);
+
+    expect(client.prompts).toEqual(['first\nsecond']);
+    view.unmount();
+  });
+
+  it('运行中仍可编辑并以 Ctrl+Enter 排队普通多行补充，不改变当前 Run 投影', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+    view.stdin.write('initial');
+    view.stdin.write(CTRL_ENTER);
+    await waitForFrame(() => client.prompts.length === 1);
+    await waitForFrame(() => view.lastFrame()?.includes('运行中') === true);
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1', runId: 'run-1', sequence: 2, payload: {}});
+    view.stdin.write('follow');
+    view.stdin.write('\r');
+    view.stdin.write('up');
+    view.stdin.write(CTRL_ENTER);
+    await waitForFrame(() => client.prompts.length === 2);
+
+    expect(client.prompts).toEqual(['initial', 'follow\nup']);
+    expect(view.lastFrame()).toContain('正在处理');
+    expect(view.lastFrame()).toContain('Ctrl+Enter 排队补充');
+    view.unmount();
+  });
+
+  it('steering 队列满拒绝会遗忘本地 prompt，且后续 started 不会物化它', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+    view.stdin.write('initial');
+    view.stdin.write(CTRL_ENTER);
+    await waitForFrame(() => client.prompts.length === 1);
+    await waitForFrame(() => view.lastFrame()?.includes('运行中') === true);
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1', runId: 'run-1', sequence: 2, payload: {}});
+    view.stdin.write('REJECTED_STEERING_SECRET');
+    view.stdin.write(CTRL_ENTER);
+    await waitForFrame(() => client.prompts.length === 2);
+    client.emit({
+      version: 0, type: 'protocol.error', requestId: 'tui-3', sessionId: 'session-1', sequence: 3,
+      payload: {code: 'STEERING_QUEUE_FULL'},
+    });
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    expect(view.lastFrame()).toContain('Java 协议错误：STEERING_QUEUE_FULL');
+    expect(view.lastFrame()).not.toContain('REJECTED_STEERING_SECRET');
+    expect(view.lastFrame()).not.toContain('（1/100）');
+    view.unmount();
+  });
+
+  it('运行中 Slash 始终走命令通道，绝不进入 steering 或模型提示词', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+    view.stdin.write('initial');
+    view.stdin.write(CTRL_ENTER);
+    await waitForFrame(() => client.prompts.length === 1);
+    await waitForFrame(() => view.lastFrame()?.includes('运行中') === true);
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1', runId: 'run-1', sequence: 2, payload: {}});
+    view.stdin.write('/doctor');
+    view.stdin.write(CTRL_ENTER);
+    await waitForFrame(() => client.sessionCommands.length === 1);
+
+    expect(client.prompts).toEqual(['initial']);
+    expect(client.sessionCommands).toEqual(['tui-command-1:doctor:{}']);
     view.unmount();
   });
 
@@ -345,7 +434,7 @@ describe('AgentView', () => {
     client.emit({version: 0, type: 'initialized', requestId: 'tui-1', sessionId: 'session-1', sequence: 1, payload: {protocolVersion: 0}});
     await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
     view.stdin.write('/doctor');
-    view.stdin.write('\r');
+    view.stdin.write(CTRL_ENTER);
     await waitForFrame(() => client.sessionCommands.length === 1);
     expect(client.sessionCommands).toEqual(['tui-command-1:doctor:{}']);
     expect(client.prompts).toEqual([]);
@@ -366,11 +455,11 @@ describe('AgentView', () => {
     client.emit({version: 0, type: 'initialized', requestId: 'tui-1', sessionId: 'session-1', sequence: 1, payload: {protocolVersion: 0}});
     await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
     view.stdin.write('/doctor');
-    view.stdin.write('\r');
+    view.stdin.write(CTRL_ENTER);
     await waitForFrame(() => view.lastFrame()?.includes('当前连接不支持 Slash 命令') === true);
     expect(client.prompts).toEqual([]);
     view.stdin.write('/unknown');
-    view.stdin.write('\r');
+    view.stdin.write(CTRL_ENTER);
     await waitForFrame(() => view.lastFrame()?.includes('未知 Slash 命令') === true);
     expect(client.prompts).toEqual([]);
     view.unmount();
@@ -392,7 +481,7 @@ describe('AgentView', () => {
 
     view.stdin.write('coding');
     await waitForFrame(() => view.lastFrame()?.includes('coding') === true);
-    view.stdin.write('\r');
+    view.stdin.write(CTRL_ENTER);
     await waitForFrame(() => client.prompts.length === 1);
 
     expect(client.prompts).toEqual(['coding']);
@@ -504,7 +593,7 @@ class FakeAgentClient implements AgentClient {
 
   public startRun(prompt: string): string {
     this.prompts.push(prompt);
-    return 'tui-2';
+    return `tui-${this.prompts.length + 1}`;
   }
 
   public cancelRun(): string {

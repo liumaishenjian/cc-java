@@ -31,12 +31,14 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.databind.node.ArrayNode;
 
-import java.util.Objects;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -56,12 +58,16 @@ import java.time.Duration;
 public final class RuntimeStdioCommandHandler
         implements StdioProtocol.CommandHandler, AgentEventSink {
 
+    /** 当前连接允许保留的未发送 steering 数量。 */
+    static final int MAX_STEERING_MESSAGES = 100;
+
     private final Object lock = new Object();
     private final StdioProtocolCodec codec = new StdioProtocolCodec();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(
             Thread.ofPlatform().name("cc-java-runtime-run").daemon(true).factory());
     private final StdioApprovalCoordinator approvals;
     private final HeadlessRuntimeSession application;
+    private final Deque<QueuedSteering> steeringQueue = new ArrayDeque<>();
     private State state = State.NEW;
     private ActiveRun activeRun;
     private SessionCommandDispatcher commandDispatcher;
@@ -260,7 +266,7 @@ public final class RuntimeStdioCommandHandler
         String prompt = requiredPrompt(command);
         ActiveRun run;
         synchronized (lock) {
-            ensureState(State.READY, command);
+            ensureStateReadyOrRunning(command);
             requireSession(command);
             if (command.runId().isPresent()) {
                 throw protocolError(
@@ -268,12 +274,41 @@ public final class RuntimeStdioCommandHandler
                         command,
                         "run.start 的 Run ID 必须由 Java 生成");
             }
-            run = new ActiveRun(command.requestId(), prompt.length(), events);
-            activeRun = run;
-            state = State.RUNNING;
+            if (state == State.RUNNING) {
+                if (steeringQueue.size() >= MAX_STEERING_MESSAGES) {
+                    throw protocolError("STEERING_QUEUE_FULL", command, "steering 队列已满");
+                }
+                QueuedSteering steering = new QueuedSteering(
+                        command.requestId(), application.sessionId().value(), prompt, events);
+                steeringQueue.addLast(steering);
+                try {
+                    emitSteeringQueued(command, events, steeringQueue.size());
+                } catch (RuntimeException failure) {
+                    closeForTransportFailureLocked();
+                    throw failure;
+                }
+                return StdioProtocol.Disposition.CONTINUE;
+            }
+            run = startRunLocked(command.requestId(), prompt.length(), events);
         }
         executor.submit(() -> executeRun(run, prompt));
         return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    private ActiveRun startRunLocked(String requestId, int promptChars, StdioProtocol.EventEmitter events) {
+        ActiveRun run = new ActiveRun(requestId, promptChars, events);
+        activeRun = run;
+        state = State.RUNNING;
+        return run;
+    }
+
+    private void emitSteeringQueued(
+            StdioProtocol.Command command,
+            StdioProtocol.EventEmitter events,
+            int queueDepth) {
+        ObjectNode payload = codec.objectNode();
+        payload.put("queueDepth", queueDepth);
+        events.emit("steering.queued", command.requestId(), Optional.of(application.sessionId().value()), Optional.empty(), payload);
     }
 
     /**
@@ -297,17 +332,20 @@ public final class RuntimeStdioCommandHandler
             }
             if (commandDispatcher == null) {
                 commandDispatcher = new SessionCommandDispatcher(
-                        application, new DoctorReportService(application));
+                        application, new DoctorReportService(application),
+                        () -> discardSteering(DiscardReason.CLEAR));
             }
             try {
                 commandId = new CommandId(requiredSessionCommandText(command, "commandId"));
                 if (commandRequestBudgetExhausted && !emittedCommandResults.contains(commandId)) {
                     return StdioProtocol.Disposition.SHUTDOWN;
                 }
-                result = commandDispatcher.dispatch(
-                        commandId,
-                        decodeSessionCommandIntent(command),
-                        CancellationToken.none());
+                SessionCommandIntent intent = decodeSessionCommandIntent(command);
+                result = commandDispatcher.dispatch(commandId, intent, CancellationToken.none());
+                if (intent instanceof SessionCommandIntent.Resume
+                        && result.event().status() == io.github.liumaishenjian.ccjava.domain.command.SessionCommandStatus.SUCCEEDED) {
+                    discardSteering(DiscardReason.SESSION_SWITCH);
+                }
             } catch (IllegalArgumentException invalid) {
                 throw protocolError("INVALID_PAYLOAD", command, "session.command 参数无效");
             }
@@ -566,18 +604,30 @@ public final class RuntimeStdioCommandHandler
                         command,
                         "run.cancel 与活动 Run 不匹配或取消已经发生");
             }
+            discardSteering(DiscardReason.CANCELLED);
         }
         return StdioProtocol.Disposition.CONTINUE;
     }
 
     private StdioProtocol.Disposition shutdown() {
-        synchronized (lock) {
-            state = State.CLOSED;
-            if (activeRun != null && activeRun.runId != null) {
-                application.cancel(activeRun.runId);
+        RuntimeException failure = null;
+        try {
+            synchronized (lock) {
+                state = State.CLOSED;
+                cancelActiveRunLocked();
+                discardSteering(DiscardReason.SHUTDOWN);
             }
+        } catch (RuntimeException cleanupFailure) {
+            failure = cleanupFailure;
         }
-        approvals.close();
+        try {
+            approvals.close();
+        } catch (RuntimeException closeFailure) {
+            failure = retainFirstFailure(failure, closeFailure);
+        }
+        if (failure != null) {
+            throw failure;
+        }
         return StdioProtocol.Disposition.SHUTDOWN;
     }
 
@@ -774,7 +824,7 @@ public final class RuntimeStdioCommandHandler
             default -> "run.failed";
         };
         emit(run, type, payload);
-        finish(run);
+        finish(run, result.stopReason() == io.github.liumaishenjian.ccjava.domain.StopReason.USER_CANCELLED);
     }
 
     private ObjectNode telemetryPayload(RunTelemetry telemetry) {
@@ -858,26 +908,105 @@ public final class RuntimeStdioCommandHandler
         payload.put("modelTurns", 0);
         payload.put("toolCalls", 0);
         emit(run, "run.failed", payload);
-        finish(run);
+        finish(run, false);
     }
 
     private void emit(ActiveRun run, String type, ObjectNode payload) {
-        run.events.emit(
-                type,
-                run.requestId,
-                Optional.of(application.sessionId().value()),
-                Optional.of(run.runId.value()),
-                payload);
+        try {
+            run.events.emit(
+                    type,
+                    run.requestId,
+                    Optional.of(application.sessionId().value()),
+                    Optional.of(run.runId.value()),
+                    payload);
+        } catch (RuntimeException failure) {
+            synchronized (lock) {
+                closeForTransportFailureLocked();
+            }
+            throw failure;
+        }
     }
 
-    private void finish(ActiveRun run) {
+    /**
+     * 把不可继续的事件传输故障收敛为关闭状态。
+     *
+     * <p>未发送 steering 只存在于本适配器内存，传输失效时不能再启动它们。丢弃事件本身无法可靠
+     * 投影，故仅在内存中移除；活动 Run 交给既有取消路径，并禁止其终态后继续调度下一 Run。</p>
+     */
+    private void closeForTransportFailureLocked() {
+        state = State.CLOSED;
+        steeringQueue.clear();
+        cancelActiveRunLocked();
+    }
+
+    private void cancelActiveRunLocked() {
+        if (activeRun != null && activeRun.runId != null) {
+            application.cancel(activeRun.runId);
+        }
+    }
+
+    private static RuntimeException retainFirstFailure(
+            RuntimeException first,
+            RuntimeException next) {
+        if (first == null) {
+            return next;
+        }
+        first.addSuppressed(next);
+        return first;
+    }
+
+    /**
+     * 在唯一 Run 终态已经投影后释放活动状态，并且只在安全边界调度下一条 steering。
+     *
+     * <p>当前 Run 的终态事件先于下一 Run 的启动；用户取消、关闭或显式丢弃都不会消费未发送
+     * 文本，其余终态才可进入下一条。队列中的原始文本始终只停留在本适配器内存，直到被实际启动时
+     * 才交给 Runtime。</p>
+     */
+    private void finish(ActiveRun run, boolean discardQueuedSteering) {
+        QueuedSteering next = null;
         synchronized (lock) {
-            if (activeRun == run) {
-                activeRun = null;
-                if (state != State.CLOSED) {
-                    state = State.READY;
+            if (activeRun != run) {
+                return;
+            }
+            activeRun = null;
+            if (discardQueuedSteering || state == State.CLOSED) {
+                discardSteering(discardQueuedSteering ? DiscardReason.CANCELLED : DiscardReason.SHUTDOWN);
+                return;
+            }
+            state = State.READY;
+            next = steeringQueue.pollFirst();
+            if (next != null) {
+                QueuedSteering steering = next;
+                ActiveRun nextRun = startRunLocked(steering.requestId(), steering.prompt().length(), steering.events());
+                executor.submit(() -> executeRun(nextRun, steering.prompt()));
+            }
+        }
+    }
+
+    /**
+     * 清除尚未消费的 Surface steering，不触及 Runtime 或任何 durable state。
+     *
+     * <p>每条已接收消息恰好产生一次不含文本的 discarded 投影；空队列不产生事件，重复清理也不会
+     * 重复投影。reason 是固定枚举值，避免将用户输入、路径或其他不可信内容写入 stdout。</p>
+     */
+    private void discardSteering(DiscardReason reason) {
+        RuntimeException failure = null;
+        QueuedSteering steering;
+        while ((steering = steeringQueue.pollFirst()) != null) {
+            ObjectNode payload = codec.objectNode();
+            payload.put("reason", reason.wireValue());
+            try {
+                steering.events().emit("steering.discarded", steering.requestId(), Optional.of(steering.sessionId()),
+                        Optional.empty(), payload);
+            } catch (RuntimeException emissionFailure) {
+                if (failure == null) {
+                    failure = emissionFailure;
                 }
             }
+        }
+        if (failure != null) {
+            closeForTransportFailureLocked();
+            throw failure;
         }
     }
 
@@ -910,6 +1039,16 @@ public final class RuntimeStdioCommandHandler
                     "INVALID_STATE",
                     command,
                     "命令与当前 Application 状态不兼容");
+        }
+    }
+
+    private void ensureStateReadyOrRunning(StdioProtocol.Command command)
+            throws StdioProtocolException {
+        if (state != State.READY && state != State.RUNNING) {
+            throw protocolError(
+                    "INVALID_STATE",
+                    command,
+                    "run.start 需要已初始化且未关闭的 Session");
         }
     }
 
@@ -957,22 +1096,41 @@ public final class RuntimeStdioCommandHandler
 
     @Override
     public void close() throws InterruptedException {
-        synchronized (lock) {
-            state = State.CLOSED;
-            if (activeRun != null && activeRun.runId != null) {
-                application.cancel(activeRun.runId);
+        RuntimeException failure = null;
+        try {
+            synchronized (lock) {
+                state = State.CLOSED;
+                cancelActiveRunLocked();
+                discardSteering(DiscardReason.SHUTDOWN);
             }
+        } catch (RuntimeException cleanupFailure) {
+            failure = cleanupFailure;
         }
-        approvals.close();
+        try {
+            approvals.close();
+        } catch (RuntimeException closeFailure) {
+            failure = retainFirstFailure(failure, closeFailure);
+        }
         executor.shutdown();
-        if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-            executor.shutdownNow();
-            if (!executor.awaitTermination(2, TimeUnit.SECONDS)) {
-                throw new IllegalStateException("Runtime Run Executor 未退出");
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+                if (!executor.awaitTermination(2, TimeUnit.SECONDS)) {
+                    failure = retainFirstFailure(failure,
+                            new IllegalStateException("Runtime Run Executor 未退出"));
+                }
+            }
+        } finally {
+            if (state != State.NEW) {
+                try {
+                    application.close();
+                } catch (RuntimeException closeFailure) {
+                    failure = retainFirstFailure(failure, closeFailure);
+                }
             }
         }
-        if (state != State.NEW) {
-            application.close();
+        if (failure != null) {
+            throw failure;
         }
     }
 
@@ -981,6 +1139,39 @@ public final class RuntimeStdioCommandHandler
         READY,
         RUNNING,
         CLOSED
+    }
+
+    /** steering 丢弃原因只用于内部状态转换，禁止携带用户文本。 */
+    private enum DiscardReason {
+        CLEAR("clear"),
+        CANCELLED("cancelled"),
+        SESSION_SWITCH("session_switch"),
+        SHUTDOWN("shutdown");
+
+        private final String wireValue;
+
+        DiscardReason(String wireValue) {
+            this.wireValue = wireValue;
+        }
+
+        private String wireValue() {
+            return wireValue;
+        }
+    }
+
+    /**
+     * 尚未送入 Runtime 的单条 Surface 输入。
+     *
+     * <p>该对象不进入 AgentEvent、Canonical Transcript、Session JSONL 或 Checkpoint；其文本仅在
+     * 当前 Run 正常终态后的安全边界被消费一次。</p>
+     */
+    private record QueuedSteering(String requestId, String sessionId, String prompt, StdioProtocol.EventEmitter events) {
+        private QueuedSteering {
+            Objects.requireNonNull(requestId, "requestId 不能为空");
+            Objects.requireNonNull(sessionId, "sessionId 不能为空");
+            Objects.requireNonNull(prompt, "prompt 不能为空");
+            Objects.requireNonNull(events, "events 不能为空");
+        }
     }
 
     private static final class ActiveRun {

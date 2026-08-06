@@ -114,11 +114,17 @@ export interface TuiState {
   readonly checkpointDiff: CheckpointDiffView | undefined;
   readonly pendingUndoCheckpointId: string | undefined;
   readonly checkpointUndo: CheckpointUndoView | undefined;
+  readonly steeringQueueDepth?: number | undefined;
   readonly notice: string | undefined;
 }
 
 export type TuiAction =
-  | {readonly type: 'run.submitted'; readonly requestId: string; readonly prompt: string}
+  | {
+    readonly type: 'run.submitted';
+    readonly requestId: string;
+    readonly prompt: string;
+    readonly steering?: boolean;
+  }
   | {readonly type: 'approval.submitted'; readonly approvalId: string}
   | {readonly type: 'checkpoint.selected'; readonly checkpointId: string}
   | {readonly type: 'checkpoint.undo.requested'; readonly checkpointId: string}
@@ -140,6 +146,7 @@ export const initialTuiState: TuiState = {
   checkpointDiff: undefined,
   pendingUndoCheckpointId: undefined,
   checkpointUndo: undefined,
+  steeringQueueDepth: 0,
   notice: undefined,
 };
 
@@ -158,6 +165,9 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
       return {
         ...state,
         phase: 'running',
+        steeringQueueDepth: action.steering === true
+          ? Math.max(0, (state.steeringQueueDepth ?? 0) - 1)
+          : state.steeringQueueDepth,
         notice: undefined,
         runs: [
           ...state.runs,
@@ -206,13 +216,19 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
     case 'event.received':
       return applyEvent(state, action.event);
     case 'transport.failed':
-      return {...state, phase: 'failed', notice: action.message, activeRunId: undefined};
+      return {
+        ...state,
+        phase: 'failed',
+        notice: action.message,
+        activeRunId: undefined,
+        steeringQueueDepth: 0,
+      };
     case 'slash.notice':
       return {...state, notice: action.message};
     case 'closing':
       return {...state, phase: 'closing'};
     case 'closed':
-      return {...state, phase: 'closed', activeRunId: undefined};
+      return {...state, phase: 'closed', activeRunId: undefined, steeringQueueDepth: 0};
   }
 }
 
@@ -223,6 +239,7 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
         ...state,
         phase: 'ready',
         sessionId: event.sessionId,
+        steeringQueueDepth: 0,
         notice: undefined,
       };
     case 'run.started':
@@ -314,6 +331,18 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
       };
     case 'session.command.result':
       return applySessionCommandResult(state, event);
+    case 'steering.queued':
+      return {
+        ...state,
+        steeringQueueDepth: Number(event.payload.queueDepth),
+        notice: `补充消息已排队（${event.payload.queueDepth}/100）`,
+      };
+    case 'steering.discarded':
+      return {
+        ...state,
+        steeringQueueDepth: Math.max(0, (state.steeringQueueDepth ?? 0) - 1),
+        notice: steeringDiscardedNotice(event.payload.reason),
+      };
     case 'protocol.error':
       return {
         ...state,
@@ -337,10 +366,20 @@ function applySessionCommandResult(state: TuiState, event: ProtocolEvent): TuiSt
       && typeof result.resumedSessionId === 'string'
       && event.sessionId === result.resumedSessionId
     ) {
-      return {...state, sessionId: result.resumedSessionId};
+      return {...state, sessionId: result.resumedSessionId, steeringQueueDepth: 0};
     }
   }
   return state;
+}
+
+function steeringDiscardedNotice(reason: unknown): string {
+  switch (reason) {
+    case 'clear': return '已清除一条未发送补充消息';
+    case 'cancelled': return '当前 Run 取消，已丢弃一条未发送补充消息';
+    case 'session_switch': return '会话已切换，已丢弃一条未发送补充消息';
+    case 'shutdown': return '连接关闭，已丢弃一条未发送补充消息';
+    default: return '未发送补充消息已丢弃';
+  }
 }
 
 function checkpointList(

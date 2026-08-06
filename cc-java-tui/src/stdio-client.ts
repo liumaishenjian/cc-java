@@ -50,6 +50,8 @@ export class StdioClient {
   #stderrBytes = 0;
   #issuedSessionCommandIds = new Set<string>();
   #pendingSessionCommands = new Map<string, string>();
+  #pendingRunStartRequestId: string | undefined;
+  #pendingSteeringRequests = new Map<string, 'awaiting_queued' | 'queued'>();
   static readonly #MAX_ISSUED_SESSION_COMMAND_IDS = 256;
 
   public constructor(spec: ChildProcessSpec, options: StdioClientOptions = {}) {
@@ -82,6 +84,8 @@ export class StdioClient {
       }
       this.#closed = true;
       this.#pendingSessionCommands.clear();
+      this.#pendingRunStartRequestId = undefined;
+      this.#pendingSteeringRequests.clear();
       this.#issuedSessionCommandIds.clear();
       this.#events.emit('exit', {code, signal, stderrBytes: this.#stderrBytes});
     });
@@ -112,7 +116,13 @@ export class StdioClient {
     if (this.#sessionId === undefined) {
       throw new Error('Session 尚未初始化');
     }
-    return this.#send('run.start', {prompt}, this.#sessionId);
+    const requestId = this.#send('run.start', {prompt}, this.#sessionId);
+    if (this.#activeRunId !== undefined || this.#pendingRunStartRequestId !== undefined) {
+      this.#pendingSteeringRequests.set(requestId, 'awaiting_queued');
+    } else {
+      this.#pendingRunStartRequestId = requestId;
+    }
+    return requestId;
   }
 
   public sessionCommand(
@@ -288,7 +298,29 @@ export class StdioClient {
   }
 
   #observeAuthority(event: ProtocolEvent): void {
-    if (event.type === 'session.command.result') {
+    if (event.type === 'protocol.error') {
+      if (event.requestId === this.#pendingRunStartRequestId) {
+        this.#pendingRunStartRequestId = undefined;
+      } else {
+        this.#pendingSteeringRequests.delete(event.requestId);
+      }
+    } else if (event.type === 'steering.queued') {
+      if (
+        event.sessionId !== this.#sessionId
+        || this.#pendingSteeringRequests.get(event.requestId) !== 'awaiting_queued'
+      ) {
+        throw new ProtocolViolation('steering.queued 与待处理请求或当前 Session 不匹配');
+      }
+      this.#pendingSteeringRequests.set(event.requestId, 'queued');
+    } else if (event.type === 'steering.discarded') {
+      if (
+        event.sessionId !== this.#sessionId
+        || this.#pendingSteeringRequests.get(event.requestId) !== 'queued'
+      ) {
+        throw new ProtocolViolation('steering.discarded 与已排队请求或当前 Session 不匹配');
+      }
+      this.#pendingSteeringRequests.delete(event.requestId);
+    } else if (event.type === 'session.command.result') {
       const commandId = event.payload.commandId;
       if (typeof commandId !== 'string') {
         throw new ProtocolViolation('session.command.result 缺少 commandId');
@@ -306,6 +338,8 @@ export class StdioClient {
           && typeof (result as Record<string, unknown>).resumedSessionId === 'string'
           && event.sessionId === (result as Record<string, unknown>).resumedSessionId) {
           this.#sessionId = event.sessionId;
+          this.#pendingRunStartRequestId = undefined;
+          this.#pendingSteeringRequests.clear();
         } else {
           throw new ProtocolViolation('session.command.result resume 与当前 Session 不匹配');
         }
@@ -314,6 +348,16 @@ export class StdioClient {
     if (event.type === 'initialized') {
       this.#sessionId = event.sessionId;
     } else if (event.type === 'run.started') {
+      if (event.sessionId !== this.#sessionId) {
+        throw new ProtocolViolation('run.started 与当前 Session 不匹配');
+      }
+      if (event.requestId === this.#pendingRunStartRequestId) {
+        this.#pendingRunStartRequestId = undefined;
+      } else if (this.#pendingSteeringRequests.get(event.requestId) === 'queued') {
+        this.#pendingSteeringRequests.delete(event.requestId);
+      } else {
+        throw new ProtocolViolation('run.started 与已签发 run.start 请求不匹配');
+      }
       this.#activeRunId = event.runId;
     } else if (
       event.type === 'run.completed'
@@ -333,6 +377,8 @@ export class StdioClient {
     this.#shutdownRequested = true;
     this.#clearCancelTimer();
     this.#pendingSessionCommands.clear();
+    this.#pendingRunStartRequestId = undefined;
+    this.#pendingSteeringRequests.clear();
     this.#issuedSessionCommandIds.clear();
     this.#emitFailure(message);
     this.#child.kill();

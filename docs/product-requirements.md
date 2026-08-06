@@ -2,9 +2,9 @@
 
 > 文档状态：Draft v0.9
 >
-> 最后更新：2026-08-05
+> 最后更新：2026-08-06
 >
-> 当前阶段：S01-S07 已 Accepted；S07 已以 Commit-scoped G0-G6 对账完成 Projection、Memory、内部 Usage View、deterministic Fake Eval、Demo 与 Gap 闭环。S08 Instructions + Settings 已完成 G0-G2；G3-C/D 的受限 Session 命令与显式 compact/context 安全投影已实现，但 G3-G6、Capability Level 与 Stage Exit 仍 Open。
+> 当前阶段：S01-S07 已 Accepted；S08 Instructions + Settings 已完成 G0-G2。本次已接受 G3-E 的多行/历史/补全与 steering 证据，`CLI-07`、`CLI-09` 达到 L2；这不构成完整 G3 A-F 审计，G3、G4-G6 与 Stage Exit 仍 Open。
 >
 > 产品负责人：项目维护者
 
@@ -466,7 +466,14 @@ Sandbox。历史 ADR-019 继续 Superseded。
 S08 的 G0 受控机制研究已由 ADR-045 完成；G1 已由 ADR-046 冻结项目自有 Instructions 文件位置、
 Settings schema v1、逐字段 merge/delete/provenance、最小 Slash/doctor 语义和可证伪切片；G2 已由 ADR-047 冻结
 Domain/Core/Application/Adapter 契约、独立 user-root guard、严格 duplicate-key parser、last-known-good 刷新、
-Command Intent/Event 与 G3/G4 测试矩阵。G3-C/D/F 的有界子切片现已接入内存 Session patch、stdio v0 与封闭 Slash/TUI：`/model` 只接受当前启动模型名，`/permissions` 可查询实际 Runtime mode 或将 mode 改为 `DEFAULT`、`PLAN`、`ACCEPT_EDITS`；两者均只作用于下一 Run，保留 CLI precedence，且不读取 Settings 文件、不写 JSONL/Checkpoint。`/resume <session-id>` 仅在 idle 边界通过既有 S06 Workspace、Writer、fence、incomplete-side-effect 与 Checkpoint recovery Gate 后原子切换当前 Session；拒绝、取消或竞争保留原 Session，绝不自动重放 Tool 或副作用。permissions query 只显示无 selector 的 Settings-derived STARTUP rules provenance；无 LKG 时如实显示 Runtime baseline。规则编辑、Provider discovery/多模型注册、多行/历史/补全/steering 继续延期，且不得绕过 S05/S06/S07。G3-G6、Capability Level 与 Stage Exit 仍 Open；跨版本迁移兼容留在 S14；层级 Instructions 接入后，必须重新运行 S07 的摘要重注入和 Context Usage 对账回归测试。
+Command Intent/Event 与 G3/G4 测试矩阵。G3-C/D/F 的有界子切片现已接入内存 Session patch、stdio v0 与封闭 Slash/TUI：`/model` 只接受当前启动模型名，`/permissions` 可查询实际 Runtime mode 或将 mode 改为 `DEFAULT`、`PLAN`、`ACCEPT_EDITS`；两者均只作用于下一 Run，保留 CLI precedence，且不读取 Settings 文件、不写 JSONL/Checkpoint。`/resume <session-id>` 仅在 idle 边界通过既有 S06 Workspace、Writer、fence、incomplete-side-effect 与 Checkpoint recovery Gate 后原子切换当前 Session；拒绝、取消或竞争保留原 Session，绝不自动重放 Tool 或副作用。permissions query 只显示无 selector 的 Settings-derived STARTUP rules provenance；无 LKG 时如实显示 Runtime baseline。
+
+G3-E 已完成 React/Ink 受控多行编辑、每 Session 内存历史、封闭补全与运行中 steering：Enter
+换行、Ctrl+Enter 提交，缓冲/历史/候选上限分别为 8,192 Unicode code point、100、32；Java
+stdio Adapter 以 100 条内存 FIFO 持有未发送补充，只在当前 Run 权威终态后开始下一 Run。取消、
+`/clear`、成功 Resume、transport failure 与 shutdown/close 均丢弃未发送项，且不写 Canonical、
+JSONL 或 Checkpoint。规则编辑和 Provider discovery/多模型注册继续延期，稳定机器协议仍属 S14；
+完整 G3 对账、G4-G6 与 Stage Exit 保持 Open，后续必须重跑 S07 摘要重注入和 Context Usage 量化回归。
 
 ## 14. S09-S11：扩展系统重实现
 

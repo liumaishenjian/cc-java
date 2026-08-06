@@ -135,4 +135,18 @@ G2 只需在不改变本 ADR 行为契约的前提下确定：(1) Domain/Core/Ap
 
 ## Gate 状态
 
-G1 Passed。ADR-045 保持 G0 研究交接；本 ADR 冻结 S08 独立范围、目标等级、输入/输出、失败语义、延期边界与测试指标。G2-G6、Stage Exit、实现、Demo 和 Capability Level 仍 Open/不变，S08 不是 Accepted。
+G1 Passed。ADR-045 保持 G0 研究交接；本 ADR 冻结 S08 独立范围、目标等级、输入/输出、失败语义、延期边界与测试指标。当前 G2 已 Passed，G3-E 已形成下述实现证据；完整 G3 对账、G4-G6 与 Stage Exit 仍 Open，S08 不是 Accepted。
+
+## G3-E 实现证据（2026-08-06）
+
+G3-E 已按本 ADR 的独立契约实现并通过确定性反证：React/Ink 使用 Enter 写入换行、Ctrl+Enter
+显式提交，缓冲按 Unicode code point 限制为 8,192；每 Session 仅在进程内保存最多 100 条历史并
+恢复草稿；补全仅来自封闭命令/参数集合且最多 32 项。运行中普通文本继续通过 `run.start` 进入
+Java stdio Adapter 的 100 条内存 FIFO，当前模型/Tool 批次不被抢占，只有权威终态之后才启动下一
+Run。取消、`/clear`、成功 Resume、transport failure、shutdown/close 会清除未发送项；队列满、
+重复/乱序事件与 request/session 错配均 fail closed，未发送正文不进入 Canonical Transcript、Session
+JSONL 或 Checkpoint。
+
+对应 Java 聚焦回归为 21/21，TUI build/test 为 77/77，并完成字面 ESC 控制字节与 diff 检查。
+因此 `CLI-07`、`CLI-09` 达到本 ADR 的 S08 L2 目标；这不表示 stdio v0 已成为稳定公共协议，也
+不表示 G3 其余切片、G4-G6 或 S08 Stage Exit 已完成。

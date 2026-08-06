@@ -8,7 +8,7 @@
 >
 > 当前代码状态：S01-S07 已 Accepted；S07 的 Canonical Transcript/Projection、条件式 C1-C4、文件记忆
 > M1-M5、ready-only 零等待预取、内部 Usage View 与 latest-only Recovery Analytics 已在离线 Fake、Demo、
-> Gap 和 Commit-scoped 对账中达到声明等级。S08 已完成 G0-G2；G3-C2b 已实现真实 Headless 的固定来源读取、内存 Session/CLI overlay 与 LKG/RuntimeScope idle 事务接缝。G3-D 已增加 Java Application 的封闭 Command Intent/Event/单终态分派、显式 `/compact`、只读 `/context` 投影与 BOOT-06 隐私安全 doctor 报告；compact 候选只一次性用于下一 Run 首个模型请求，不改 Canonical/JSONL/Checkpoint 或自动 S07 reduction。stdio v0 已接入严格 `session.command` 解码、Session 关联、固定白名单结果投影与每 commandId 至多一次 terminal emission，React/Ink 已提供 anchors/commandId 有界的封闭 Slash 解析和本地结果渲染。热 resume、运行时 Provider discovery/多模型修改与完整 Context UX 仍返回固定受控终态或延期。G3-G6、Capability Level 和 Stage Exit 仍 Open；完整 Context UX、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
+> Gap 和 Commit-scoped 对账中达到声明等级。S08 已完成 G0-G2；本次只记录已接受的 G3-E 编辑器与 steering 证据：受控多行编辑、每 Session 内存历史、封闭补全及 Java stdio 有界 steering。未发送文本只留在短生命周期 Surface/Adapter 内存，当前 Run 终态后才按 FIFO 进入下一 Run，取消、clear、成功 resume、transport failure 与 shutdown 均丢弃且不写 Canonical/JSONL/Checkpoint。`CLI-07` 与 `CLI-09` 已由确定性 Java/TUI 回归达到 L2；这不构成 G3 A-F 的完整审计，G3 整体以及 G4-G6、Stage Exit 均保持 Open。S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定协议/Export/Retention/Migration 仍未实现。
 
 ## 1. 文档目的
 
@@ -154,10 +154,10 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 纳入追踪的 Capability ID | 195 |
 | 当前阶段 | S08 Instructions + Settings（IN_PROGRESS；G0 受控机制研究、G1 产品契约和 G2 独立架构契约冻结 Passed） |
 | Stage Exit | S07 Accepted：ADR-042/043/044、离线 Fake、Demo、Gap 与 Commit-scoped G0-G6 对账形成闭环；S08 G3-G6 仍 Open |
-| 当前等级 | 64 项为 L2，34 项为 L1，97 项为 L0（本次无等级变化） |
+| 当前等级 | 66 项为 L2，34 项为 L1，95 项为 L0（`CLI-07`、`CLI-09` 由 L0 升至 L2） |
 | 默认最终目标 | 195 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 27.69%（195 项等权、目标 L3；本次无变化） |
-| 下一步 | 按 ADR-047 进入 S08 G3-A/B/E/F：分层 Instructions/独立 user-root guard、Settings v1/LKG、完整输入 UX 与 recovery-gated resume；S12/S13/S14 延期边界不变 |
+| 当前能力覆盖 | 28.38%（195 项等权、目标 L3） |
+| 下一步 | 独立对账 S08 G3 A-F 后进入 G4 全量回归与 S07 量化复验；Provider discovery/多模型注册、S12/S13/S14 延期边界不变 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -248,9 +248,9 @@ Stage 完成项。
 | CLI-04 | Tool 进度与输出 | 有序 Agent Event → 连续 Tool 语义化聚合 | L2 | S02/S03 | REF-02/AUTH-01 |
 | CLI-05 | Permission Prompt | 终端 Approval UI | L2 | S04/S05 | REF-04/AUTH-01 |
 | CLI-06 | Ctrl+C Cancel | 当前 Run/Tool 取消 | L1 | S02/S04 | REF-02 |
-| CLI-07 | Steering | S08 运行中排队用户补充消息 | L0 | S08 | REF-02 |
+| CLI-07 | Steering | Java stdio 连接内存 FIFO 上限 100；只在当前 Run 终态后启动下一 Run，取消/clear/成功 resume/transport failure/shutdown 丢弃未发送项且不持久化 | L2 | S08 | REF-02 |
 | CLI-08 | Slash Commands | S08 G3-C/D/F 已有 `/help`、`/clear`、显式 `/compact`、`/context`、`/doctor`、有界 `/model`、`/permissions mode` 与 recovery-gated `/resume <session-id>` 的 Java/stdio/封闭 Slash 路径；完整 UX 延期 | L0 | S08 | REF-02 |
-| CLI-09 | 多行、历史、补全 | S08 完整 React/Ink 输入能力 | L0 | S08 | REF-02 |
+| CLI-09 | 多行、历史、补全 | React/Ink：Enter 换行、Ctrl+Enter 显式提交、8,192 code point、每 Session 内存历史 100 与草稿恢复、封闭稳定补全最多 32 | L2 | S08 | REF-02 |
 | CLI-10 | TTY / Non-TTY 降级 | 无 ANSI 输出与管道模式 | L2 | S02/S14 | REF-02 |
 | CLI-11 | 机器输出协议 | S02 内部 stdio v0 L1 → S14 稳定 JSON/JSONL L3 | L1 | S02/S14 | REF-02 |
 | CLI-12 | 多 Surface 共用引擎 | CLI/SDK/API 共用 Runtime | L0 | S14 | REF-02 |

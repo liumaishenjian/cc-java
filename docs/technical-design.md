@@ -2,7 +2,7 @@
 
 > 文档状态：Proposed v0.9
 >
-> 最后更新：2026-08-05
+> 最后更新：2026-08-06
 >
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
@@ -13,7 +13,7 @@
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
 > composition、ready-only Memory Core/Domain Runtime seam、D2 Headless 文件系统生产装配、Context View 与
 > deterministic Fake Demo/Eval 已完成 Commit-scoped G0-G6 对账。ADR-045 冻结 S08 机制研究边界，ADR-046 已冻结 G1 独立产品契约；
-> ADR-047 已冻结 S08 的 Domain/Core/Application/Adapter 边界、独立 user-root guard、严格 Settings parser/last-known-good、命令 Intent/Event 与 G3/G4 切片；当前已完成 G3-C/D/F 的受限 `/model`、`/permissions`、显式 `/compact`、`/context`/doctor 与 recovery-gated `/resume` 的 stdio/封闭 Slash 投影实现。`/resume` 复用 S06 的 Workspace、Writer、fence、incomplete-side-effect 与 Checkpoint Gate，只有候选成功后才切换当前 Session；持久 Settings、Schema 与完整 Context UX 仍未实现。
+> ADR-047 已冻结 S08 的 Domain/Core/Application/Adapter 边界、独立 user-root guard、严格 Settings parser/last-known-good、命令 Intent/Event 与 G3/G4 切片；本次仅记录已接受的 G3-E 实现证据。G3-E 使用 Surface/stdio 短生命周期状态承载多行、历史、补全和 steering，未发送正文不进入 Core 或持久 Session；这不构成完整 G3 A-F 审计，G3、G4-G6 与 Stage Exit 仍 Open。
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 
@@ -1188,8 +1188,17 @@ Java 已经给出的失败分类。失败 Run 的恢复元数据尚不写入下�
 未完成运行并避免自动重放副作用属于 S06 `SESSION-09`，不能伪造 Assistant Message
 提前实现。
 
-S04～S05 再加入 Tool/Approval 展示，S08 再完成多行、历史、补全和 Slash Command。
-UI 由纯 Reducer 驱动，不断言整屏 ANSI Golden Output。
+S04～S05 已加入 Tool/Approval 展示。S08 G3-E 在该 Surface 上增加受控编辑器：Enter 插入换行、
+Ctrl+Enter 显式提交，缓冲最多 8,192 Unicode code point；每 Session 内存历史最多 100 条并支持
+草稿恢复；补全只使用封闭命令/参数表且最多 32 项。UI 仍由纯 Reducer 驱动，不断言整屏 ANSI
+Golden Output，也不把历史或未发送输入写入 Session 文件。
+
+运行中普通提交仍编码为 `run.start`，由 Java `RuntimeStdioCommandHandler` 根据权威状态转为
+最多 100 条的连接内存 FIFO；当前 Model/Tool batch 不被抢占，前一 Run 唯一终态投影后才通过
+单线程 executor 启动下一条。stdio/TUI 使用 request/session 关联及
+`awaiting_queued → queued → {started | discarded}` 状态机；重复、乱序、错配或未知字段 fail
+closed。取消、clear、成功 Resume、transport failure 与 shutdown/close 清除未发送项；第 101 条
+只产生关联安全拒绝，不改变权威 queue depth。该机制不是 durable queue 或 S14 稳定协议。
 
 ### 19.6 S03 受控 ripgrep 搜索
 
@@ -1344,7 +1353,7 @@ S08 G0 已由 ADR-045 完成授权机制研究，G1 已由 ADR-046 冻结逐字�
 scalar/object/list/delete 语义、Instructions 发现/范围/不支持 import、Slash/doctor 最小语义与可证伪实验；G2 已由
 ADR-047 冻结 Domain/Core/Application/Adapter 的有效配置、provenance、诊断、Command Intent/Event、严格 duplicate-key
 parser、last-known-good 刷新和 G3/G4 切片。Workspace 内 Instructions 继续由 `WorkspaceGuard` 验证；位于 Workspace
-外的固定 user Instructions root 必须由独立 user-root guard 验证，绝不将其误用为 WorkspaceGuard 输入。G3-C/D 的受限实现使用 sealed Session patch 从当前内存 overlay 复制所有非目标字段，经 `SettingsResolver`、`RuntimeSettingsApplier`、LKG CAS 与 RuntimeScope 原子替换后才提交；取消、active、无效模型/mode、CAS 或 Scope/internal 失败均保留旧 overlay/LKG/scope。`/model` 仅接受启动时配置的单一模型名，Provider discovery/多模型注册延期；`/permissions` 只接受 `DEFAULT`、`PLAN`、`ACCEPT_EDITS`，query 返回当前 Runtime mode 与仅 Settings-derived STARTUP rules 的无 selector provenance，并在无 LKG 时返回 `BASELINE/runtime-baseline`。显式 `/compact` 先执行 C1/C2，并且即使预算已满足仍可在既有 C3/C4 Gate 下尝试摘要；成功候选仅在 Canonical 前缀未变化时一次性安装给下一 Run 的首个模型请求，绝不覆盖整个 Run 或改变自动 S07 reduction。`/context` 只投影 latest `ContextUsageView` 的数值/枚举白名单，不可用时返回固定 code。这些路径不触发 fixed-source refresh/discovery、文件 I/O、Provider/Tool、JSONL 或 Checkpoint 写入；不得让项目文本、Settings 或 Slash Command 绕过 S05 Permission Pipeline、S06 Recovery Gate、WorkspaceGuard、独立 user-root guard 或 Hard Denial。热 resume、多行/历史/补全/steering 和规则编辑继续延期。
+外的固定 user Instructions root 必须由独立 user-root guard 验证，绝不将其误用为 WorkspaceGuard 输入。G3-C/D 的受限实现使用 sealed Session patch 从当前内存 overlay 复制所有非目标字段，经 `SettingsResolver`、`RuntimeSettingsApplier`、LKG CAS 与 RuntimeScope 原子替换后才提交；取消、active、无效模型/mode、CAS 或 Scope/internal 失败均保留旧 overlay/LKG/scope。`/model` 仅接受启动时配置的单一模型名，Provider discovery/多模型注册延期；`/permissions` 只接受 `DEFAULT`、`PLAN`、`ACCEPT_EDITS`，query 返回当前 Runtime mode 与仅 Settings-derived STARTUP rules 的无 selector provenance，并在无 LKG 时返回 `BASELINE/runtime-baseline`。显式 `/compact` 先执行 C1/C2，并且即使预算已满足仍可在既有 C3/C4 Gate 下尝试摘要；成功候选仅在 Canonical 前缀未变化时一次性安装给下一 Run 的首个模型请求，绝不覆盖整个 Run 或改变自动 S07 reduction。`/context` 只投影 latest `ContextUsageView` 的数值/枚举白名单，不可用时返回固定 code。这些路径不触发 fixed-source refresh/discovery、文件 I/O、Provider/Tool、JSONL 或 Checkpoint 写入；不得让项目文本、Settings 或 Slash Command 绕过 S05 Permission Pipeline、S06 Recovery Gate、WorkspaceGuard、独立 user-root guard 或 Hard Denial。G3-E 的多行/历史/补全/steering 已按 8,192/100/32/100 的固定上限实现；规则编辑与 Provider discovery/多模型注册继续延期。
 
 ## 21. Trust Boundary 与安全
 

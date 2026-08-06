@@ -122,6 +122,123 @@ describe('StdioClient', () => {
     }
   });
 
+  it('严格关联 steering 事件，并且畸形 payload、请求或 Session 立即关闭连接', async () => {
+    const valid = createClient('steering-normal');
+    const validEvents: ProtocolEvent[] = [];
+    valid.onEvent(event => validEvents.push(event));
+    valid.initialize();
+    await waitFor(() => validEvents.some(event => event.type === 'initialized'));
+    valid.startRun('first');
+    await waitFor(() => validEvents.some(event => event.type === 'run.started'));
+    valid.startRun('UNSENT_STEERING_SECRET');
+    await waitFor(() => validEvents.some(event => event.type === 'steering.discarded'));
+    expect(validEvents.map(event => event.type)).toEqual([
+      'initialized', 'run.started', 'steering.queued', 'steering.discarded',
+    ]);
+    expect(JSON.stringify(validEvents)).not.toContain('UNSENT_STEERING_SECRET');
+    await valid.shutdown();
+
+    for (const mode of ['steering-invalid-payload', 'steering-wrong-request', 'steering-wrong-session']) {
+      const client = createClient(mode);
+      const events: ProtocolEvent[] = [];
+      const failures: string[] = [];
+      client.onEvent(event => events.push(event));
+      client.onFailure(message => failures.push(message));
+      client.initialize();
+      await waitFor(() => events.some(event => event.type === 'initialized'));
+      client.startRun('first');
+      await waitFor(() => events.some(event => event.type === 'run.started'));
+      client.startRun('secret');
+      await waitFor(() => failures.length === 1);
+      expect(client.isClosed()).toBe(true);
+      expect(failures[0]).toMatch(/steering/);
+    }
+  });
+
+  it('steering 队列满的协议拒绝只清理对应请求，连接与后续 steering 保持可用', async () => {
+    const client = createClient('steering-queue-full');
+    const events: ProtocolEvent[] = [];
+    const failures: string[] = [];
+    client.onEvent(event => events.push(event));
+    client.onFailure(message => failures.push(message));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+    client.startRun('first');
+    await waitFor(() => events.some(event => event.type === 'run.started'));
+    const rejectedRequestId = client.startRun('rejected');
+    await waitFor(() => events.some(event => event.type === 'protocol.error'));
+
+    expect(events.find(event => event.type === 'protocol.error')).toEqual(expect.objectContaining({
+      requestId: rejectedRequestId,
+      payload: {code: 'STEERING_QUEUE_FULL'},
+    }));
+    expect(failures).toEqual([]);
+    expect(client.isClosed()).toBe(false);
+    client.startRun('accepted');
+    await waitFor(() => events.some(event => event.type === 'steering.discarded'));
+    await client.shutdown();
+  });
+
+  it('queue-full 拒绝后的迟到 run.started 无法重新物化被拒绝请求', async () => {
+    const client = createClient('steering-queue-full-late-start');
+    const events: ProtocolEvent[] = [];
+    const failures: string[] = [];
+    client.onEvent(event => events.push(event));
+    client.onFailure(message => failures.push(message));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+    client.startRun('first');
+    await waitFor(() => events.some(event => event.type === 'run.started'));
+    client.startRun('rejected');
+    await waitFor(() => failures.length === 1);
+
+    expect(events.filter(event => event.type === 'run.started')).toHaveLength(1);
+    expect(failures[0]).toContain('run.started');
+    expect(client.isClosed()).toBe(true);
+  });
+
+  it('首个 run.started 延迟时仍将第二个 startRun 关联为 steering', async () => {
+    const client = createClient('steering-race');
+    const events: ProtocolEvent[] = [];
+    client.onEvent(event => events.push(event));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+
+    client.startRun('first');
+    client.startRun('second');
+    await waitFor(() => events.some(event => event.type === 'steering.discarded'));
+    await waitFor(() => events.some(event => event.type === 'run.started'));
+
+    expect(events.map(event => event.type)).toEqual([
+      'initialized', 'steering.queued', 'steering.discarded', 'run.started',
+    ]);
+    await client.shutdown();
+  });
+
+  it('拒绝 steering 生命周期中的重复或乱序事件', async () => {
+    for (const mode of [
+      'steering-duplicate-queued',
+      'steering-discarded-before-queued',
+      'steering-duplicate-discarded',
+      'steering-start-before-queued',
+    ]) {
+      const client = createClient(mode);
+      const events: ProtocolEvent[] = [];
+      const failures: string[] = [];
+      client.onEvent(event => events.push(event));
+      client.onFailure(message => failures.push(message));
+      client.initialize();
+      await waitFor(() => events.some(event => event.type === 'initialized'));
+      client.startRun('first');
+      await waitFor(() => events.some(event => event.type === 'run.started'));
+      client.startRun('second');
+      await waitFor(() => failures.length === 1);
+
+      expect(client.isClosed()).toBe(true);
+      expect(failures[0]).toMatch(/steering|run\.started/);
+    }
+  });
+
   it('resume 结果未关联当前 Session 时 fail closed', async () => {
     const client = createClient('resume-mismatched-previous');
     const events: ProtocolEvent[] = [];

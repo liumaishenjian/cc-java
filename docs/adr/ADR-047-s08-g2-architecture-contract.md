@@ -164,4 +164,18 @@ React/Ink 维护纯 Reducer 的 ephemeral `InputState`、`HistoryState`、`Compl
 
 ## Gate 状态
 
-G2 Passed。ADR-045 的授权研究边界、ADR-046 的产品契约与本 ADR 的独立架构/安全/测试契约共同形成 G0-G2；G3-G6、实现、测试、Demo、Gap、Capability Level 和 Stage Exit 均仍 Open/不变。
+G2 Passed。ADR-045 的授权研究边界、ADR-046 的产品契约与本 ADR 的独立架构/安全/测试契约共同形成 G0-G2。当前 G3 A-F 已有独立实现切片，G3-E 形成下述架构证据；完整 G3 对账、G4-G6、Demo/Gap 与 Stage Exit 仍 Open。
+
+## G3-E 架构落点（2026-08-06）
+
+G3-E 没有把队列放进 Core、Canonical 或持久 Session。React/Ink 只维护编辑缓冲、每 Session
+历史、补全与尚待关联的短生命周期 prompt；`StdioClient` 以 request/session 和
+`awaiting_queued → queued → {started | discarded}` 状态机校验事件。Java
+`RuntimeStdioCommandHandler` 是 steering FIFO、100 条预算、安全消费时点和丢弃语义的权威，
+单线程 Run executor 保证下一条只在前一条唯一终态投影后启动。
+
+事件出口失败会先关闭 Adapter、清空未发送队列并取消活动 Run；close 即使丢弃事件写出失败仍会
+释放 approval、executor 与 Application。第 101 条以关联 `protocol.error` 拒绝时，Client 和 TUI
+只忘记该 request 的瞬态正文，不改变活动 Run 或权威 queue depth。上述契约已有 FIFO、100/101、
+延迟首个 `run.started`、重复/乱序 lifecycle、取消/clear/resume/shutdown/transport failure 与零
+JSONL 泄漏回归。G2 决策不变；完整 G3/G4-G6 与 Stage Exit 仍需后续对账。

@@ -141,6 +141,28 @@ describe('decodeEvent', () => {
     }), 1)).toThrowError(/checkpoint\.undone/);
   });
 
+  it('只接受白名单 steering 安全投影', () => {
+    const queued = {
+      version: 0, type: 'steering.queued', requestId: 'steering-1', sessionId: 'session-1', sequence: 1,
+      payload: {queueDepth: 1},
+    };
+    expect(decodeEvent(JSON.stringify(queued), 1).payload.queueDepth).toBe(1);
+    const discarded = {
+      ...queued, type: 'steering.discarded', requestId: 'steering-2',
+      payload: {reason: 'cancelled'},
+    };
+    expect(decodeEvent(JSON.stringify(discarded), 1).payload.reason).toBe('cancelled');
+    for (const invalid of [
+      {...queued, payload: {queueDepth: 0}},
+      {...queued, payload: {queueDepth: 101}},
+      {...queued, runId: 'run-1'},
+      {...discarded, payload: {reason: 'secret'}},
+      {...discarded, payload: {reason: 'clear', prompt: 'SECRET_PROMPT'}},
+    ]) {
+      expect(() => decodeEvent(JSON.stringify(invalid), 1)).toThrowError(/steering/);
+    }
+  });
+
   it('接受严格且无 Run 关联的 session command terminal result', () => {
     const event = decodeEvent(JSON.stringify({
       version: 0, type: 'session.command.result', requestId: 'req-command',

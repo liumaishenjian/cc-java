@@ -12,6 +12,15 @@ import type {
 import {AssistantMarkdown} from './assistant-markdown.js';
 import {ToolActivityGroup} from './tool-activity.js';
 import {parseSlashCommand, renderSlashResult} from './slash-command.js';
+import {
+  appendInput,
+  completionCandidates,
+  initialInputHistoryState,
+  navigateInputHistory,
+  recordInputHistory,
+  removeLastCodePoint,
+  type InputHistoryState,
+} from './input-editor.js';
 
 export interface AgentTuiProps {
   readonly client: AgentClient;
@@ -36,7 +45,10 @@ export interface AgentClient {
   terminate(): void;
 }
 
-export const MAX_INPUT_CHARS = 8_192;
+export {
+  appendInput,
+  MAX_INPUT_CODE_POINTS as MAX_INPUT_CHARS,
+} from './input-editor.js';
 
 /**
  * S03 最小 React/Ink 终端 Surface。
@@ -48,6 +60,9 @@ export function AgentTui({client}: AgentTuiProps) {
   const [state, dispatch] = useReducer(reduceTuiState, initialTuiState);
   const [input, setInput] = useState('');
   const inputRef = useRef('');
+  const historyRef = useRef<InputHistoryState>(initialInputHistoryState);
+  const historySessionIdRef = useRef<string | undefined>(undefined);
+  const pendingSteeringPromptsRef = useRef(new Map<string, string>());
   const cancelPending = useRef(false);
   const nextCommandNumber = useRef(1);
   const pendingApproval = state.runs.findLast(
@@ -67,7 +82,19 @@ export function AgentTui({client}: AgentTuiProps) {
 
   useEffect(() => {
     const offEvent = client.onEvent(event => {
+      if (event.type === 'initialized') {
+        if (historySessionIdRef.current !== event.sessionId) {
+          historySessionIdRef.current = event.sessionId;
+          historyRef.current = initialInputHistoryState;
+          pendingSteeringPromptsRef.current.clear();
+        }
+      }
       if (event.type === 'session.command.result') {
+        if (event.payload.intent === 'resume' && event.payload.status === 'succeeded') {
+          historySessionIdRef.current = event.sessionId;
+          historyRef.current = initialInputHistoryState;
+          pendingSteeringPromptsRef.current.clear();
+        }
         const payload = event.payload;
         dispatch({
           type: 'slash.notice',
@@ -75,6 +102,16 @@ export function AgentTui({client}: AgentTuiProps) {
             String(payload.intent), String(payload.status), String(payload.code),
           ),
         });
+      }
+      if (event.type === 'steering.discarded' || event.type === 'protocol.error') {
+        pendingSteeringPromptsRef.current.delete(event.requestId);
+      }
+      if (event.type === 'run.started') {
+        const prompt = pendingSteeringPromptsRef.current.get(event.requestId);
+        if (prompt !== undefined) {
+          pendingSteeringPromptsRef.current.delete(event.requestId);
+          dispatch({type: 'run.submitted', requestId: event.requestId, prompt, steering: true});
+        }
       }
       if (
         event.type === 'run.completed'
@@ -87,10 +124,12 @@ export function AgentTui({client}: AgentTuiProps) {
     });
     const offFailure = client.onFailure(message => {
       cancelPending.current = false;
+      pendingSteeringPromptsRef.current.clear();
       dispatch({type: 'transport.failed', message});
     });
     const offExit = client.onExit(() => {
       cancelPending.current = false;
+      pendingSteeringPromptsRef.current.clear();
       dispatch({type: 'closed'});
       exit();
     });
@@ -99,6 +138,7 @@ export function AgentTui({client}: AgentTuiProps) {
       offEvent();
       offFailure();
       offExit();
+      pendingSteeringPromptsRef.current.clear();
       client.terminate();
     };
   }, [client, exit]);
@@ -186,10 +226,7 @@ export function AgentTui({client}: AgentTuiProps) {
     if (!canEditInput(state.phase)) {
       return;
     }
-    if (key.return) {
-      if (state.phase !== 'ready') {
-        return;
-      }
+    if (key.ctrl && key.return) {
       const prompt = inputRef.current.trim();
       if (prompt.length > 0) {
         const slash = parseSlashCommand(prompt);
@@ -199,29 +236,58 @@ export function AgentTui({client}: AgentTuiProps) {
             return;
           }
           client.sessionCommand(`tui-command-${nextCommandNumber.current++}`, slash.command.intent, slash.command.arguments);
-          inputRef.current = '';
-          setInput('');
-          return;
-        }
-        if (slash.kind === 'invalid') {
+        } else if (slash.kind === 'invalid') {
           dispatch({type: 'slash.notice', message: slash.message});
           return;
+        } else {
+          const requestId = client.startRun(prompt);
+          if (state.phase === 'ready') {
+            dispatch({type: 'run.submitted', requestId, prompt});
+          } else {
+            pendingSteeringPromptsRef.current.set(requestId, prompt);
+          }
         }
-        const requestId = client.startRun(prompt);
-        dispatch({type: 'run.submitted', requestId, prompt});
+        historyRef.current = recordInputHistory(historyRef.current, prompt);
         inputRef.current = '';
         setInput('');
       }
       return;
     }
+    if (key.return) {
+      const next = appendInput(inputRef.current, '\n');
+      inputRef.current = next;
+      setInput(next);
+      return;
+    }
+    if (key.upArrow || key.downArrow) {
+      const result = navigateInputHistory(
+        historyRef.current,
+        inputRef.current,
+        key.upArrow ? 'previous' : 'next',
+      );
+      historyRef.current = result.state;
+      if (result.input !== undefined) {
+        inputRef.current = result.input;
+        setInput(result.input);
+      }
+      return;
+    }
+    if (key.tab) {
+      const candidate = completionCandidates(inputRef.current)[0];
+      if (candidate !== undefined) {
+        inputRef.current = candidate;
+        setInput(candidate);
+      }
+      return;
+    }
     if (key.backspace) {
-      const next = editInput(inputRef.current, text, key);
+      const next = removeLastCodePoint(inputRef.current);
       inputRef.current = next;
       setInput(next);
       return;
     }
     if (!key.ctrl && !key.meta && text.length > 0) {
-      const next = editInput(inputRef.current, text, key);
+      const next = appendInput(inputRef.current, text);
       inputRef.current = next;
       setInput(next);
     }
@@ -315,7 +381,10 @@ export function AgentView({state, input, columns}: AgentViewProps) {
         <Text color="cyan">❯ </Text>
         <Text>{canEditInput(state.phase) ? input : ''}</Text>
         {state.phase === 'running'
-          ? <Text dimColor>正在处理…  Ctrl+C 取消</Text>
+          ? <Text dimColor>
+              正在处理… Ctrl+Enter 排队补充{(state.steeringQueueDepth ?? 0) > 0
+                ? `（${state.steeringQueueDepth}/100）` : ''}　Ctrl+C 取消
+            </Text>
           : input.length === 0
             ? <Text dimColor>{inputHint(state.phase)}</Text>
             : null}
@@ -530,7 +599,9 @@ function runStatusLabel(status: Exclude<RunView['status'], 'running' | 'complete
 }
 
 function inputHint(phase: ReturnType<typeof reduceTuiState>['phase']): string {
-  return phase === 'connecting' ? '连接中，可以先输入任务' : '输入任务，Enter 发送';
+  return phase === 'connecting'
+    ? '连接中，可以先输入任务'
+    : 'Enter 换行，Ctrl+Enter 发送';
 }
 
 export function checkpointAction(
@@ -624,12 +695,12 @@ export function decideInterrupt(
 }
 
 /**
- * 连接建立期间允许预先编辑输入，但只有 ready 状态才能提交给 Java。
+ * 连接建立期间允许预先编辑；运行期间也保留本地输入，以便提交普通 steering。
  */
 export function canEditInput(
   phase: ReturnType<typeof reduceTuiState>['phase'],
 ): boolean {
-  return phase === 'connecting' || phase === 'ready';
+  return phase === 'connecting' || phase === 'ready' || phase === 'running';
 }
 
 export function editInput(
@@ -638,20 +709,9 @@ export function editInput(
   key: {readonly backspace: boolean; readonly ctrl: boolean; readonly meta: boolean},
 ): string {
   if (key.backspace) {
-    return Array.from(current).slice(0, -1).join('');
+    return removeLastCodePoint(current);
   }
   return !key.ctrl && !key.meta && text.length > 0
     ? appendInput(current, text)
     : current;
-}
-
-/**
- * 按 Unicode Code Point 限制输入长度，避免一次大段 Paste 无界占用 TUI 内存。
- */
-export function appendInput(current: string, text: string): string {
-  const remaining = MAX_INPUT_CHARS - Array.from(current).length;
-  if (remaining <= 0 || text.length === 0) {
-    return current;
-  }
-  return current + Array.from(text).slice(0, remaining).join('');
 }

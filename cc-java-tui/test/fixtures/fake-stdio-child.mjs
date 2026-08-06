@@ -13,12 +13,47 @@ reader.on('line', line => {
     sessionId = 'session-1';
     emit('initialized', command.requestId, {protocolVersion: 0}, sessionId);
   } else if (command.type === 'run.start') {
+    if (activeRunId !== undefined && mode.startsWith('steering')) {
+      if (mode === 'steering-invalid-payload') {
+        emit('steering.queued', command.requestId, {queueDepth: 1, prompt: 'LEAK'}, sessionId);
+      } else if (mode === 'steering-wrong-request') {
+        emit('steering.queued', 'wrong-request', {queueDepth: 1}, sessionId);
+      } else if (mode === 'steering-wrong-session') {
+        emit('steering.queued', command.requestId, {queueDepth: 1}, 'session-stale');
+      } else if (mode === 'steering-queue-full' && command.payload.prompt === 'rejected') {
+        emit('protocol.error', command.requestId, {code: 'STEERING_QUEUE_FULL'}, sessionId);
+      } else if (mode === 'steering-queue-full-late-start' && command.payload.prompt === 'rejected') {
+        emit('protocol.error', command.requestId, {code: 'STEERING_QUEUE_FULL'}, sessionId);
+        emit('run.started', command.requestId, {promptChars: command.payload.prompt.length}, sessionId, 'run-2');
+      } else if (mode === 'steering-duplicate-queued') {
+        emit('steering.queued', command.requestId, {queueDepth: 1}, sessionId);
+        emit('steering.queued', command.requestId, {queueDepth: 1}, sessionId);
+      } else if (mode === 'steering-discarded-before-queued') {
+        emit('steering.discarded', command.requestId, {reason: 'clear'}, sessionId);
+      } else if (mode === 'steering-duplicate-discarded') {
+        emit('steering.queued', command.requestId, {queueDepth: 1}, sessionId);
+        emit('steering.discarded', command.requestId, {reason: 'clear'}, sessionId);
+        emit('steering.discarded', command.requestId, {reason: 'clear'}, sessionId);
+      } else if (mode === 'steering-start-before-queued') {
+        emit('run.started', command.requestId, {promptChars: command.payload.prompt.length}, sessionId, 'run-2');
+      } else {
+        emit('steering.queued', command.requestId, {queueDepth: 1}, sessionId);
+        emit('steering.discarded', command.requestId, {reason: 'clear'}, sessionId);
+      }
+      return;
+    }
     activeRunId = 'run-1';
+    if (mode === 'steering-race') {
+      timer = setTimeout(() => {
+        emit('run.started', command.requestId, {promptChars: command.payload.prompt.length}, sessionId, activeRunId);
+      }, 40);
+      return;
+    }
     emit('run.started', command.requestId, {promptChars: command.payload.prompt.length}, sessionId, activeRunId);
     if (mode === 'crash') {
       process.exit(17);
     }
-    if (mode === 'ignore-cancel') {
+    if (mode === 'ignore-cancel' || mode.startsWith('steering')) {
       return;
     }
     if (mode === 'bad-sequence') {

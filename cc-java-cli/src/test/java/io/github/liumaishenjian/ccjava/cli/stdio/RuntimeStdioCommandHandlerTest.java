@@ -25,6 +25,7 @@ import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.node.ObjectNode;
@@ -483,6 +484,117 @@ class RuntimeStdioCommandHandlerTest {
     }
 
     @Test
+    void queuesSteeringUntilTheCurrentRunHasReachedItsTerminalBoundary() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        CountDownLatch firstEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            if (calls.incrementAndGet() == 1) {
+                firstEntered.countDown();
+                awaitLatch(releaseFirst);
+                return ModelTurn.text("first");
+            }
+            return ModelTurn.text("second");
+        }, testOptions())) {
+            handler.handle(codec.decodeCommand("{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(runStart("first-request", sessionId, 2, "first prompt")), emitter);
+            assertThat(firstEntered.await(3, TimeUnit.SECONDS)).isTrue();
+            handler.handle(codec.decodeCommand(runStart("steering-request", sessionId, 3, "steering prompt")), emitter);
+
+            assertThat(events).filteredOn(event -> event.type().equals("steering.queued")).hasSize(1);
+            assertThat(events).filteredOn(event -> event.type().equals("run.started")).hasSize(1);
+            assertThat(events.toString()).doesNotContain("steering prompt");
+            releaseFirst.countDown();
+            awaitTerminalCount(events, 2);
+        }
+        List<CapturedEvent> terminals = events.stream().filter(RuntimeStdioCommandHandlerTest::isTerminal).toList();
+        assertThat(terminals).hasSize(2);
+        assertThat(terminals.get(0).payload().get("finalText").stringValue()).isEqualTo("first");
+        assertThat(terminals.get(1).payload().get("finalText").stringValue()).isEqualTo("second");
+        assertThat(calls).hasValue(2);
+    }
+
+    @Test
+    void clearDiscardsQueuedSteeringWithoutPersistingItsText() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        CountDownLatch firstEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            calls.incrementAndGet();
+            firstEntered.countDown();
+            awaitLatch(releaseFirst);
+            return ModelTurn.text("first");
+        }, testOptions())) {
+            handler.handle(codec.decodeCommand("{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(runStart("first-request", sessionId, 2, "first prompt")), emitter);
+            assertThat(firstEntered.await(3, TimeUnit.SECONDS)).isTrue();
+            handler.handle(codec.decodeCommand(runStart("steering-request", sessionId, 3, "UNSENT_STEERING_SECRET")), emitter);
+            try (var paths = Files.walk(temporaryRoot.resolve("sessions"))) {
+                assertThat(paths.filter(path -> path.getFileName().toString().endsWith(".jsonl"))
+                        .map(path -> {
+                            try {
+                                return Files.readString(path);
+                            } catch (java.io.IOException exception) {
+                                throw new IllegalStateException(exception);
+                            }
+                        }).toList().toString()).doesNotContain("UNSENT_STEERING_SECRET");
+            }
+            handler.handle(codec.decodeCommand(sessionCommand("clear", sessionId, 4, "clear-steering", "clear", "{}")), emitter);
+            releaseFirst.countDown();
+            awaitTerminal(events);
+        }
+        assertThat(calls).hasValue(1);
+        assertThat(events).filteredOn(event -> event.type().equals("steering.discarded")).hasSize(1);
+        assertThat(events.stream().filter(event -> event.type().equals("steering.discarded")).findFirst().orElseThrow()
+                .payload().toString()).contains("\"reason\":\"clear\"");
+        assertThat(events.toString()).doesNotContain("UNSENT_STEERING_SECRET");
+    }
+
+    @Test
+    void cancellationDiscardsQueuedSteering() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        CountDownLatch firstEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            calls.incrementAndGet();
+            firstEntered.countDown();
+            awaitLatch(releaseFirst);
+            return ModelTurn.text("unexpected");
+        }, testOptions())) {
+            handler.handle(codec.decodeCommand("{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(runStart("first-request", sessionId, 2, "first prompt")), emitter);
+            assertThat(firstEntered.await(3, TimeUnit.SECONDS)).isTrue();
+            handler.handle(codec.decodeCommand(runStart("steering-request", sessionId, 3, "CANCELLED_STEERING")), emitter);
+            CapturedEvent started = awaitEvent(events, "run.started");
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"run.cancel\",\"requestId\":\"cancel\","
+                    + "\"sessionId\":\"%s\",\"runId\":\"%s\",\"sequence\":4,\"payload\":{}}")
+                    .formatted(sessionId, started.runId().orElseThrow())), emitter);
+            releaseFirst.countDown();
+            awaitAnyTerminal(events);
+        }
+        assertThat(calls).hasValue(1);
+        assertThat(events).filteredOn(event -> event.type().equals("steering.discarded")).hasSize(1);
+        assertThat(events.stream().filter(event -> event.type().equals("steering.discarded")).findFirst().orElseThrow()
+                .payload().toString()).contains("\"reason\":\"cancelled\"");
+        assertThat(events.toString()).doesNotContain("CANCELLED_STEERING");
+    }
+
+    @Test
     void sessionCommandResumeSwitchesToCleanCandidateWithOnlySafeIdentifiers() throws Exception {
         StdioProtocolCodec codec = new StdioProtocolCodec();
         CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
@@ -568,6 +680,256 @@ class RuntimeStdioCommandHandlerTest {
                     .isInstanceOf(StdioProtocolException.class);
         }
         assertThat(events).filteredOn(event -> event.type().equals("session.command.result")).isEmpty();
+    }
+
+    @Test
+    void consumesMultipleQueuedSteeringInStrictFifoOrder() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        CountDownLatch firstEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            if (calls.incrementAndGet() == 1) {
+                firstEntered.countDown();
+                awaitLatch(releaseFirst);
+            }
+            return ModelTurn.text("done-" + calls.get());
+        }, testOptions())) {
+            handler.handle(codec.decodeCommand("{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(runStart("first", sessionId, 2, "first")), emitter);
+            assertThat(firstEntered.await(3, TimeUnit.SECONDS)).isTrue();
+            handler.handle(codec.decodeCommand(runStart("second", sessionId, 3, "second")), emitter);
+            handler.handle(codec.decodeCommand(runStart("third", sessionId, 4, "third")), emitter);
+            releaseFirst.countDown();
+            awaitTerminalCount(events, 3);
+        }
+        assertThat(events.stream().filter(event -> event.type().equals("run.started"))
+                .map(CapturedEvent::runId).toList()).hasSize(3);
+        assertThat(events.stream().filter(event -> isTerminal(event))
+                .map(event -> event.payload().get("finalText").stringValue()).toList())
+                .containsExactly("done-1", "done-2", "done-3");
+        assertThat(events.stream().filter(event -> event.type().equals("steering.queued"))
+                .map(event -> event.payload().get("queueDepth").intValue()).toList())
+                .containsExactly(1, 2);
+    }
+
+    @Test
+    void rejectsTheOneHundredAndFirstQueuedSteeringWithoutChangingTheQueue() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        CountDownLatch firstEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            firstEntered.countDown();
+            awaitLatch(releaseFirst);
+            return ModelTurn.text("done");
+        }, testOptions())) {
+            handler.handle(codec.decodeCommand("{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(runStart("first", sessionId, 2, "first")), emitter);
+            assertThat(firstEntered.await(3, TimeUnit.SECONDS)).isTrue();
+            for (int index = 1; index <= RuntimeStdioCommandHandler.MAX_STEERING_MESSAGES; index++) {
+                handler.handle(codec.decodeCommand(runStart("queued-" + index, sessionId, index + 2, "queued")), emitter);
+            }
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand(runStart("overflow", sessionId, 103, "overflow")), emitter))
+                    .isInstanceOf(StdioProtocolException.class)
+                    .hasMessageContaining("steering 队列已满");
+            handler.handle(codec.decodeCommand(sessionCommand("clear", sessionId, 104, "clear", "clear", "{}")), emitter);
+            releaseFirst.countDown();
+            awaitTerminal(events);
+        }
+        assertThat(events).filteredOn(event -> event.type().equals("steering.queued")).hasSize(100);
+        assertThat(events).filteredOn(event -> event.type().equals("steering.discarded")).hasSize(100);
+        assertThat(events).filteredOn(event -> event.type().equals("steering.discarded"))
+                .allSatisfy(event -> assertThat(event.payload().get("reason").stringValue()).isEqualTo("clear"));
+    }
+
+    @Test
+    void shutdownAndCloseDiscardQueuedSteeringExactlyOnce() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        CountDownLatch firstEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            calls.incrementAndGet();
+            firstEntered.countDown();
+            awaitLatch(releaseFirst);
+            return ModelTurn.text("done");
+        }, testOptions())) {
+            handler.handle(codec.decodeCommand("{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(runStart("first", sessionId, 2, "first")), emitter);
+            assertThat(firstEntered.await(3, TimeUnit.SECONDS)).isTrue();
+            handler.handle(codec.decodeCommand(runStart("queued", sessionId, 3, "queued")), emitter);
+            assertThat(handler.handle(codec.decodeCommand("{\"version\":0,\"type\":\"shutdown\",\"requestId\":\"stop\",\"sequence\":4,\"payload\":{}}"), emitter))
+                    .isEqualTo(StdioProtocol.Disposition.SHUTDOWN);
+            releaseFirst.countDown();
+        }
+        assertThat(calls).hasValue(1);
+        assertThat(events).filteredOn(event -> event.type().equals("steering.discarded")).hasSize(1);
+        assertThat(events.stream().filter(event -> event.type().equals("steering.discarded")).findFirst().orElseThrow()
+                .payload().get("reason").stringValue()).isEqualTo("shutdown");
+    }
+
+    @Test
+    void closeDiscardsQueuedSteeringExactlyOnce() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        CountDownLatch firstEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            calls.incrementAndGet();
+            firstEntered.countDown();
+            awaitLatch(releaseFirst);
+            return ModelTurn.text("done");
+        }, testOptions());
+        try {
+            handler.handle(codec.decodeCommand("{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(runStart("first", sessionId, 2, "first")), emitter);
+            assertThat(firstEntered.await(3, TimeUnit.SECONDS)).isTrue();
+            handler.handle(codec.decodeCommand(runStart("queued", sessionId, 3, "queued")), emitter);
+            releaseFirst.countDown();
+            handler.close();
+        } finally {
+            releaseFirst.countDown();
+        }
+        assertThat(calls).hasValue(1);
+        assertThat(events).filteredOn(event -> event.type().equals("steering.discarded")).hasSize(1);
+        assertThat(events.stream().filter(event -> event.type().equals("steering.discarded")).findFirst().orElseThrow()
+                .payload().get("reason").stringValue()).isEqualTo("shutdown");
+    }
+
+    @Test
+    void discardedEmissionFailureStillCancelsRunClearsQueueAndClosesResources() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        CountDownLatch firstEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) -> {
+            if (type.equals("steering.discarded")) {
+                throw new IllegalStateException("discard transport closed");
+            }
+            events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        };
+        RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            calls.incrementAndGet();
+            firstEntered.countDown();
+            awaitLatch(releaseFirst);
+            return ModelTurn.text("done");
+        }, testOptions());
+        try {
+            handler.handle(codec.decodeCommand("{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(runStart("first", sessionId, 2, "first")), emitter);
+            assertThat(firstEntered.await(3, TimeUnit.SECONDS)).isTrue();
+            handler.handle(codec.decodeCommand(runStart("queued", sessionId, 3, "queued")), emitter);
+            assertThatThrownBy(handler::close)
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("discard transport closed");
+            releaseFirst.countDown();
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand(runStart("later", sessionId, 4, "later")), emitter))
+                    .isInstanceOf(StdioProtocolException.class);
+        } finally {
+            releaseFirst.countDown();
+            try {
+                handler.close();
+            } catch (RuntimeException ignored) {
+                // First close has already asserted the transport failure; cleanup remains idempotent.
+            }
+        }
+        assertThat(calls).hasValue(1);
+        assertThat(events).filteredOn(event -> event.type().equals("run.started")).hasSize(1);
+        assertThat(events.toString()).doesNotContain("later");
+    }
+
+    @Test
+    void eventEmitterFailureDiscardsUnsentSteeringAndPreventsLaterRuns() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        CountDownLatch firstEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirst = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) -> {
+            if (type.equals("steering.queued")) {
+                throw new IllegalStateException("transport closed");
+            }
+            events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        };
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            calls.incrementAndGet();
+            firstEntered.countDown();
+            awaitLatch(releaseFirst);
+            return ModelTurn.text("done");
+        }, testOptions())) {
+            handler.handle(codec.decodeCommand("{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(runStart("first", sessionId, 2, "first")), emitter);
+            assertThat(firstEntered.await(3, TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand(runStart("queued", sessionId, 3, "UNSENT")), emitter))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("transport closed");
+            releaseFirst.countDown();
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand(runStart("later", sessionId, 4, "later")), emitter))
+                    .isInstanceOf(StdioProtocolException.class);
+        }
+        assertThat(calls).hasValue(1);
+        assertThat(events.toString()).doesNotContain("UNSENT");
+    }
+
+    private static void awaitLatch(CountDownLatch latch) {
+        try {
+            if (!latch.await(3, TimeUnit.SECONDS)) {
+                throw new AssertionError("Fake Model 等待超时");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    private static String runStart(String requestId, String sessionId, long sequence, String prompt) {
+        return ("{\"version\":0,\"type\":\"run.start\",\"requestId\":\"%s\",\"sessionId\":\"%s\","
+                + "\"sequence\":%d,\"payload\":{\"prompt\":\"%s\"}}")
+                .formatted(requestId, sessionId, sequence, prompt);
+    }
+
+    private static String sessionCommand(
+            String requestId, String sessionId, long sequence, String commandId, String intent, String arguments) {
+        return ("{\"version\":0,\"type\":\"session.command\",\"requestId\":\"%s\",\"sessionId\":\"%s\","
+                + "\"sequence\":%d,\"payload\":{\"protocolVersion\":0,\"commandId\":\"%s\","
+                + "\"intent\":\"%s\",\"arguments\":%s}}")
+                .formatted(requestId, sessionId, sequence, commandId, intent, arguments);
+    }
+
+    private static boolean isTerminal(CapturedEvent event) {
+        return event.type().equals("run.completed")
+                || event.type().equals("run.failed")
+                || event.type().equals("run.cancelled");
+    }
+
+    private void awaitTerminalCount(List<CapturedEvent> events, int expected) throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(3).toNanos();
+        while (System.nanoTime() < deadline) {
+            if (events.stream().filter(RuntimeStdioCommandHandlerTest::isTerminal).count() >= expected) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        throw new AssertionError("未收到预期数量的 stdio Run 终态事件");
     }
 
     private static String eventDiagnostics(List<CapturedEvent> events) {

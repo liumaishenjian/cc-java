@@ -43,6 +43,8 @@ const EVENT_TYPES = new Set([
   'checkpoint.diffed',
   'checkpoint.undone',
   'session.command.result',
+  'steering.queued',
+  'steering.discarded',
   'protocol.error',
 ]);
 
@@ -62,6 +64,8 @@ export type EventType =
   | 'checkpoint.diffed'
   | 'checkpoint.undone'
   | 'session.command.result'
+  | 'steering.queued'
+  | 'steering.discarded'
   | 'protocol.error';
 
 export interface ProtocolEvent {
@@ -174,6 +178,10 @@ function validateEventShape(
   }
   if (type === 'session.command.result') {
     validateSessionCommandResult(sessionId, runId, payload);
+  } else if (type === 'steering.queued') {
+    validateSteeringQueued(sessionId, runId, payload);
+  } else if (type === 'steering.discarded') {
+    validateSteeringDiscarded(sessionId, runId, payload);
   } else if (type === 'checkpoint.listed') {
     validateCheckpointList(payload);
   } else if (type === 'checkpoint.diffed') {
@@ -252,6 +260,41 @@ function validateEventShape(
     validateOptionalTerminalCount(type, payload, 'modelTurns');
     validateOptionalTerminalCount(type, payload, 'toolCalls');
     validateOptionalModelFailure(type, payload);
+  }
+}
+
+function validateSteeringQueued(
+  sessionId: string | undefined,
+  runId: string | undefined,
+  payload: Readonly<Record<string, unknown>>,
+): void {
+  if (
+    sessionId === undefined
+    || runId !== undefined
+    || !hasExactFields(payload, new Set(['queueDepth']))
+    || !Number.isSafeInteger(payload.queueDepth)
+    || (payload.queueDepth as number) < 1
+    || (payload.queueDepth as number) > 100
+  ) {
+    throw new ProtocolViolation('steering.queued 包含无效安全投影');
+  }
+}
+
+function validateSteeringDiscarded(
+  sessionId: string | undefined,
+  runId: string | undefined,
+  payload: Readonly<Record<string, unknown>>,
+): void {
+  if (
+    sessionId === undefined
+    || runId !== undefined
+    || !hasExactFields(payload, new Set(['reason']))
+    || (payload.reason !== 'clear'
+      && payload.reason !== 'cancelled'
+      && payload.reason !== 'session_switch'
+      && payload.reason !== 'shutdown')
+  ) {
+    throw new ProtocolViolation('steering.discarded 包含无效安全投影');
   }
 }
 

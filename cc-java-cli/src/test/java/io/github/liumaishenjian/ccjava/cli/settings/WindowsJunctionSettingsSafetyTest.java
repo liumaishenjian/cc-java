@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.liumaishenjian.ccjava.core.CancellationToken;
 import io.github.liumaishenjian.ccjava.domain.settings.ConfigurationDiagnosticCode;
 import io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceGuard;
+import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -70,8 +71,14 @@ class WindowsJunctionSettingsSafetyTest {
     }
 
     private static void createJunction(Path link, Path target) throws Exception {
-        Process process = new ProcessBuilder("cmd.exe", "/d", "/c", "mklink", "/J",
-                link.toString(), target.toString()).redirectErrorStream(true).start();
+        Process process;
+        try {
+            process = new ProcessBuilder("cmd.exe", "/d", "/c", "mklink", "/J",
+                    link.toString(), target.toString()).redirectErrorStream(true).start();
+        } catch (IOException exception) {
+            Assumptions.abort("当前 Windows 策略禁止启动 Junction 创建进程");
+            return;
+        }
         byte[] output = process.getInputStream().readAllBytes();
         if (process.waitFor() != 0) {
             String message = new String(output, Charset.defaultCharset()).toLowerCase();
