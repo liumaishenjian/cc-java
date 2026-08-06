@@ -49,7 +49,7 @@
 > Workspace-aware metadata、本机单 Writer、未完成 Tool Recovery Gate、写前 ordinary-file
 > Checkpoint、有界 Diff 与逐项显式 Undo；Java CLI/Print/stdio/TUI 共用同一 Runtime，Behavior Replay
 > 已验证 Resume/Fork canonical history。任何有副作用操作都绝不自动重放；`SESSION-08` 仍仅为 L1；
-> S07 Context Engineering 已在 Commit-scoped G0-G6 对账后 Accepted：生产路径提供短生命周期 Context Projection、条件式 C1-C4、typed overflow 至多一次恢复、内部 Usage View、M1-M5 文件记忆及 ready-only 零等待预取；离线长会话 Eval 保持 Canonical/Tool 协议、事实/硬约束与完成率，并取得 49% 的估算 Token 降幅中位数。S08 的历史实现 Commit `7bac8ea` 保留分层 Instructions、Settings v1/LKG、受控 Runtime 映射、封闭 Slash/Context/Resume 与 steering 证据，并已按 ADR-048 完成 Composer reducer/TUI、折叠无损 Paste、stdio 原子提交和本机 ModelDiagnostic 的 corrective G3-G5：完整 Reactor、TUI 111/111、launcher 59/59、真实 TTY 和独立最终 review 均通过。唯一未满足项是尚无新的固定 corrective implementation Commit，故 G6/S08 Exit 仍 Open，`CLI-08`/`CLI-09` 暂保持 L1；Settings 写入/迁移、rules 编辑、Provider discovery/多模型注册、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
+> S07 Context Engineering 已在 Commit-scoped G0-G6 对账后 Accepted：生产路径提供短生命周期 Context Projection、条件式 C1-C4、typed overflow 至多一次恢复、内部 Usage View、M1-M5 文件记忆及 ready-only 零等待预取；离线长会话 Eval 保持 Canonical/Tool 协议、事实/硬约束与完成率，并取得 49% 的估算 Token 降幅中位数。S08 已在 corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 上完成 ADR-048 G0-G6 并恢复 Accepted：Composer reducer/TUI、折叠无损 Paste、stdio 原子提交和本机 ModelDiagnostic 已通过完整 Reactor、TUI 111/111、launcher 59/59、真实 TTY 与独立最终 review，`CLI-08`/`CLI-09` 恢复 L2；Settings 写入/迁移、rules 编辑、Provider discovery/多模型注册、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
 
 ## 项目目标
 

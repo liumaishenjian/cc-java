@@ -6,7 +6,7 @@
 >
 > 参考：公开行为基线 `R2026.03`；授权参考快照 `AUTH-SRC-2026-07-29-A` 的受控机制研究结论见 ADR-045；本演示只验证项目独立 Java/TypeScript 契约，不包含参考源码表达。
 >
-> 状态：ADR-048 Corrective G5 Passed；G6 与 S08 Stage Exit 仅等待新的固定 implementation Commit。
+> 状态：ADR-048 Corrective G0-G6 Passed；S08 Stage Exit Accepted（implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4`）。
 
 ## 可复现验证
 
@@ -59,7 +59,7 @@ orphan 为 0 且事实、硬约束、完成率不退化；全量 Maven 成功，
 4. 2,006-byte bracketed paste 折叠为 `[粘贴 #1 · <64KiB]`，正文不暴露；raw Left 将光标移到折叠 Paste 前，随后输入 `Z` 正确插入该位置。
 5. Shift+Enter 产生第二个视觉行。
 
-该结果关闭 ADR-048 G5；G6 唯一剩余条件是取得新的固定 corrective implementation Commit 并完成 Commit-scoped 对账。
+该结果关闭 ADR-048 G5；corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 已固定并完成 G6 Commit-scoped 对账。
 
 ## 保持的不变量
 

@@ -152,12 +152,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 195 |
-| 当前阶段 | S08 Instructions + Settings（Corrective / Reopened；ADR-048 G3-G5 Passed） |
-| Stage Exit | Open：唯一缺口是尚无新的 corrective implementation 固定 Commit，G6 未对账 |
-| 当前等级 | 79 项为 L2，33 项为 L1，83 项为 L0（`CLI-08`/`CLI-09` 暂保持 L1，待 G6 恢复） |
+| 当前阶段 | S08 Instructions + Settings（ADR-048 Corrective G0-G6 Passed） |
+| Stage Exit | Accepted：corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 已完成 Commit-scoped 对账 |
+| 当前等级 | 81 项为 L2，31 项为 L1，83 项为 L0（`CLI-08`/`CLI-09` 恢复 L2） |
 | 默认最终目标 | 195 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 32.65%（195 项等权、目标 L3） |
-| 下一步 | 固定 corrective implementation Commit 并完成 ADR-048 G6；S09 暂不启动，Provider discovery/多模型注册、S12/S13/S14 延期边界不变 |
+| 当前能力覆盖 | 32.99%（195 项等权、目标 L3） |
+| 下一步 | 启动 S09 G0；Provider discovery/多模型注册、S12/S13/S14 延期边界不变 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -249,8 +249,8 @@ Stage 完成项。
 | CLI-05 | Permission Prompt | 终端 Approval UI | L2 | S04/S05 | REF-04/AUTH-01 |
 | CLI-06 | Ctrl+C Cancel | 当前 Run/Tool 取消 | L1 | S02/S04 | REF-02 |
 | CLI-07 | Steering | Java stdio 连接内存 FIFO 上限 100；只在当前 Run 终态后启动下一 Run，取消/clear/成功 resume/transport failure/shutdown 丢弃未发送项且不持久化 | L2 | S08 | REF-02 |
-| CLI-08 | Slash Commands | 封闭 Command Catalog、可见选择与类型化安全结果 Projection；历史命令范围保持，等待 ADR-048 新 Commit 复验 | L1 | S08 | REF-02 |
-| CLI-09 | 多行、历史、补全 | `ComposerState` grapheme 光标、视觉多行/viewport、完整编辑键、History/Completion 优先级；8,192 仅限可见结构，约 1 MiB 无损大 Paste 经 W4 stdio v0 原子分块提交后仍受 256K Token Context pipeline 权威治理；ADR-048 契约已冻结、实现待验证 | L1 | S08 | REF-02 |
+| CLI-08 | Slash Commands | 封闭 Command Catalog、可见选择与类型化安全结果 Projection；ADR-048 Commit-scoped 协议、TTY 与 review 证据通过 | L2 | S08 | REF-02 |
+| CLI-09 | 多行、历史、补全 | `ComposerState` grapheme 光标、视觉多行/viewport、完整编辑键、History/Completion 优先级；8,192 仅限可见结构，约 1 MiB 无损大 Paste 经 stdio v0 原子分块提交后仍受 256K Token Context pipeline 权威治理；ADR-048 Commit-scoped 测试/TTY/review 通过 | L2 | S08 | REF-02 |
 | CLI-10 | TTY / Non-TTY 降级 | 无 ANSI 输出与管道模式 | L2 | S02/S14 | REF-02 |
 | CLI-11 | 机器输出协议 | S02 内部 stdio v0 L1 → S14 稳定 JSON/JSONL L3 | L1 | S02/S14 | REF-02 |
 | CLI-12 | 多 Surface 共用引擎 | CLI/SDK/API 共用 Runtime | L0 | S14 | REF-02 |
@@ -657,7 +657,7 @@ Sub-Agent/后台任务留到 S12，OS Sandbox 留到 S13。
 ### S08：Instructions + Settings
 
 G0 已于 2026-08-05 通过：`ADR-045` 在 `AUTH-SRC-2026-07-29-A` 的登记只读路径上完成了
-分层 Instructions、Settings 合并/来源、模型/权限/Tool 设置、Slash/诊断与失败安全边界的机制研究。ADR-046/047 的历史 G1/G2 契约继续约束 Instructions、Settings 与安全所有权；[ADR-048](./adr/ADR-048-s08-corrective-composer-model-diagnostics.md) 因旧 CLI-08/09 证据不足重开 S08。当前 G3-G5 已通过：完整 Reactor 各模块 45/172/43/101/227（Spring/Tools/CLI 分别 2/8/11 skipped，0 failures/errors）、TUI 111/111、launcher 59/59、真实 TTY 与独立最终 review 均通过。唯一剩余条件是新的 corrective implementation 固定 Commit；在其 G6 对账前 Stage Exit 不是 Accepted，`CLI-08`/`CLI-09` 暂不恢复 L2。
+分层 Instructions、Settings 合并/来源、模型/权限/Tool 设置、Slash/诊断与失败安全边界的机制研究。ADR-046/047 的历史 G1/G2 契约继续约束 Instructions、Settings 与安全所有权；[ADR-048](./adr/ADR-048-s08-corrective-composer-model-diagnostics.md) 因旧 CLI-08/09 证据不足重开 S08。Corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 已完成 G3-G6：完整 Reactor 各模块 45/172/43/101/227（Spring/Tools/CLI 分别 2/8/11 skipped，0 failures/errors）、TUI 111/111、launcher 59/59、真实 TTY 与独立最终 review 均通过，并完成 Commit-scoped 文档/矩阵/看板对账。S08 Stage Exit Accepted，`CLI-08`/`CLI-09` 恢复 L2。
 
 完成条件：
 

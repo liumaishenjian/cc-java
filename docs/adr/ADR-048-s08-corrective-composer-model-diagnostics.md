@@ -262,7 +262,7 @@ Fresh independent review 又修复三个问题：延迟 ack 覆盖发送后新�
 - G3：Passed（当前工作树已完成独立 TypeScript/Java/launcher 实现；尚未固定 Commit）。
 - G4：Passed（完整 Maven Reactor、TUI 111/111、launcher 59/59、聚焦 fault-injection 与 review 修复全部通过；独立最终复审无 blocking finding）。
 - G5：Passed（真实 TTY 启动与 Provider、`/context`、无参数 `/compact`、折叠 Paste、raw Left/Z 光标编辑及 Shift+Enter 第二视觉行验收通过；详细结果见 Demo）。
-- G6：Open（唯一缺口是尚无新的 corrective implementation 固定 Commit，不能完成 Commit-scoped 对账）。
-- S08 Stage Exit：Corrective / Reopened。
+- G6：Passed（以 corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 为锚点完成 ADR、README、PRD、技术设计、Demo、Gap、矩阵与看板对账）。
+- S08 Stage Exit：Accepted。
 
-G4/G5 的行为与测试证据已满足契约；取得新的固定 implementation Commit 并以该 hash 完成 G6 对账后，才可恢复 `CLI-08`、`CLI-09` L2 与 S08 Accepted。
+G0-G6 已全部满足，`CLI-08`、`CLI-09` 恢复 L2。该退出不扩大为 Settings 写入/迁移、rules 编辑、Provider discovery/多模型注册、S12 Sub-Agent/后台任务/Worktree、S13 OS Sandbox 或 S14 稳定协议/OTel/Export/Retention/Migration。

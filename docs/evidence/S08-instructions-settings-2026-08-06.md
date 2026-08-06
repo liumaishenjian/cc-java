@@ -2,7 +2,9 @@
 
 > Stage：S08
 >
-> 实现 Commit：`7bac8ead3a9ebb30df410f97703525035beee660`
+> 历史实现 Commit：`7bac8ead3a9ebb30df410f97703525035beee660`
+>
+> ADR-048 Corrective implementation Commit：`8fabd94b66881a4a8236cccabd4ae61dd39845d4`
 >
 > Baseline：`R2026.03`；授权快照：`AUTH-SRC-2026-07-29-A`
 >
@@ -47,6 +49,10 @@ git diff --check
 - G6：功能矩阵、PRD、技术设计、README 与看板按实现 Commit 对账；18 个 S08 Feature 达到退出目标 L2。
 - 保持延期：Settings 写入/迁移、rules/selector 编辑、Provider discovery/多模型注册、Managed Policy、S12 Sub-Agent/后台任务/Worktree、S13 OS Sandbox、S14 稳定协议/Export/Retention/Migration。
 
+## ADR-048 Corrective 对账
+
+Corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 补齐 grapheme-safe Composer、视觉 viewport、折叠无损 Paste、stdio 原子提交与本机 ModelDiagnostic。完整 Reactor（Domain 45、Core 172、Spring 43/2 skipped、Tools 101/8 skipped、CLI 227/11 skipped，0 failures/errors）、TUI 111/111、launcher 59/59、真实 TTY 与独立最终 review 均通过；ADR-048、README、PRD、技术设计、Demo、Gap、矩阵和看板完成 Commit-scoped G6 对账，`CLI-08`/`CLI-09` 恢复 L2。
+
 ## Stage Exit
 
-S08 Accepted 不表示存在 OS Sandbox、稳定机器协议、跨版本迁移或自动副作用重放。内置 Tool、未来外部 Tool 与所有命令仍受既有确定性 Pipeline、Permission、Workspace 和 Recovery Gate 约束。
+S08 Accepted 不表示存在 OS Sandbox、稳定机器协议、跨版本迁移、Settings 写入/rules 编辑、Provider discovery/多模型注册、OTel/Export 或自动副作用重放。内置 Tool、未来外部 Tool 与所有命令仍受既有确定性 Pipeline、Permission、Workspace 和 Recovery Gate 约束。
