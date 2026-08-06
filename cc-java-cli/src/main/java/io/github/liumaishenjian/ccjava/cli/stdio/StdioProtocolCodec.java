@@ -161,7 +161,7 @@ public final class StdioProtocolCodec {
             throw new StdioProtocolException("UNSUPPORTED_VERSION", requestId, "session.command protocolVersion 不受支持");
         }
         String commandId = requiredPayloadText(payload, "commandId", requestId);
-        if (invalidCommandText(commandId)) {
+        if (invalidIdentifier(commandId)) {
             throw new StdioProtocolException("INVALID_PAYLOAD", requestId, "commandId 非法");
         }
         String intent = requiredPayloadText(payload, "intent", requestId);
@@ -199,9 +199,9 @@ public final class StdioProtocolCodec {
         }
         if (intent.equals("compact")) {
             JsonNode anchors = arguments.get("anchors");
-            if (anchors == null || !anchors.isArray() || anchors.size() > 32
+            if (anchors == null || !anchors.isArray() || anchors.size() > 16
                     || java.util.stream.StreamSupport.stream(anchors.spliterator(), false)
-                    .anyMatch(value -> !value.isString() || invalidCommandText(value.stringValue()))) {
+                    .anyMatch(value -> !value.isString() || invalidCompactAnchor(value.stringValue()))) {
                 throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "compact anchors 非法");
             }
         }
@@ -219,8 +219,18 @@ public final class StdioProtocolCodec {
         }
     }
 
+    private static boolean invalidIdentifier(String value) {
+        return value.isBlank() || value.codePointCount(0, value.length()) > MAX_IDENTIFIER_CHARS
+                || value.chars().anyMatch(Character::isISOControl);
+    }
+
     private static boolean invalidCommandText(String value) {
         return value.isBlank() || value.codePointCount(0, value.length()) > 256
+                || value.chars().anyMatch(Character::isISOControl);
+    }
+
+    private static boolean invalidCompactAnchor(String value) {
+        return value.isBlank() || value.codePointCount(0, value.length()) > 512
                 || value.chars().anyMatch(Character::isISOControl);
     }
 

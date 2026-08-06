@@ -119,7 +119,7 @@ SessionCommandEvent(kind, commandId, sessionId, payload)
 | --- | --- | --- |
 | `Help` | 只读 | 仅发布当前 Surface 支持命令与延期能力。 |
 | `Clear` | Surface transient → 清空 | 仅清空输入缓冲、展示历史和未发送 steering；不取消活动 Run、不写 Canonical/JSONL。 |
-| `Compact` | idle → preparing → completed | 调用既有 S07 C3/C4；anchors 仅为不可信 Context 输入。候选摘要必须通过 S07 Gate，失败/取消/无容量不提交 Projection 或 Canonical 修改。 |
+| `Compact` | idle → preparing → completed | 调用既有 S07 C1-C4；anchors 仅为不可信 Context 输入。显式请求即使 C1/C2 已满足预算仍可按既有 Gate 尝试 C3/C4；候选只在来源前缀未变化时安装给下一 Run 首个模型请求并一次性消费。失败/取消/来源变化不提交 Projection 或 Canonical 修改。 |
 | `Context` | 只读 | 只投影最新 `ContextUsageView` 的数值/枚举；不可用返回固定 code。 |
 | `Doctor` | 只读 | 汇总已经可用的 Settings/Instructions/Context/Surface 诊断；不得刷新、写入或回显正文。 |
 | `ModelChange` | idle settings overlay → replaced | 校验后仅替换当前 Session 内存 override，下一 Run 使用；运行中、无效或不支持时旧值不变。 |

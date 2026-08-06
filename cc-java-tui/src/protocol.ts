@@ -260,7 +260,7 @@ const SESSION_COMMAND_INTENTS = new Set([
 ]);
 const SESSION_COMMAND_CODES = new Set([
   'ok', 'active_run', 'invalid_argument', 'unavailable', 'not_available', 'deferred',
-  'cancelled', 'internal_failure', 'request_budget_exhausted',
+  'cancelled', 'compaction_rejected', 'internal_failure', 'request_budget_exhausted',
 ]);
 const SESSION_COMMAND_SUPPORT = new Set(['available', 'deferred', 'not_available']);
 

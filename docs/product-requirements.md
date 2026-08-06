@@ -4,7 +4,7 @@
 >
 > 最后更新：2026-08-05
 >
-> 当前阶段：S01-S07 已 Accepted；S07 已以 Commit-scoped G0-G6 对账完成 Projection、Memory、内部 Usage View、deterministic Fake Eval、Demo 与 Gap 闭环。S08 Instructions + Settings 已完成 G0 受控机制研究、G1 产品契约与 G2 独立架构契约冻结并处于 IN_PROGRESS；G3-G6 及实现仍未启动。
+> 当前阶段：S01-S07 已 Accepted；S07 已以 Commit-scoped G0-G6 对账完成 Projection、Memory、内部 Usage View、deterministic Fake Eval、Demo 与 Gap 闭环。S08 Instructions + Settings 已完成 G0-G2；G3-C/D 的受限 Session 命令与显式 compact/context 安全投影已实现，但 G3-G6、Capability Level 与 Stage Exit 仍 Open。
 >
 > 产品负责人：项目维护者
 
@@ -358,6 +358,12 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
 - FR-CTX-014：M1 创建仅允许目标不存在，更新和删除必须匹配读取时 SHA-256；同目录随机暂存只用
   `ATOMIC_MOVE` 提交且不回退非原子写入。M1 成功后 M2 重建失败不得回滚 topic，而应返回不回显
   内容的结构化诊断。
+- FR-CTX-015：S08 G3-D 的显式 `/compact` 在 idle 边界构造候选：即使 C1/C2 已满足预算，仍可在
+  原有 S07 C3/C4 Gate 下尝试摘要；只有候选来源仍是下一 Run Canonical 前缀时，才一次性用于该
+  下一 Run 的首个模型请求。它不得覆盖整个 Run、不得改变自动 reduction、Canonical Transcript、
+  Tool Call/Result 配对、取消或 JSONL/Checkpoint。
+- FR-CTX-016：S08 G3-D 的 `/context` 只返回 latest `ContextUsageView` 的数值/枚举白名单投影，
+  不可用时返回固定 `UNAVAILABLE`；不得输出 Prompt、正文、路径、Tool 参数/结果、Secret 或 Provider 原文。
 
 ### 11.7 Session 与事件
 

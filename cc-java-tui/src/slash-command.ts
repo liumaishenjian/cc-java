@@ -19,6 +19,8 @@ export type SlashParseResult =
   | {readonly kind: 'invalid'; readonly message: string};
 
 const MAX_ARGUMENT_CHARS = 256;
+const MAX_COMPACT_ANCHORS = 16;
+const MAX_COMPACT_ANCHOR_CODE_POINTS = 512;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/u;
 const COMMANDS = new Set<SlashIntent>([
   'help', 'clear', 'compact', 'context', 'doctor', 'model', 'permissions', 'resume',
@@ -40,7 +42,7 @@ export function parseSlashCommand(input: string): SlashParseResult {
       : {kind: 'invalid', message: `/${intent} 不接受参数`};
   }
   if (intent === 'compact') {
-    if (values.length > 32 || values.some(invalidArgument)) {
+    if (values.length > MAX_COMPACT_ANCHORS || values.some(invalidCompactAnchor)) {
       return {kind: 'invalid', message: '/compact 参数非法或超过上限'};
     }
     return {kind: 'command', command: {intent, arguments: {anchors: values}}};
@@ -69,11 +71,18 @@ export function renderSlashResult(intent: string, status: string, code: string):
     active_run: '当前 Run 仍在执行', unavailable: '当前没有可用视图',
     not_available: '当前版本尚未提供', deferred: '已延期至后续安全切片',
     invalid_argument: '参数无效', request_budget_exhausted: '命令请求额度已用尽',
+    cancelled: '请求已取消', compaction_rejected: '压缩候选未通过安全校验',
+    internal_failure: '内部处理未完成',
   };
   return `/${intent} 未执行：${labels[code] ?? '请求被安全拒绝'}`;
 }
 
 function invalidArgument(value: string): boolean {
   return value.length === 0 || Array.from(value).length > MAX_ARGUMENT_CHARS
+    || CONTROL_CHARACTER_PATTERN.test(value);
+}
+
+function invalidCompactAnchor(value: string): boolean {
+  return value.length === 0 || Array.from(value).length > MAX_COMPACT_ANCHOR_CODE_POINTS
     || CONTROL_CHARACTER_PATTERN.test(value);
 }

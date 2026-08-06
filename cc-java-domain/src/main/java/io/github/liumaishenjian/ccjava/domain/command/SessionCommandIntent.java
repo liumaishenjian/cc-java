@@ -45,7 +45,7 @@ public sealed interface SessionCommandIntent permits SessionCommandIntent.Help, 
          */
         public Compact {
             anchors = List.copyOf(Objects.requireNonNull(anchors, "anchors 不能为空"));
-            if (anchors.size() > 32 || anchors.stream().anyMatch(SessionCommandIntent::invalidText)) {
+            if (anchors.size() > 16 || anchors.stream().anyMatch(SessionCommandIntent::invalidCompactAnchor)) {
                 throw new IllegalArgumentException("compact anchors 非法");
             }
         }
@@ -134,6 +134,11 @@ public sealed interface SessionCommandIntent permits SessionCommandIntent.Help, 
 
     private static boolean invalidText(String value) {
         return value == null || value.isBlank() || value.codePointCount(0, value.length()) > 256
+                || value.chars().anyMatch(Character::isISOControl);
+    }
+
+    private static boolean invalidCompactAnchor(String value) {
+        return value == null || value.isBlank() || value.codePointCount(0, value.length()) > 512
                 || value.chars().anyMatch(Character::isISOControl);
     }
 }

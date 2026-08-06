@@ -35,7 +35,7 @@ class SessionCommandContractsTest {
         assertThat(new SessionCommandIntent.ModelChange(model).toString()).doesNotContain(model);
         assertThat(new SessionCommandIntent.Resume(new SessionId(privateSessionId)).toString()).doesNotContain(privateSessionId);
         assertThatIllegalArgumentException().isThrownBy(() -> new CommandId("\u0000"));
-        assertThatIllegalArgumentException().isThrownBy(() -> new SessionCommandIntent.Compact(List.of("x".repeat(257))));
+        assertThatIllegalArgumentException().isThrownBy(() -> new SessionCommandIntent.Compact(List.of("x".repeat(513))));
     }
 
     @Test

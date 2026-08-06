@@ -82,7 +82,7 @@ class SessionCommandDispatcherTest {
             var configuration = runtime.runtimeConfiguration();
             SessionCommandDispatcher dispatcher = dispatcher(runtime);
 
-            assertCode(dispatcher, "compact", new SessionCommandIntent.Compact(List.of()), SessionCommandResultCode.NOT_AVAILABLE);
+            assertCode(dispatcher, "compact", new SessionCommandIntent.Compact(List.of()), SessionCommandResultCode.UNAVAILABLE);
             assertCode(dispatcher, "model", new SessionCommandIntent.ModelChange("other"), SessionCommandResultCode.NOT_AVAILABLE);
             var permissions = dispatcher.dispatch(new CommandId("permissions"),
                     new SessionCommandIntent.Permissions(new SessionCommandIntent.PermissionsOperation.Query()),
@@ -145,6 +145,37 @@ class SessionCommandDispatcherTest {
             assertThat(clears).hasValue(1);
             assertThat(Files.readAllBytes(journal)).isEqualTo(before);
             assertThat(runtime.cancelActive()).isFalse();
+        }
+    }
+
+    @Test
+    void duplicateCompactCommandIdAdoptsOnceAndReusesTerminalResult() throws Exception {
+        Path workspace = Files.createDirectory(root.resolve("workspace"));
+        AtomicInteger summaries = new AtomicInteger();
+        try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(
+                request -> ModelTurn.text("done"), AgentEventSink.noop(),
+                options(workspace, root.resolve("sessions")),
+                (a, b, c) -> io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny(),
+                (request, token) -> {
+                    summaries.incrementAndGet();
+                    String text = "short";
+                    return Optional.of(new io.github.liumaishenjian.ccjava.domain.SummaryCandidate(
+                            request.tier(), text, request.sourceRevision(), request.sourceMessageIds(),
+                            text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length, 1));
+                })) {
+            runtime.open();
+            runtime.run("history one " + "x".repeat(70));
+            runtime.run("history two " + "y".repeat(70));
+            SessionCommandDispatcher dispatcher = dispatcher(runtime);
+
+            var first = dispatcher.dispatch(new CommandId("compact"),
+                    new SessionCommandIntent.Compact(List.of()), CancellationToken.none());
+            var repeated = dispatcher.dispatch(new CommandId("compact"),
+                    new SessionCommandIntent.Compact(List.of()), CancellationToken.none());
+
+            assertThat(first.event().status()).isEqualTo(SessionCommandStatus.SUCCEEDED);
+            assertThat(repeated).isSameAs(first);
+            assertThat(summaries).hasValue(1);
         }
     }
 

@@ -20,6 +20,8 @@ public enum SessionCommandResultCode {
     DEFERRED,
     /** 命令在执行前被取消。 */
     CANCELLED,
+    /** 候选 Projection 在来源、生命周期或摘要 Gate 被拒绝，未提交任何状态。 */
+    COMPACTION_REJECTED,
     /** 内部故障被收敛后的安全代码。 */
     INTERNAL_FAILURE,
     /** 当前 dispatcher 的有界 request budget 已耗尽。 */

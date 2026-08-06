@@ -8,7 +8,7 @@
 >
 > 当前代码状态：S01-S07 已 Accepted；S07 的 Canonical Transcript/Projection、条件式 C1-C4、文件记忆
 > M1-M5、ready-only 零等待预取、内部 Usage View 与 latest-only Recovery Analytics 已在离线 Fake、Demo、
-> Gap 和 Commit-scoped 对账中达到声明等级。S08 已完成 G0-G2；G3-C2b 已实现真实 Headless 的固定来源读取、内存 Session/CLI overlay 与 LKG/RuntimeScope idle 事务接缝。G3-D 已增加 Java Application 的封闭 Command Intent/Event/单终态分派基础、只读 `/context` 投影与 BOOT-06 隐私安全 doctor 报告；stdio v0 已接入严格 `session.command` 解码、Session 关联、固定白名单结果投影与每 commandId 至多一次 terminal emission，React/Ink 已提供封闭 Slash 解析和本地结果渲染。没有安全现有接口的 compact、热 resume、运行时 model/permissions 修改仍返回固定受控终态，且不写 JSONL。G3-G6、Capability Level 和 Stage Exit 仍 Open；完整 Context UX、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
+> Gap 和 Commit-scoped 对账中达到声明等级。S08 已完成 G0-G2；G3-C2b 已实现真实 Headless 的固定来源读取、内存 Session/CLI overlay 与 LKG/RuntimeScope idle 事务接缝。G3-D 已增加 Java Application 的封闭 Command Intent/Event/单终态分派、显式 `/compact`、只读 `/context` 投影与 BOOT-06 隐私安全 doctor 报告；compact 候选只一次性用于下一 Run 首个模型请求，不改 Canonical/JSONL/Checkpoint 或自动 S07 reduction。stdio v0 已接入严格 `session.command` 解码、Session 关联、固定白名单结果投影与每 commandId 至多一次 terminal emission，React/Ink 已提供 anchors/commandId 有界的封闭 Slash 解析和本地结果渲染。热 resume、运行时 Provider discovery/多模型修改与完整 Context UX 仍返回固定受控终态或延期。G3-G6、Capability Level 和 Stage Exit 仍 Open；完整 Context UX、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
 
 ## 1. 文档目的
 
@@ -157,7 +157,7 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 当前等级 | 64 项为 L2，34 项为 L1，97 项为 L0（本次无等级变化） |
 | 默认最终目标 | 195 项达到 L3，或存在明确 `Accepted Deviation` |
 | 当前能力覆盖 | 27.69%（195 项等权、目标 L3；本次无变化） |
-| 下一步 | 按 ADR-047 进入 S08 G3-A：实现分层 Instructions、独立 user-root guard 与请求投影；S12/S13/S14 延期边界不变 |
+| 下一步 | 按 ADR-047 进入 S08 G3-A/B/E/F：分层 Instructions/独立 user-root guard、Settings v1/LKG、完整输入 UX 与 recovery-gated resume；S12/S13/S14 延期边界不变 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -249,7 +249,7 @@ Stage 完成项。
 | CLI-05 | Permission Prompt | 终端 Approval UI | L2 | S04/S05 | REF-04/AUTH-01 |
 | CLI-06 | Ctrl+C Cancel | 当前 Run/Tool 取消 | L1 | S02/S04 | REF-02 |
 | CLI-07 | Steering | S08 运行中排队用户补充消息 | L0 | S08 | REF-02 |
-| CLI-08 | Slash Commands | S08 已有 `/help`、`/clear`、`/context`、`/doctor` 与有界 `/model`、`/permissions mode` 的 Java/stdio/封闭 Slash 路径；compact/resume/完整 UX 延期 | L0 | S08 | REF-02 |
+| CLI-08 | Slash Commands | S08 G3-C/D 已有 `/help`、`/clear`、显式 `/compact`、`/context`、`/doctor` 与有界 `/model`、`/permissions mode` 的 Java/stdio/封闭 Slash 路径；resume/完整 UX 延期 | L0 | S08 | REF-02 |
 | CLI-09 | 多行、历史、补全 | S08 完整 React/Ink 输入能力 | L0 | S08 | REF-02 |
 | CLI-10 | TTY / Non-TTY 降级 | 无 ANSI 输出与管道模式 | L2 | S02/S14 | REF-02 |
 | CLI-11 | 机器输出协议 | S02 内部 stdio v0 L1 → S14 稳定 JSON/JSONL L3 | L1 | S02/S14 | REF-02 |
@@ -382,8 +382,8 @@ Stage 完成项。
 | CTX-09 | Conversation Summary | C3/C4 有界候选、严格提交 Gate 与零 Tool Provider Summarizer | L2 | S07 | REF-01/02 |
 | CTX-10 | Multi-level Compaction | C1/C2 后条件式 C3→C4、预算满足即停 | L2 | S07 | REF-01 |
 | CTX-11 | Thrashing Guard | Run/revision/tier 冷却与单次 typed-overflow 恢复 | L2 | S07 | REF-02 |
-| CTX-12 | Compact Instructions | 用户可控保留内容和持久设置 | L1 | S08 | REF-02 |
-| CTX-13 | `/context` | 内部数值化 ContextUsageView、Headless latest 查询与固定隐私 reason code；命令、stdio/Slash/TUI UX 延期 S08 | L1 | S07/S08 | REF-02 |
+| CTX-12 | Compact Instructions | S08 G3-D：有界 anchors 的显式 compact 经既有 S07 Gate 生成一次性下一 Run 首个模型请求 Projection；分层/持久 Settings 延期 | L1 | S08 | REF-02 |
+| CTX-13 | `/context` | S08 G3-D：最新 `ContextUsageView` 的数值/枚举白名单命令、stdio/封闭 Slash/TUI 协议投影；完整 UX 延期 | L1 | S07/S08 | REF-02 |
 | CTX-14 | Skill Lazy Loading | Metadata 先加载 | L0 | S11 | REF-03 |
 | CTX-15 | Sub-Agent Isolation | 独立窗口与摘要返回 | L0 | S12 | REF-02/03 |
 | CTX-16 | Prompt Cache | 稳定前缀和 Tool 顺序 | L0 | S14 | REF-01 |

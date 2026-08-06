@@ -69,6 +69,39 @@ public final class SummaryReductionCoordinator implements AutoCloseable {
             ContextProjection previousProjection,
             SummaryReductionPolicy policy,
             CancellationToken cancellationToken) {
+        return reduceInternal(runId, request, previousProjection, policy, cancellationToken, false);
+    }
+
+    /**
+     * 执行用户显式请求的 C3/C4 摘要尝试。
+     *
+     * <p>该入口仅跳过自动 reduction 在已满足预算时的短路；范围资格、Tool Call/Result
+     * 协议边界、锚点、候选校验、单次尝试、取消和提交 Gate 与 {@link #reduce} 完全相同。
+     * 因而它不能把普通自动 Run 扩展为主动摘要，也不能绕过任何摘要安全约束。</p>
+     *
+     * @param runId 本次显式请求的唯一运行标识
+     * @param request 原始 Canonical Transcript 快照和容量边界
+     * @param previousProjection C1/C2 后的完整 Projection
+     * @param policy C3/C4 eligibility 与候选输出上限
+     * @param cancellationToken 提交前必须检查的取消令牌
+     * @return 候选提交或保持 previousProjection 的唯一终态
+     */
+    public SummaryOutcome reduceExplicitly(
+            RunId runId,
+            ProjectionRequest request,
+            ContextProjection previousProjection,
+            SummaryReductionPolicy policy,
+            CancellationToken cancellationToken) {
+        return reduceInternal(runId, request, previousProjection, policy, cancellationToken, true);
+    }
+
+    private SummaryOutcome reduceInternal(
+            RunId runId,
+            ProjectionRequest request,
+            ContextProjection previousProjection,
+            SummaryReductionPolicy policy,
+            CancellationToken cancellationToken,
+            boolean explicitRequest) {
         Objects.requireNonNull(runId, "runId 不能为空");
         if (!attemptGuard.isOpen()) {
             throw new IllegalStateException("SummaryReductionCoordinator 已关闭");
@@ -82,7 +115,7 @@ public final class SummaryReductionCoordinator implements AutoCloseable {
         if (cancellationToken.isCancellationRequested()) {
             return cancelled(previousProjection, List.of(), List.of(), null);
         }
-        if (previousProjection.usage().fits()) {
+        if (!explicitRequest && previousProjection.usage().fits()) {
             return unchanged(
                     previousProjection,
                     List.of(),

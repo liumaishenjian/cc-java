@@ -79,6 +79,16 @@ class StdioProtocolCodecTest {
                  "arguments":{"anchors":["focus"]}}}
                 """);
         assertThat(command.type()).isEqualTo("session.command");
+        assertProtocolError("""
+                {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
+                 "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"compact",
+                 "arguments":{"anchors":["%s","%s","%s","%s","%s","%s","%s","%s","%s","%s","%s","%s","%s","%s","%s","%s","%s"]}}}
+                """.formatted("a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a", "a"), "INVALID_ARGUMENT");
+        assertProtocolError("""
+                {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
+                 "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"compact",
+                 "arguments":{"anchors":["bad\\nanchor"]}}}
+                """, "INVALID_ARGUMENT");
         assertThatThrownBy(() -> codec.decodeCommand("""
                 {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
                  "sequence":2,"future":true,"payload":{"protocolVersion":0,"commandId":"command-1",
@@ -104,6 +114,10 @@ class StdioProtocolCodecTest {
                 {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
                  "sequence":2,"payload":{"protocolVersion":0,"commandId":"bad\\ncommand","intent":"help","arguments":{}}}
                 """, "INVALID_PAYLOAD");
+        assertProtocolError("""
+                {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
+                 "sequence":2,"payload":{"protocolVersion":0,"commandId":"%s","intent":"help","arguments":{}}}
+                """.formatted("x".repeat(129)), "INVALID_PAYLOAD");
         assertThat(codec.decodeCommand("""
                 {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
                  "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"permissions","arguments":{}}}

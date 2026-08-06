@@ -1,5 +1,6 @@
 package io.github.liumaishenjian.ccjava.core;
 
+import io.github.liumaishenjian.ccjava.domain.AgentMessage;
 import io.github.liumaishenjian.ccjava.domain.ContextCapacity;
 import io.github.liumaishenjian.ccjava.domain.ContextProjection;
 import io.github.liumaishenjian.ccjava.domain.ContextReductionOutcome;
@@ -31,6 +32,7 @@ public final class ContextPreparationService {
     private final ContextSummarizer summarizer;
     private final ContextUsageObserver usageObserver;
     private final boolean enabled;
+    private final AtomicReference<InstalledProjection> installedProjection = new AtomicReference<>();
     private final ConcurrentMap<RunId, RunState> runs = new ConcurrentHashMap<>();
 
     /**
@@ -81,6 +83,99 @@ public final class ContextPreparationService {
     }
 
     /**
+     * 在不发送 Gateway 请求的前提下构造一次显式 compact 的短生命周期候选。
+     *
+     * <p>每次调用先无条件执行确定性 C1/C2；显式请求即使 C1/C2 已满足预算，仍可在既有 Gate
+     * 下尝试 C3/C4。调用方只可在 idle 生命周期边界将已采用候选安装给下一 Run 的首个模型请求；
+     * 本方法每次创建独立 Guard，故不会把冷却或 revision 状态泄漏到普通 Run，也不会修改 Canonical
+     * 或 durable Session。</p>
+     *
+     * @param canonical 已组装的 Canonical 请求快照
+     * @param protectedAnchors 已校验、仅供摘要 Gate 保护的锚点
+     * @param cancellationToken 协作式取消边界
+     * @return 不含正文的类型化候选终态
+     */
+    public ExplicitCompactResult compact(
+            ModelRequest canonical,
+            List<String> protectedAnchors,
+            CancellationToken cancellationToken) {
+        Objects.requireNonNull(canonical, "canonical 不能为空");
+        protectedAnchors = List.copyOf(Objects.requireNonNull(protectedAnchors, "protectedAnchors 不能为空"));
+        Objects.requireNonNull(cancellationToken, "cancellationToken 不能为空");
+        if (!enabled) return new ExplicitCompactResult(ExplicitCompactStatus.UNAVAILABLE, java.util.Optional.empty());
+        if (cancellationToken.isCancellationRequested()) {
+            return new ExplicitCompactResult(ExplicitCompactStatus.CANCELLED, java.util.Optional.empty());
+        }
+        int protectedCount = Math.min(config.protectedMessageCount(), canonical.messages().size());
+        long revision = canonical.messages().size();
+        ProjectionRequest request = new ProjectionRequest(
+                canonical.messages(), config.capacity(), revision, protectedCount, true);
+        ContextTokenEstimator estimator = new CodePointContextTokenEstimator();
+        DeterministicContextReducer reducer = new DeterministicContextReducer(
+                estimator, config.largePayloadTokenThreshold());
+        ContextReductionOutcome reduced = reducer.reduce(request, cancellationToken);
+        if (reduced.status() == ContextReductionStatus.CANCELLED || cancellationToken.isCancellationRequested()) {
+            return new ExplicitCompactResult(ExplicitCompactStatus.CANCELLED, java.util.Optional.empty());
+        }
+        if (reduced.status() == ContextReductionStatus.REDUCED) {
+            return new ExplicitCompactResult(ExplicitCompactStatus.ADOPTED, java.util.Optional.of(reduced.projection()));
+        }
+        if (reduced.status() != ContextReductionStatus.UNCHANGED
+                && reduced.status() != ContextReductionStatus.CONTEXT_LIMIT_REACHED) {
+            return new ExplicitCompactResult(ExplicitCompactStatus.REJECTED, java.util.Optional.empty());
+        }
+        SummaryAttemptGuard guard = new SummaryAttemptGuard(new RunId("manual-compact-" + revision));
+        try (SummaryReductionCoordinator coordinator = new SummaryReductionCoordinator(summarizer, estimator, guard)) {
+            SummaryReductionPolicy policy = new SummaryReductionPolicy(
+                    rollingEnd(reduced.projection(), protectedCount), true, protectedAnchors, protectedAnchors,
+                    config.maxSummaryUtf8Bytes(), config.maxSummaryTokens());
+            SummaryOutcome outcome = coordinator.reduceExplicitly(
+                    new RunId("manual-compact-" + revision), request, reduced.projection(), policy, cancellationToken);
+            if (cancellationToken.isCancellationRequested() || outcome.status() == SummaryOutcome.Status.CANCELLED) {
+                return new ExplicitCompactResult(ExplicitCompactStatus.CANCELLED, java.util.Optional.empty());
+            }
+            return outcome.status() == SummaryOutcome.Status.ADOPTED
+                    ? new ExplicitCompactResult(ExplicitCompactStatus.ADOPTED, java.util.Optional.of(outcome.projection()))
+                    : new ExplicitCompactResult(ExplicitCompactStatus.SUMMARIZER_REJECTED, java.util.Optional.empty());
+        } catch (RuntimeException failure) {
+            return new ExplicitCompactResult(ExplicitCompactStatus.SUMMARIZER_FAILURE, java.util.Optional.empty());
+        }
+    }
+
+    /** 显式 compact 的固定终态，绝不携带摘要、Prompt 或异常文本。 */
+    public enum ExplicitCompactStatus {
+        /** 候选 Projection 已通过 Gate。 */
+        ADOPTED,
+        /** 调用在候选提交前已取消。 */
+        CANCELLED,
+        /** 当前运行时未装配 Context Projection。 */
+        UNAVAILABLE,
+        /** 请求不满足显式 compact 的前置条件。 */
+        REJECTED,
+        /** 摘要候选未通过既有 S07 Gate。 */
+        SUMMARIZER_REJECTED,
+        /** 摘要器发生内部失败，细节不向命令结果暴露。 */
+        SUMMARIZER_FAILURE
+    }
+
+    /**
+     * 显式 compact 的不可变结果；仅 {@link ExplicitCompactStatus#ADOPTED} 可以携带候选 Projection。
+     *
+     * @param status 不暴露摘要正文或内部异常的固定终态
+     * @param projection 已通过 Gate 的短生命周期候选；其他终态为空
+     */
+    public record ExplicitCompactResult(ExplicitCompactStatus status, java.util.Optional<ContextProjection> projection) {
+        /** 确保终态与候选的存在性严格一致。 */
+        public ExplicitCompactResult {
+            status = Objects.requireNonNull(status, "status 不能为空");
+            projection = Objects.requireNonNull(projection, "projection 不能为空");
+            if ((status == ExplicitCompactStatus.ADOPTED) != projection.isPresent()) {
+                throw new IllegalArgumentException("compact status 与 projection 不一致");
+            }
+        }
+    }
+
+    /**
      * 为一个模型回合准备 Projection，并保持 Session/Run/turn/Tool 定义原样。
      *
      * @param canonical ContextAssembler 构造的不可变规范请求
@@ -98,6 +193,21 @@ public final class ContextPreparationService {
         RunState state = runs.computeIfAbsent(canonical.runId(), this::newRunState);
         int protectedCount = Math.min(
                 config.protectedMessageCount(), canonical.messages().size());
+        ModelRequest installed = consumeInstalled(canonical);
+        if (installed != null) {
+            ContextProjection projection = new ContextProjection(installed.messages(),
+                    state.estimator().estimate(installed.messages(), config.capacity()),
+                    List.of(), canonical.messages().size());
+            ProjectionRequest recoveryRequest = new ProjectionRequest(
+                    canonical.messages(), recoveryCapacity(projection), canonical.messages().size(), protectedCount, true);
+            ContextProjection recoveryProjection = new ContextProjection(
+                    projection.messages(), state.estimator().estimate(projection.messages(), recoveryRequest.capacity()),
+                    projection.appliedReductions(), projection.sourceRevision());
+            state.prepared().set(new PreparedContext(
+                    recoveryRequest, recoveryProjection, policyFor(recoveryProjection, protectedCount)));
+            publish(ContextUsageView.prepared(projection, config.capacity()));
+            return installed;
+        }
         long revision = canonical.messages().size();
         ProjectionRequest request = new ProjectionRequest(
                 canonical.messages(), config.capacity(), revision, protectedCount, true);
@@ -136,6 +246,37 @@ public final class ContextPreparationService {
                 policyFor(recoveryProjection, protectedCount)));
         publish(ContextUsageView.prepared(projection, config.capacity()));
         return prepared;
+    }
+
+    /**
+     * 原子安装一份仅供下一 Run 消费的 Projection。
+     *
+     * <p>候选必须来自同一 Canonical 快照；下一次 prepare 只有在其消息前缀精确匹配时才会
+     * 消费并保留新追加消息。任何来源变化都会丢弃候选，绝不重排或重复 Canonical 消息。</p>
+     *
+     * @param sourceCanonical 建立候选时的完整 Canonical 消息
+     * @param projection 已通过 C3/C4 Gate 的候选
+     */
+    public void installForNextRun(List<AgentMessage> sourceCanonical, ContextProjection projection) {
+        Objects.requireNonNull(sourceCanonical, "sourceCanonical 不能为空");
+        Objects.requireNonNull(projection, "projection 不能为空");
+        if (!enabled || projection.sourceRevision() != sourceCanonical.size()) {
+            throw new IllegalArgumentException("Projection 来源 revision 不匹配");
+        }
+        installedProjection.set(new InstalledProjection(List.copyOf(sourceCanonical), projection));
+    }
+
+    private ModelRequest consumeInstalled(ModelRequest canonical) {
+        InstalledProjection installed = installedProjection.getAndSet(null);
+        if (installed == null || canonical.messages().size() < installed.sourceCanonical().size()
+                || !canonical.messages().subList(0, installed.sourceCanonical().size())
+                .equals(installed.sourceCanonical())) {
+            return null;
+        }
+        List<AgentMessage> messages = new java.util.ArrayList<>(installed.projection().messages());
+        messages.addAll(canonical.messages().subList(installed.sourceCanonical().size(), canonical.messages().size()));
+        return new ModelRequest(canonical.sessionId(), canonical.runId(), canonical.turnNumber(), messages,
+                canonical.toolDefinitions());
     }
 
     /**
@@ -328,6 +469,13 @@ public final class ContextPreparationService {
          * @throws ModelGatewayException 模型端口无法完成本次调用时
          */
         T execute(ModelRequest request) throws ModelGatewayException;
+    }
+
+    private record InstalledProjection(List<AgentMessage> sourceCanonical, ContextProjection projection) {
+        private InstalledProjection {
+            sourceCanonical = List.copyOf(sourceCanonical);
+            projection = Objects.requireNonNull(projection, "projection 不能为空");
+        }
     }
 
     private record AttemptValue<T>(T value) {

@@ -13,7 +13,7 @@
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
 > composition、ready-only Memory Core/Domain Runtime seam、D2 Headless 文件系统生产装配、Context View 与
 > deterministic Fake Demo/Eval 已完成 Commit-scoped G0-G6 对账。ADR-045 冻结 S08 机制研究边界，ADR-046 已冻结 G1 独立产品契约；
-> ADR-047 已在不实现代码的前提下冻结 S08 的 Domain/Core/Application/Adapter 边界、独立 user-root guard、严格 Settings parser/last-known-good、命令 Intent/Event 与 G3/G4 切片；持久 Settings、Schema 与完整 Context UX 仍未实现。
+> ADR-047 已冻结 S08 的 Domain/Core/Application/Adapter 边界、独立 user-root guard、严格 Settings parser/last-known-good、命令 Intent/Event 与 G3/G4 切片；当前仅完成 G3-C/D 的受限 `/model`、`/permissions`、显式 `/compact`、`/context`/doctor 与 stdio/封闭 Slash 投影实现，持久 Settings、Schema 与完整 Context UX 仍未实现。
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 
@@ -1344,7 +1344,7 @@ S08 G0 已由 ADR-045 完成授权机制研究，G1 已由 ADR-046 冻结逐字�
 scalar/object/list/delete 语义、Instructions 发现/范围/不支持 import、Slash/doctor 最小语义与可证伪实验；G2 已由
 ADR-047 冻结 Domain/Core/Application/Adapter 的有效配置、provenance、诊断、Command Intent/Event、严格 duplicate-key
 parser、last-known-good 刷新和 G3/G4 切片。Workspace 内 Instructions 继续由 `WorkspaceGuard` 验证；位于 Workspace
-外的固定 user Instructions root 必须由独立 user-root guard 验证，绝不将其误用为 WorkspaceGuard 输入。G3-C/D 的受限实现使用 sealed Session patch 从当前内存 overlay 复制所有非目标字段，经 `SettingsResolver`、`RuntimeSettingsApplier`、LKG CAS 与 RuntimeScope 原子替换后才提交；取消、active、无效模型/mode、CAS 或 Scope/internal 失败均保留旧 overlay/LKG/scope。`/model` 仅接受启动时配置的单一模型名，Provider discovery/多模型注册延期；`/permissions` 只接受 `DEFAULT`、`PLAN`、`ACCEPT_EDITS`，query 返回当前 Runtime mode 与仅 Settings-derived STARTUP rules 的无 selector provenance，并在无 LKG 时返回 `BASELINE/runtime-baseline`。这一路径不触发 fixed-source refresh/discovery、文件 I/O、Provider/Tool、JSONL 或 Checkpoint 写入；不得让项目文本、Settings 或 Slash Command 绕过 S05 Permission Pipeline、S06 Recovery Gate、WorkspaceGuard、独立 user-root guard 或 Hard Denial。explicit compact、热 resume、多行/历史/补全/steering 和规则编辑继续延期。
+外的固定 user Instructions root 必须由独立 user-root guard 验证，绝不将其误用为 WorkspaceGuard 输入。G3-C/D 的受限实现使用 sealed Session patch 从当前内存 overlay 复制所有非目标字段，经 `SettingsResolver`、`RuntimeSettingsApplier`、LKG CAS 与 RuntimeScope 原子替换后才提交；取消、active、无效模型/mode、CAS 或 Scope/internal 失败均保留旧 overlay/LKG/scope。`/model` 仅接受启动时配置的单一模型名，Provider discovery/多模型注册延期；`/permissions` 只接受 `DEFAULT`、`PLAN`、`ACCEPT_EDITS`，query 返回当前 Runtime mode 与仅 Settings-derived STARTUP rules 的无 selector provenance，并在无 LKG 时返回 `BASELINE/runtime-baseline`。显式 `/compact` 先执行 C1/C2，并且即使预算已满足仍可在既有 C3/C4 Gate 下尝试摘要；成功候选仅在 Canonical 前缀未变化时一次性安装给下一 Run 的首个模型请求，绝不覆盖整个 Run 或改变自动 S07 reduction。`/context` 只投影 latest `ContextUsageView` 的数值/枚举白名单，不可用时返回固定 code。这些路径不触发 fixed-source refresh/discovery、文件 I/O、Provider/Tool、JSONL 或 Checkpoint 写入；不得让项目文本、Settings 或 Slash Command 绕过 S05 Permission Pipeline、S06 Recovery Gate、WorkspaceGuard、独立 user-root guard 或 Hard Denial。热 resume、多行/历史/补全/steering 和规则编辑继续延期。
 
 ## 21. Trust Boundary 与安全
 

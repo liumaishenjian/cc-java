@@ -51,6 +51,7 @@ import java.util.Map;
 import java.util.Queue;
 import java.time.Duration;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -348,6 +349,97 @@ class HeadlessRuntimeSessionTest {
                         "apply_patch",
                         "write_file",
                         "run_command");
+    }
+
+    @Test
+    void compactBelowThresholdInstallsOneShotProjectionAndPreservesCanonicalJournal() throws Exception {
+        CopyOnWriteArrayList<ModelRequest> requests = new CopyOnWriteArrayList<>();
+        AtomicInteger summaryCalls = new AtomicInteger();
+        try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(
+                request -> { requests.add(request); return ModelTurn.text("done"); }, AgentEventSink.noop(),
+                contextOptions(temporaryWorkspace),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) -> io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny(),
+                (request, cancellation) -> {
+                    summaryCalls.incrementAndGet();
+                    String text = "short";
+                    return Optional.of(new io.github.liumaishenjian.ccjava.domain.SummaryCandidate(
+                            request.tier(), text, request.sourceRevision(), request.sourceMessageIds(),
+                            text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length, 1));
+                })) {
+            runtime.open();
+            runtime.run("history one " + "x".repeat(70));
+            runtime.run("history two " + "y".repeat(70));
+            Path journal = Files.walk(sessionStoreRoot).filter(path -> path.getFileName().toString().endsWith(".jsonl")).findFirst().orElseThrow();
+            byte[] before = Files.readAllBytes(journal);
+            assertThat(runtime.compactForNextRun(List.of(), CancellationToken.none()))
+                    .isEqualTo(HeadlessRuntimeSession.CompactResult.ADOPTED);
+            assertThat(Files.readAllBytes(journal)).isEqualTo(before);
+            runtime.run("appended once");
+            runtime.run("normal canonical");
+        }
+        assertThat(summaryCalls).hasValue(1);
+        assertThat(requests.get(2).messages()).anyMatch(io.github.liumaishenjian.ccjava.domain.ContextSummaryMessage.class::isInstance);
+        assertThat(requests.get(2).messages()).filteredOn(UserMessage.class::isInstance)
+                .extracting(message -> ((UserMessage) message).content()).containsOnlyOnce("appended once");
+        assertThat(requests.get(3).messages()).filteredOn(UserMessage.class::isInstance)
+                .extracting(message -> ((UserMessage) message).content()).containsExactly(
+                        "history one " + "x".repeat(70), "history two " + "y".repeat(70), "appended once", "normal canonical");
+    }
+
+    @Test
+    void cancelledCompactDoesNotInstallProjection() {
+        CopyOnWriteArrayList<ModelRequest> requests = new CopyOnWriteArrayList<>();
+        AtomicInteger summaries = new AtomicInteger();
+        CancellationSource cancellation = new CancellationSource();
+        cancellation.cancel();
+        try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(
+                request -> { requests.add(request); return ModelTurn.text("done"); }, AgentEventSink.noop(),
+                contextOptions(temporaryWorkspace),
+                (a, b, c) -> io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny(),
+                (request, token) -> {
+                    summaries.incrementAndGet();
+                    return Optional.empty();
+                })) {
+            runtime.open();
+            runtime.run("history one " + "x".repeat(70));
+            assertThat(runtime.compactForNextRun(List.of(), cancellation.token()))
+                    .isEqualTo(HeadlessRuntimeSession.CompactResult.CANCELLED);
+            runtime.run("after cancellation");
+        }
+        assertThat(summaries).hasValue(0);
+        assertThat(requests.getLast().messages()).noneMatch(
+                io.github.liumaishenjian.ccjava.domain.ContextSummaryMessage.class::isInstance);
+    }
+
+    @Test
+    void activeCompactDoesNotInstallProjection() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CopyOnWriteArrayList<ModelRequest> requests = new CopyOnWriteArrayList<>();
+        try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(request -> {
+            requests.add(request);
+            entered.countDown();
+            try {
+                if (!release.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("test timeout");
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(exception);
+            }
+            return ModelTurn.text("done");
+        }, AgentEventSink.noop(), contextOptions(temporaryWorkspace),
+                (a, b, c) -> io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny(),
+                (request, token) -> Optional.empty())) {
+            runtime.open();
+            Thread runner = Thread.ofPlatform().start(() -> runtime.run("blocked"));
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(runtime.compactForNextRun(List.of(), CancellationToken.none()))
+                    .isEqualTo(HeadlessRuntimeSession.CompactResult.ACTIVE_RUN);
+            release.countDown();
+            runner.join(5_000);
+            runtime.run("after active compact");
+        }
+        assertThat(requests.getLast().messages()).noneMatch(
+                io.github.liumaishenjian.ccjava.domain.ContextSummaryMessage.class::isInstance);
     }
 
     @Test

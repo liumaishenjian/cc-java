@@ -123,8 +123,7 @@ public final class SessionCommandDispatcher {
             return switch (intent) {
                 case SessionCommandIntent.Help ignored -> success(intent.kind(), commandId, sessionId, help());
                 case SessionCommandIntent.Clear ignored -> clear(commandId, sessionId);
-                case SessionCommandIntent.Compact ignored -> rejected(intent.kind(), commandId, sessionId,
-                        SessionCommandResultCode.NOT_AVAILABLE);
+                case SessionCommandIntent.Compact compact -> compact(commandId, sessionId, compact.anchors(), cancellationToken);
                 case SessionCommandIntent.Context ignored -> context(commandId, sessionId);
                 case SessionCommandIntent.Doctor ignored -> success(intent.kind(), commandId, sessionId, doctor.report());
                 case SessionCommandIntent.ModelChange model -> applyPatch(commandId, sessionId,
@@ -137,6 +136,34 @@ public final class SessionCommandDispatcher {
         } catch (RuntimeException ignored) {
             return terminal(intent.kind(), commandId, safeSessionId(), SessionCommandStatus.FAILED,
                     SessionCommandResultCode.INTERNAL_FAILURE, new SessionCommandEvent.EmptyPayload());
+        }
+    }
+
+    private SessionCommandResult compact(CommandId commandId, SessionId sessionId, List<String> anchors,
+                                         CancellationToken cancellationToken) {
+        try {
+            if (cancellationToken.isCancellationRequested()) {
+                return terminal(SessionCommandKind.COMPACT, commandId, sessionId, SessionCommandStatus.CANCELLED,
+                        SessionCommandResultCode.CANCELLED, new SessionCommandEvent.EmptyPayload());
+            }
+            return switch (runtime.compactForNextRun(anchors, cancellationToken)) {
+                case ADOPTED -> success(SessionCommandKind.COMPACT, commandId, sessionId,
+                        new SessionCommandEvent.EmptyPayload());
+                case CANCELLED -> terminal(SessionCommandKind.COMPACT, commandId, sessionId,
+                        SessionCommandStatus.CANCELLED, SessionCommandResultCode.CANCELLED,
+                        new SessionCommandEvent.EmptyPayload());
+                case ACTIVE_RUN -> rejected(SessionCommandKind.COMPACT, commandId, sessionId,
+                        SessionCommandResultCode.ACTIVE_RUN);
+                case UNAVAILABLE -> rejected(SessionCommandKind.COMPACT, commandId, sessionId,
+                        SessionCommandResultCode.UNAVAILABLE);
+                case STALE, REJECTED -> rejected(SessionCommandKind.COMPACT, commandId, sessionId,
+                        SessionCommandResultCode.COMPACTION_REJECTED);
+                case SUMMARIZER_FAILURE -> terminal(SessionCommandKind.COMPACT, commandId, sessionId,
+                        SessionCommandStatus.FAILED, SessionCommandResultCode.INTERNAL_FAILURE,
+                        new SessionCommandEvent.EmptyPayload());
+            };
+        } catch (IllegalArgumentException failure) {
+            return rejected(SessionCommandKind.COMPACT, commandId, sessionId, SessionCommandResultCode.INVALID_ARGUMENT);
         }
     }
 
@@ -264,7 +291,8 @@ public final class SessionCommandDispatcher {
             case HELP, CONTEXT, DOCTOR -> SessionCommandEvent.CommandSupport.AVAILABLE;
             case CLEAR -> hasTransientSurface ? SessionCommandEvent.CommandSupport.AVAILABLE
                     : SessionCommandEvent.CommandSupport.DEFERRED;
-            case COMPACT -> SessionCommandEvent.CommandSupport.NOT_AVAILABLE;
+            case COMPACT -> runtime.latestContextUsage().isPresent()
+                    ? SessionCommandEvent.CommandSupport.AVAILABLE : SessionCommandEvent.CommandSupport.NOT_AVAILABLE;
             case MODEL_CHANGE -> runtime.settingsSnapshot().isPresent()
                     ? SessionCommandEvent.CommandSupport.AVAILABLE : SessionCommandEvent.CommandSupport.NOT_AVAILABLE;
             case PERMISSIONS -> SessionCommandEvent.CommandSupport.AVAILABLE;

@@ -69,6 +69,28 @@ class SummaryReductionCoordinatorTest {
     }
 
     @Test
+    void explicitReductionSummarizesEvenWhenAutomaticReductionFitsBudget() {
+        List<AgentMessage> canonical = textHistory();
+        Fixture fixture = fixture(canonical, 1_000, 1);
+        ScriptedSummarizer automaticSummarizer = new ScriptedSummarizer(
+                request -> candidate(request, "short", 1));
+        SummaryOutcome automatic = coordinator(automaticSummarizer).reduce(
+                RUN, fixture.request(), fixture.projection(), policy(3, true, List.of(), List.of()), CancellationToken.none());
+        assertThat(automatic.status()).isEqualTo(SummaryOutcome.Status.UNCHANGED);
+        assertThat(automatic.diagnostics()).extracting(SummaryDiagnostic::kind)
+                .containsExactly(SummaryDiagnostic.Kind.SUMMARY_NOT_REQUIRED);
+        assertThat(automaticSummarizer.requests()).isEmpty();
+
+        ScriptedSummarizer explicitSummarizer = new ScriptedSummarizer(
+                request -> candidate(request, "short", 1));
+        SummaryOutcome explicit = coordinator(explicitSummarizer).reduceExplicitly(
+                RUN, fixture.request(), fixture.projection(), policy(3, true, List.of(), List.of()), CancellationToken.none());
+        assertThat(explicit.status()).isEqualTo(SummaryOutcome.Status.ADOPTED);
+        assertThat(explicitSummarizer.requests()).hasSize(1);
+        assertThat(explicit.projection().messages()).anyMatch(ContextSummaryMessage.class::isInstance);
+    }
+
+    @Test
     void fallsBackToC4OnlyAfterC3CannotFit() {
         List<AgentMessage> canonical = List.of(
                 new SystemMessage("system"),

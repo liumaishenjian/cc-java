@@ -105,7 +105,7 @@ Rule `ruleId` 必须为小写 kebab-case、1–64 ASCII 字符；rule 的 `effec
 | --- | --- | --- | --- |
 | `/help` | 显示当前 Surface 支持的七个命令、参数与延期能力 | 无 | 未知命令返回固定 code；不输出配置/指令正文 |
 | `/clear` | 清除当前 TUI 输入缓冲、展示历史和未发送 steering；不删除 Session | 仅 Surface transient | 活动 Run 不自动取消；失败无状态变化 |
-| `/compact [anchor...]` | 请求现有 S07 C3/C4 路径，并把有效 `compactInstructions` 作为 protected anchors | 仅短生命周期 Projection/本次命令状态；Canonical 不变 | 无容量/取消/摘要 Gate 失败不重试或提交；显示固定原因码 |
+| `/compact [anchor...]` | 请求现有 S07 C1-C4 路径，并把有效 `compactInstructions` 作为 protected anchors；显式请求即使 C1/C2 已满足预算仍可尝试 C3/C4 | 仅安装给下一 Run 首个模型请求的一次性短生命周期 Projection；Canonical 不变 | 取消、来源变化或摘要 Gate 失败不提交；显示固定原因码 |
 | `/context` | 读取最新 `ContextUsageView` 的数值/枚举安全投影与已应用 reduction | 无 | 没有 View 显示 `UNAVAILABLE`；不输出 Prompt、正文、路径、Tool 参数或结果 |
 | `/model <name>` | 校验并写入当前内存 Session override；本 G3-C/D 子切片仅接受启动时已配置的同一模型名，下一 Run 使用它 | Session transient only | 运行中拒绝变更；无效/不支持不替换旧值；不写 JSONL/文件；Provider discovery、多模型注册延期 |
 | `/permissions [mode]` | 无参数显示当前 Runtime effective mode、Settings 派生 STARTUP rules provenance 与固定安全状态；`mode` 仅创建受限内存 override | Session transient only | 运行中拒绝变更；rules/selector 编辑延期；不能修改 Hard Denial/可信来源/Recovery Gate；无 selector 原文 |
