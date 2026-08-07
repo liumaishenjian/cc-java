@@ -6,6 +6,7 @@ import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 
 import java.net.URI;
+import java.time.Duration;
 import java.util.Objects;
 
 /**
@@ -37,6 +38,7 @@ public final class OpenAiCompatibleModelFactory {
                 .baseUrl(chatApiBaseUrl(settings.baseUrl()))
                 .apiKey(settings.apiKey())
                 .model(settings.model())
+                .timeout(Duration.ofMinutes(30))
                 .streamUsage(true)
                 .maxRetries(0)
                 .build();
