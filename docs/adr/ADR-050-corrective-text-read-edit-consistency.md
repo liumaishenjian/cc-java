@@ -1,13 +1,13 @@
 # ADR-050：有界文本读取与跨平台精确编辑纠正
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-08-08
 - Stage: S03 Read Tools / S04 Write + Command（Corrective，能力等级不变）
 - Capability IDs: `TOOL-06`、`TOOL-08`、`TOOL-12`；回归 `SEC-01/02/03/04`、`TOOL-13/14`
 - Current → Target: `TOOL-06` L2→L2、`TOOL-08` L1→L1、`TOOL-12` L2→L2
 - Reference Behavior Baseline: `R2026.03`
 - Authorized Snapshot ID: `AUTH-SRC-2026-07-29-A`
-- Classification: `Observed` 机制研究 + `Inferred` 独立 Java 契约
+- Classification: `Observed` 机制研究 + `Inferred` 独立 Java 契约；实现 Commit `5910a8f` 已完成 Commit-scoped 验证
 
 ## 决策
 
@@ -54,4 +54,3 @@ Fail Closed，不能顺手格式化无关行。
 Session 隔离、并发修改、整文件读取 ceiling、范围扫描 ceiling、跨窗口 UTF-8/CRLF、超长行、
 大于整文件 ceiling 的分页文件、重复范围未变化结果、continuation 和取消。完整 Reactor、TUI、
 launcher、进度看板和 `git diff --check` 仍作为最终回归。
-

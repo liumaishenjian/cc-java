@@ -7,15 +7,15 @@
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
 > 当前学习阶段：S01-S08 已 Accepted；ADR-048 corrective implementation Commit
-> `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 已完成 ADR-048 G0-G6；当前按 ADR-049 为
-> `CLI-13`/`CTX-19` 补充重开 S08；未提交工作树已完成 G0-G5，独立 Commit-scoped G6 后再进入 S09 G0
+> `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 已完成 ADR-048 G0-G6；ADR-049 的
+> `CLI-13`/`CTX-19` 补充切片已在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6，下一步进入 S09 G0
 >
 > 当前实现状态：ADR-042/043/044 已固定并验证 Context Projection、条件式 Reduction、文件记忆和零等待
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
 > composition、ready-only Memory Core/Domain Runtime seam、D2 Headless 文件系统生产装配、Context View 与
 > deterministic Fake Demo/Eval 已完成 Commit-scoped G0-G6 对账。ADR-045 冻结 S08 机制研究边界，ADR-046 已冻结 G1 独立产品契约；
 > ADR-047 已冻结 S08 的 Domain/Core/Application/Adapter 边界、独立 user-root guard、严格 Settings parser/last-known-good、命令 Intent/Event 与历史 G3/G4 切片。ADR-048 因 CLI-08/09 验收不足重开 S08，并实现 `ComposerState`、无损 Paste、显式提交预算和独立 `ModelDiagnostic` 平面；完整 Reactor、TUI 111/111、launcher 59/59、真实 TTY G5 与独立 review 已通过，并以 implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 完成 G6 对账。
-> ADR-049 的未提交实现候选进一步加入提交前 Workspace-safe 文件快照、JSONL Resume/Fork、确定性 Base64 文件信封、原始协议路径候选与 TUI mention 格式化；完整 Reactor 52/173/45/158/261（Spring 2 skipped）、TUI 128/128 与 launcher 59/59 已通过，等级在 Commit-scoped G6 前保持 L1。
+> ADR-049 进一步加入提交前 Workspace-safe 文件快照、JSONL Resume/Fork、确定性 Base64 文件信封、原始协议路径候选与 TUI mention 格式化；实现 Commit `5910a8f` 上完整 Reactor 52/173/45/158/261（Spring 2 skipped）、TUI 128/128 与 launcher 59/59 已通过，`CLI-13`/`CTX-19` 达到 L2。
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 

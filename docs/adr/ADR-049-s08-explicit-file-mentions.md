@@ -1,13 +1,13 @@
 # ADR-049：S08 显式 Workspace 文件引用与附件投影
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-08-07
 - Stage: S08 Instructions + Settings（Supplementary / Reopened）
 - Capability IDs: `CLI-13`、`CTX-19`；回归 `CLI-07`、`CLI-09`、`CTX-03/04/06/07/10`、`SESSION-02/03/04/05`、`TOOL-03`、`SEC-01/02/03/04`
 - Current → Exit Target: `CLI-13` L1→L2、`CTX-19` L1→L2；其余只做不降级回归
 - Reference Behavior Baseline: `R2026.03`，`REF-02`（2026-08-07 访问；公开交互只作为候选行为）
 - Authorized Snapshot ID: `AUTH-SRC-2026-07-29-A`
-- Classification: `Observed` 授权机制研究 + `Inferred` 独立 Java/TypeScript 契约；未提交实现已完成 G3-G5，等级仍待 Commit-scoped G6
+- Classification: `Observed` 授权机制研究 + `Inferred` 独立 Java/TypeScript 契约；实现 Commit `5910a8f` 已完成 Commit-scoped G3-G6
 - Amends: [ADR-043](./ADR-043-s07-context-projection-compaction.md)、[ADR-047](./ADR-047-s08-g2-architecture-contract.md)、[ADR-048](./ADR-048-s08-corrective-composer-model-diagnostics.md)
 
 ## 决策
@@ -19,8 +19,9 @@ Headless 在提交边界重新解析、验证并读取；候选从不构成访�
 保存，并在每次模型请求中以固定的“不可信文件上下文” envelope 投影。不得由 TUI 直接读取
 文件，不得把 `@path` 简单替换为无来源的大段字符串，也不得让附件扩大 Permission。
 
-S08 在新实现 Commit 完成 G0-G6 前标记为 Supplementary / Reopened。此前 S08 Accepted
-Commit 及证据保持有效历史，但不能证明 `CLI-13` 或 `CTX-19`。
+S08 曾在新实现 Commit 完成 G0-G6 前标记为 Supplementary / Reopened。实现 Commit `5910a8f`
+已经完成复验并证明 `CLI-13`、`CTX-19` 达到 L2；此前 S08 Accepted Commit 及证据继续作为
+既有能力的有效历史。
 
 ## 1. 受控机制研究结论
 

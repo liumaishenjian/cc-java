@@ -49,7 +49,7 @@
 > Workspace-aware metadata、本机单 Writer、未完成 Tool Recovery Gate、写前 ordinary-file
 > Checkpoint、有界 Diff 与逐项显式 Undo；Java CLI/Print/stdio/TUI 共用同一 Runtime，Behavior Replay
 > 已验证 Resume/Fork canonical history。任何有副作用操作都绝不自动重放；`SESSION-08` 仍仅为 L1；
-> S07 Context Engineering 已在 Commit-scoped G0-G6 对账后 Accepted：生产路径提供短生命周期 Context Projection、条件式 C1-C4、typed overflow 至多一次恢复、内部 Usage View、M1-M5 文件记忆及 ready-only 零等待预取；离线长会话 Eval 保持 Canonical/Tool 协议、事实/硬约束与完成率，并取得 49% 的估算 Token 降幅中位数。S08 已在 corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 上完成 ADR-048 G0-G6 并恢复 Accepted：Composer reducer/TUI、折叠无损 Paste、stdio 原子提交和本机 ModelDiagnostic 已通过完整 Reactor、TUI 111/111、launcher 59/59、真实 TTY 与独立最终 review，`CLI-08`/`CLI-09` 恢复 L2。ADR-049 现以 `CLI-13`/`CTX-19` 补充重开 S08：未提交工作树已实现 Workspace-safe `@file` 候选、提交时快照、Session Resume/Fork 与 TUI token 补全并通过 Java/TUI 离线测试，但在独立 Commit-scoped G6 前仍保持 L1；Settings 写入/迁移、rules 编辑、Provider discovery/多模型注册、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
+> S07 Context Engineering 已在 Commit-scoped G0-G6 对账后 Accepted：生产路径提供短生命周期 Context Projection、条件式 C1-C4、typed overflow 至多一次恢复、内部 Usage View、M1-M5 文件记忆及 ready-only 零等待预取；离线长会话 Eval 保持 Canonical/Tool 协议、事实/硬约束与完成率，并取得 49% 的估算 Token 降幅中位数。S08 已在 corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 上完成 ADR-048 G0-G6；ADR-049 的 Workspace-safe `@file` 候选、提交时快照、Session Resume/Fork、模型附件投影与 TUI token 补全又在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6，`CLI-13`/`CTX-19` 达到 L2，S08 保持 Accepted。完整 Reactor 689 项（Spring 2 skipped）、TUI 128/128 与 launcher 59/59 已通过；Settings 写入/迁移、rules 编辑、Provider discovery/多模型注册、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
 
 ## 项目目标
 
@@ -85,8 +85,8 @@ Stage 证据为准。
 | L3 | 关键行为和异常路径可与参考基线比较 |
 | L4 | 在评测数据支持下形成 Java 生态差异化 |
 
-R2026.03 基线目前追踪 197 个 Capability ID。S01-S08 的既有基线已完成 Accepted Stage Exit，ADR-049 Supplementary 当前 Reopened；当前
-81 项为 L2、33 项为 L1、83 项为 L0。S07 的 `CTX-17/18` 与 S08 的 18 个 Instructions/Settings/
+R2026.03 基线目前追踪 197 个 Capability ID。S01-S08 已完成 Accepted Stage Exit；当前
+83 项为 L2、31 项为 L1、83 项为 L0。S07 的 `CTX-17/18` 与 S08 的 20 个 Instructions/Settings/
 CLI Feature 已达到 L2；这不表示已有 Managed Policy、OS Sandbox 或 S14 稳定持久化能力。
 默认最终目标为 L3，任何不实现项都必须记录 `Accepted Deviation`。
 

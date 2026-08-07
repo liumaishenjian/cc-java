@@ -4,9 +4,9 @@
 >
 > 最后更新：2026-08-07
 >
-> 当前阶段：S01-S07 已 Accepted；S08 ADR-048 的既有能力已在 Commit
-> `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 上 Accepted，现按 ADR-049 为显式文件引用补充重开。
-> `CLI-13`、`CTX-19` 已在未提交工作树完成 G0-G5，G6 等待独立实现 Commit；之后才进入 S09 G0。
+> 当前阶段：S01-S08 已 Accepted；S08 ADR-048 的既有能力已在 Commit
+> `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 上 Accepted，ADR-049 的显式文件引用又在实现
+> Commit `5910a8f` 上完成 Commit-scoped G0-G6；`CLI-13`、`CTX-19` 达到 L2。下一步进入 S09 G0。
 >
 > 产品负责人：项目维护者
 

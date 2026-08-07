@@ -4,11 +4,11 @@
 >
 > Feature：`CLI-13`、`CTX-19`
 >
-> 工作树基线：`b8a2b562293f7df83ddacfe8214aecd8bd545092`
+> 实现 Commit：`5910a8f05c5d6f5c68d961fb8815b489bc830d20`
 >
 > Baseline：`R2026.03`；授权快照：`AUTH-SRC-2026-07-29-A`
 >
-> 当前结论：G0-G5 Passed；G6 等待独立实现 Commit，对应能力暂保持 L1
+> 当前结论：G0-G6 Passed；`CLI-13`、`CTX-19` 达到 L2，S08 Stage Exit 恢复 Accepted
 
 ## G0-G2：研究、产品与架构契约
 
@@ -45,6 +45,10 @@ npm --prefix cc-java-tui run check
 
 ## G6 与能力等级
 
-本文件记录的是未提交工作树证据，不冒充 Commit-scoped Stage Exit。`CLI-13`、`CTX-19` 在独立实现 Commit、看板摘要复验和最终对账前保持 L1；既有 S08 Accepted 基线不被撤销，但 Supplementary 状态保持 Reopened。
+实现 Commit `5910a8f` 上已重跑完整 Maven Reactor、TUI、开发启动器、进度看板 `--check` 与
+`--self-test`；工作区在复验后保持干净。`CLI-13`、`CTX-19` 由 L1 提升至 L2，S08
+Supplementary Reopen 完成并恢复 Accepted；仍未实现的目录/多媒体附件、稳定外部协议和后续
+Stage 能力继续保留为明确差距。
 
-本工作树同时包含维护者先前加入的 `OpenAiCompatibleModelFactory` timeout 修改；该文件不属于 ADR-049 实现范围，也未被本证据宣称为文件引用变更。
+维护者先前加入的 `OpenAiCompatibleModelFactory` timeout 修改已独立提交为 `b1822cb`；该文件
+不属于 ADR-049 实现范围，也未被本证据宣称为文件引用变更。

@@ -4,14 +4,14 @@
 >
 > 参考版本：R2026.03
 >
-> 最后更新：2026-08-07
+> 最后更新：2026-08-08
 >
 > 当前代码状态：S01-S07 已 Accepted；S07 的 Canonical Transcript/Projection、条件式 C1-C4、文件记忆
 > M1-M5、ready-only 零等待预取、内部 Usage View 与 latest-only Recovery Analytics 已在离线 Fake、Demo、
 > Gap 和 Commit-scoped 对账中达到声明等级。S08 ADR-048 corrective implementation Commit
-> `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 的 Accepted 证据继续有效；2026-08-07 又按
-> [ADR-049](./adr/ADR-049-s08-explicit-file-mentions.md) 为显式 Workspace 文件引用补充重开 S08。
-> `CLI-13`、`CTX-19` 已在未提交工作树完成 G0-G5，当前为 L1；独立 Commit-scoped G6 前不得提升为 L2。S09 暂不启动；
+> `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 的 Accepted 证据继续有效；[ADR-049](./adr/ADR-049-s08-explicit-file-mentions.md)
+> 的显式 Workspace 文件引用已在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6，
+> `CLI-13`、`CTX-19` 达到 L2，S08 恢复 Accepted。下一步进入 S09 G0；
 > rules 编辑、Provider discovery/多模型注册、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定协议/
 > Export/Retention/Migration 仍未实现。
 
@@ -157,12 +157,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 197 |
-| 当前阶段 | S08 Instructions + Settings（ADR-049 Supplementary / Reopened，G0-G5 Passed） |
-| Stage Exit | Reopened：`CLI-13`、`CTX-19` 等待 Commit-scoped G6；ADR-048 Accepted Commit 仍是既有能力证据 |
-| 当前等级 | 81 项为 L2，33 项为 L1，83 项为 L0 |
+| 当前阶段 | S08 Instructions + Settings（Accepted） |
+| Stage Exit | Accepted：ADR-049 实现 Commit `5910a8f` 已完成 Commit-scoped G0-G6；ADR-048 Accepted Commit 继续有效 |
+| 当前等级 | 83 项为 L2，31 项为 L1，83 项为 L0 |
 | 默认最终目标 | 197 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 32.99%（197 项等权、目标 L3） |
-| 下一步 | 完成 ADR-049 独立实现 Commit 与 G6 后再进入 S09 G0；后续 Stage 延期边界不变 |
+| 当前能力覆盖 | 33.33%（197 项等权、目标 L3） |
+| 下一步 | 进入 S09 G0 授权机制研究；后续 Stage 延期边界不变 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -259,7 +259,7 @@ Stage 完成项。
 | CLI-10 | TTY / Non-TTY 降级 | 无 ANSI 输出与管道模式 | L2 | S02/S14 | REF-02 |
 | CLI-11 | 机器输出协议 | S02 内部 stdio v0 L1 → S14 稳定 JSON/JSONL L3 | L1 | S02/S14 | REF-02 |
 | CLI-12 | 多 Surface 共用引擎 | CLI/SDK/API 共用 Runtime | L0 | S14 | REF-02 |
-| CLI-13 | 显式文件引用 | 未提交实现候选：Java 权威原始相对路径候选、严格 stdio 关联、TUI 引号格式化与 Composer token 精确替换；等待 Commit-scoped G6 | L1 | S08 | REF-02/AUTH-01 |
+| CLI-13 | 显式文件引用 | Java 权威原始相对路径候选、严格 stdio 关联、TUI 引号格式化与 Composer token 精确替换；ADR-049 Commit-scoped G6 通过 | L2 | S08 | REF-02/AUTH-01 |
 
 ## 8. Agent Loop 对照
 
@@ -395,7 +395,7 @@ Stage 完成项。
 | CTX-16 | Prompt Cache | 稳定前缀和 Tool 顺序 | L0 | S14 | REF-01 |
 | CTX-17 | Auto Memory Index | `MEMORY.md`、有界 topic Catalog、可重建索引与真实 Headless 文件装配 | L2 | S07 | REF-05/AUTH-01 |
 | CTX-18 | Relevant Memory Prefetch | M4/M5 ready-only、零等待相关记忆投影与迟到结果隔离 | L2 | S07 | REF-05/AUTH-01 |
-| CTX-19 | File Attachment Projection | 未提交实现候选：WorkspaceGuard 后的不可变文件快照、Canonical/Session Resume/Fork 保存、Base64 不可信模型投影与保守 Usage 估算；等待 Commit-scoped G6 | L1 | S08 | REF-02/AUTH-01 |
+| CTX-19 | File Attachment Projection | WorkspaceGuard 后的不可变文件快照、Canonical/Session Resume/Fork 保存、Base64 不可信模型投影与保守 Usage 估算；ADR-049 Commit-scoped G6 通过 | L2 | S08 | REF-02/AUTH-01 |
 
 ## 15. Settings / Configuration 对照
 
@@ -664,7 +664,7 @@ Sub-Agent/后台任务留到 S12，OS Sandbox 留到 S13。
 ### S08：Instructions + Settings
 
 G0 已于 2026-08-05 通过：`ADR-045` 在 `AUTH-SRC-2026-07-29-A` 的登记只读路径上完成了
-分层 Instructions、Settings 合并/来源、模型/权限/Tool 设置、Slash/诊断与失败安全边界的机制研究。ADR-046/047 的历史 G1/G2 契约继续约束 Instructions、Settings 与安全所有权；[ADR-048](./adr/ADR-048-s08-corrective-composer-model-diagnostics.md) 的 corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 已完成 G0-G6 并保持既有能力 Accepted。2026-08-07 又由 [ADR-049](./adr/ADR-049-s08-explicit-file-mentions.md) 为 `CLI-13`/`CTX-19` 补充重开 S08；授权机制研究、范围、独立架构、实现、离线验证与独立 review G0-G5 已完成，G6 等待独立实现 Commit。
+分层 Instructions、Settings 合并/来源、模型/权限/Tool 设置、Slash/诊断与失败安全边界的机制研究。ADR-046/047 的历史 G1/G2 契约继续约束 Instructions、Settings 与安全所有权；[ADR-048](./adr/ADR-048-s08-corrective-composer-model-diagnostics.md) 的 corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 已完成 G0-G6 并保持既有能力 Accepted。[ADR-049](./adr/ADR-049-s08-explicit-file-mentions.md) 的 `CLI-13`/`CTX-19` 补充切片也已在实现 Commit `5910a8f` 上完成授权研究、范围、独立架构、实现、离线验证、独立 review 与 Commit-scoped G6；S08 恢复 Accepted。
 
 完成条件：
 
