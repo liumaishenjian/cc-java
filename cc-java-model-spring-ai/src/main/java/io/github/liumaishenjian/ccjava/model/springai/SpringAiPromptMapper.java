@@ -31,6 +31,7 @@ final class SpringAiPromptMapper {
 
     private static final String SUMMARY_ENVELOPE_VERSION = "cc-java-context-summary-v1";
     private static final String MEMORY_ENVELOPE_VERSION = "cc-java-memory-context-v1";
+    private static final String FILE_CONTEXT_ENVELOPE_VERSION = "cc-java-user-file-context-v1";
 
     Prompt map(ModelRequest request, String model) {
         Objects.requireNonNull(request, "request 不能为空");
@@ -52,8 +53,7 @@ final class SpringAiPromptMapper {
         return switch (message) {
             case io.github.liumaishenjian.ccjava.domain.SystemMessage system ->
                     new org.springframework.ai.chat.messages.SystemMessage(system.content());
-            case io.github.liumaishenjian.ccjava.domain.UserMessage user ->
-                    new org.springframework.ai.chat.messages.UserMessage(user.content());
+            case io.github.liumaishenjian.ccjava.domain.UserMessage user -> mapUser(user);
             case io.github.liumaishenjian.ccjava.domain.AssistantMessage assistant ->
                     mapAssistant(assistant);
             case io.github.liumaishenjian.ccjava.domain.ToolResultMessage toolResult ->
@@ -61,6 +61,34 @@ final class SpringAiPromptMapper {
             case ContextSummaryMessage summary -> mapSummary(summary);
             case MemoryContextMessage memory -> mapMemory(memory);
         };
+    }
+
+    /**
+     * 保留用户原文，并把显式文件快照编码进确定性的不可信上下文信封。
+     *
+     * <p>文件正文与路径均使用 UTF-8 Base64，避免仓库内容伪装 Provider 角色或 Tool 协议；
+     * 无附件时保持历史纯文本映射，兼容既有请求。</p>
+     */
+    private org.springframework.ai.chat.messages.UserMessage mapUser(
+            io.github.liumaishenjian.ccjava.domain.UserMessage user) {
+        if (user.attachments().isEmpty()) {
+            return new org.springframework.ai.chat.messages.UserMessage(user.content());
+        }
+        LinkedHashMap<String, Object> fields = new LinkedHashMap<>();
+        fields.put("kind", FILE_CONTEXT_ENVELOPE_VERSION);
+        fields.put("untrusted", true);
+        fields.put("userTextBase64", base64(user.content()));
+        fields.put("attachments", user.attachments().stream().map(attachment -> {
+            LinkedHashMap<String, Object> item = new LinkedHashMap<>();
+            item.put("protocolPathBase64", base64(attachment.protocolPath()));
+            item.put("sha256", attachment.sha256Digest());
+            item.put("startLine", attachment.startLine());
+            item.put("endLine", attachment.endLine());
+            item.put("truncated", attachment.truncated());
+            item.put("textBase64", base64(attachment.textSnapshot()));
+            return item;
+        }).toList());
+        return new org.springframework.ai.chat.messages.UserMessage(SpringAiJson.write(fields));
     }
 
     /**

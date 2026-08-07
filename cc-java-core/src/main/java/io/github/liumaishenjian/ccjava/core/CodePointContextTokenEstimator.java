@@ -12,6 +12,7 @@ import io.github.liumaishenjian.ccjava.domain.SystemMessage;
 import io.github.liumaishenjian.ccjava.domain.ToolCall;
 import io.github.liumaishenjian.ccjava.domain.ToolResultMessage;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -43,7 +44,7 @@ public final class CodePointContextTokenEstimator implements ContextTokenEstimat
             if (message instanceof SystemMessage systemMessage) {
                 system = Math.addExact(system, textSize(systemMessage.content()));
             } else if (message instanceof UserMessage userMessage) {
-                transcript = Math.addExact(transcript, textSize(userMessage.content()));
+                transcript = Math.addExact(transcript, userMessageSize(userMessage));
             } else if (message instanceof AssistantMessage assistant) {
                 transcript = Math.addExact(transcript, textSize(assistant.text()));
                 for (ToolCall call : assistant.toolCalls()) {
@@ -85,6 +86,31 @@ public final class CodePointContextTokenEstimator implements ContextTokenEstimat
             size = Math.addExact(size, textSize(item.contentDigest()));
         }
         return size;
+    }
+
+    /**
+     * 对附件消息按生产 Adapter 的 Base64 信封做保守估算，避免大附件在压缩阈值前被低估。
+     * 固定开销覆盖 JSON key、标点、行号与布尔值；无附件消息保持既有纯文本估算。
+     */
+    private long userMessageSize(UserMessage message) {
+        if (message.attachments().isEmpty()) {
+            return textSize(message.content());
+        }
+        long size = Math.addExact(160, base64Size(message.content()));
+        for (var attachment : message.attachments()) {
+            size = Math.addExact(size, 160);
+            size = Math.addExact(size, base64Size(attachment.protocolPath()));
+            size = Math.addExact(size, textSize(attachment.sha256Digest()));
+            size = Math.addExact(size, base64Size(attachment.textSnapshot()));
+            size = Math.addExact(size, textSize(Integer.toString(attachment.startLine())));
+            size = Math.addExact(size, textSize(Integer.toString(attachment.endLine())));
+        }
+        return size;
+    }
+
+    private long base64Size(String text) {
+        long bytes = text.getBytes(StandardCharsets.UTF_8).length;
+        return Math.multiplyExact(4, Math.floorDiv(Math.addExact(bytes, 2), 3));
     }
 
     private long toolCallSize(ToolCall call) {

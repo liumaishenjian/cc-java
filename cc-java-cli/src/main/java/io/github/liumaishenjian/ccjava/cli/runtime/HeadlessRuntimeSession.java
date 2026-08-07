@@ -115,6 +115,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private SessionOpenResult openResult;
     private SettingsApplicationService settingsApplication;
     private long compactRevision;
+    private final io.github.liumaishenjian.ccjava.cli.mentions.FileMentionService fileMentions;
 
     /**
      * 使用已校验的 OpenAI-compatible 设置创建真实模型 Session 装配器。
@@ -404,6 +405,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         this.runtimeScopeFactory = runtimeScopeFactory == null ? this::createRuntimeScope : runtimeScopeFactory;
         try {
             workspaceBootstrap = LocalWorkspaceBootstrap.open(this.options.workspace());
+            fileMentions = new io.github.liumaishenjian.ccjava.cli.mentions.FileMentionService(
+                    workspaceBootstrap.workspaceGuard());
             instructionContext = new InstructionProjectionState(InstructionFoundationFactory.open(
                     checkedInstructionLayout.userHome(), workspaceBootstrap.workspaceGuard()));
         } catch (java.io.IOException | WorkspaceAccessException exception) {
@@ -501,19 +504,30 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     }
 
     /**
-     * 在已打开 Session 中同步执行一次 Run。
+     * 在已打开 Session 中同步执行一次 Run，并先解析显式文件提及。
+     *
+     * <p>解析在创建 Run、写 Session 或请求模型之前完成。任何非法显式提及都会抛出携带固定安全
+     * code 的 {@link io.github.liumaishenjian.ccjava.cli.mentions.FileMentionException}，既不暴露绝对路径或
+     * 文件内容，也不留下部分 Run。</p>
      *
      * @param prompt 非空且不超过 {@link #MAX_PROMPT_CHARS} 的用户输入
      * @return Runtime 权威终态
      */
     public AgentRunResult run(String prompt) {
-        Objects.requireNonNull(prompt, "prompt 不能为空");
-        if (prompt.isBlank()
-                || prompt.length() > MAX_PROMPT_CHARS
-                || prompt.codePointCount(0, prompt.length()) > MAX_PROMPT_CHARS
-                || prompt.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_PROMPT_UTF8_BYTES) {
-            throw new IllegalArgumentException("prompt 为空或超过展开输入限制");
-        }
+        validatePrompt(Objects.requireNonNull(prompt, "prompt 不能为空"));
+        return run(fileMentions.resolve(prompt));
+    }
+
+    /**
+     * 执行已经在 CLI 边界解析完成的用户消息与文件快照。
+     *
+     * @param userMessage 不再访问文件系统的不可变输入
+     * @return 唯一 Run 终态
+     */
+    public AgentRunResult run(UserMessage userMessage) {
+        Objects.requireNonNull(userMessage, "userMessage 不能为空");
+        String prompt = userMessage.content();
+        validatePrompt(prompt);
         ActiveRun captured;
         synchronized (lifecycleMonitor) {
             requireOpenLocked();
@@ -527,7 +541,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             return captured.scope().runtime().run(
                     captured.sessionId(),
                     new AgentRunRequest(
-                            new UserMessage(prompt),
+                            userMessage,
                             new AgentLimits(
                                     AgentLimits.DEFAULT.maxModelTurns(),
                                     AgentLimits.DEFAULT.maxToolCalls(),
@@ -735,6 +749,15 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
      */
     public java.util.Optional<RunTelemetry> telemetry(RunId runId) {
         return telemetry.find(runId);
+    }
+
+    /**
+     * 返回 Headless Runtime 与文件提及服务共用的 WorkspaceGuard。
+     *
+     * @return 启动时固定且不可替换的 Guard
+     */
+    public io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceGuard workspaceGuard() {
+        return workspaceBootstrap.workspaceGuard();
     }
 
     /**
@@ -1052,10 +1075,6 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 .filter(tool -> tool.definition().source() == ToolSource.BUILT_IN).toList());
     }
 
-    io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceGuard workspaceGuard() {
-        return workspaceBootstrap.workspaceGuard();
-    }
-
     private RuntimeConfiguration initialConfiguration() {
         return new RuntimeConfiguration(
                 Optional.of(options.model()), options.permissionMode(), options.startupPermissionRules(),
@@ -1064,6 +1083,15 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                         .map(tool -> tool.definition().name())
                         .toList(),
                 Map.of(), java.util.List.of(), RuntimeDiagnosticsVerbosity.SUMMARY);
+    }
+
+    private void validatePrompt(String prompt) {
+        if (prompt.isBlank()
+                || prompt.length() > MAX_PROMPT_CHARS
+                || prompt.codePointCount(0, prompt.length()) > MAX_PROMPT_CHARS
+                || prompt.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_PROMPT_UTF8_BYTES) {
+            throw new IllegalArgumentException("prompt 为空或超过展开输入限制");
+        }
     }
 
     private HeadlessRuntimeScope buildScope(RuntimeConfiguration configuration) {

@@ -5,6 +5,9 @@ export const MAX_CHECKPOINTS = 1_000;
 export const MAX_CHECKPOINT_TARGET_CHARS = 1_024;
 export const MAX_CHECKPOINT_DIFF_CHARS = 16 * 1_024;
 export const MAX_CHECKPOINT_MESSAGE_CHARS = 1_024;
+export const MAX_FILE_SUGGESTION_QUERY_CHARS = 256;
+export const MAX_FILE_SUGGESTION_CANDIDATES = 32;
+export const MAX_FILE_SUGGESTION_CANDIDATE_CHARS = 1_024;
 
 const CHECKPOINT_ID = /^checkpoint-[A-Za-z0-9-]+$/;
 const CHECKPOINT_PHASES = new Set([
@@ -45,6 +48,7 @@ const EVENT_TYPES = new Set([
   'session.command.result',
   'steering.queued',
   'steering.discarded',
+  'file.suggestions',
   'protocol.error',
 ]);
 
@@ -66,6 +70,7 @@ export type EventType =
   | 'session.command.result'
   | 'steering.queued'
   | 'steering.discarded'
+  | 'file.suggestions'
   | 'protocol.error';
 
 export interface ProtocolEvent {
@@ -92,6 +97,7 @@ export interface ProtocolCommand {
     | 'checkpoint.diff'
     | 'checkpoint.undo'
     | 'session.command'
+    | 'file.suggest'
     | 'shutdown';
   readonly requestId: string;
   readonly sessionId?: string;
@@ -181,6 +187,8 @@ function validateEventShape(
   }
   if (type === 'session.command.result') {
     validateSessionCommandResult(sessionId, runId, payload);
+  } else if (type === 'file.suggestions') {
+    validateFileSuggestions(sessionId, runId, payload);
   } else if (type === 'steering.queued') {
     validateSteeringQueued(sessionId, runId, payload);
   } else if (type === 'steering.discarded') {
@@ -263,6 +271,41 @@ function validateEventShape(
     validateOptionalTerminalCount(type, payload, 'modelTurns');
     validateOptionalTerminalCount(type, payload, 'toolCalls');
     validateOptionalModelFailure(type, payload);
+  }
+}
+
+function validateFileSuggestions(
+  sessionId: string | undefined,
+  runId: string | undefined,
+  payload: Readonly<Record<string, unknown>>,
+): void {
+  if (
+    sessionId === undefined
+    || runId !== undefined
+    || !hasExactFields(payload, new Set(['query', 'candidates']))
+    || typeof payload.query !== 'string'
+    || Array.from(payload.query).length > MAX_FILE_SUGGESTION_QUERY_CHARS
+    || /[\u0000-\u001f\u007f]/u.test(payload.query)
+    || !Array.isArray(payload.candidates)
+    || payload.candidates.length > MAX_FILE_SUGGESTION_CANDIDATES
+  ) {
+    throw new ProtocolViolation('file.suggestions 包含无效安全投影');
+  }
+  const seen = new Set<string>();
+  for (const candidate of payload.candidates) {
+    if (typeof candidate !== 'string'
+      || Array.from(candidate).length > MAX_FILE_SUGGESTION_CANDIDATE_CHARS
+      || /[\u0000-\u001f\u007f]/u.test(candidate)
+      || candidate.startsWith('/')
+      || candidate.startsWith('\\')
+      || /^[A-Za-z]:/u.test(candidate)
+      || candidate.includes('\\')
+      || candidate.includes('"')
+      || candidate.split('/').some(segment => segment.length === 0 || segment === '.' || segment === '..')
+      || seen.has(candidate)) {
+      throw new ProtocolViolation('file.suggestions 包含无效候选');
+    }
+    seen.add(candidate);
   }
 }
 

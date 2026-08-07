@@ -49,7 +49,7 @@
 > Workspace-aware metadata、本机单 Writer、未完成 Tool Recovery Gate、写前 ordinary-file
 > Checkpoint、有界 Diff 与逐项显式 Undo；Java CLI/Print/stdio/TUI 共用同一 Runtime，Behavior Replay
 > 已验证 Resume/Fork canonical history。任何有副作用操作都绝不自动重放；`SESSION-08` 仍仅为 L1；
-> S07 Context Engineering 已在 Commit-scoped G0-G6 对账后 Accepted：生产路径提供短生命周期 Context Projection、条件式 C1-C4、typed overflow 至多一次恢复、内部 Usage View、M1-M5 文件记忆及 ready-only 零等待预取；离线长会话 Eval 保持 Canonical/Tool 协议、事实/硬约束与完成率，并取得 49% 的估算 Token 降幅中位数。S08 已在 corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 上完成 ADR-048 G0-G6 并恢复 Accepted：Composer reducer/TUI、折叠无损 Paste、stdio 原子提交和本机 ModelDiagnostic 已通过完整 Reactor、TUI 111/111、launcher 59/59、真实 TTY 与独立最终 review，`CLI-08`/`CLI-09` 恢复 L2；Settings 写入/迁移、rules 编辑、Provider discovery/多模型注册、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
+> S07 Context Engineering 已在 Commit-scoped G0-G6 对账后 Accepted：生产路径提供短生命周期 Context Projection、条件式 C1-C4、typed overflow 至多一次恢复、内部 Usage View、M1-M5 文件记忆及 ready-only 零等待预取；离线长会话 Eval 保持 Canonical/Tool 协议、事实/硬约束与完成率，并取得 49% 的估算 Token 降幅中位数。S08 已在 corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 上完成 ADR-048 G0-G6 并恢复 Accepted：Composer reducer/TUI、折叠无损 Paste、stdio 原子提交和本机 ModelDiagnostic 已通过完整 Reactor、TUI 111/111、launcher 59/59、真实 TTY 与独立最终 review，`CLI-08`/`CLI-09` 恢复 L2。ADR-049 现以 `CLI-13`/`CTX-19` 补充重开 S08：未提交工作树已实现 Workspace-safe `@file` 候选、提交时快照、Session Resume/Fork 与 TUI token 补全并通过 Java/TUI 离线测试，但在独立 Commit-scoped G6 前仍保持 L1；Settings 写入/迁移、rules 编辑、Provider discovery/多模型注册、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
 
 ## 项目目标
 
@@ -85,8 +85,8 @@ Stage 证据为准。
 | L3 | 关键行为和异常路径可与参考基线比较 |
 | L4 | 在评测数据支持下形成 Java 生态差异化 |
 
-R2026.03 基线目前追踪 195 个 Capability ID。S01-S08 已完成 Accepted Stage Exit；当前
-81 项为 L2、31 项为 L1、83 项为 L0。S07 的 `CTX-17/18` 与 S08 的 18 个 Instructions/Settings/
+R2026.03 基线目前追踪 197 个 Capability ID。S01-S08 的既有基线已完成 Accepted Stage Exit，ADR-049 Supplementary 当前 Reopened；当前
+81 项为 L2、33 项为 L1、83 项为 L0。S07 的 `CTX-17/18` 与 S08 的 18 个 Instructions/Settings/
 CLI Feature 已达到 L2；这不表示已有 Managed Policy、OS Sandbox 或 S14 稳定持久化能力。
 默认最终目标为 L3，任何不实现项都必须记录 `Accepted Deviation`。
 
@@ -187,6 +187,8 @@ Spring AI 只位于模型和集成适配层，React/Ink 只位于终端前端。
 31. [S08 Stage Exit 证据](./docs/evidence/S08-instructions-settings-2026-08-06.md)：实现 Commit 的 G0-G6、测试/Eval、Demo/Gap 与延期边界；
 32. [S08 Demo](./docs/demos/S08-g3-d-command-projections.md)：Instructions、Settings、命令、编辑/steering 与 Resume 可复现场景；
 33. [S08 差距报告](./docs/gap-reports/S08.md)：Settings 写入/迁移、规则编辑、多模型与 S12-S14 延期能力；
+34. [ADR-049](./docs/adr/ADR-049-s08-explicit-file-mentions.md)、[补充证据](./docs/evidence/S08-explicit-file-mentions-2026-08-07.md)与[显式文件引用 Demo](./docs/demos/S08-explicit-file-mentions.md)：Workspace-safe `@file` 快照、stdio 候选与 TUI token 交互；
+35. [ADR-050](./docs/adr/ADR-050-corrective-text-read-edit-consistency.md)：大文件有界范围读取、LF/CRLF 精确编辑、原始外观保留与 Session 读取证据；
 30. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：仍有效的 Provider 与 Streaming 目标；
 26. [ADR-020（历史）](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)：此前暂停研究的审计记录；
 27. [Stage 证据包模板](./docs/templates/stage-evidence-package.md)：每个阶段统一的 G0-G6 Gate；
@@ -265,6 +267,10 @@ codej --doctor         # 只检查路径、运行时、产物和配置来源存�
 codej --rebuild        # 强制重新构建 Java 开发产物
 codej --print "解释这个项目"  # 一次性非交互 Run
 ```
+
+交互输入可用 Workspace-relative 文件引用：`@src/App.java`、`@"docs/design notes.md"`，也可附加
+`#L20` 或 `#L20-80`。候选只负责补全；提交时 Java 会通过同一 `WorkspaceGuard` 重新验证并形成
+不可变文本快照，绝对路径、traversal、敏感文件、链接逃逸、二进制和超限文件会在创建 Run 前拒绝。
 
 普通 `codej` 默认显式启用 256,000 Token Context 管线（8,192 输出保留、4,096 安全余量），
 因此自动 C1-C4 与无参数 `/compact` 会作用于当前 Session。需要验证其他模型容量时，可通过

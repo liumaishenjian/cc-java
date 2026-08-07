@@ -34,7 +34,11 @@ public final class StdioProtocolCodec {
             "checkpoint.diff",
             "checkpoint.undo",
             "session.command",
+            "file.suggest",
             "shutdown");
+
+    /** {@code file.suggest} 查询的最大 code point 数。 */
+    public static final int MAX_SUGGEST_QUERY_CODE_POINTS = 256;
 
     private final ObjectMapper mapper;
 
@@ -96,6 +100,9 @@ public final class StdioProtocolCodec {
         }
         if ("session.command".equals(type)) {
             validateSessionCommand(root, (ObjectNode) payloadNode, requestId);
+        }
+        if ("file.suggest".equals(type)) {
+            validateFileSuggest(root, (ObjectNode) payloadNode, requestId);
         }
 
         return new StdioProtocol.Command(
@@ -173,6 +180,33 @@ public final class StdioProtocolCodec {
             throw new StdioProtocolException("INVALID_PAYLOAD", requestId, "arguments 必须是 JSON Object");
         }
         validateSessionCommandArguments(intent, (ObjectNode) arguments, requestId);
+    }
+
+    /**
+     * 校验 {@code file.suggest} 的精确信封与唯一 {@code query} 字段。
+     *
+     * <p>该命令只用于补全展示，因此必须携带已初始化 Session、不得携带 Run，也不接受任何
+     * 其他字段；未知字段、控制字符和超限查询一律 fail closed。</p>
+     */
+    private void validateFileSuggest(JsonNode root, ObjectNode payload, String requestId)
+            throws StdioProtocolException {
+        Set<String> envelope = Set.of(
+                "version", "type", "requestId", "sessionId", "runId", "sequence", "payload");
+        if (root.properties().stream().anyMatch(entry -> !envelope.contains(entry.getKey()))) {
+            throw new StdioProtocolException("UNKNOWN_FIELD", requestId, "file.suggest 包含未知信封字段");
+        }
+        if (root.get("sessionId") == null || root.get("runId") != null) {
+            throw new StdioProtocolException(
+                    "INVALID_ENVELOPE", requestId, "file.suggest 必须携带 Session 且不能携带 Run");
+        }
+        if (payload.properties().stream().anyMatch(entry -> !entry.getKey().equals("query"))) {
+            throw new StdioProtocolException("UNKNOWN_FIELD", requestId, "file.suggest payload 包含未知字段");
+        }
+        String query = requiredPayloadText(payload, "query", requestId);
+        if (query.codePointCount(0, query.length()) > MAX_SUGGEST_QUERY_CODE_POINTS
+                || query.chars().anyMatch(Character::isISOControl)) {
+            throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "file.suggest query 非法");
+        }
     }
 
     private String requiredPayloadText(ObjectNode payload, String field, String requestId) throws StdioProtocolException {

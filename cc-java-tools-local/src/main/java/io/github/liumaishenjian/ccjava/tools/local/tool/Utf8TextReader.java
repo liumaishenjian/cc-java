@@ -4,6 +4,7 @@ import io.github.liumaishenjian.ccjava.domain.ToolError;
 import io.github.liumaishenjian.ccjava.domain.ToolErrorCode;
 import io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceAccessException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -47,6 +48,9 @@ public final class Utf8TextReader {
      */
     public static Utf8TextDocument readDocument(Path path, long maximumBytes)
             throws WorkspaceAccessException {
+        if (maximumBytes <= 0 || maximumBytes >= Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("maximumBytes 必须在 (0, Integer.MAX_VALUE) 内");
+        }
         long size;
         try {
             size = Files.size(path);
@@ -57,10 +61,13 @@ public final class Utf8TextReader {
             throw error(ToolErrorCode.FILE_TOO_LARGE, "文件超过读取大小上限");
         }
         byte[] bytes;
-        try {
-            bytes = Files.readAllBytes(path);
+        try (InputStream input = Files.newInputStream(path)) {
+            bytes = input.readNBytes(Math.toIntExact(maximumBytes + 1));
         } catch (IOException exception) {
             throw error(ToolErrorCode.EXECUTION_FAILED, "无法读取目标文件");
+        }
+        if (bytes.length > maximumBytes) {
+            throw error(ToolErrorCode.FILE_TOO_LARGE, "文件超过读取大小上限");
         }
         if (containsBinaryNull(bytes)) {
             throw error(ToolErrorCode.UNSUPPORTED_ENCODING, "目标不是受支持的 UTF-8 文本");

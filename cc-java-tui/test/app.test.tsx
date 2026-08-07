@@ -1,3 +1,6 @@
+import {readFile, readdir} from 'node:fs/promises';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {render} from 'ink-testing-library';
 import {describe, expect, it} from 'vitest';
 import {
@@ -524,6 +527,113 @@ describe('AgentView', () => {
     view.unmount();
   });
 
+  it('文件建议优先补全而不提交，下一次 Enter 才发送并支持 steering', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+    view.stdin.write('看 @spa');
+    await waitForFrame(() => client.fileSuggestions.includes('spa'));
+    client.emit({version: 0, type: 'file.suggestions', requestId: 'file-1', sessionId: 'session-1', sequence: 2,
+      payload: {query: 'spa', candidates: ['dir/file name.md']}});
+    await waitForFrame(() => view.lastFrame()?.includes('文件建议') === true);
+    view.stdin.write('\r');
+    await waitForFrame(() => view.lastFrame()?.includes('@"dir/file name.md"') === true);
+    expect(client.prompts).toEqual([]);
+    view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 1);
+    expect(client.prompts).toEqual(['看 @"dir/file name.md"']);
+
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1', runId: 'run-1', sequence: 3, payload: {}});
+    view.stdin.write('补充 @src');
+    await waitForFrame(() => client.fileSuggestions.includes('src'));
+    const request = `file-${client.fileSuggestions.length}`;
+    client.emit({version: 0, type: 'file.suggestions', requestId: request, sessionId: 'session-1', sequence: 4,
+      payload: {query: 'src', candidates: ['src/App.java']}});
+    await waitForFrame(() => view.lastFrame()?.includes('@src/App.java') === true);
+    view.stdin.write('\t'); view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 2);
+    expect(client.prompts[1]).toBe('补充 @src/App.java');
+    view.unmount();
+  });
+
+  it('Escape 关闭文件建议，↑/↓ 在候选间选择', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+    view.stdin.write('@src');
+    await waitForFrame(() => client.fileSuggestions.includes('src'));
+    client.emit({
+      version: 0, type: 'file.suggestions', requestId: 'file-1', sessionId: 'session-1', sequence: 2,
+      payload: {query: 'src', candidates: ['src/A.java', 'src/B.java']},
+    });
+    await waitForFrame(() => view.lastFrame()?.includes('@src/A.java') === true);
+    expect(view.lastFrame()).toContain('❯ @src/A.java');
+
+    view.stdin.write('\u001b[B');
+    await waitForFrame(() => view.lastFrame()?.includes('❯ @src/B.java') === true);
+    view.stdin.write('\u001b[A');
+    await waitForFrame(() => view.lastFrame()?.includes('❯ @src/A.java') === true);
+
+    view.stdin.write('\u001b');
+    await waitForFrame(() => view.lastFrame()?.includes('@src/B.java') !== true);
+    expect(client.prompts).toEqual([]);
+    view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 1);
+    expect(client.prompts).toEqual(['@src']);
+    view.unmount();
+  });
+
+  it('mention 交互期间 TUI 不读取本地文件系统', async () => {
+    const sourceDirectory = fileURLToPath(new URL('../src/', import.meta.url));
+    const sources = (await readdir(sourceDirectory))
+      .filter(name => name.endsWith('.ts') || name.endsWith('.tsx'));
+    expect(sources.length).toBeGreaterThan(0);
+    const filesystemImports: string[] = [];
+    for (const name of sources) {
+      const text = await readFile(join(sourceDirectory, name), 'utf8');
+      if (/from\s+'node:fs(\/promises)?'|require\('node:fs/u.test(text)) {
+        filesystemImports.push(name);
+      }
+    }
+    expect(filesystemImports).toEqual([]);
+
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+    view.stdin.write('看 @src/');
+    await waitForFrame(() => client.fileSuggestions.includes('src/'));
+    client.emit({
+      version: 0, type: 'file.suggestions', requestId: 'file-1', sessionId: 'session-1', sequence: 2,
+      payload: {query: 'src/', candidates: ['src/App.java']},
+    });
+    await waitForFrame(() => view.lastFrame()?.includes('@src/App.java') === true);
+    view.stdin.write('\t');
+    await waitForFrame(() => view.lastFrame()?.includes('看 @src/App.java') === true);
+
+    expect(client.fileSuggestions).toEqual(['src/']);
+    view.unmount();
+  });
+
+  it('迟到文件建议不会覆盖较新的 token 查询', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
+    view.stdin.write('@a'); await waitForFrame(() => client.fileSuggestions.includes('a'));
+    view.stdin.write('b'); await waitForFrame(() => client.fileSuggestions.includes('ab'));
+    client.emit({version: 0, type: 'file.suggestions', requestId: 'file-1', sessionId: 'session-1', sequence: 2,
+      payload: {query: 'a', candidates: ['stale.java']}});
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(view.lastFrame()).not.toContain('@stale.java');
+    view.unmount();
+  });
+
   it('/help 将 Java 安全投影渲染为可读命令清单', async () => {
     const client = new FakeAgentClient();
     const view = render(<AgentTui client={client} />);
@@ -672,6 +782,7 @@ class FakeAgentClient implements AgentClient {
   readonly prompts: string[] = [];
   readonly checkpointCommands: string[] = [];
   readonly sessionCommands: string[] = [];
+  readonly fileSuggestions: string[] = [];
   initializeCalls = 0;
   readonly #eventListeners = new Set<(event: ProtocolEvent) => void>();
 
@@ -724,6 +835,11 @@ class FakeAgentClient implements AgentClient {
   public sessionCommand(commandId: string, intent: 'help' | 'clear' | 'compact' | 'context' | 'doctor' | 'model' | 'permissions' | 'resume', arguments_: Readonly<Record<string, unknown>>): string {
     this.sessionCommands.push(`${commandId}:${intent}:${JSON.stringify(arguments_)}`);
     return 'tui-session-command';
+  }
+
+  public suggestFiles(query: string): string {
+    this.fileSuggestions.push(query);
+    return `file-${this.fileSuggestions.length}`;
   }
 
   public async shutdown(): Promise<void> {

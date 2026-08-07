@@ -18,6 +18,7 @@ import io.github.liumaishenjian.ccjava.domain.ToolResultMessage;
 import io.github.liumaishenjian.ccjava.domain.ToolResultMetadata;
 import io.github.liumaishenjian.ccjava.domain.ToolResultStatus;
 import io.github.liumaishenjian.ccjava.domain.ToolResultTruncationReason;
+import io.github.liumaishenjian.ccjava.domain.UserFileAttachment;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -114,6 +115,18 @@ final class JsonlSessionCodec {
         ObjectNode root = record(sequence, "run.started");
         root.put("runId", checkedIdentifier(runId.value(), "runId"));
         root.put("userText", checkedText(message.content(), "userText"));
+        ArrayNode attachments = mapper.createArrayNode();
+        for (UserFileAttachment attachment : message.attachments()) {
+            ObjectNode item = mapper.createObjectNode();
+            item.put("protocolPath", checkedText(attachment.protocolPath(), "attachment.protocolPath", 1_024));
+            item.put("textSnapshot", checkedText(attachment.textSnapshot(), "attachment.textSnapshot", 65_536));
+            item.put("sha256Digest", checkedDigest(attachment.sha256Digest(), "attachment.sha256Digest"));
+            item.put("startLine", attachment.startLine());
+            item.put("endLine", attachment.endLine());
+            item.put("truncated", attachment.truncated());
+            attachments.add(item);
+        }
+        root.set("attachments", attachments);
         return root;
     }
 
@@ -334,7 +347,9 @@ final class JsonlSessionCodec {
                         throw invalid("INVALID_RECORD", "Run 重复启动");
                     }
                     runIds.add(new RunId(run));
-                    messages.add(new UserMessage(requiredText(record, "userText", MAX_TEXT_CHARS)));
+                    messages.add(new UserMessage(
+                            requiredText(record, "userText", MAX_TEXT_CHARS),
+                            decodeAttachments(record)));
                 }
                 case "assistant.appended" -> {
                     requireActiveRun(record, activeRuns);
@@ -474,6 +489,48 @@ final class JsonlSessionCodec {
                 runIds,
                 parent,
                 issues);
+    }
+
+    private List<UserFileAttachment> decodeAttachments(ObjectNode record) {
+        JsonNode value = record.get("attachments");
+        if (value == null) {
+            return List.of();
+        }
+        if (!value.isArray() || value.size() > 8) {
+            throw invalid("INVALID_RECORD", "run.started attachments 无效");
+        }
+        List<UserFileAttachment> attachments = new ArrayList<>();
+        int totalBytes = 0;
+        for (JsonNode node : value) {
+            if (!node.isObject()) {
+                throw invalid("INVALID_RECORD", "attachment 必须是 JSON Object");
+            }
+            ObjectNode item = (ObjectNode) node;
+            Set<String> fields = Set.of(
+                    "protocolPath", "textSnapshot", "sha256Digest", "startLine", "endLine", "truncated");
+            if (item.properties().stream().anyMatch(entry -> !fields.contains(entry.getKey()))
+                    || item.size() != fields.size()) {
+                throw invalid("INVALID_RECORD", "attachment 字段集合无效");
+            }
+            String text = requiredTextAllowEmpty(item, "textSnapshot", 65_536);
+            totalBytes = Math.addExact(totalBytes,
+                    text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+            if (totalBytes > 196_608) {
+                throw invalid("LIMIT_EXCEEDED", "attachment 总 UTF-8 字节超过限制");
+            }
+            try {
+                attachments.add(new UserFileAttachment(
+                        requiredText(item, "protocolPath", 1_024),
+                        text,
+                        requiredText(item, "sha256Digest", 64),
+                        requiredInt(item, "startLine"),
+                        requiredInt(item, "endLine"),
+                        requiredBoolean(item, "truncated")));
+            } catch (IllegalArgumentException failure) {
+                throw invalid("INVALID_RECORD", "attachment 字段无效");
+            }
+        }
+        return List.copyOf(attachments);
     }
 
     private ObjectNode encodeToolResult(ToolResult result) {

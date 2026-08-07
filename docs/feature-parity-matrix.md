@@ -4,11 +4,16 @@
 >
 > 参考版本：R2026.03
 >
-> 最后更新：2026-08-06
+> 最后更新：2026-08-07
 >
 > 当前代码状态：S01-S07 已 Accepted；S07 的 Canonical Transcript/Projection、条件式 C1-C4、文件记忆
 > M1-M5、ready-only 零等待预取、内部 Usage View 与 latest-only Recovery Analytics 已在离线 Fake、Demo、
-> Gap 和 Commit-scoped 对账中达到声明等级。S08 历史实现 Commit `7bac8ea` 的证据继续保留，但已按 ADR-048 重开为 Corrective：`CLI-08`/`CLI-09` 暂回 L1，等待成熟 Composer、无损大 Paste、独立隐私安全 ModelDiagnostic 及新 Commit-scoped G3-G6；Instructions、Settings、Runtime 映射、Context/Resume 安全 Gate 保持既有等级并纳入回归。S09 暂不启动；rules 编辑、Provider discovery/多模型注册、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定协议/Export/Retention/Migration 仍未实现。
+> Gap 和 Commit-scoped 对账中达到声明等级。S08 ADR-048 corrective implementation Commit
+> `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 的 Accepted 证据继续有效；2026-08-07 又按
+> [ADR-049](./adr/ADR-049-s08-explicit-file-mentions.md) 为显式 Workspace 文件引用补充重开 S08。
+> `CLI-13`、`CTX-19` 已在未提交工作树完成 G0-G5，当前为 L1；独立 Commit-scoped G6 前不得提升为 L2。S09 暂不启动；
+> rules 编辑、Provider discovery/多模型注册、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定协议/
+> Export/Retention/Migration 仍未实现。
 
 ## 1. 文档目的
 
@@ -151,13 +156,13 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 
 | 指标 | R2026.03 当前值 |
 | --- | --- |
-| 纳入追踪的 Capability ID | 195 |
-| 当前阶段 | S08 Instructions + Settings（ADR-048 Corrective G0-G6 Passed） |
-| Stage Exit | Accepted：corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 已完成 Commit-scoped 对账 |
-| 当前等级 | 81 项为 L2，31 项为 L1，83 项为 L0（`CLI-08`/`CLI-09` 恢复 L2） |
-| 默认最终目标 | 195 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 32.99%（195 项等权、目标 L3） |
-| 下一步 | 启动 S09 G0；Provider discovery/多模型注册、S12/S13/S14 延期边界不变 |
+| 纳入追踪的 Capability ID | 197 |
+| 当前阶段 | S08 Instructions + Settings（ADR-049 Supplementary / Reopened，G0-G5 Passed） |
+| Stage Exit | Reopened：`CLI-13`、`CTX-19` 等待 Commit-scoped G6；ADR-048 Accepted Commit 仍是既有能力证据 |
+| 当前等级 | 81 项为 L2，33 项为 L1，83 项为 L0 |
+| 默认最终目标 | 197 项达到 L3，或存在明确 `Accepted Deviation` |
+| 当前能力覆盖 | 32.99%（197 项等权、目标 L3） |
+| 下一步 | 完成 ADR-049 独立实现 Commit 与 G6 后再进入 S09 G0；后续 Stage 延期边界不变 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -254,6 +259,7 @@ Stage 完成项。
 | CLI-10 | TTY / Non-TTY 降级 | 无 ANSI 输出与管道模式 | L2 | S02/S14 | REF-02 |
 | CLI-11 | 机器输出协议 | S02 内部 stdio v0 L1 → S14 稳定 JSON/JSONL L3 | L1 | S02/S14 | REF-02 |
 | CLI-12 | 多 Surface 共用引擎 | CLI/SDK/API 共用 Runtime | L0 | S14 | REF-02 |
+| CLI-13 | 显式文件引用 | 未提交实现候选：Java 权威原始相对路径候选、严格 stdio 关联、TUI 引号格式化与 Composer token 精确替换；等待 Commit-scoped G6 | L1 | S08 | REF-02/AUTH-01 |
 
 ## 8. Agent Loop 对照
 
@@ -300,13 +306,13 @@ Stage 完成项。
 | TOOL-03 | 统一执行 Pipeline | Validate → Permit → Execute → Normalize | L2 | S01/S05 | REF-01/07 |
 | TOOL-04 | List / Glob | Workspace 文件枚举 | L2 | S03 | REF-02 |
 | TOOL-05 | Grep / Search | 受控 ripgrep：完整参数、三模式、JSON 结果、取消与一次资源恢复；Java 字面降级 | L2 | S03 | REF-02/AUTH-01 |
-| TOOL-06 | Read File | 分段、行号、大小限制 | L2 | S03 | REF-02 |
+| TOOL-06 | Read File | 固定窗口严格 UTF-8 范围读取、行号、扫描/单行/输出上限、权威 continuation 与同范围未变化结果 | L2 | S03 | REF-02/AUTH-01 |
 | TOOL-07 | Git Status / Diff | 脏工作区和证据 | L2 | S03/S04 | REF-02 |
-| TOOL-08 | Apply Patch / Edit | 精确旧内容、冲突重检、同目录原子替换与有界 Patch 摘要 | L1 | S04 | REF-02/AUTH-01 |
+| TOOL-08 | Apply Patch / Edit | LF/CRLF 规范精确匹配、BOM/换行外观保留、先读覆盖证据、冲突重检、同目录原子替换与有界摘要 | L1 | S04 | REF-02/AUTH-01 |
 | TOOL-09 | Write / Create | 仅创建新 UTF-8 文件、父目录 realpath 与禁止覆盖 | L1 | S04 | REF-02/AUTH-01 |
 | TOOL-10 | Run Command | 固定平台 Shell/Workspace、准确审批、timeout 与 exit code | L1 | S04 | REF-02/AUTH-01 |
 | TOOL-11 | Tool Output Streaming | 有界 stdout/stderr Lifecycle/stdio v0/TUI Event | L1 | S04 | REF-02/AUTH-01 |
-| TOOL-12 | Result Truncation | 显式截断和摘要 | L2 | S03/S07 | REF-01 |
+| TOOL-12 | Result Truncation | 显式截断、超长行计数、与已返回正文一致的结构化 continuation 和摘要 | L2 | S03/S07 | REF-01/AUTH-01 |
 | TOOL-13 | Structured Tool Error | 模型可纠正错误 | L2 | S01/S03 | REF-01 |
 | TOOL-14 | Tool Cancellation | 文件提交前取消 L1 → Process 取消与进程树 L2 | L1 | S04 | REF-02 |
 | TOOL-15 | 并行安全工具 | Read-only 并行执行 | L0 | S12 | REF-01 |
@@ -389,6 +395,7 @@ Stage 完成项。
 | CTX-16 | Prompt Cache | 稳定前缀和 Tool 顺序 | L0 | S14 | REF-01 |
 | CTX-17 | Auto Memory Index | `MEMORY.md`、有界 topic Catalog、可重建索引与真实 Headless 文件装配 | L2 | S07 | REF-05/AUTH-01 |
 | CTX-18 | Relevant Memory Prefetch | M4/M5 ready-only、零等待相关记忆投影与迟到结果隔离 | L2 | S07 | REF-05/AUTH-01 |
+| CTX-19 | File Attachment Projection | 未提交实现候选：WorkspaceGuard 后的不可变文件快照、Canonical/Session Resume/Fork 保存、Base64 不可信模型投影与保守 Usage 估算；等待 Commit-scoped G6 | L1 | S08 | REF-02/AUTH-01 |
 
 ## 15. Settings / Configuration 对照
 
@@ -657,7 +664,7 @@ Sub-Agent/后台任务留到 S12，OS Sandbox 留到 S13。
 ### S08：Instructions + Settings
 
 G0 已于 2026-08-05 通过：`ADR-045` 在 `AUTH-SRC-2026-07-29-A` 的登记只读路径上完成了
-分层 Instructions、Settings 合并/来源、模型/权限/Tool 设置、Slash/诊断与失败安全边界的机制研究。ADR-046/047 的历史 G1/G2 契约继续约束 Instructions、Settings 与安全所有权；[ADR-048](./adr/ADR-048-s08-corrective-composer-model-diagnostics.md) 因旧 CLI-08/09 证据不足重开 S08。Corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 已完成 G3-G6：完整 Reactor 各模块 45/172/43/101/227（Spring/Tools/CLI 分别 2/8/11 skipped，0 failures/errors）、TUI 111/111、launcher 59/59、真实 TTY 与独立最终 review 均通过，并完成 Commit-scoped 文档/矩阵/看板对账。S08 Stage Exit Accepted，`CLI-08`/`CLI-09` 恢复 L2。
+分层 Instructions、Settings 合并/来源、模型/权限/Tool 设置、Slash/诊断与失败安全边界的机制研究。ADR-046/047 的历史 G1/G2 契约继续约束 Instructions、Settings 与安全所有权；[ADR-048](./adr/ADR-048-s08-corrective-composer-model-diagnostics.md) 的 corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 已完成 G0-G6 并保持既有能力 Accepted。2026-08-07 又由 [ADR-049](./adr/ADR-049-s08-explicit-file-mentions.md) 为 `CLI-13`/`CTX-19` 补充重开 S08；授权机制研究、范围、独立架构、实现、离线验证与独立 review G0-G5 已完成，G6 等待独立实现 Commit。
 
 完成条件：
 
@@ -670,6 +677,7 @@ G0 已于 2026-08-05 通过：`ADR-045` 在 `AUTH-SRC-2026-07-29-A` 的登记只
 - 基础配置 Schema 与版本字段；
 - 分层 Instructions 接入后的 S07 重注入和 Usage 对账回归；
 - ADR-048 的 grapheme-safe Composer、视觉导航/viewport、无损大 Paste 与 OFF/SAFE/VERBOSE 本地 ModelDiagnostic；
+- ADR-049 的 Java 权威 `@path` 补全、Workspace 安全附件、Canonical/Session 快照与不可信 Context Projection；
 - 新实现 Commit 上的完整 G3-G6、真实 TTY Demo、隐私 sentinel 与 commit-scoped 对账。
 
 跨版本配置迁移兼容、OTel 与诊断导出属于 S14。

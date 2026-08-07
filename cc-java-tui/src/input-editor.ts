@@ -94,7 +94,8 @@ export type ComposerAction =
   | {readonly type: 'Paste'; readonly text: string}
   | {readonly type: 'MoveLeft' | 'MoveRight' | 'MoveUp' | 'MoveDown' | 'MoveHome' | 'MoveEnd' | 'MoveWordLeft' | 'MoveWordRight' | 'Backspace' | 'DeleteForward' | 'HistoryPrevious' | 'HistoryNext' | 'CompletionPrevious' | 'CompletionNext' | 'AcceptCompletion' | 'CloseCompletion' | 'Submit' | 'Clear'}
   | {readonly type: 'Resize'; readonly width?: number; readonly height?: number}
-  | {readonly type: 'SetCompletions'; readonly candidates: readonly string[]};
+  | {readonly type: 'SetCompletions'; readonly candidates: readonly string[]}
+  | {readonly type: 'ReplaceRange'; readonly startGrapheme: number; readonly endGrapheme: number; readonly text: string};
 
 export type ComposerTransition =
   | {readonly kind: 'updated'; readonly state: ComposerState}
@@ -135,6 +136,8 @@ export function reduceComposer(
   switch (action.type) {
     case 'InsertText':
       return insertLiteral(state, action.text, effectiveLayout);
+    case 'ReplaceRange':
+      return replaceRange(state, action.startGrapheme, action.endGrapheme, action.text, effectiveLayout);
     case 'Paste':
       return pasteText(state, action.text, effectiveLayout);
     case 'MoveLeft':
@@ -381,16 +384,41 @@ function displayUnit(state: ComposerState, unit: EditorUnit): string {
 }
 
 function insertLiteral(state: ComposerState, text: string, layout: ComposerLayout): ComposerTransition {
-  if (text.length === 0) return updated(withViewport(state, layout));
+  return replaceRange(state, state.cursorGrapheme, state.cursorGrapheme, text, layout);
+}
+
+function replaceRange(
+  state: ComposerState,
+  start: number,
+  end: number,
+  text: string,
+  layout: ComposerLayout,
+): ComposerTransition {
   if (containsPrivatePasteMarker(text)) return rejected(state, 'PASTE_REFERENCE_FORGED');
-  const inserted = segmentGraphemes(text);
   const units = editorUnits(state.text);
-  if (units.length + inserted.length > MAX_VISIBLE_STRUCTURE_UNITS) return rejected(state, 'VISIBLE_STRUCTURE_LIMIT');
-  const nextText = units.slice(0, state.cursorGrapheme).map(unit => unit.raw).join('')
-    + text + units.slice(state.cursorGrapheme).map(unit => unit.raw).join('');
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)
+    || start < 0 || end < start || end > units.length) {
+    return rejected(state, 'VISIBLE_STRUCTURE_LIMIT');
+  }
+  const inserted = segmentGraphemes(text);
+  if (units.length - (end - start) + inserted.length > MAX_VISIBLE_STRUCTURE_UNITS) {
+    return rejected(state, 'VISIBLE_STRUCTURE_LIMIT');
+  }
+  const removedIds = units.slice(start, end)
+    .flatMap(unit => unit.payloadId === undefined ? [] : [unit.payloadId]);
+  const insertedUnits: EditorUnit[] = inserted.map(raw => ({raw, kind: 'grapheme'}));
+  const remaining: readonly EditorUnit[] = [...units.slice(0, start), ...insertedUnits, ...units.slice(end)];
+  const payloads = new Map(state.pastePayloads);
+  for (const id of removedIds) {
+    if (!remaining.some(unit => unit.payloadId === id)) payloads.delete(id);
+  }
   return updated(withViewport(detachForEdit({
-    ...state, text: nextText, cursorGrapheme: state.cursorGrapheme + inserted.length,
-    preferredVisualColumn: undefined, validationCode: undefined,
+    ...state,
+    text: remaining.map(unit => unit.raw).join(''),
+    pastePayloads: payloads,
+    cursorGrapheme: start + inserted.length,
+    preferredVisualColumn: undefined,
+    validationCode: undefined,
   }), layout));
 }
 

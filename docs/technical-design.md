@@ -2,18 +2,20 @@
 
 > 文档状态：Proposed v0.9
 >
-> 最后更新：2026-08-06
+> 最后更新：2026-08-07
 >
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
 > 当前学习阶段：S01-S08 已 Accepted；ADR-048 corrective implementation Commit
-> `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 已完成 G0-G6；下一步进入 S09 G0
+> `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 已完成 ADR-048 G0-G6；当前按 ADR-049 为
+> `CLI-13`/`CTX-19` 补充重开 S08；未提交工作树已完成 G0-G5，独立 Commit-scoped G6 后再进入 S09 G0
 >
 > 当前实现状态：ADR-042/043/044 已固定并验证 Context Projection、条件式 Reduction、文件记忆和零等待
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
 > composition、ready-only Memory Core/Domain Runtime seam、D2 Headless 文件系统生产装配、Context View 与
 > deterministic Fake Demo/Eval 已完成 Commit-scoped G0-G6 对账。ADR-045 冻结 S08 机制研究边界，ADR-046 已冻结 G1 独立产品契约；
 > ADR-047 已冻结 S08 的 Domain/Core/Application/Adapter 边界、独立 user-root guard、严格 Settings parser/last-known-good、命令 Intent/Event 与历史 G3/G4 切片。ADR-048 因 CLI-08/09 验收不足重开 S08，并实现 `ComposerState`、无损 Paste、显式提交预算和独立 `ModelDiagnostic` 平面；完整 Reactor、TUI 111/111、launcher 59/59、真实 TTY G5 与独立 review 已通过，并以 implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 完成 G6 对账。
+> ADR-049 的未提交实现候选进一步加入提交前 Workspace-safe 文件快照、JSONL Resume/Fork、确定性 Base64 文件信封、原始协议路径候选与 TUI mention 格式化；完整 Reactor 52/173/45/158/261（Spring 2 skipped）、TUI 128/128 与 launcher 59/59 已通过，等级在 Commit-scoped G6 前保持 L1。
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 
@@ -736,6 +738,19 @@ S04 的 Shell 在用户操作系统账户下运行。审批和规则降低误操
 - 不支持二进制 Patch；
 - 不隐式格式化整个仓库。
 
+### 14.4 有界文本快照与读取证据
+
+[ADR-050](./adr/ADR-050-corrective-text-read-edit-consistency.md) 将模型文本视图与磁盘写回外观分离。
+`read_file` 使用固定字节/字符窗口增量严格解码，只保留请求页；扫描字节、单行字符、页字符、
+行数、取消和 Tool deadline 都是独立 ceiling。只有到达 EOF 才报告 totals，渲染预算导致少返回
+正文时必须把 `nextStartLine` 退回到第一条未返回行。相同 Session 的同路径/同范围只有在文件
+身份和内容摘要都一致时才能返回 `unchanged` 轻量结果。
+
+`apply_patch` 在 LF 规范坐标上做唯一/显式多匹配，并按原始字节坐标写回，从而保留 UTF-8 BOM、
+LF/CRLF 风格和匹配区间外的字节。混合换行需要合成分隔符时 Fail Closed。Composition Root 为
+Read/Patch/Write 注入同一个有界 Session-scoped 读取登记表；Patch 必须有覆盖修改区域的先读证据，
+但该证据不替代 WorkspaceGuard、Permission/Approval、提交前 raw-byte/path 冲突重检和原子移动。
+
 ## 15. Command Runtime
 
 ### 15.1 跨平台 Shell
@@ -1136,6 +1151,21 @@ Java → Node stderr: 脱敏诊断
 
 这实现 `CLI-11` 的 S02 L1 内部边界，不是稳定外部 API；稳定 JSON/JSONL、SDK、
 Daemon 和兼容承诺仍在 S14。
+
+#### 19.2.1 显式文件建议扩展
+
+ADR-049 在内部 stdio v0 增加严格的 `file.suggest` / `file.suggestions` 请求响应。TUI 只维护
+活动 token、request correlation、候选选择与替换；Java 负责有界候选扫描，并在真正提交时通过
+`WorkspaceGuard` 重新解析和读取。候选不写 Session，也不启动 Run。协议接受最多 256 code point
+query、32 个原始安全相对路径候选和 8,192-byte 完整事件；TUI 再按空格或 `#L` 生成
+引号/非引号 mention。未知字段、错误 Session/request、重复或迟到结果
+Fail Closed。
+
+`UserMessage` 持有不可变 `UserFileAttachment` 列表。CLI Adapter 在 Runtime 前完成
+`parse → guard → bounded UTF-8 read → identity recheck → digest`；Session `run.started` 保存快照，
+旧记录缺少附件字段时按空列表恢复。Spring AI Mapper 把正文和附件映射为固定的不可信文件上下文
+envelope；Token estimator 保守计入 Base64 展开和结构开销。精确上限、TOCTOU、语法和失败契约见
+[ADR-049](./adr/ADR-049-s08-explicit-file-mentions.md)。
 
 ### 19.3 隐私安全的模型失败摘要
 

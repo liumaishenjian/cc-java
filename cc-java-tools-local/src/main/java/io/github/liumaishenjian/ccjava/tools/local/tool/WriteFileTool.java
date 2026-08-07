@@ -11,6 +11,8 @@ import io.github.liumaishenjian.ccjava.domain.ToolEffect;
 import io.github.liumaishenjian.ccjava.domain.ToolError;
 import io.github.liumaishenjian.ccjava.domain.ToolErrorCode;
 import io.github.liumaishenjian.ccjava.domain.ToolSource;
+import io.github.liumaishenjian.ccjava.tools.local.text.ReadEvidence;
+import io.github.liumaishenjian.ccjava.tools.local.text.WorkspaceReadRegistry;
 import io.github.liumaishenjian.ccjava.tools.local.workspace.LocalToolLimits;
 import io.github.liumaishenjian.ccjava.tools.local.workspace.ValidatedWorkspacePath;
 import io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceAccessException;
@@ -46,14 +48,29 @@ public final class WriteFileTool implements AgentTool {
             LocalToolLimits.MAX_TOOL_OUTPUT_CHARACTERS);
 
     private final WorkspaceGuard guard;
+    private final WorkspaceReadRegistry readRegistry;
 
     /**
-     * 创建绑定 Workspace 安全边界的新文件 Tool。
+     * 创建带独立 Read 登记表的新文件 Tool。
      *
      * @param guard 共享 WorkspaceGuard
      */
     public WriteFileTool(WorkspaceGuard guard) {
+        this(guard, new WorkspaceReadRegistry());
+    }
+
+    /**
+     * 创建与读取和 Patch 工具共享 Read 证据登记表的新文件 Tool。
+     *
+     * <p>新建文件的内容完全由本次调用给出，因此创建成功后可以直接登记为整份文件的权威
+     * 证据；这样“先创建、再精确修改”不需要额外读取一次刚写下的内容。</p>
+     *
+     * @param guard 共享 WorkspaceGuard
+     * @param readRegistry 与 {@link ReadFileTool}、{@link ApplyPatchTool} 共享的登记表
+     */
+    public WriteFileTool(WorkspaceGuard guard, WorkspaceReadRegistry readRegistry) {
         this.guard = Objects.requireNonNull(guard, "guard 不能为空");
+        this.readRegistry = Objects.requireNonNull(readRegistry, "readRegistry 不能为空");
     }
 
     @Override
@@ -114,6 +131,7 @@ public final class WriteFileTool implements AgentTool {
                                     "新文件真实父目录在写入前已改变"));
                         }
                     });
+            recordCreatedEvidence(invocation, validated, content);
             PatchResultRenderer.Rendered rendered = PatchResultRenderer.render(
                     validated.protocolPath(),
                     "created",
@@ -124,5 +142,42 @@ public final class WriteFileTool implements AgentTool {
         } catch (WorkspaceAccessException exception) {
             return ToolExecutionOutcome.failure(exception.error());
         }
+    }
+
+    /**
+     * 把刚创建的完整内容登记为整份文件的权威 Read 证据。
+     *
+     * <p>先作废该路径的旧证据，再登记新证据；文件身份不可得时安静跳过，让后续修改
+     * 退化为“先读取”，而不是在不确定身份上继续写。</p>
+     */
+    private void recordCreatedEvidence(
+            ToolInvocation invocation,
+            ValidatedWorkspacePath validated,
+            String content) {
+        readRegistry.invalidate(validated.protocolPath());
+        long size;
+        long lastModified;
+        try {
+            size = java.nio.file.Files.size(validated.realPath());
+            lastModified = java.nio.file.Files
+                    .getLastModifiedTime(validated.realPath()).toMillis();
+        } catch (java.io.IOException exception) {
+            return;
+        }
+        String canonical = content.replace("\r\n", "\n").replace('\r', '\n');
+        String withoutTrailingNewline = canonical.endsWith("\n")
+                ? canonical.substring(0, canonical.length() - 1)
+                : canonical;
+        int lines = withoutTrailingNewline.isEmpty()
+                ? 0
+                : (int) withoutTrailingNewline.chars().filter(value -> value == '\n').count() + 1;
+        readRegistry.record(invocation.sessionId(), new ReadEvidence(
+                validated.protocolPath(),
+                1,
+                Math.max(1, lines),
+                true,
+                size,
+                lastModified,
+                ReadEvidence.digestOf(withoutTrailingNewline)));
     }
 }

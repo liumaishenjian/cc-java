@@ -254,6 +254,21 @@ describe('decodeEvent', () => {
     }), 1)).toThrowError(/resume/);
   });
 
+  it('严格校验有界 file suggestions 安全投影', () => {
+    const base = {
+      version: 0, type: 'file.suggestions', requestId: 'req-file', sessionId: 'session-1', sequence: 1,
+      payload: {query: 'src', candidates: ['src/App.java', 'dir/file name.md']},
+    };
+    expect(decodeEvent(JSON.stringify(base), 1).payload.candidates).toHaveLength(2);
+    for (const invalid of [
+      {...base, runId: 'run-1'},
+      {...base, payload: {...base.payload, secret: 'leak'}},
+      {...base, payload: {query: 'src', candidates: ['../escape']}},
+      {...base, payload: {query: 'src', candidates: Array.from({length: 33}, (_, i) => `${i}`)}},
+      {...base, payload: {query: 'src', candidates: ['same', 'same']}},
+    ]) expect(() => decodeEvent(JSON.stringify(invalid), 1)).toThrow(/file\.suggestions/);
+  });
+
   it('拒绝包含控制字符的终止原因', () => {
     expect(() => decodeEvent(JSON.stringify({
       version: 0,

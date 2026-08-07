@@ -5,6 +5,7 @@ import io.github.liumaishenjian.ccjava.domain.ToolError;
 import io.github.liumaishenjian.ccjava.domain.ToolErrorCode;
 import io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceAccessException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
@@ -56,8 +57,12 @@ final class AtomicUtf8FileWriter {
             ensureNotCancelled(cancellation);
             beforeCommit.run();
             byte[] current;
-            try {
-                current = Files.readAllBytes(target);
+            if (expected.length == Integer.MAX_VALUE) {
+                throw failure(ToolErrorCode.FILE_CONFLICT, "文件在写入前已改变");
+            }
+            try (InputStream input = Files.newInputStream(target)) {
+                // 只需判断当前字节是否仍与已知快照完全一致，最多读取期望长度加一个判定字节。
+                current = input.readNBytes(expected.length + 1);
             } catch (IOException exception) {
                 throw failure(ToolErrorCode.FILE_CONFLICT, "文件在写入前已改变");
             }

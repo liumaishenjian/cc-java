@@ -6,6 +6,7 @@ import io.github.liumaishenjian.ccjava.tools.local.tool.ApplyPatchTool;
 import io.github.liumaishenjian.ccjava.tools.local.tool.WriteFileTool;
 import io.github.liumaishenjian.ccjava.tools.local.tool.RunCommandTool;
 import io.github.liumaishenjian.ccjava.tools.local.command.LocalCommandExecutor;
+import io.github.liumaishenjian.ccjava.tools.local.text.WorkspaceReadRegistry;
 import io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceAccessException;
 import io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceGuard;
 import java.io.IOException;
@@ -50,9 +51,13 @@ public record LocalWorkspaceBootstrap(
             throws IOException, WorkspaceAccessException {
         WorkspaceGuard guard = new WorkspaceGuard(workspace);
         GitReadClient git = new GitReadClient(guard.workspace());
-        ArrayList<AgentTool> tools = new ArrayList<>(LocalReadTools.create(guard));
-        tools.add(new ApplyPatchTool(guard));
-        tools.add(new WriteFileTool(guard));
+        // 一个 Workspace 只有一份 Read 证据登记表：read_file 记录的行范围因此成为
+        // apply_patch 的写入前置条件，而 Tool 之间仍然互不依赖。
+        WorkspaceReadRegistry readRegistry = new WorkspaceReadRegistry();
+        ArrayList<AgentTool> tools =
+                new ArrayList<>(LocalReadTools.create(guard, readRegistry));
+        tools.add(new ApplyPatchTool(guard, readRegistry));
+        tools.add(new WriteFileTool(guard, readRegistry));
         tools.add(new RunCommandTool(new LocalCommandExecutor(guard.workspace())));
         return new LocalWorkspaceBootstrap(
                 tools,

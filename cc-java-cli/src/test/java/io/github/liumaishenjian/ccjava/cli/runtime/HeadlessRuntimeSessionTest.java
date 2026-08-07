@@ -204,12 +204,21 @@ class HeadlessRuntimeSessionTest {
         CopyOnWriteArrayList<AgentEventEnvelope> lifecycle = new CopyOnWriteArrayList<>();
         ModelGateway sourceModel = request -> {
             sourceRequests.add(request);
-            if (sourceRequests.size() != 1) {
-                return ModelTurn.text("done");
+            if (sourceRequests.size() == 1) {
+                return new ModelTurn(
+                        AssistantMessage.tools(java.util.List.of(new ToolCall(
+                                "call-sentinel-read", "read_file",
+                                new JsonObject(Map.of("path", "sample.txt"))))),
+                        ModelTurnMetadata.unknown());
             }
-            ToolCall patch = new ToolCall("call-sentinel-patch", "apply_patch", new JsonObject(Map.of(
-                    "path", "sample.txt", "oldText", "old", "newText", "new")));
-            return new ModelTurn(AssistantMessage.tools(java.util.List.of(patch)), ModelTurnMetadata.unknown());
+            if (sourceRequests.size() == 2) {
+                ToolCall patch = new ToolCall("call-sentinel-patch", "apply_patch", new JsonObject(Map.of(
+                        "path", "sample.txt", "oldText", "old", "newText", "new")));
+                return new ModelTurn(
+                        AssistantMessage.tools(java.util.List.of(patch)),
+                        ModelTurnMetadata.unknown());
+            }
+            return ModelTurn.text("done");
         };
         PermissionRule allowPatch = new PermissionRule(
                 PermissionRuleSource.STARTUP, PermissionDecision.ALLOW,
@@ -980,6 +989,7 @@ class HeadlessRuntimeSessionTest {
         ToolResultMessage result = requests.getLast().messages().stream()
                 .filter(ToolResultMessage.class::isInstance)
                 .map(ToolResultMessage.class::cast)
+                .filter(message -> message.result().toolName().equals("apply_patch"))
                 .findFirst().orElseThrow();
         assertThat(result.result().status())
                 .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolResultStatus.DENIED);
@@ -992,6 +1002,13 @@ class HeadlessRuntimeSessionTest {
         ModelGateway model = request -> {
             requests.add(request);
             if (requests.size() == 1) {
+                return new ModelTurn(
+                        AssistantMessage.tools(java.util.List.of(new ToolCall(
+                                "call-startup-read", "read_file",
+                                new JsonObject(Map.of("path", "sample.txt"))))),
+                        ModelTurnMetadata.unknown());
+            }
+            if (requests.size() == 2) {
                 return new ModelTurn(
                         AssistantMessage.tools(java.util.List.of(new ToolCall(
                                 "call-patch",
@@ -1028,6 +1045,7 @@ class HeadlessRuntimeSessionTest {
         ToolResultMessage result = requests.getLast().messages().stream()
                 .filter(ToolResultMessage.class::isInstance)
                 .map(ToolResultMessage.class::cast)
+                .filter(message -> message.result().toolName().equals("apply_patch"))
                 .findFirst().orElseThrow();
         assertThat(result.result().status())
                 .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS);
@@ -1040,6 +1058,13 @@ class HeadlessRuntimeSessionTest {
         ModelGateway model = request -> {
             requests.add(request);
             if (requests.size() == 1) {
+                return new ModelTurn(
+                        AssistantMessage.tools(java.util.List.of(new ToolCall(
+                                "call-once-read", "read_file",
+                                new JsonObject(Map.of("path", "sample.txt"))))),
+                        ModelTurnMetadata.unknown());
+            }
+            if (requests.size() == 2) {
                 return new ModelTurn(
                         AssistantMessage.tools(java.util.List.of(new ToolCall(
                                 "call-patch",
@@ -1067,6 +1092,7 @@ class HeadlessRuntimeSessionTest {
         ToolResultMessage result = requests.getLast().messages().stream()
                 .filter(ToolResultMessage.class::isInstance)
                 .map(ToolResultMessage.class::cast)
+                .filter(message -> message.result().toolName().equals("apply_patch"))
                 .findFirst().orElseThrow();
         assertThat(result.result().content())
                 .contains("path: sample.txt", "operation: modified");
@@ -1148,6 +1174,13 @@ class HeadlessRuntimeSessionTest {
         ModelGateway patchModel = request -> {
             int call = modelCalls.updateAndGet(value -> value + 1);
             if (call == 1) {
+                return new ModelTurn(
+                        AssistantMessage.tools(java.util.List.of(new ToolCall(
+                                "call-read-active-run", "read_file",
+                                new JsonObject(Map.of("path", "sample.txt"))))),
+                        ModelTurnMetadata.unknown());
+            }
+            if (call == 2) {
                 return new ModelTurn(
                         AssistantMessage.tools(java.util.List.of(new ToolCall(
                                 "call-patch-active-run",

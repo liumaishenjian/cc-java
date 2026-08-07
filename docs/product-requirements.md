@@ -2,9 +2,11 @@
 
 > 文档状态：Draft v0.9
 >
-> 最后更新：2026-08-06
+> 最后更新：2026-08-07
 >
-> 当前阶段：S01-S08 已 Accepted；ADR-048 corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 已完成 G0-G6，`CLI-08`/`CLI-09` 恢复 L2。下一步进入 S09 G0；S12-S14 延期边界不变。
+> 当前阶段：S01-S07 已 Accepted；S08 ADR-048 的既有能力已在 Commit
+> `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 上 Accepted，现按 ADR-049 为显式文件引用补充重开。
+> `CLI-13`、`CTX-19` 已在未提交工作树完成 G0-G5，G6 等待独立实现 Commit；之后才进入 S09 G0。
 >
 > 产品负责人：项目维护者
 
@@ -272,6 +274,10 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
 - FR-CLI-005：模型文本、工具状态、审批和最终结果有可区分的终端表现。
 - FR-CLI-006：`Ctrl+C` 可以取消当前运行，`/exit` 可以结束会话。
 - FR-CLI-007：不同结束原因映射到稳定退出码。
+- FR-CLI-008：交互 Composer 支持 Workspace-relative `@path` 与带引号空格路径的异步补全；
+  TUI 不读取文件，候选只作为提示，提交必须由 Java 重新验证。迟到、重复、乱序或超限建议
+  不得覆盖当前 token；接受建议只替换光标处活动 token，并保持 grapheme、多行、Paste、History
+  与 Steering 语义。
 
 ### 11.2 Agent Runtime
 
@@ -366,6 +372,13 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
   Tool Call/Result 配对、取消或 JSONL/Checkpoint。
 - FR-CTX-016：S08 G3-D 的 `/context` 只返回 latest `ContextUsageView` 的数值/枚举白名单投影，
   不可用时返回固定 `UNAVAILABLE`；不得输出 Prompt、正文、路径、Tool 参数/结果、Secret 或 Provider 原文。
+- FR-CTX-017：S08 ADR-049 的显式文件引用只能访问 Workspace 内经 `WorkspaceGuard` 验证的普通
+  UTF-8 文本文件；支持可选行范围，拒绝绝对路径、Traversal、敏感文件、Symlink/Junction 逃逸、
+  目录、二进制、非法 UTF-8、读中替换和数量/行/字节超限。任一显式引用失败必须在 Run、模型和
+  Session 副作用之前 Fail Closed。
+- FR-CTX-018：成功引用形成包含相对路径、行范围、SHA-256 与正文的不可变用户附件快照；快照随
+  Canonical 与 Session JSONL 保存，Resume/Fork 不重新读取磁盘。模型 Adapter 以固定
+  `untrusted` envelope 投影并计入 Context 预算；附件不扩大 Permission，也不是 Tool Result。
 
 ### 11.7 Session 与事件
 

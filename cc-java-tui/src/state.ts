@@ -331,6 +331,8 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
       };
     case 'session.command.result':
       return applySessionCommandResult(state, event);
+    case 'file.suggestions':
+      return state;
     case 'steering.queued':
       return {
         ...state,

@@ -498,6 +498,144 @@ class FileSessionStoreTest {
         }
     }
 
+    @Test
+    void persistsAndReplaysUserFileAttachmentsAcrossResumeAndFork() throws IOException {
+        Path workspace = workspace("attachments");
+        Path storeRoot = storeRoot("attachments");
+        UserMessage withAttachment = new UserMessage(
+                "explain @src/App.java",
+                java.util.List.of(new io.github.liumaishenjian.ccjava.domain.UserFileAttachment(
+                        "src/App.java",
+                        "line one\nline two",
+                        "a".repeat(64),
+                        3,
+                        4,
+                        true)));
+        SessionId sessionId;
+        try (FileSessionStore store = store(storeRoot, workspace, 1)) {
+            sessionId = store.create(SPEC).id();
+            RunId runId = new RunId("run-attach");
+            store.runStarted(sessionId, runId, withAttachment);
+            store.runCompleted(sessionId, runId, StopReason.COMPLETED);
+            store.close(sessionId);
+        }
+
+        try (FileSessionStore resumed = store(storeRoot, workspace, 100)) {
+            SessionOpenResult result = resumed.open(
+                    new SessionOpenRequest(SessionOpenMode.RESUME, java.util.Optional.of(sessionId)),
+                    SPEC);
+            assertThat(result.issues()).isEmpty();
+            assertThat(result.session().messages()).containsExactly(withAttachment);
+            resumed.close(sessionId);
+
+            SessionOpenResult forked = resumed.open(
+                    new SessionOpenRequest(SessionOpenMode.FORK, java.util.Optional.of(sessionId)),
+                    SPEC);
+            assertThat(forked.session().messages()).containsExactly(withAttachment);
+            resumed.close(forked.session().id());
+        }
+    }
+
+    @Test
+    void replaysLegacyRunStartedRecordsWithoutAttachmentsField() throws IOException {
+        Path workspace = workspace("legacy-attachments");
+        Path storeRoot = storeRoot("legacy-attachments");
+        SessionId sessionId;
+        try (FileSessionStore store = store(storeRoot, workspace, 1)) {
+            sessionId = store.create(SPEC).id();
+            RunId runId = new RunId("run-legacy");
+            store.runStarted(sessionId, runId, new UserMessage("legacy prompt"));
+            store.runCompleted(sessionId, runId, StopReason.COMPLETED);
+            store.close(sessionId);
+        }
+        // 模拟本切片之前写出的记录：run.started 完全没有 attachments 字段。
+        Path journal = journal(storeRoot, sessionId);
+        String stripped = Files.readString(journal, StandardCharsets.UTF_8)
+                .replace(",\"attachments\":[]", "");
+        assertThat(stripped).doesNotContain("attachments");
+        Files.writeString(journal, stripped, StandardCharsets.UTF_8);
+
+        try (FileSessionStore resumed = store(storeRoot, workspace, 100)) {
+            SessionOpenResult result = resumed.open(
+                    new SessionOpenRequest(SessionOpenMode.RESUME, java.util.Optional.of(sessionId)),
+                    SPEC);
+            assertThat(result.issues()).isEmpty();
+            assertThat(result.session().messages())
+                    .containsExactly(new UserMessage("legacy prompt"));
+            assertThat(((UserMessage) result.session().messages().getFirst()).attachments()).isEmpty();
+            resumed.close(sessionId);
+        }
+    }
+
+    @Test
+    void rejectsRunStartedRecordWithOversizedAttachmentList() throws IOException {
+        Path workspace = workspace("attachment-limit");
+        Path storeRoot = storeRoot("attachment-limit");
+        SessionId sessionId;
+        try (FileSessionStore store = store(storeRoot, workspace, 1)) {
+            sessionId = store.create(SPEC).id();
+            RunId runId = new RunId("run-limit");
+            store.runStarted(sessionId, runId, new UserMessage("prompt"));
+            store.runCompleted(sessionId, runId, StopReason.COMPLETED);
+            store.close(sessionId);
+        }
+        Path journal = journal(storeRoot, sessionId);
+        StringBuilder items = new StringBuilder();
+        for (int index = 0; index < 9; index++) {
+            if (index > 0) {
+                items.append(',');
+            }
+            items.append("{\"protocolPath\":\"src/F").append(index)
+                    .append(".java\",\"textSnapshot\":\"x\",\"sha256Digest\":\"")
+                    .append("b".repeat(64))
+                    .append("\",\"startLine\":1,\"endLine\":1,\"truncated\":false}");
+        }
+        Files.writeString(
+                journal,
+                Files.readString(journal, StandardCharsets.UTF_8)
+                        .replace("\"attachments\":[]", "\"attachments\":[" + items + "]"),
+                StandardCharsets.UTF_8);
+
+        try (FileSessionStore resumed = store(storeRoot, workspace, 100)) {
+            assertThatThrownBy(() -> resumed.open(
+                    new SessionOpenRequest(SessionOpenMode.RESUME, java.util.Optional.of(sessionId)),
+                    SPEC))
+                    .isInstanceOf(SessionOpenException.class);
+        }
+    }
+
+    @Test
+    void rejectsUnknownAttachmentSchemaField() throws IOException {
+        Path workspace = workspace("attachment-schema");
+        Path storeRoot = storeRoot("attachment-schema");
+        SessionId sessionId;
+        UserMessage message = new UserMessage(
+                "prompt",
+                java.util.List.of(new io.github.liumaishenjian.ccjava.domain.UserFileAttachment(
+                        "src/App.java", "x", "c".repeat(64), 1, 1, false)));
+        try (FileSessionStore store = store(storeRoot, workspace, 1)) {
+            sessionId = store.create(SPEC).id();
+            RunId runId = new RunId("run-schema");
+            store.runStarted(sessionId, runId, message);
+            store.runCompleted(sessionId, runId, StopReason.COMPLETED);
+            store.close(sessionId);
+        }
+        Path journal = journal(storeRoot, sessionId);
+        Files.writeString(
+                journal,
+                Files.readString(journal, StandardCharsets.UTF_8)
+                        .replace("\"truncated\":false}",
+                                "\"truncated\":false,\"unexpected\":true}"),
+                StandardCharsets.UTF_8);
+
+        try (FileSessionStore resumed = store(storeRoot, workspace, 100)) {
+            assertThatThrownBy(() -> resumed.open(
+                    new SessionOpenRequest(SessionOpenMode.RESUME, java.util.Optional.of(sessionId)),
+                    SPEC))
+                    .isInstanceOf(SessionOpenException.class);
+        }
+    }
+
     private SessionId createAndClose(Path storeRoot, Path workspace) {
         try (FileSessionStore store = store(storeRoot, workspace, 1)) {
             SessionId id = store.create(SPEC).id();

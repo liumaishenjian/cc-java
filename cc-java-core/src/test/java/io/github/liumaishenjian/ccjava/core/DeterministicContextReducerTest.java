@@ -19,6 +19,7 @@ import io.github.liumaishenjian.ccjava.domain.SystemMessage;
 import io.github.liumaishenjian.ccjava.domain.ToolCall;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
 import io.github.liumaishenjian.ccjava.domain.ToolResultMessage;
+import io.github.liumaishenjian.ccjava.domain.UserFileAttachment;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -53,6 +54,21 @@ class DeterministicContextReducerTest {
                         + usage.transcriptTokens()
                         + usage.toolTokens()
                         + usage.memoryTokens());
+    }
+
+    @Test
+    void estimatorConservativelyAccountsForBase64FileEnvelope() {
+        UserFileAttachment attachment = new UserFileAttachment(
+                "src/说明.java", "内容".repeat(100), "a".repeat(64), 1, 100, false);
+        ContextCapacity capacity = new ContextCapacity("fake", 10_000, 10, 10);
+
+        var plain = ESTIMATOR.estimate(List.of(new UserMessage("检查")), capacity);
+        var withFile = ESTIMATOR.estimate(
+                List.of(new UserMessage("检查", List.of(attachment))), capacity);
+
+        assertThat(withFile.transcriptTokens()).isGreaterThan(
+                plain.transcriptTokens() + attachment.textSnapshot().codePointCount(
+                        0, attachment.textSnapshot().length()));
     }
 
     @Test

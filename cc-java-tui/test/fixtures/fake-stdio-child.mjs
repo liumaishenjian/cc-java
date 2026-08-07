@@ -14,6 +14,29 @@ reader.on('line', line => {
   if (command.type === 'initialize') {
     sessionId = 'session-1';
     emit('initialized', command.requestId, {protocolVersion: 0}, sessionId);
+  } else if (command.type === 'file.suggest') {
+    if (mode === 'suggest-error') {
+      emit('protocol.error', command.requestId, {code: 'FILE_SUGGEST_UNAVAILABLE'}, sessionId);
+      return;
+    }
+    const candidates = command.payload.query.includes('space')
+      ? ['dir/file name.md'] : [`src/${command.payload.query || 'App'}.java`];
+    if (mode === 'suggest-unknown-request') {
+      emit('file.suggestions', 'unknown-request', {query: command.payload.query, candidates}, sessionId);
+      return;
+    }
+    if (mode === 'suggest-wrong-query') {
+      emit('file.suggestions', command.requestId, {query: 'other', candidates}, sessionId);
+      return;
+    }
+    if (mode === 'suggest-wrong-session') {
+      emit('file.suggestions', command.requestId, {query: command.payload.query, candidates}, 'session-stale');
+      return;
+    }
+    emit('file.suggestions', command.requestId, {query: command.payload.query, candidates}, sessionId);
+    if (mode === 'suggest-duplicate') {
+      emit('file.suggestions', command.requestId, {query: command.payload.query, candidates}, sessionId);
+    }
   } else if (command.type === 'input.begin') {
     inputAssembly = {requestId: command.requestId, inputId: command.payload.inputId, chunks: []};
     if (mode === 'chunk-error-begin') {

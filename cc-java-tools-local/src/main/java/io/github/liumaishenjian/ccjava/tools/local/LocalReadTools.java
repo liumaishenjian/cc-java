@@ -7,6 +7,7 @@ import io.github.liumaishenjian.ccjava.tools.local.tool.GitStatusTool;
 import io.github.liumaishenjian.ccjava.tools.local.tool.ListFilesTool;
 import io.github.liumaishenjian.ccjava.tools.local.tool.ReadFileTool;
 import io.github.liumaishenjian.ccjava.tools.local.tool.SearchTextTool;
+import io.github.liumaishenjian.ccjava.tools.local.text.WorkspaceReadRegistry;
 import io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceGuard;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -48,12 +49,29 @@ public final class LocalReadTools {
      * @return 稳定且不可变的只读 Tool 列表
      */
     public static List<AgentTool> create(WorkspaceGuard guard) {
+        return create(guard, new WorkspaceReadRegistry());
+    }
+
+    /**
+     * 创建与写工具共享 Read 证据登记表的只读 Tool。
+     *
+     * <p>共享登记表通过组合注入，使 {@code read_file} 记录的行范围证据成为
+     * {@code apply_patch} 的写入前置条件，而两个 Tool 之间不产生直接依赖。</p>
+     *
+     * @param guard 与写工具、指令和 Git 快照共享的安全边界
+     * @param readRegistry 有界 Read 证据登记表
+     * @return 稳定且不可变的只读 Tool 列表
+     */
+    public static List<AgentTool> create(
+            WorkspaceGuard guard,
+            WorkspaceReadRegistry readRegistry) {
         Objects.requireNonNull(guard, "guard 不能为空");
+        Objects.requireNonNull(readRegistry, "readRegistry 不能为空");
         GitReadClient git = new GitReadClient(guard.workspace());
         return List.of(
                 new ListFilesTool(guard),
                 new SearchTextTool(guard),
-                new ReadFileTool(guard),
+                new ReadFileTool(guard, readRegistry),
                 new GitStatusTool(guard, git),
                 new GitDiffTool(guard, git));
     }

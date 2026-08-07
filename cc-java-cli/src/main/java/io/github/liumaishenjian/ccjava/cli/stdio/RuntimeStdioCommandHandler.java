@@ -76,6 +76,8 @@ public final class RuntimeStdioCommandHandler
     static final int MAX_INPUT_CHUNKS = 64;
     static final Duration INPUT_ASSEMBLY_TIMEOUT = Duration.ofSeconds(30);
     static final int MAX_INPUT_TOMBSTONES = 256;
+    /** {@code file.suggestions} 单条事件 payload 的 UTF-8 预算。 */
+    static final int MAX_SUGGESTION_EVENT_BYTES = 8_192;
 
     private final Object lock = new Object();
     private final StdioProtocolCodec codec = new StdioProtocolCodec();
@@ -95,6 +97,8 @@ public final class RuntimeStdioCommandHandler
     private final LinkedHashMap<String, InputTerminal> inputTombstones = new LinkedHashMap<>();
     private InputAssembly inputAssembly;
     private ExpiryHandle inputExpiry;
+    private io.github.liumaishenjian.ccjava.cli.mentions.FileMentionService fileMentions;
+    private io.github.liumaishenjian.ccjava.cli.mentions.FileSuggestionService fileSuggestions;
 
     /**
      * 使用已校验的本地 Provider 设置装配 Headless Runtime。
@@ -283,6 +287,7 @@ public final class RuntimeStdioCommandHandler
             case "checkpoint.diff" -> checkpointDiff(command, events);
             case "checkpoint.undo" -> checkpointUndo(command, events);
             case "session.command" -> sessionCommand(command, events);
+            case "file.suggest" -> suggestFiles(command, events);
             case "shutdown" -> shutdown();
             default -> throw protocolError(
                     "UNKNOWN_COMMAND",
@@ -303,6 +308,10 @@ public final class RuntimeStdioCommandHandler
                         "initialize 不能携带 Session 或 Run");
             }
             application.open();
+            fileMentions = new io.github.liumaishenjian.ccjava.cli.mentions.FileMentionService(
+                    application.workspaceGuard());
+            fileSuggestions = new io.github.liumaishenjian.ccjava.cli.mentions.FileSuggestionService(
+                    application.workspaceGuard());
             state = State.READY;
         }
         ObjectNode payload = codec.objectNode();
@@ -337,6 +346,7 @@ public final class RuntimeStdioCommandHandler
             StdioProtocol.EventEmitter events,
             String prompt) throws StdioProtocolException {
         ActiveRun run;
+        io.github.liumaishenjian.ccjava.domain.UserMessage message;
         synchronized (lock) {
             ensureStateReadyOrRunning(command);
             requireSession(command);
@@ -346,12 +356,21 @@ public final class RuntimeStdioCommandHandler
                         command,
                         "run.start 的 Run ID 必须由 Java 生成");
             }
+            // 显式文件提及必须在创建 Run、写 Session 或请求模型之前完成权威校验。
+            try {
+                message = fileMentions.resolve(prompt);
+            } catch (io.github.liumaishenjian.ccjava.cli.mentions.FileMentionException invalid) {
+                throw protocolError(
+                        io.github.liumaishenjian.ccjava.cli.mentions.FileMentionException.CODE,
+                        command,
+                        "显式文件提及无法安全解析");
+            }
             if (state == State.RUNNING) {
                 if (steeringQueue.size() >= MAX_STEERING_MESSAGES) {
                     throw protocolError("STEERING_QUEUE_FULL", command, "steering 队列已满");
                 }
                 QueuedSteering steering = new QueuedSteering(
-                        command.requestId(), application.sessionId().value(), prompt, events);
+                        command.requestId(), application.sessionId().value(), message, events);
                 steeringQueue.addLast(steering);
                 try {
                     emitSteeringQueued(command, events, steeringQueue.size());
@@ -363,7 +382,72 @@ public final class RuntimeStdioCommandHandler
             }
             run = startRunLocked(command.requestId(), prompt.length(), events);
         }
-        executor.submit(() -> executeRun(run, prompt));
+        io.github.liumaishenjian.ccjava.domain.UserMessage accepted = message;
+        executor.submit(() -> executeRun(run, accepted));
+        return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    /**
+     * 返回只服务 UX 的有界 Workspace-relative 候选，绝不启动 Run 或修改 Session。
+     *
+     * <p>候选不是授权依据：提交时仍由
+     * {@link io.github.liumaishenjian.ccjava.cli.mentions.FileMentionService} 重新做权威校验。
+     * 事件超过固定预算时从低优先级尾部移除候选；建议本来就不是完整清单，因此该裁剪不会改变
+     * 权威文件解析语义。</p>
+     *
+     * @param command 已通过严格 schema 的 file.suggest
+     * @param events 当前连接的有序事件出口
+     * @return 连接继续读取下一条命令
+     * @throws StdioProtocolException 状态、Session 或扫描不可用时
+     */
+    private StdioProtocol.Disposition suggestFiles(
+            StdioProtocol.Command command,
+            StdioProtocol.EventEmitter events) throws StdioProtocolException {
+        String query;
+        String sessionId;
+        io.github.liumaishenjian.ccjava.cli.mentions.FileSuggestionService suggestionService;
+        java.util.List<String> candidates;
+        synchronized (lock) {
+            ensureStateReadyOrRunning(command);
+            requireSession(command);
+            requireNoRunId(command);
+            query = command.payload().get("query").stringValue();
+            sessionId = application.sessionId().value();
+            suggestionService = fileSuggestions;
+        }
+        try {
+            candidates = suggestionService.suggest(query);
+        } catch (RuntimeException failure) {
+            throw protocolError("FILE_SUGGEST_UNAVAILABLE", command, "文件候选不可用");
+        }
+        ObjectNode payload = codec.objectNode();
+        payload.put("query", query);
+        ArrayNode items = codec.arrayNode();
+        candidates.forEach(items::add);
+        payload.set("candidates", items);
+        StdioProtocol.Event sizeProbe = new StdioProtocol.Event(
+                StdioProtocol.VERSION,
+                "file.suggestions",
+                command.requestId(),
+                Optional.of(sessionId),
+                Optional.empty(),
+                Long.MAX_VALUE,
+                payload);
+        while (items.size() > 0
+                && codec.encodeEvent(sizeProbe).getBytes(StandardCharsets.UTF_8).length + 1
+                        > MAX_SUGGESTION_EVENT_BYTES) {
+            items.remove(items.size() - 1);
+        }
+        if (codec.encodeEvent(sizeProbe).getBytes(StandardCharsets.UTF_8).length + 1
+                > MAX_SUGGESTION_EVENT_BYTES) {
+            throw protocolError("FILE_SUGGEST_TOO_LARGE", command, "文件候选事件超过预算");
+        }
+        events.emit(
+                "file.suggestions",
+                command.requestId(),
+                Optional.of(sessionId),
+                Optional.empty(),
+                payload);
         return StdioProtocol.Disposition.CONTINUE;
     }
 
@@ -545,7 +629,8 @@ public final class RuntimeStdioCommandHandler
             throws StdioProtocolException {
         JsonNode value = command.payload().get(field);
         if (value == null || !value.isString() || value.stringValue().isBlank()
-                || value.stringValue().length() > StdioProtocolCodec.MAX_IDENTIFIER_CHARS && !field.equals("sha256")) {
+                || (value.stringValue().length() > StdioProtocolCodec.MAX_IDENTIFIER_CHARS
+                        && !field.equals("sha256"))) {
             throw protocolError("INVALID_PAYLOAD", command, field + " 无效");
         }
         return value.stringValue();
@@ -997,9 +1082,9 @@ public final class RuntimeStdioCommandHandler
         emit(run, "approval.requested", payload);
     }
 
-    private void executeRun(ActiveRun run, String prompt) {
+    private void executeRun(ActiveRun run, io.github.liumaishenjian.ccjava.domain.UserMessage message) {
         try {
-            application.run(prompt);
+            application.run(message);
         } catch (RuntimeException exception) {
             emitUnexpectedFailure(run);
         }
@@ -1253,8 +1338,9 @@ public final class RuntimeStdioCommandHandler
             next = steeringQueue.pollFirst();
             if (next != null) {
                 QueuedSteering steering = next;
-                ActiveRun nextRun = startRunLocked(steering.requestId(), steering.prompt().length(), steering.events());
-                executor.submit(() -> executeRun(nextRun, steering.prompt()));
+                ActiveRun nextRun = startRunLocked(
+                        steering.requestId(), steering.message().content().length(), steering.events());
+                executor.submit(() -> executeRun(nextRun, steering.message()));
             }
         }
     }
@@ -1481,11 +1567,15 @@ public final class RuntimeStdioCommandHandler
      * <p>该对象不进入 AgentEvent、Canonical Transcript、Session JSONL 或 Checkpoint；其文本仅在
      * 当前 Run 正常终态后的安全边界被消费一次。</p>
      */
-    private record QueuedSteering(String requestId, String sessionId, String prompt, StdioProtocol.EventEmitter events) {
+    private record QueuedSteering(
+            String requestId,
+            String sessionId,
+            io.github.liumaishenjian.ccjava.domain.UserMessage message,
+            StdioProtocol.EventEmitter events) {
         private QueuedSteering {
             Objects.requireNonNull(requestId, "requestId 不能为空");
             Objects.requireNonNull(sessionId, "sessionId 不能为空");
-            Objects.requireNonNull(prompt, "prompt 不能为空");
+            Objects.requireNonNull(message, "message 不能为空");
             Objects.requireNonNull(events, "events 不能为空");
         }
     }

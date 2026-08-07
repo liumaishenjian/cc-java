@@ -7,6 +7,7 @@ import io.github.liumaishenjian.ccjava.tools.local.workspace.ValidatedWorkspaceP
 import io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceAccessException;
 import io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceGuard;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -58,10 +59,13 @@ public final class RootInstructionLoader {
             throw error(ToolErrorCode.FILE_TOO_LARGE, "根 AGENTS.md 超过大小上限");
         }
         byte[] bytes;
-        try {
-            bytes = Files.readAllBytes(validated.realPath());
+        try (InputStream input = Files.newInputStream(validated.realPath())) {
+            bytes = input.readNBytes(Math.toIntExact(LocalToolLimits.MAX_INSTRUCTION_BYTES + 1));
         } catch (IOException exception) {
             throw error(ToolErrorCode.EXECUTION_FAILED, "无法读取根 AGENTS.md");
+        }
+        if (bytes.length > LocalToolLimits.MAX_INSTRUCTION_BYTES) {
+            throw error(ToolErrorCode.FILE_TOO_LARGE, "根 AGENTS.md 超过大小上限");
         }
         int offset = bytes.length >= 3
                 && bytes[0] == (byte) 0xEF

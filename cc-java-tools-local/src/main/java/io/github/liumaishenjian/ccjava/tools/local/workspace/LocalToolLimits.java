@@ -19,6 +19,19 @@ public final class LocalToolLimits {
     /** 单次 read_file 最大行数。 */
     public static final int MAX_READ_LINES = 500;
 
+    /**
+     * 单次有界行范围读取允许扫描的最大字节数。
+     *
+     * <p>该 ceiling 独立于整文件读取的 {@link #MAX_TEXT_FILE_BYTES}：范围读取以固定字节
+     * 窗口流式解码，峰值内存由页行数与单行字符预算决定，与文件大小无关，因此可以在明确
+     * 请求有界范围时安全越过整文件 ceiling。取值按“固定 5 秒 Tool 期限内可完成的顺序扫描
+     * 量”选取，与 {@link #MAX_SEARCH_BYTES} 同量级，仍受取消信号和 Tool 超时约束。</p>
+     */
+    public static final long MAX_RANGE_SCAN_BYTES = 64L * 1024 * 1024;
+
+    /** 单行允许返回给模型的最大字符数，防止超长行无界累积。 */
+    public static final int MAX_READ_LINE_CHARACTERS = 4_000;
+
     /** list_files 最大深度。 */
     public static final int MAX_LIST_DEPTH = 20;
 

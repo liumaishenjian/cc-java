@@ -12,6 +12,12 @@ import type {
 import {AssistantMarkdown} from './assistant-markdown.js';
 import {ToolActivityGroup} from './tool-activity.js';
 import {
+  activeFileMention,
+  boundedFileSuggestions,
+  fileMentionEnabled,
+  type ActiveFileMention,
+} from './file-mention.js';
+import {
   parseSlashCommand,
   renderSlashResult,
   slashCommandUsage,
@@ -53,6 +59,7 @@ export interface AgentClient {
   checkpointDiff?(checkpointId: string): string;
   undoCheckpoint?(checkpointId: string, confirmed: boolean): string;
   sessionCommand?(commandId: string, intent: 'help' | 'clear' | 'compact' | 'context' | 'doctor' | 'model' | 'permissions' | 'resume', arguments_: Readonly<Record<string, unknown>>): string;
+  suggestFiles?(query: string): string;
   shutdown(): Promise<void>;
   terminate(): void;
 }
@@ -80,6 +87,12 @@ export function AgentTui({client}: AgentTuiProps) {
   }>());
   const cancelPending = useRef(false);
   const nextCommandNumber = useRef(1);
+  const fileSuggestionRef = useRef<{
+    readonly requestId: string;
+    readonly query: string;
+    readonly mention: ActiveFileMention;
+  } | undefined>(undefined);
+  const fileSuggestionTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const pendingApproval = state.runs.findLast(
     run => run.status === 'running',
   )?.pendingApproval;
@@ -107,6 +120,27 @@ export function AgentTui({client}: AgentTuiProps) {
     replaceComposer(transition.state);
     return transition;
   };
+  const acceptCurrentCompletion = () => {
+    const current = composerRef.current;
+    const selected = current.completionCandidates[current.completionIndex ?? 0];
+    if (selected?.startsWith('@')) {
+      const mention = activeFileMention(current);
+      if (mention === undefined) {
+        applyComposer({type: 'CloseCompletion'});
+        return;
+      }
+      const replacement = reduceComposer(current, {
+        type: 'ReplaceRange',
+        startGrapheme: mention.startGrapheme,
+        endGrapheme: mention.endGrapheme,
+        text: selected,
+      }, composerLayout);
+      replaceComposer({...replacement.state, completionCandidates: [], completionIndex: undefined});
+      fileSuggestionRef.current = undefined;
+      return;
+    }
+    applyComposer({type: 'AcceptCompletion'});
+  };
 
   useEffect(() => {
     const offEvent = client.onEvent(event => {
@@ -119,9 +153,26 @@ export function AgentTui({client}: AgentTuiProps) {
           pendingSubmissionsRef.current.clear();
         }
       }
+      if (event.type === 'file.suggestions') {
+        const pending = fileSuggestionRef.current;
+        const mention = activeFileMention(composerRef.current);
+        if (pending !== undefined
+          && event.requestId === pending.requestId
+          && event.payload.query === pending.query
+          && mention !== undefined
+          && mention.query === pending.query
+          && mention.startGrapheme === pending.mention.startGrapheme) {
+          const candidates = boundedFileSuggestions(event.payload.candidates as readonly string[]);
+          const completion = reduceComposer(
+            composerRef.current, {type: 'SetCompletions', candidates}, composerLayout,
+          );
+          replaceComposer(completion.state);
+        }
+      }
       if (event.type === 'session.command.result') {
         if (event.payload.intent === 'resume' && event.payload.status === 'succeeded') {
           historySessionIdRef.current = event.sessionId;
+          fileSuggestionRef.current = undefined;
           replaceComposer(createComposerState(4));
           pendingSteeringPromptsRef.current.clear();
           pendingSubmissionsRef.current.clear();
@@ -136,6 +187,12 @@ export function AgentTui({client}: AgentTuiProps) {
         });
       }
       if (event.type === 'steering.discarded' || event.type === 'protocol.error') {
+        if (fileSuggestionRef.current?.requestId === event.requestId) {
+          fileSuggestionRef.current = undefined;
+          if (composerRef.current.completionCandidates.some(candidate => candidate.startsWith('@'))) {
+            applyComposer({type: 'CloseCompletion'});
+          }
+        }
         pendingSteeringPromptsRef.current.delete(event.requestId);
         const rejected = pendingSubmissionsRef.current.get(event.requestId);
         if (rejected !== undefined) {
@@ -198,6 +255,36 @@ export function AgentTui({client}: AgentTuiProps) {
   useEffect(() => {
     applyComposer({type: 'Resize', width: composerLayout.width, height: composerLayout.height});
   }, [columns, rows]);
+
+  useEffect(() => {
+    if (fileSuggestionTimerRef.current !== undefined) {
+      clearTimeout(fileSuggestionTimerRef.current);
+      fileSuggestionTimerRef.current = undefined;
+    }
+    const mention = fileMentionEnabled(composerRef.current)
+      ? activeFileMention(composerRef.current) : undefined;
+    if (mention === undefined || client.suggestFiles === undefined || state.phase === 'connecting') {
+      fileSuggestionRef.current = undefined;
+      if (composerRef.current.completionCandidates.some(candidate => candidate.startsWith('@'))) {
+        applyComposer({type: 'CloseCompletion'});
+      }
+      return;
+    }
+    fileSuggestionTimerRef.current = setTimeout(() => {
+      try {
+        const requestId = client.suggestFiles!(mention.query);
+        fileSuggestionRef.current = {requestId, query: mention.query, mention};
+      } catch {
+        fileSuggestionRef.current = undefined;
+      }
+    }, 75);
+    return () => {
+      if (fileSuggestionTimerRef.current !== undefined) {
+        clearTimeout(fileSuggestionTimerRef.current);
+        fileSuggestionTimerRef.current = undefined;
+      }
+    };
+  }, [composer.text, composer.cursorGrapheme, client, state.phase]);
 
   usePaste(pasted => {
     if (canEditInput(state.phase)) {
@@ -292,7 +379,7 @@ export function AgentTui({client}: AgentTuiProps) {
     }
     if (key.return) {
       if (current.completionCandidates.length > 0) {
-        applyComposer({type: 'AcceptCompletion'});
+        acceptCurrentCompletion();
         return;
       }
       if (pendingSubmissionsRef.current.size > 0) {
@@ -348,7 +435,7 @@ export function AgentTui({client}: AgentTuiProps) {
       return;
     }
     if (key.tab) {
-      if (current.completionCandidates.length > 0) applyComposer({type: 'AcceptCompletion'});
+      if (current.completionCandidates.length > 0) acceptCurrentCompletion();
       return;
     }
     if (key.backspace || key.delete) {
@@ -498,10 +585,13 @@ export function AgentView({state, composer, input = '', columns, composerLayout}
       </Text>
       {candidates.length === 0 ? null : (
         <Box flexDirection="column" marginLeft={2}>
-          <Text dimColor>Slash 命令 · ↑/↓ 选择 · Tab/Enter 补全</Text>
+          <Text dimColor>{candidates[0]?.startsWith('@')
+            ? '文件建议 · ↑/↓ 选择 · Tab/Enter 补全 · Esc 关闭'
+            : 'Slash 命令 · ↑/↓ 选择 · Tab/Enter 补全'}</Text>
           {candidates.map((candidate, index) => (
             <Text key={candidate} color={index === selectedCompletion ? 'cyan' : 'white'}>
-              {index === selectedCompletion ? '❯ ' : '  '}{slashCommandUsage(candidate)}
+              {index === selectedCompletion ? '❯ ' : '  '}{candidate.startsWith('@')
+                ? candidate : slashCommandUsage(candidate)}
             </Text>
           ))}
         </Box>

@@ -53,7 +53,11 @@ export class StdioClient {
   #pendingSessionCommands = new Map<string, string>();
   #pendingRunStartRequestId: string | undefined;
   #pendingSteeringRequests = new Map<string, 'awaiting_queued' | 'queued'>();
+  #pendingFileSuggestions = new Map<string, string>();
+  #completedFileSuggestionIds = new Set<string>();
   static readonly #MAX_ISSUED_SESSION_COMMAND_IDS = 256;
+  static readonly #MAX_PENDING_FILE_SUGGESTIONS = 256;
+  static readonly #MAX_COMPLETED_FILE_SUGGESTIONS = 256;
 
   public constructor(spec: ChildProcessSpec, options: StdioClientOptions = {}) {
     this.#maxLineBytes = options.maxLineBytes ?? MAX_LINE_BYTES;
@@ -87,6 +91,8 @@ export class StdioClient {
       this.#pendingSessionCommands.clear();
       this.#pendingRunStartRequestId = undefined;
       this.#pendingSteeringRequests.clear();
+      this.#pendingFileSuggestions.clear();
+      this.#completedFileSuggestionIds.clear();
       this.#issuedSessionCommandIds.clear();
       this.#events.emit('exit', {code, signal, stderrBytes: this.#stderrBytes});
     });
@@ -178,6 +184,19 @@ export class StdioClient {
     }, this.#sessionId);
     this.#issuedSessionCommandIds.add(commandId);
     this.#pendingSessionCommands.set(commandId, requestId);
+    return requestId;
+  }
+
+  /** 请求 Java 权威 Workspace 返回显式文件 mention 候选。 */
+  public suggestFiles(query: string): string {
+    if (this.#sessionId === undefined) {
+      throw new Error('Session 尚未初始化');
+    }
+    if (this.#pendingFileSuggestions.size >= StdioClient.#MAX_PENDING_FILE_SUGGESTIONS) {
+      throw new Error('file.suggest 待处理请求超过上限');
+    }
+    const requestId = this.#send('file.suggest', {query}, this.#sessionId);
+    this.#pendingFileSuggestions.set(requestId, query);
     return requestId;
   }
 
@@ -355,10 +374,25 @@ export class StdioClient {
 
   #observeAuthority(event: ProtocolEvent): void {
     if (event.type === 'protocol.error') {
+      this.#pendingFileSuggestions.delete(event.requestId);
       if (event.requestId === this.#pendingRunStartRequestId) {
         this.#pendingRunStartRequestId = undefined;
       } else {
         this.#pendingSteeringRequests.delete(event.requestId);
+      }
+    } else if (event.type === 'file.suggestions') {
+      const expectedQuery = this.#pendingFileSuggestions.get(event.requestId);
+      if (this.#completedFileSuggestionIds.has(event.requestId)
+        || expectedQuery === undefined
+        || event.sessionId !== this.#sessionId
+        || event.payload.query !== expectedQuery) {
+        throw new ProtocolViolation('file.suggestions 与待处理请求或当前 Session 不匹配');
+      }
+      this.#pendingFileSuggestions.delete(event.requestId);
+      this.#completedFileSuggestionIds.add(event.requestId);
+      if (this.#completedFileSuggestionIds.size > StdioClient.#MAX_COMPLETED_FILE_SUGGESTIONS) {
+        const oldest = this.#completedFileSuggestionIds.values().next().value;
+        if (oldest !== undefined) this.#completedFileSuggestionIds.delete(oldest);
       }
     } else if (event.type === 'steering.queued') {
       if (
@@ -396,12 +430,16 @@ export class StdioClient {
           this.#sessionId = event.sessionId;
           this.#pendingRunStartRequestId = undefined;
           this.#pendingSteeringRequests.clear();
+          this.#pendingFileSuggestions.clear();
         } else {
           throw new ProtocolViolation('session.command.result resume 与当前 Session 不匹配');
         }
       }
     }
     if (event.type === 'initialized') {
+      if (this.#sessionId !== undefined && this.#sessionId !== event.sessionId) {
+        this.#pendingFileSuggestions.clear();
+      }
       this.#sessionId = event.sessionId;
     } else if (event.type === 'run.started') {
       if (event.sessionId !== this.#sessionId) {
@@ -435,6 +473,8 @@ export class StdioClient {
     this.#pendingSessionCommands.clear();
     this.#pendingRunStartRequestId = undefined;
     this.#pendingSteeringRequests.clear();
+    this.#pendingFileSuggestions.clear();
+    this.#completedFileSuggestionIds.clear();
     this.#issuedSessionCommandIds.clear();
     this.#emitFailure(message);
     this.#child.kill();

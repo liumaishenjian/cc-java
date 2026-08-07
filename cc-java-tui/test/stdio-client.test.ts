@@ -63,6 +63,58 @@ describe('StdioClient', () => {
     },
   );
 
+  it('初始化后请求并严格关联 Java 文件建议', async () => {
+    const client = createClient();
+    const events: ProtocolEvent[] = [];
+    client.onEvent(event => events.push(event));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+    const requestId = client.suggestFiles('space');
+    await waitFor(() => events.some(event => event.type === 'file.suggestions'));
+    const result = events.find(event => event.type === 'file.suggestions')!;
+    expect(result.requestId).toBe(requestId);
+    expect(result.payload).toEqual({query: 'space', candidates: ['dir/file name.md']});
+    await client.shutdown();
+  });
+
+  it('file.suggest 协议错误会终结对应待处理请求而不耗尽上限', async () => {
+    const client = createClient('suggest-error');
+    const events: ProtocolEvent[] = [];
+    client.onEvent(event => events.push(event));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+
+    for (let index = 0; index < 300; index++) {
+      const requestId = client.suggestFiles(`q-${index}`);
+      await waitFor(() => events.some(event =>
+        event.type === 'protocol.error' && event.requestId === requestId));
+    }
+
+    expect(client.isClosed()).toBe(false);
+    await client.shutdown();
+  });
+
+  it.each([
+    ['suggest-duplicate', '重复响应'],
+    ['suggest-unknown-request', '未知 requestId'],
+    ['suggest-wrong-session', '错配 Session'],
+    ['suggest-wrong-query', '错配 query'],
+  ])('file.suggestions %s 立即 fail closed', async mode => {
+    const client = createClient(mode);
+    const events: ProtocolEvent[] = [];
+    const failures: string[] = [];
+    client.onEvent(event => events.push(event));
+    client.onFailure(message => failures.push(message));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+
+    client.suggestFiles('src');
+    await waitFor(() => failures.length === 1);
+
+    expect(failures[0]).toContain('file.suggestions');
+    expect(client.isClosed()).toBe(true);
+  });
+
   it('活动 Run 可以通过命令取消', async () => {
     const client = createClient();
     const events: ProtocolEvent[] = [];

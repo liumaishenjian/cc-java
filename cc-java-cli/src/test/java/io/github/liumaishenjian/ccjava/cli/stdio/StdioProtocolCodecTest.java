@@ -158,6 +158,89 @@ class StdioProtocolCodecTest {
         assertThat(root.get("sequence").longValue()).isEqualTo(1);
     }
 
+    @Test
+    void decodesFileSuggestWithExactQueryPayload() throws Exception {
+        StdioProtocol.Command command = codec.decodeCommand("""
+                {"version":0,"type":"file.suggest","requestId":"suggest-1",
+                 "sessionId":"session-1","sequence":4,"payload":{"query":"src/ma"}}
+                """);
+
+        assertThat(command.type()).isEqualTo("file.suggest");
+        assertThat(command.sessionId()).contains("session-1");
+        assertThat(command.runId()).isEmpty();
+        assertThat(command.payload().get("query").stringValue()).isEqualTo("src/ma");
+    }
+
+    @Test
+    void failsClosedOnFileSuggestSchemaViolations() {
+        // 未知 payload 字段。
+        assertProtocolError(
+                """
+                {"version":0,"type":"file.suggest","requestId":"s","sessionId":"session-1",
+                 "sequence":1,"payload":{"query":"a","limit":99}}
+                """,
+                "UNKNOWN_FIELD");
+        // 未知信封字段。
+        assertProtocolError(
+                """
+                {"version":0,"type":"file.suggest","requestId":"s","sessionId":"session-1",
+                 "sequence":1,"payload":{"query":"a"},"extra":1}
+                """,
+                "UNKNOWN_FIELD");
+        // 缺少 Session。
+        assertProtocolError(
+                """
+                {"version":0,"type":"file.suggest","requestId":"s","sequence":1,
+                 "payload":{"query":"a"}}
+                """,
+                "INVALID_ENVELOPE");
+        // 不得携带 Run。
+        assertProtocolError(
+                """
+                {"version":0,"type":"file.suggest","requestId":"s","sessionId":"session-1",
+                 "runId":"run-1","sequence":1,"payload":{"query":"a"}}
+                """,
+                "INVALID_ENVELOPE");
+        // 缺少 query。
+        assertProtocolError(
+                """
+                {"version":0,"type":"file.suggest","requestId":"s","sessionId":"session-1",
+                 "sequence":1,"payload":{}}
+                """,
+                "INVALID_PAYLOAD");
+        // query 类型错误。
+        assertProtocolError(
+                """
+                {"version":0,"type":"file.suggest","requestId":"s","sessionId":"session-1",
+                 "sequence":1,"payload":{"query":7}}
+                """,
+                "INVALID_PAYLOAD");
+        // query 超过 256 code point。
+        assertProtocolError(
+                ("""
+                {"version":0,"type":"file.suggest","requestId":"s","sessionId":"session-1",
+                 "sequence":1,"payload":{"query":"%s"}}
+                """).formatted("a".repeat(257)),
+                "INVALID_ARGUMENT");
+        // query 含控制字符。
+        assertProtocolError(
+                """
+                {"version":0,"type":"file.suggest","requestId":"s","sessionId":"session-1",
+                 "sequence":1,"payload":{"query":"a\\u0000b"}}
+                """,
+                "INVALID_ARGUMENT");
+    }
+
+    @Test
+    void acceptsExactlyMaximumFileSuggestQueryLength() throws Exception {
+        StdioProtocol.Command command = codec.decodeCommand(("""
+                {"version":0,"type":"file.suggest","requestId":"s","sessionId":"session-1",
+                 "sequence":1,"payload":{"query":"%s"}}
+                """).formatted("a".repeat(256)));
+
+        assertThat(command.payload().get("query").stringValue()).hasSize(256);
+    }
+
     private void assertProtocolError(String input, String expectedCode) {
         assertThatThrownBy(() -> codec.decodeCommand(input))
                 .isInstanceOf(StdioProtocolException.class)

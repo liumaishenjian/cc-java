@@ -243,8 +243,13 @@ class RuntimeStdioCommandHandlerTest {
         java.util.concurrent.atomic.AtomicInteger turns = new java.util.concurrent.atomic.AtomicInteger();
 
         try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(
-                request -> turns.incrementAndGet() == 1
-                        ? new ModelTurn(
+                request -> switch (turns.incrementAndGet()) {
+                    case 1 -> new ModelTurn(
+                            AssistantMessage.tools(List.of(new ToolCall(
+                                    "call-read", "read_file",
+                                    new JsonObject(java.util.Map.of("path", "sample.txt"))))),
+                            ModelTurnMetadata.unknown());
+                    case 2 -> new ModelTurn(
                                 AssistantMessage.tools(List.of(new ToolCall(
                                         "call-patch",
                                         "apply_patch",
@@ -252,8 +257,9 @@ class RuntimeStdioCommandHandlerTest {
                                                 "path", "sample.txt",
                                                 "oldText", "old",
                                                 "newText", "new"))))),
-                                ModelTurnMetadata.unknown())
-                        : ModelTurn.text("done"),
+                                ModelTurnMetadata.unknown());
+                    default -> ModelTurn.text("done");
+                },
                 testOptions())) {
             handler.handle(codec.decodeCommand(
                     "{\"version\":0,\"type\":\"initialize\","
@@ -299,6 +305,11 @@ class RuntimeStdioCommandHandlerTest {
                 request -> switch (turns.incrementAndGet()) {
                     case 1 -> new ModelTurn(
                             AssistantMessage.tools(List.of(new ToolCall(
+                                    "call-read", "read_file",
+                                    new JsonObject(java.util.Map.of("path", "sample.txt"))))),
+                            ModelTurnMetadata.unknown());
+                    case 2 -> new ModelTurn(
+                            AssistantMessage.tools(List.of(new ToolCall(
                                     "call-patch-1",
                                     "apply_patch",
                                     new JsonObject(java.util.Map.of(
@@ -306,7 +317,7 @@ class RuntimeStdioCommandHandlerTest {
                                             "oldText", "old",
                                             "newText", "middle"))))),
                             ModelTurnMetadata.unknown());
-                    case 2 -> new ModelTurn(
+                    case 3 -> new ModelTurn(
                             AssistantMessage.tools(List.of(new ToolCall(
                                     "call-patch-2",
                                     "apply_patch",
@@ -356,8 +367,13 @@ class RuntimeStdioCommandHandlerTest {
         java.util.concurrent.atomic.AtomicInteger turns = new java.util.concurrent.atomic.AtomicInteger();
 
         try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(
-                request -> turns.incrementAndGet() == 1
-                        ? new ModelTurn(
+                request -> switch (turns.incrementAndGet()) {
+                    case 1 -> new ModelTurn(
+                            AssistantMessage.tools(List.of(new ToolCall(
+                                    "call-read", "read_file",
+                                    new JsonObject(java.util.Map.of("path", "sample.txt"))))),
+                            ModelTurnMetadata.unknown());
+                    case 2 -> new ModelTurn(
                                 AssistantMessage.tools(List.of(new ToolCall(
                                         "call-patch",
                                         "apply_patch",
@@ -365,8 +381,9 @@ class RuntimeStdioCommandHandlerTest {
                                                 "path", "sample.txt",
                                                 "oldText", "old",
                                                 "newText", "new"))))),
-                                ModelTurnMetadata.unknown())
-                        : ModelTurn.text("done"),
+                                ModelTurnMetadata.unknown());
+                    default -> ModelTurn.text("done");
+                },
                 testOptions())) {
             handler.handle(codec.decodeCommand(
                     "{\"version\":0,\"type\":\"initialize\","
@@ -1228,6 +1245,75 @@ class RuntimeStdioCommandHandlerTest {
             Thread.sleep(10);
         }
         throw new AssertionError("未收到 stdio Run 终态事件");
+    }
+
+    @Test
+    void fileSuggestEmitsBoundedCandidatesWithoutRunOrModelWork() throws Exception {
+        Path workspace = workspace();
+        Files.createDirectories(workspace.resolve("src"));
+        Files.writeString(workspace.resolve("src/notes.md"), "content");
+        Files.writeString(workspace.resolve(".env"), "SECRET_TOKEN=abc");
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        AtomicInteger modelCalls = new AtomicInteger();
+
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            modelCalls.incrementAndGet();
+            throw new AssertionError("file.suggest 不得触发模型请求");
+        }, testOptions())) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\","
+                            + "\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"file.suggest\","
+                    + "\"requestId\":\"suggest\",\"sessionId\":\"%s\",\"sequence\":2,"
+                    + "\"payload\":{\"query\":\"src\"}}").formatted(sessionId)), emitter);
+
+            CapturedEvent suggestions = awaitEvent(events, "file.suggestions");
+            assertThat(suggestions.runId()).isEmpty();
+            assertThat(suggestions.payload().get("query").stringValue()).isEqualTo("src");
+            assertThat(suggestions.payload().get("candidates").size()).isOne();
+            assertThat(suggestions.payload().get("candidates").get(0).stringValue())
+                    .isEqualTo("src/notes.md");
+            assertThat(suggestions.payload().toString())
+                    .doesNotContain("SECRET_TOKEN", ".env", workspace.toString());
+            assertThat(events).noneMatch(event -> event.type().startsWith("run."));
+            assertThat(modelCalls).hasValue(0);
+        }
+    }
+
+    @Test
+    void invalidExplicitMentionIsRejectedBeforeAnyRunOrModelRequest() throws Exception {
+        workspace();
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        AtomicInteger modelCalls = new AtomicInteger();
+
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            modelCalls.incrementAndGet();
+            throw new AssertionError("无效提及不得触发模型请求");
+        }, testOptions())) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\","
+                            + "\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand(
+                    ("{\"version\":0,\"type\":\"run.start\",\"requestId\":\"run\","
+                            + "\"sessionId\":\"%s\",\"sequence\":2,"
+                            + "\"payload\":{\"prompt\":\"look at @../outside/secret.txt\"}}")
+                            .formatted(sessionId)), emitter))
+                    .isInstanceOf(StdioProtocolException.class)
+                    .extracting(failure -> ((StdioProtocolException) failure).code())
+                    .isEqualTo("FILE_MENTION_INVALID");
+
+            assertThat(events).noneMatch(event -> event.type().startsWith("run."));
+            assertThat(modelCalls).hasValue(0);
+        }
     }
 
     private CapturedEvent awaitEvent(List<CapturedEvent> events, String type)
