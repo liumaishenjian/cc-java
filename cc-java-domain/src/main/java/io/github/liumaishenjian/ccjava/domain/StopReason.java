@@ -48,6 +48,9 @@ public enum StopReason {
     /** 关键操作被拒绝且 Run 无法继续。 */
     PERMISSION_DENIED,
 
+    /** 用户 Hook 在 Run 建立前阻断了本次用户请求。 */
+    HOOK_BLOCKED,
+
     /** 不可恢复的 Tool 错误。 */
     TOOL_ERROR,
 

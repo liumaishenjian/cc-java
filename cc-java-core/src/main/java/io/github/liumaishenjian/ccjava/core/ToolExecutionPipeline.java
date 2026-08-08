@@ -15,6 +15,11 @@ import io.github.liumaishenjian.ccjava.domain.ToolError;
 import io.github.liumaishenjian.ccjava.domain.ToolErrorCode;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
 import io.github.liumaishenjian.ccjava.domain.ToolOutputStream;
+import io.github.liumaishenjian.ccjava.domain.hook.HookAggregateResult;
+import io.github.liumaishenjian.ccjava.domain.hook.HookDisposition;
+import io.github.liumaishenjian.ccjava.domain.hook.HookEventKind;
+import io.github.liumaishenjian.ccjava.domain.hook.HookInvocation;
+import io.github.liumaishenjian.ccjava.core.hook.HookCoordinator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -44,6 +49,7 @@ public final class ToolExecutionPipeline {
     private final LifecycleDispatcher lifecycle;
     private final SessionJournal sessionJournal;
     private final CheckpointCoordinator checkpoints;
+    private final HookCoordinator hooks;
 
     /**
      * 创建 Tool 执行管线。
@@ -65,7 +71,8 @@ public final class ToolExecutionPipeline {
                 new InMemorySessionPermissionState(),
                 lifecycle,
                 SessionJournal.noop(),
-                CheckpointCoordinator.noop());
+                CheckpointCoordinator.noop(),
+                HookCoordinator.disabled());
     }
 
     /**
@@ -90,7 +97,8 @@ public final class ToolExecutionPipeline {
                 permissionState,
                 lifecycle,
                 SessionJournal.noop(),
-                CheckpointCoordinator.noop());
+                CheckpointCoordinator.noop(),
+                HookCoordinator.disabled());
     }
 
     /**
@@ -117,7 +125,8 @@ public final class ToolExecutionPipeline {
                 permissionState,
                 lifecycle,
                 sessionJournal,
-                CheckpointCoordinator.noop());
+                CheckpointCoordinator.noop(),
+                HookCoordinator.disabled());
     }
 
     /**
@@ -139,6 +148,41 @@ public final class ToolExecutionPipeline {
             LifecycleDispatcher lifecycle,
             SessionJournal sessionJournal,
             CheckpointCoordinator checkpoints) {
+        this(
+                registry,
+                permissionGate,
+                approvalHandler,
+                permissionState,
+                lifecycle,
+                sessionJournal,
+                checkpoints,
+                HookCoordinator.disabled());
+    }
+
+    /**
+     * 创建同时接入 durable Session、Checkpoint 和 S09 Hook 的 Tool 管线。
+     *
+     * <p>Pre Tool Hook 位于参数校验之后、Permission 之前；Post Tool Hook 位于
+     * Result 规范化并记录之后。Hook 不能直接执行 Tool 或覆盖 Hard Denial。</p>
+     *
+     * @param registry 唯一 Tool Registry
+     * @param permissionGate 类型化 Policy Kernel
+     * @param approvalHandler ASK 审批端口
+     * @param permissionState 当前 Session Permission 状态
+     * @param lifecycle 可失败的观察生命周期
+     * @param sessionJournal 必须成功的 Session journal
+     * @param checkpoints 写 Tool 的 durable Checkpoint 协调器
+     * @param hooks S09 Hook 协调器
+     */
+    public ToolExecutionPipeline(
+            ToolRegistry registry,
+            PermissionGate permissionGate,
+            ApprovalHandler approvalHandler,
+            SessionPermissionState permissionState,
+            LifecycleDispatcher lifecycle,
+            SessionJournal sessionJournal,
+            CheckpointCoordinator checkpoints,
+            HookCoordinator hooks) {
         this.registry = Objects.requireNonNull(registry, "registry 不能为空");
         this.permissionGate = Objects.requireNonNull(permissionGate, "permissionGate 不能为空");
         this.approvalHandler = Objects.requireNonNull(
@@ -151,6 +195,7 @@ public final class ToolExecutionPipeline {
         this.sessionJournal = Objects.requireNonNull(
                 sessionJournal, "sessionJournal 不能为空");
         this.checkpoints = Objects.requireNonNull(checkpoints, "checkpoints 不能为空");
+        this.hooks = Objects.requireNonNull(hooks, "hooks 不能为空");
     }
 
     /**
@@ -211,10 +256,11 @@ public final class ToolExecutionPipeline {
                     ToolResult.failure(
                             call.id(),
                             call.name(),
-                            ToolError.of(
+                    ToolError.of(
                                     ToolErrorCode.UNKNOWN_TOOL,
                                     "未注册 Tool: " + call.name())),
-                    ToolResolutionReason.UNKNOWN_TOOL);
+                    ToolResolutionReason.UNKNOWN_TOOL,
+                    cancellationToken);
         }
 
         ToolValidationResult validation;
@@ -240,7 +286,32 @@ public final class ToolExecutionPipeline {
                                     ToolErrorCode.INVALID_ARGUMENTS,
                                     "Tool 参数校验失败",
                             new JsonObject(details))),
-                    ToolResolutionReason.INVALID_ARGUMENTS);
+                    ToolResolutionReason.INVALID_ARGUMENTS,
+                    cancellationToken);
+        }
+
+        HookAggregateResult preTool = hooks.evaluate(
+                new HookInvocation(
+                        HookEventKind.PRE_TOOL,
+                        session.id(),
+                        java.util.Optional.of(runId),
+                        call.name(),
+                        new JsonObject(Map.of(
+                                "callId", call.id(),
+                                "toolName", call.name()))),
+                cancellationToken);
+        if (preTool.blocking()) {
+            String reason = preTool.blockingReason().orElse("Hook 阻断 Tool 调用");
+            return resolveWithoutExecution(
+                    session,
+                    runId,
+                    ordinal,
+                    ToolResult.failure(
+                            call.id(),
+                            call.name(),
+                            ToolError.of(ToolErrorCode.HOOK_BLOCKED, reason)),
+                    ToolResolutionReason.HOOK_BLOCKED,
+                    cancellationToken);
         }
 
         lifecycle.dispatch(session, runId, new LifecycleEvent.BeforeTool(ordinal, call));
@@ -271,14 +342,38 @@ public final class ToolExecutionPipeline {
                         PermissionReason.REPEATED_DENIAL,
                         outcome.selector());
             } else {
-                lifecycle.dispatch(
-                        session,
-                        runId,
-                        new LifecycleEvent.ApprovalRequested(
-                                permissionCall,
-                                permissionSummary(outcome, true)));
-                outcome = requestApprovalFailClosed(
-                        session, invocation, definition, outcome);
+                HookAggregateResult permissionHook = hooks.evaluate(
+                        new HookInvocation(
+                                HookEventKind.PERMISSION_REQUEST,
+                                session.id(),
+                                java.util.Optional.of(runId),
+                                call.name(),
+                                new JsonObject(Map.of(
+                                        "callId", call.id(),
+                                        "toolName", call.name(),
+                                        "effect", definition.effect().name()))),
+                        cancellationToken);
+                if (permissionHook.disposition() == HookDisposition.DENY
+                        || permissionHook.disposition() == HookDisposition.BLOCK) {
+                    outcome = PermissionOutcome.of(
+                            PermissionDecision.DENY,
+                            PermissionReason.HOOK_DENIED,
+                            outcome.selector());
+                } else if (permissionHook.disposition() == HookDisposition.ALLOW) {
+                    outcome = PermissionOutcome.of(
+                            PermissionDecision.ALLOW,
+                            PermissionReason.HOOK_ALLOWED,
+                            outcome.selector());
+                } else {
+                    lifecycle.dispatch(
+                            session,
+                            runId,
+                            new LifecycleEvent.ApprovalRequested(
+                                    permissionCall,
+                                    permissionSummary(outcome, true)));
+                    outcome = requestApprovalFailClosed(
+                            session, invocation, definition, outcome);
+                }
             }
         }
         lifecycle.dispatch(
@@ -296,7 +391,8 @@ public final class ToolExecutionPipeline {
                     runId,
                     ordinal,
                     ToolResult.denied(call.id(), call.name(), "Tool 调用未获授权"),
-                    ToolResolutionReason.PERMISSION_DENIED);
+                    ToolResolutionReason.PERMISSION_DENIED,
+                    cancellationToken);
         }
 
         PermissionOutcome finalOutcome = outcome;
@@ -364,7 +460,7 @@ public final class ToolExecutionPipeline {
         if (result.status() == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS) {
             permissionState.clearDenials(session.id(), finalOutcome.selector());
         }
-        return finish(session, runId, ordinal, result);
+        return finish(session, runId, ordinal, result, cancellationToken);
     }
 
     private static PermissionOutcome policyFailureOutcome(
@@ -487,7 +583,8 @@ public final class ToolExecutionPipeline {
             RunId runId,
             int ordinal,
             ToolResult result,
-            ToolResolutionReason reason) {
+            ToolResolutionReason reason,
+            CancellationToken cancellationToken) {
         try {
             sessionJournal.toolResolved(session.id(), runId, ordinal, result, reason);
         } catch (RuntimeException journalFailure) {
@@ -495,15 +592,27 @@ public final class ToolExecutionPipeline {
                     "Tool 未执行结果未可靠持久化",
                     journalFailure);
         }
-        return finish(session, runId, ordinal, result);
+        return finish(session, runId, ordinal, result, cancellationToken);
     }
 
     private ToolResult finish(
             AgentSession session,
             RunId runId,
             int ordinal,
-            ToolResult result) {
+            ToolResult result,
+            CancellationToken cancellationToken) {
         lifecycle.dispatch(session, runId, new LifecycleEvent.AfterTool(ordinal, result));
+        hooks.evaluate(
+                new HookInvocation(
+                        HookEventKind.POST_TOOL,
+                        session.id(),
+                        java.util.Optional.of(runId),
+                        result.toolName(),
+                        new JsonObject(Map.of(
+                                "callId", result.callId(),
+                                "toolName", result.toolName(),
+                                "status", result.status().name()))),
+                cancellationToken);
         return result;
     }
 

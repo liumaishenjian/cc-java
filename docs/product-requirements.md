@@ -2,11 +2,13 @@
 
 > 文档状态：Draft v0.9
 >
-> 最后更新：2026-08-07
+> 最后更新：2026-08-08
 >
 > 当前阶段：S01-S08 已 Accepted；S08 ADR-048 的既有能力已在 Commit
 > `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 上 Accepted，ADR-049 的显式文件引用又在实现
-> Commit `5910a8f` 上完成 Commit-scoped G0-G6；`CLI-13`、`CTX-19` 达到 L2。下一步进入 S09 G0。
+> Commit `5910a8f` 上完成 Commit-scoped G0-G6；`CLI-13`、`CTX-19` 达到 L2。当前进入 S09，
+> 已完成 ADR-051/052/053/054 与 Core/Tool、生命周期、指纹 Trust Gate 和 Command Adapter 第一批 G0-G4；Hook Settings schema/loader、
+> Compact/HTTP 与 Command 生产装配仍未实现。
 >
 > 产品负责人：项目维护者
 
@@ -489,8 +491,9 @@ Command Intent/Event 与 G3/G4 测试矩阵。G3-C/D/F 的有界子切片现已�
 
 ### S09：Hooks
 
-- Pre/Post Tool、Session、Turn、Compact 等生命周期；
+- Pre/Post Tool、Session、Turn、Prompt、Permission、Compact 等生命周期；
 - Hooks 的结构化输入、超时、阻断语义和失败隔离；
+- 固定 argv 的本地 Command Hook 与有界 JSON stdin/stdout；
 - Hook 不能绕过 Permission Pipeline，也不能直接污染核心状态。
 
 ### S10：MCP

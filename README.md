@@ -49,7 +49,7 @@
 > Workspace-aware metadata、本机单 Writer、未完成 Tool Recovery Gate、写前 ordinary-file
 > Checkpoint、有界 Diff 与逐项显式 Undo；Java CLI/Print/stdio/TUI 共用同一 Runtime，Behavior Replay
 > 已验证 Resume/Fork canonical history。任何有副作用操作都绝不自动重放；`SESSION-08` 仍仅为 L1；
-> S07 Context Engineering 已在 Commit-scoped G0-G6 对账后 Accepted：生产路径提供短生命周期 Context Projection、条件式 C1-C4、typed overflow 至多一次恢复、内部 Usage View、M1-M5 文件记忆及 ready-only 零等待预取；离线长会话 Eval 保持 Canonical/Tool 协议、事实/硬约束与完成率，并取得 49% 的估算 Token 降幅中位数。S08 已在 corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 上完成 ADR-048 G0-G6；ADR-049 的 Workspace-safe `@file` 候选、提交时快照、Session Resume/Fork、模型附件投影与 TUI token 补全又在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6，`CLI-13`/`CTX-19` 达到 L2，S08 保持 Accepted。完整 Reactor 689 项（Spring 2 skipped）、TUI 128/128 与 launcher 59/59 已通过；Settings 写入/迁移、rules 编辑、Provider discovery/多模型注册、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
+> S07 Context Engineering 已在 Commit-scoped G0-G6 对账后 Accepted：生产路径提供短生命周期 Context Projection、条件式 C1-C4、typed overflow 至多一次恢复、内部 Usage View、M1-M5 文件记忆及 ready-only 零等待预取；离线长会话 Eval 保持 Canonical/Tool 协议、事实/硬约束与完成率，并取得 49% 的估算 Token 降幅中位数。S08 已在 corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 上完成 ADR-048 G0-G6；ADR-049 的 Workspace-safe `@file` 候选、提交时快照、Session Resume/Fork、模型附件投影与 TUI token 补全又在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6，`CLI-13`/`CTX-19` 达到 L2，S08 保持 Accepted。S09 已完成 ADR-051/052/053/054 与 Core/Tool、生命周期、指纹 Trust Gate 和 Command Adapter 第一批 G0-G4，`HOOK-02`/`03`/`04`/`05`/`06`/`09`/`12`/`13` 达到 L1；Hook Settings schema/loader、Compact/HTTP、Command 生产装配、Settings 写入/迁移、rules 编辑、Provider discovery/多模型注册、S13 OS Sandbox 与 S14 稳定 Export/Retention/Migration 仍未实现。
 
 ## 项目目标
 
@@ -189,6 +189,7 @@ Spring AI 只位于模型和集成适配层，React/Ink 只位于终端前端。
 33. [S08 差距报告](./docs/gap-reports/S08.md)：Settings 写入/迁移、规则编辑、多模型与 S12-S14 延期能力；
 34. [ADR-049](./docs/adr/ADR-049-s08-explicit-file-mentions.md)、[补充证据](./docs/evidence/S08-explicit-file-mentions-2026-08-07.md)与[显式文件引用 Demo](./docs/demos/S08-explicit-file-mentions.md)：Workspace-safe `@file` 快照、stdio 候选与 TUI token 交互；
 35. [ADR-050](./docs/adr/ADR-050-corrective-text-read-edit-consistency.md)：大文件有界范围读取、LF/CRLF 精确编辑、原始外观保留与 Session 读取证据；
+36. [ADR-051](./docs/adr/ADR-051-s09-authorized-hook-study.md)、[ADR-052](./docs/adr/ADR-052-s09-hook-contract.md)、[ADR-053](./docs/adr/ADR-053-s09-command-hook-adapter.md)与[ADR-054](./docs/adr/ADR-054-s09-hook-settings-trust-gate.md)：S09 授权 Hook 机制研究、事件/Matcher/聚合、生命周期、受控 Command Adapter 和指纹 Trust Gate 契约；
 30. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：仍有效的 Provider 与 Streaming 目标；
 26. [ADR-020（历史）](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)：此前暂停研究的审计记录；
 27. [Stage 证据包模板](./docs/templates/stage-evidence-package.md)：每个阶段统一的 G0-G6 Gate；

@@ -3,11 +3,13 @@ package io.github.liumaishenjian.ccjava.cli.session;
 import io.github.liumaishenjian.ccjava.core.AgentIdGenerator;
 import io.github.liumaishenjian.ccjava.core.AgentSession;
 import io.github.liumaishenjian.ccjava.core.LifecycleDispatcher;
+import io.github.liumaishenjian.ccjava.core.CancellationToken;
 import io.github.liumaishenjian.ccjava.core.SessionJournal;
 import io.github.liumaishenjian.ccjava.core.SessionRecoverySnapshot;
 import io.github.liumaishenjian.ccjava.core.SessionStore;
 import io.github.liumaishenjian.ccjava.core.SessionStoreAccess;
 import io.github.liumaishenjian.ccjava.core.ToolResolutionReason;
+import io.github.liumaishenjian.ccjava.core.hook.HookCoordinator;
 import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
 import io.github.liumaishenjian.ccjava.domain.LifecycleEvent;
 import io.github.liumaishenjian.ccjava.domain.RunId;
@@ -17,6 +19,9 @@ import io.github.liumaishenjian.ccjava.domain.StopReason;
 import io.github.liumaishenjian.ccjava.domain.ToolEffect;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
+import io.github.liumaishenjian.ccjava.domain.JsonObject;
+import io.github.liumaishenjian.ccjava.domain.hook.HookEventKind;
+import io.github.liumaishenjian.ccjava.domain.hook.HookInvocation;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -57,6 +62,7 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
     private final String workspaceIdentity;
     private final AgentIdGenerator ids;
     private final LifecycleDispatcher lifecycle;
+    private final HookCoordinator hooks;
     private final JsonlSessionCodec codec = new JsonlSessionCodec();
     private final Map<SessionId, OpenSession> writerSessions = new LinkedHashMap<>();
     private final List<OpenSession> inspectedSessions = new ArrayList<>();
@@ -76,6 +82,29 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
             AgentIdGenerator ids,
             LifecycleDispatcher lifecycle,
             Clock clock) {
+        this(root, workspace, ids, lifecycle, clock, HookCoordinator.disabled());
+    }
+
+    /**
+     * 创建可选接入 S09 Session Start/End Hook 的持久 Store。
+     *
+     * <p>Hook 只接收 Session ID 摘要；它不参与 JSONL 写入、file lock 或恢复 Gate，
+     * 也不能阻断 Session 创建和关闭。</p>
+     *
+     * @param root Workspace 外的本地私有存储根
+     * @param workspace 已解析真实 Workspace
+     * @param ids Session ID 来源
+     * @param lifecycle 观察事件分发器
+     * @param clock 时间来源
+     * @param hooks Session Start/End Hook 协调器
+     */
+    public FileSessionStore(
+            Path root,
+            Path workspace,
+            AgentIdGenerator ids,
+            LifecycleDispatcher lifecycle,
+            Clock clock,
+            HookCoordinator hooks) {
         this.root = Objects.requireNonNull(root, "root 不能为空")
                 .toAbsolutePath().normalize();
         Path checkedWorkspace = Objects.requireNonNull(workspace, "workspace 不能为空");
@@ -87,6 +116,7 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
         this.workspaceIdentity = workspaceIdentity(this.workspace);
         this.ids = Objects.requireNonNull(ids, "ids 不能为空");
         this.lifecycle = Objects.requireNonNull(lifecycle, "lifecycle 不能为空");
+        this.hooks = Objects.requireNonNull(hooks, "hooks 不能为空");
         Objects.requireNonNull(clock, "clock 不能为空");
         initializeRoot(checkedWorkspace);
     }
@@ -132,6 +162,15 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
         try {
             if (!opened.session.isClosed()) {
                 SessionStoreAccess.closeSession(opened.session, lifecycle);
+                hooks.evaluate(
+                        new HookInvocation(
+                                HookEventKind.SESSION_END,
+                                opened.session.id(),
+                                Optional.empty(),
+                                opened.session.id().value(),
+                                new JsonObject(Map.of(
+                                        "sessionId", opened.session.id().value()))),
+                        CancellationToken.none());
             }
         } finally {
             opened.release();
@@ -298,6 +337,14 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
             opened.nextSequence++;
             writerSessions.put(id, opened);
             lifecycle.dispatch(opened.session, new LifecycleEvent.SessionStarted(spec));
+            hooks.evaluate(
+                    new HookInvocation(
+                            HookEventKind.SESSION_START,
+                            id,
+                            Optional.empty(),
+                            id.value(),
+                            new JsonObject(Map.of("sessionId", id.value()))),
+                    CancellationToken.none());
             return new SessionOpenResult(opened.session, mode, parent, false, List.of());
         } catch (RuntimeException failure) {
             opened.release();
@@ -417,6 +464,14 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
             }
             writerSessions.put(targetId, target);
             lifecycle.dispatch(targetSession, new LifecycleEvent.SessionStarted(createSpec));
+            hooks.evaluate(
+                    new HookInvocation(
+                            HookEventKind.SESSION_START,
+                            targetId,
+                            Optional.empty(),
+                            targetId.value(),
+                            new JsonObject(Map.of("sessionId", targetId.value()))),
+                    CancellationToken.none());
             return new SessionOpenResult(
                     targetSession,
                     SessionOpenMode.FORK,

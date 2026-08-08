@@ -19,6 +19,9 @@ public enum ToolErrorCode {
     /** 权限或人工审批拒绝调用。 */
     PERMISSION_DENIED,
 
+    /** 用户 Hook 在 Permission 前明确阻断了调用。 */
+    HOOK_BLOCKED,
+
     /** Tool 实现返回了违反协议的结果。 */
     RESULT_PROTOCOL_VIOLATION,
 

@@ -36,5 +36,9 @@ public enum PermissionReason {
     /** Approval Surface 异常、关闭或返回非法响应后安全拒绝。 */
     APPROVAL_FAILED_CLOSED,
     /** Permission Policy 评估异常或返回非法结果后安全拒绝。 */
-    POLICY_EVALUATION_FAILED_CLOSED
+    POLICY_EVALUATION_FAILED_CLOSED,
+    /** Permission Hook 在 ASK 收敛前明确拒绝。 */
+    HOOK_DENIED,
+    /** 可信 Permission Hook 在 ASK 收敛前明确允许。 */
+    HOOK_ALLOWED
 }

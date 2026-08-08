@@ -11,7 +11,10 @@
 > Gap 和 Commit-scoped 对账中达到声明等级。S08 ADR-048 corrective implementation Commit
 > `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 的 Accepted 证据继续有效；[ADR-049](./adr/ADR-049-s08-explicit-file-mentions.md)
 > 的显式 Workspace 文件引用已在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6，
-> `CLI-13`、`CTX-19` 达到 L2，S08 恢复 Accepted。下一步进入 S09 G0；
+> `CLI-13`、`CTX-19` 达到 L2，S08 恢复 Accepted。S09 已完成 G0-G4 的 Core/Tool 与生命周期
+> 第一切片：`HOOK-02`、`HOOK-03`、`HOOK-04`、`HOOK-05`、`HOOK-06`、`HOOK-09`、`HOOK-12`、
+> `HOOK-13` 达到 L1；Hook Settings/Trust、Compact、HTTP 与稳定 Surface 接入仍未完成。Stage
+> Exit 尚未开始；
 > rules 编辑、Provider discovery/多模型注册、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定协议/
 > Export/Retention/Migration 仍未实现。
 
@@ -157,12 +160,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 197 |
-| 当前阶段 | S08 Instructions + Settings（Accepted） |
-| Stage Exit | Accepted：ADR-049 实现 Commit `5910a8f` 已完成 Commit-scoped G0-G6；ADR-048 Accepted Commit 继续有效 |
-| 当前等级 | 83 项为 L2，31 项为 L1，83 项为 L0 |
+| 当前阶段 | S09 Hooks（G0-G4 Core/Tool、生命周期与 Command Adapter 第一切片） |
+| Stage Exit | Not Started：Hook Settings/Trust、Compact/HTTP、稳定 Surface 与 Commit-scoped 复验仍缺失 |
+| 当前等级 | 83 项为 L2，39 项为 L1，75 项为 L0 |
 | 默认最终目标 | 197 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 33.33%（197 项等权、目标 L3） |
-| 下一步 | 进入 S09 G0 授权机制研究；后续 Stage 延期边界不变 |
+| 当前能力覆盖 | 34.69%（197 项等权、目标 L3） |
+| 下一步 | 完成 Hook Settings/Trust、Compact 与 loopback HTTP，再补稳定 stdio/TUI 活动摘要和 Stage Exit |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -343,18 +346,18 @@ Stage 完成项。
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
 | HOOK-01 | 内部 Lifecycle Event | Session/Run/Model/Tool/Permission | L2 | S01/S05 | REF-07 |
-| HOOK-02 | Pre Tool | 执行前观察和阻断 | L0 | S05/S09 | REF-07 |
-| HOOK-03 | Post Tool | 结果观察和附加 Context | L0 | S05/S09 | REF-07 |
-| HOOK-04 | Session Start/End | 环境和清理扩展 | L0 | S09 | REF-07 |
-| HOOK-05 | User Prompt / Run | 输入处理 | L0 | S09 | REF-07 |
-| HOOK-06 | Permission Request | 自定义审批逻辑 | L0 | S09 | REF-07 |
+| HOOK-02 | Pre Tool | 执行前观察和阻断 | L1 | S05/S09 | REF-07/AUTH-01 |
+| HOOK-03 | Post Tool | 结果观察和附加 Context | L1 | S05/S09 | REF-07/AUTH-01 |
+| HOOK-04 | Session Start/End | 环境和清理扩展 | L1 | S09 | REF-07/AUTH-01 |
+| HOOK-05 | User Prompt / Run | 输入处理 | L1 | S09 | REF-07/AUTH-01 |
+| HOOK-06 | Permission Request | 自定义审批逻辑 | L1 | S09 | REF-07/AUTH-01 |
 | HOOK-07 | External Compact Hooks | 建立在 S07 内部事件之上的可配置扩展 | L0 | S09 | REF-07 |
 | HOOK-08 | Sub-Agent Hooks | 子任务生命周期 | L0 | S12 | REF-07 |
-| HOOK-09 | Command Hook | JSON stdin/stdout + Exit Policy | L0 | S09 | REF-07 |
+| HOOK-09 | Command Hook | JSON stdin/stdout + Exit Policy | L1 | S09 | REF-07/AUTH-01 |
 | HOOK-10 | HTTP Hook | 受控远程回调 | L0 | S09/S13 | REF-07 |
 | HOOK-11 | Prompt / Agent Hook | 模型参与决策 | L0 | S12/S15 | REF-07 |
-| HOOK-12 | Matcher / Scope | Tool、路径、Session 条件 | L0 | S09 | REF-07 |
-| HOOK-13 | Timeout / Error Policy | 阻断与非阻断错误 | L0 | S09 | REF-07 |
+| HOOK-12 | Matcher / Scope | Tool、路径、Session 条件 | L1 | S09 | REF-07/AUTH-01 |
+| HOOK-13 | Timeout / Error Policy | 阻断与非阻断错误 | L1 | S09 | REF-07/AUTH-01 |
 
 ## 13. Sandbox / Security 对照
 
@@ -695,6 +698,12 @@ G0 已于 2026-08-05 通过：`ADR-045` 在 `AUTH-SRC-2026-07-29-A` 的登记只
 - command/HTTP Hook 安全测试。
 
 S07 的 Compaction Event 只是观察事件；可配置、可阻断的 Compact Hook 从 S09 开始。
+
+当前切片：ADR-051/052/053/054 已冻结授权研究、生命周期契约、Command Adapter 与指纹 Trust Gate
+边界；`HookCoordinator` 已提供有界并发、稳定聚合、Matcher、超时/取消、信任和失败策略；Tool Pipeline 已接入
+Pre/Post/Permission，Session Store 与 Agent Runtime 已接入 Session/Run/Prompt/Model 生命周期，
+CLI 边缘已提供固定 argv + JSON stdin/stdout 的 Command Adapter。该切片只达到 L1，尚未提供
+持久 Hook Settings/Trust、Compact/HTTP、稳定 Surface 活动摘要或完整 S09 Stage Exit。
 
 ### S10：MCP
 

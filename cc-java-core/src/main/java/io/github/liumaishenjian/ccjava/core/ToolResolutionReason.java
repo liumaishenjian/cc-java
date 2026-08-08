@@ -16,5 +16,8 @@ public enum ToolResolutionReason {
     INVALID_ARGUMENTS,
 
     /** Permission 或 Approval 最终拒绝。 */
-    PERMISSION_DENIED
+    PERMISSION_DENIED,
+
+    /** Pre Tool Hook 在 Permission 前明确阻断。 */
+    HOOK_BLOCKED
 }

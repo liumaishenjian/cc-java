@@ -4,6 +4,7 @@ import io.github.liumaishenjian.ccjava.domain.AgentRunRequest;
 import io.github.liumaishenjian.ccjava.domain.AgentRunResult;
 import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
 import io.github.liumaishenjian.ccjava.domain.LifecycleEvent;
+import io.github.liumaishenjian.ccjava.domain.JsonObject;
 import io.github.liumaishenjian.ccjava.domain.ModelFinishReason;
 import io.github.liumaishenjian.ccjava.domain.ModelRequest;
 import io.github.liumaishenjian.ccjava.domain.ModelTextDelta;
@@ -17,10 +18,16 @@ import io.github.liumaishenjian.ccjava.domain.ToolErrorCode;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
 import io.github.liumaishenjian.ccjava.domain.ToolResultMessage;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
+import io.github.liumaishenjian.ccjava.domain.hook.HookAggregateResult;
+import io.github.liumaishenjian.ccjava.domain.hook.HookEventKind;
+import io.github.liumaishenjian.ccjava.domain.hook.HookInvocation;
 import io.github.liumaishenjian.ccjava.core.instructions.InstructionContextService;
+import io.github.liumaishenjian.ccjava.core.hook.HookCoordinator;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -53,6 +60,7 @@ public final class AgentRuntime {
     private final ContextPreparationService contextPreparation;
     private final MemoryContextService memoryContext;
     private final InstructionContextService instructionContext;
+    private final HookCoordinator hooks;
     private final ConcurrentMap<SessionId, ActiveRun> activeRuns = new ConcurrentHashMap<>();
 
     /**
@@ -85,7 +93,8 @@ public final class AgentRuntime {
                 SessionJournal.noop(),
                 ContextPreparationService.noop(),
                 MemoryContextService.noop(),
-                InstructionContextService.noop());
+                InstructionContextService.noop(),
+                HookCoordinator.disabled());
     }
 
     /**
@@ -120,7 +129,8 @@ public final class AgentRuntime {
                 sessionJournal,
                 ContextPreparationService.noop(),
                 MemoryContextService.noop(),
-                InstructionContextService.noop());
+                InstructionContextService.noop(),
+                HookCoordinator.disabled());
     }
 
     /**
@@ -157,7 +167,8 @@ public final class AgentRuntime {
                 sessionJournal,
                 contextPreparation,
                 MemoryContextService.noop(),
-                InstructionContextService.noop());
+                InstructionContextService.noop(),
+                HookCoordinator.disabled());
     }
 
     /**
@@ -199,7 +210,8 @@ public final class AgentRuntime {
                 sessionJournal,
                 contextPreparation,
                 memoryContext,
-                InstructionContextService.noop());
+                InstructionContextService.noop(),
+                HookCoordinator.disabled());
     }
 
     /**
@@ -229,6 +241,54 @@ public final class AgentRuntime {
             ContextPreparationService contextPreparation,
             MemoryContextService memoryContext,
             InstructionContextService instructionContext) {
+        this(
+                sessionStore,
+                idGenerator,
+                modelGateway,
+                contextAssembler,
+                toolRegistry,
+                toolPipeline,
+                lifecycle,
+                sessionJournal,
+                contextPreparation,
+                memoryContext,
+                instructionContext,
+                HookCoordinator.disabled());
+    }
+
+    /**
+     * 创建同时接入 S09 生命周期 Hook 的 Runtime。
+     *
+     * <p>Hook 只接收有界、脱敏摘要；它不能替代 Agent Loop、Session Journal、Permission
+     * 或 Tool Pipeline。User Prompt Hook 是 Run 建立前唯一可阻断的 Runtime 入口，其他
+     * Session/Run/Model 事件默认只观察。</p>
+     *
+     * @param sessionStore 当前进程的 Session Store
+     * @param idGenerator Run ID 来源
+     * @param modelGateway 单回合模型端口
+     * @param contextAssembler 追加式 Context 组装器
+     * @param toolRegistry 当前可见 Tool Registry
+     * @param toolPipeline 统一 Tool 执行管线
+     * @param lifecycle 可失败的观察生命周期分发器
+     * @param sessionJournal 必须成功的规范 Session journal
+     * @param contextPreparation 每回合 Projection 准备与 Run 终态清理服务
+     * @param memoryContext 每回合 ready-only Memory Projection 服务
+     * @param instructionContext 每回合 Instructions Projection 服务
+     * @param hooks S09 Hook 协调器
+     */
+    public AgentRuntime(
+            SessionStore sessionStore,
+            AgentIdGenerator idGenerator,
+            ModelGateway modelGateway,
+            ContextAssembler contextAssembler,
+            ToolRegistry toolRegistry,
+            ToolExecutionPipeline toolPipeline,
+            LifecycleDispatcher lifecycle,
+            SessionJournal sessionJournal,
+            ContextPreparationService contextPreparation,
+            MemoryContextService memoryContext,
+            InstructionContextService instructionContext,
+            HookCoordinator hooks) {
         this.sessionStore = Objects.requireNonNull(sessionStore, "sessionStore 不能为空");
         this.idGenerator = Objects.requireNonNull(idGenerator, "idGenerator 不能为空");
         this.modelGateway = Objects.requireNonNull(modelGateway, "modelGateway 不能为空");
@@ -246,6 +306,7 @@ public final class AgentRuntime {
                 memoryContext, "memoryContext 不能为空");
         this.instructionContext = Objects.requireNonNull(
                 instructionContext, "instructionContext 不能为空");
+        this.hooks = Objects.requireNonNull(hooks, "hooks 不能为空");
     }
 
     /**
@@ -268,6 +329,26 @@ public final class AgentRuntime {
         AgentRunState state = new AgentRunState(sessionId, runId, request.limits());
         CancellationSource cancellation = new CancellationSource();
 
+        HookAggregateResult promptHook = hooks.evaluate(
+                new HookInvocation(
+                        HookEventKind.USER_PROMPT,
+                        sessionId,
+                        Optional.of(runId),
+                        "user_prompt",
+                        new JsonObject(Map.of(
+                                "sessionId", sessionId.value(),
+                                "messageCharacters", request.userMessage().content()
+                                        .codePointCount(0, request.userMessage().content().length())))),
+                cancellation.token());
+        if (promptHook.blocking()) {
+            return AgentRunResult.stopped(
+                    sessionId,
+                    runId,
+                    StopReason.HOOK_BLOCKED,
+                    0,
+                    0);
+        }
+
         sessionJournal.runStarted(sessionId, runId, request.userMessage());
         session.beginRun(runId, request.userMessage());
         ActiveRun activeRun = new ActiveRun(
@@ -279,6 +360,16 @@ public final class AgentRuntime {
             throw new IllegalStateException("Session 已有活动 Run");
         }
         lifecycle.dispatch(session, runId, new LifecycleEvent.RunStarted(request));
+        hooks.evaluate(
+                new HookInvocation(
+                        HookEventKind.RUN_START,
+                        sessionId,
+                        Optional.of(runId),
+                        "run",
+                        new JsonObject(Map.of(
+                                "sessionId", sessionId.value(),
+                                "runId", runId.value()))),
+                cancellation.token());
         Thread deadlineThread = startDeadline(request.limits().maxDuration(), activeRun);
 
         AgentRunResult result;
@@ -306,6 +397,19 @@ public final class AgentRuntime {
         }
         session.endRun(runId);
         lifecycle.dispatch(session, runId, new LifecycleEvent.RunFinished(result));
+        hooks.evaluate(
+                new HookInvocation(
+                        HookEventKind.RUN_END,
+                        sessionId,
+                        Optional.of(runId),
+                        "run",
+                        new JsonObject(Map.of(
+                                "sessionId", sessionId.value(),
+                                "runId", runId.value(),
+                                "stopReason", result.stopReason().name(),
+                                "modelTurns", result.modelTurns(),
+                                "toolCalls", result.toolCalls()))),
+                CancellationToken.none());
         return result;
     }
 
@@ -351,6 +455,14 @@ public final class AgentRuntime {
                         session,
                         runId,
                         new LifecycleEvent.ModelTurnStarted(turnNumber));
+                hooks.evaluate(
+                        new HookInvocation(
+                                HookEventKind.MODEL_TURN_START,
+                                session.id(),
+                                Optional.of(runId),
+                                "turn-" + turnNumber,
+                                new JsonObject(Map.of("turnNumber", turnNumber))),
+                        activeRun.cancellation().token());
                 ModelRequest canonicalRequest = contextAssembler.assemble(
                         session,
                         runId,
@@ -401,6 +513,16 @@ public final class AgentRuntime {
                         session,
                         runId,
                         new LifecycleEvent.ModelTurnCompleted(turnNumber, modelTurn));
+                hooks.evaluate(
+                        new HookInvocation(
+                                HookEventKind.MODEL_TURN_END,
+                                session.id(),
+                                Optional.of(runId),
+                                "turn-" + turnNumber,
+                                new JsonObject(Map.of(
+                                        "turnNumber", turnNumber,
+                                        "finishReason", modelTurn.metadata().finishReason().name()))),
+                        activeRun.cancellation().token());
 
                 if (modelTurn.metadata().finishReason() == ModelFinishReason.LENGTH) {
                     return state.stop(StopReason.OUTPUT_LIMIT_REACHED);
