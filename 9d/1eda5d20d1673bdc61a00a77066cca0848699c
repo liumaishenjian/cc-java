@@ -1,0 +1,170 @@
+cc-java-core/src/test/java/io/github/liumaishenjian/ccjava/core/hook/HookTrustGateTest.java
+  s_371b145dc5ecd9::t_7b1e5bc7bef5bf 104-109
+  s_371b145dc5ecd9::t_7057e0cbdc7c27 1-103,110-161
+docs/progress.html
+  s_371b145dc5ecd9::t_252d93e9f30a57 243-244,254-255,266,302,309
+  s_371b145dc5ecd9::t_ad553ac0a98432 233-234,249-250,259-260,289,319,334-336
+  s_371b145dc5ecd9::t_17682df83027b3 333
+  s_371b145dc5ecd9::t_905fbb9deebb98 337-339
+  s_371b145dc5ecd9::t_d11dec6c9cf0b5 226,231,276
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/hook/HookMatcher.java
+  s_371b145dc5ecd9::t_bd85e115f08432 1-72
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/hook/HookDisposition.java
+  s_371b145dc5ecd9::t_bd85e115f08432 1-20
+docs/product-requirements.md
+  s_371b145dc5ecd9::t_3567a3054d8162 5
+  s_371b145dc5ecd9::t_07a2f76e572b4b 9
+  s_371b145dc5ecd9::t_22419be5897534 11,494,496
+  s_371b145dc5ecd9::t_a48789f097c521 10
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/InMemorySessionStore.java
+  s_371b145dc5ecd9::t_2c9eb50dcbb74e 6-9,27,39-52,55,68-75,90-97
+docs/evidence/S09-core-hooks-2026-08-08.md
+  s_371b145dc5ecd9::t_8c951d44788d9b 4,17-18,31-33,41,45,51
+  s_371b145dc5ecd9::t_38683785c8c036 34,50
+  s_371b145dc5ecd9::t_1e608b9bb80617 1-3,5-16,19-30,35-39,42-43,47-49
+  s_371b145dc5ecd9::t_9bba34e653e137 40,46
+  s_371b145dc5ecd9::t_fce1d01cc7a750 44
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/PermissionReason.java
+  s_371b145dc5ecd9::t_7bfdf4d8d9340b 39-43
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/AgentRuntime.java
+  s_371b145dc5ecd9::t_c7f2dded97c63c 7,28,30,332-351,363-372,400-412,458-465,516-525
+  s_371b145dc5ecd9::t_94c432fcabd479 21-23,25,63,96-97,132-133,170-171,213-214,244-291,309
+cc-java-cli/src/test/java/io/github/liumaishenjian/ccjava/cli/hooks/CommandHookHandlerTest.java
+  s_371b145dc5ecd9::t_a69529a59aac15 72,149
+  s_371b145dc5ecd9::t_3f5967456854da 47-48
+  s_371b145dc5ecd9::t_89ef290bf01760 156
+  s_371b145dc5ecd9::t_c07d2df0d85312 1-46,49-71,73-148,150-155,157-183,185-202,204-237,247-249
+  s_371b145dc5ecd9::t_57102211ae2a4c 184,203,238-246
+docs/adr/ADR-053-s09-command-hook-adapter.md
+  s_371b145dc5ecd9::t_f3c0923743522c 1-37
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/session/FileSessionStore.java
+  s_371b145dc5ecd9::t_b9b1b3941ecc84 165-173
+  s_371b145dc5ecd9::t_a61360f141572b 467-474
+  s_371b145dc5ecd9::t_5071670ee5a422 6,12,22-24,65,85-107,119,340-347
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/hook/HookExecutionResult.java
+  s_371b145dc5ecd9::t_bd85e115f08432 1-68
+README.md
+  s_371b145dc5ecd9::t_fc5bcc82a1c0d0 52,192
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/hook/HookExecutionStatus.java
+  s_371b145dc5ecd9::t_bd85e115f08432 1-21
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/hook/HookHandler.java
+  s_371b145dc5ecd9::t_bd85e115f08432 1-36
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/hook/package-info.java
+  s_371b145dc5ecd9::t_9116461fe72bbe 1-10
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/hook/HookBinding.java
+  s_371b145dc5ecd9::t_bd85e115f08432 1-50
+docs/gap-reports/S09.md
+  s_371b145dc5ecd9::t_d4fdd769207e03 14-15,20-21
+  s_371b145dc5ecd9::t_1e608b9bb80617 1-13,16-19,26-33
+  s_371b145dc5ecd9::t_a1a9afa716d5cf 22-25
+  s_371b145dc5ecd9::t_83c92112e3bcb6 34-35
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/StopReason.java
+  s_371b145dc5ecd9::t_7bfdf4d8d9340b 51-52
+  s_371b145dc5ecd9::t_aa137f320eb626 53
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/hooks/package-info.java
+  s_371b145dc5ecd9::t_c07d2df0d85312 1-7
+cc-java-core/src/test/java/io/github/liumaishenjian/ccjava/core/S09HookToolPipelineTest.java
+  s_371b145dc5ecd9::t_23418f367e0627 7,55-58,66,81,246,260,335-337
+  s_371b145dc5ecd9::t_e6d9454484768c 75,233
+  s_371b145dc5ecd9::t_c0695d85f1984f 8,129-184,186-206,213-232,234-240,267-278,283,289-295
+  s_371b145dc5ecd9::t_ec0e0e399e3dc7 207-212
+  s_371b145dc5ecd9::t_91f6c109586324 121
+  s_371b145dc5ecd9::t_137abb2c4943fe 1-6,9-54,59-65,67-74,76-80,82-120,124-128,242-245,247-259,261-266,279-282,284-288,296-334,338-339
+  s_371b145dc5ecd9::t_c200086c1e6126 122-123
+  s_371b145dc5ecd9::t_78324651dcc292 185
+  s_371b145dc5ecd9::t_68ae9ca023bcde 241
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/hook/HookTrustGate.java
+  s_371b145dc5ecd9::t_2291a8678048d5 1-122
+docs/adr/ADR-051-s09-authorized-hook-study.md
+  s_371b145dc5ecd9::t_8f4530d04486c8 1-70
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/hook/HookInvocation.java
+  s_371b145dc5ecd9::t_bd85e115f08432 1-54
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/ToolExecutionPipeline.java
+  s_371b145dc5ecd9::t_148098a111081d 259,262-263,289-290,313-314,394-395,463,586-587,595,602-603,615
+  s_371b145dc5ecd9::t_cc07d728c4a474 291-312
+  s_371b145dc5ecd9::t_7c06e38e1c02c4 605-614
+  s_371b145dc5ecd9::t_4ea61e41237282 345-355,358-361,363-376
+  s_371b145dc5ecd9::t_2d9bc7113be9e7 18,20-22,52,74-75,100-101,128-129,151-185,198
+  s_371b145dc5ecd9::t_b1cf1f422c2b8f 19,356-357,362
+docs/adr/ADR-052-s09-hook-contract.md
+  s_371b145dc5ecd9::t_8f4530d04486c8 1-78
+AGENTS.md
+  s_371b145dc5ecd9::t_15c1c3a0f992de 112-113,116
+  s_371b145dc5ecd9::t_11d31f4cc1bd62 37-38
+  s_371b145dc5ecd9::t_22419be5897534 39,98,100,110,115
+  s_371b145dc5ecd9::t_d6679f80ed76a4 40,99,111
+docs/technical-design.md
+  s_371b145dc5ecd9::t_a48789f097c521 1112-1114,1118-1119
+  s_371b145dc5ecd9::t_4c829dd61a0169 1115
+  s_371b145dc5ecd9::t_07a2f76e572b4b 11
+  s_371b145dc5ecd9::t_22419be5897534 12-13,1116-1117
+  s_371b145dc5ecd9::t_3567a3054d8162 5
+docs/adr/ADR-054-s09-hook-settings-trust-gate.md
+  s_371b145dc5ecd9::t_335178e9aac99f 1-34
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/hook/package-info.java
+  s_371b145dc5ecd9::t_9116461fe72bbe 1-10
+cc-java-core/src/test/java/io/github/liumaishenjian/ccjava/core/S09HookRuntimeLifecycleTest.java
+  s_371b145dc5ecd9::t_c2d96b2a6f7ad2 98,108
+  s_371b145dc5ecd9::t_4c3b8b71da485a 1-97,99-107,109-170
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/ToolErrorCode.java
+  s_371b145dc5ecd9::t_f6c85307fa2fe5 22-24
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/hook/HookEventKind.java
+  s_371b145dc5ecd9::t_bd85e115f08432 1-53
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/ToolResolutionReason.java
+  s_371b145dc5ecd9::t_df4c78b0ae80b0 19-22
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/hook/HookCoordinator.java
+  s_371b145dc5ecd9::t_bd85e115f08432 1-57,59-120,125-143,150-174,176-189,193-228
+  s_371b145dc5ecd9::t_ccfbc1006af8c7 58,121-124,175
+  s_371b145dc5ecd9::t_7c075c1bbcd35c 190-192
+  s_371b145dc5ecd9::t_5c66a19b0beead 144-149
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/hook/HookAggregateResult.java
+  s_371b145dc5ecd9::t_bd85e115f08432 1-61
+cc-java-core/src/test/java/io/github/liumaishenjian/ccjava/core/hook/HookCoordinatorTest.java
+  s_371b145dc5ecd9::t_fa08bf631090f3 236-265
+  s_371b145dc5ecd9::t_506189731fe293 73-83,178,180-189
+  s_371b145dc5ecd9::t_2df43c39bb3f64 1-72,84-177,179,190-235,266-294
+docs/demos/S09-hooks-core.md
+  s_371b145dc5ecd9::t_8c951d44788d9b 11,25-28,33-34
+  s_371b145dc5ecd9::t_1e608b9bb80617 1-10,12-24,29-32
+docs/progress-state.properties
+  s_371b145dc5ecd9::t_fce1d01cc7a750 41
+  s_371b145dc5ecd9::t_c12be57bd1cf83 37
+  s_371b145dc5ecd9::t_a84e8130bd9aff 6-8,15-17,30,33,42,44
+  s_371b145dc5ecd9::t_d115cc952ba6df 10,35,45
+  s_371b145dc5ecd9::t_6c51035111519c 4
+  s_371b145dc5ecd9::t_687adfbe9b4f2b 9,13,18-19,39,43
+  s_371b145dc5ecd9::t_e8dc032bf1ce6b 5
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/hook/HookFingerprint.java
+  s_371b145dc5ecd9::t_2291a8678048d5 1-51
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/hook/HookFailurePolicy.java
+  s_371b145dc5ecd9::t_bd85e115f08432 1-19
+docs/feature-parity-matrix.md
+  s_371b145dc5ecd9::t_3eac9bba8d873a 351-353,356,704-706
+  s_371b145dc5ecd9::t_3a1994e99cce5e 14-17,163-165,168
+  s_371b145dc5ecd9::t_15aee526485433 702-703
+  s_371b145dc5ecd9::t_a40c65099c36db 167
+  s_371b145dc5ecd9::t_6e4c71c5ee176b 349-350,359-360,707
+cc-java-domain/src/main/java/io/github/liumaishenjian/ccjava/domain/hook/HookSourceKind.java
+  s_371b145dc5ecd9::t_2291a8678048d5 1-24
+cc-java-cli/src/main/java/io/github/liumaishenjian/ccjava/cli/hooks/CommandHookHandler.java
+  s_371b145dc5ecd9::t_8ce8adfee80003 205
+  s_371b145dc5ecd9::t_89632bb17e98e4 1-204,206-492
+cc-java-core/src/main/java/io/github/liumaishenjian/ccjava/core/hook/HookTrustStore.java
+  s_371b145dc5ecd9::t_2291a8678048d5 1-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "9d1eda5d20d1673bdc61a00a77066cca0848699c",
+  "prompts": {},
+  "sessions": {
+    "s_371b145dc5ecd9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019fa772-84c7-7680-9e8a-026c8e1161ea",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "yliu27 <yliu27@leqee.com>"
+    }
+  }
+}
