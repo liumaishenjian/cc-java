@@ -41,6 +41,9 @@
    [ADR-055](./docs/adr/ADR-055-s09-production-hooks.md)、
    [ADR-056](./docs/adr/ADR-056-s10-authorized-mcp-study.md)、
    [ADR-057](./docs/adr/ADR-057-s10-mcp-adapter.md)、
+   [ADR-058](./docs/adr/ADR-058-s11-dual-source-skills-plugins-study.md)、
+   [ADR-059](./docs/adr/ADR-059-s11-skill-runtime-contract.md)、
+   [ADR-060](./docs/adr/ADR-060-s11-plugin-host-contract.md)、
    [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)、
    [ADR-018](./docs/adr/ADR-018-authorized-reference-study.md)、
    [ADR-019](./docs/adr/ADR-019-s07-progressive-context-reduction.md)与
@@ -116,7 +119,8 @@ Checkpoint/Diff/显式 Undo、Behavior Replay 与 Java CLI/Print/stdio/TUI 生�
   Worktree、S13 OS Sandbox、S14 稳定 Export/Retention/Migration 继续保持未实现状态。
 
 S09/S10 Accepted 不表示远程 Hook、MCP OAuth/Lazy Tool/Resource 自动投影、S13 OS Sandbox 或
-S14 稳定持久化能力已经可用。下一步只进入 S11 Skills + Plugins G0 授权机制研究与范围冻结。
+S14 稳定持久化能力已经可用。S11 Skills + Plugins 已按 ADR-058～060 完成 G0-G2 双源研究、
+退出范围与独立架构冻结；G3-G6 Open，Capability Level 无变化，下一步只进入 S11 独立实现。
 
 ## 3. 项目定位
 

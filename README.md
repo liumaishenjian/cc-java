@@ -192,6 +192,7 @@ Spring AI 只位于模型和集成适配层，React/Ink 只位于终端前端。
 36. [ADR-051](./docs/adr/ADR-051-s09-authorized-hook-study.md)至[ADR-055](./docs/adr/ADR-055-s09-production-hooks.md)：S09 授权研究、Hook 协议、Command、Settings/Trust、Compact、HTTP 与生产收口；
 37. [ADR-056](./docs/adr/ADR-056-s10-authorized-mcp-study.md)与[ADR-057](./docs/adr/ADR-057-s10-mcp-adapter.md)：S10 授权/公开 MCP 研究、SDK Adapter、Transport、统一权限与恢复契约；
 38. [S09 证据](./docs/evidence/S09-hooks-2026-08-09.md)与[S10 证据](./docs/evidence/S10-mcp-2026-08-09.md)：两个 Stage 的 G0-G6、真实 E2E、Demo 与 Gap 对账；
+39. [ADR-058](./docs/adr/ADR-058-s11-dual-source-skills-plugins-study.md)至[ADR-060](./docs/adr/ADR-060-s11-plugin-host-contract.md)与[S11 Gate Evidence](./docs/evidence/S11-skills-plugins-gate-2026-08-09.md)：S11 双源 G0-G2、Skill/Plugin 独立契约、测试/Demo/Gap 计划与延期边界；
 30. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：仍有效的 Provider 与 Streaming 目标；
 26. [ADR-020（历史）](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)：此前暂停研究的审计记录；
 27. [Stage 证据包模板](./docs/templates/stage-evidence-package.md)：每个阶段统一的 G0-G6 Gate；

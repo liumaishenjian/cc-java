@@ -17,7 +17,8 @@
 > filter/prefix、Permission、Trust 与单次断线恢复的 Tool 主链并通过真实 Transport/Headless E2E，
 > G0-G6 Accepted；`MCP-01`～`07` 为 L2，`MCP-09`～`11` 为 L1，`MCP-08` 仍为 L0；
 > rules 编辑、Provider discovery/多模型注册、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定协议/
-> Export/Retention/Migration 仍未实现。
+> Export/Retention/Migration 仍未实现。S11 已由 ADR-058～060 完成双源 G0-G2 设计冻结；
+> Skill/Plugin Capability Level 均未提前提升，G3-G6 保持 Open。
 
 ## 1. 文档目的
 
@@ -161,12 +162,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 197 |
-| 当前阶段 | S10 MCP（Tool 主链 G0-G6 Accepted） |
-| Stage Exit | S09/S10 Accepted；下一步进入 S11 Skills + Plugins G0 |
+| 当前阶段 | S11 Skills + Plugins（G0-G2 设计冻结） |
+| Stage Exit | S09/S10 Accepted；S11 G0-G2 Passed，G3-G6 Open |
 | 当前等级 | 99 项为 L2，35 项为 L1，63 项为 L0 |
 | 默认最终目标 | 197 项达到 L3，或存在明确 `Accepted Deviation` |
 | 当前能力覆盖 | 39.42%（197 项等权、目标 L3） |
-| 下一步 | S11 授权机制研究；MCP Lazy Tool、Resource/Prompt 投影、OAuth 分别按 S11/S13 后续差距推进 |
+| 下一步 | 按 ADR-058～060 实现 S11 Skill/Plugin 独立契约；MCP-08、签名/市场/供应链能力保持延期 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -456,19 +457,19 @@ Stage 完成项。
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| SKILL-01 | Skill Metadata | 名称、描述、触发方式 | L0 | S11 | REF-03 |
-| SKILL-02 | Markdown Workflow | 可重用步骤与知识 | L0 | S11 | REF-03 |
-| SKILL-03 | Explicit Invocation | `/skill-name` | L0 | S11 | REF-03 |
-| SKILL-04 | Model Invocation | 描述匹配和安全控制 | L0 | S11 | REF-03 |
-| SKILL-05 | Lazy Content | 描述先加载、正文按需 | L0 | S11 | REF-03 |
-| SKILL-06 | Bundled Resources | 参考文档、模板、脚本 | L0 | S11 | REF-03 |
-| SKILL-07 | Scoped Hooks | Skill 生命周期 | L0 | S11 | REF-03/07 |
-| PLUGIN-01 | Plugin Manifest | 版本、命名空间、组件 | L0 | S11 | REF-03 |
-| PLUGIN-02 | Bundle Skills/Hooks/MCP | 扩展打包 | L0 | S11 | REF-03 |
-| PLUGIN-03 | Tool Provider SPI | Java 扩展接口 | L0 | S11 | REF-03 |
-| PLUGIN-04 | Install / Uninstall | 本地插件管理 | L0 | S11/S14 | REF-03 |
-| PLUGIN-05 | Trust / Signature | 供应链控制 | L0 | S13/S14 | REF-03 |
-| PLUGIN-06 | Marketplace | 发现和分发 | L0 | S14/S15 | REF-03 |
+| SKILL-01 | Skill Metadata | 严格有界 metadata、触发方式与 immutable catalog snapshot；S11 目标 L2 | L0 | S11 | REF-03/AUTH-01/CODEX-0.147 |
+| SKILL-02 | Markdown Workflow | 按 digest 加载的不可信 Markdown workflow 与 transient Projection；S11 目标 L2 | L0 | S11 | REF-03/AUTH-01/CODEX-0.147 |
+| SKILL-03 | Explicit Invocation | `/skill-name` 类型化入口，共用 SkillInvoker；S11 目标 L2 | L0 | S11 | REF-03/AUTH-01/CODEX-0.147 |
+| SKILL-04 | Model Invocation | metadata catalog → 普通 Skill Tool；成功投影后激活，禁止 nested/reentrant；每个真实 Tool Call 仍逐次走 Permission/Approval/Pipeline；S11 目标 L2 | L0 | S11 | REF-03/AUTH-01/CODEX-0.147 |
+| SKILL-05 | Lazy Content | 启动只读 metadata，正文/资源调用时加载；S11 目标 L2 | L0 | S11 | REF-03/AUTH-01/CODEX-0.147 |
+| SKILL-06 | Bundled Resources | Skill-root 内普通 UTF-8 资源，有界且不执行脚本；S11 目标 L2 | L0 | S11 | REF-03/AUTH-01 |
+| SKILL-07 | Scoped Hooks | 正文成功投影后启用并持续到 Run 唯一终态；无活动 Run 的 Resume 不恢复；S11 目标 L2 | L0 | S11 | REF-03/07/AUTH-01 |
+| PLUGIN-01 | Plugin Manifest | 严格 v1 manifest、namespace、tree fingerprint 与 immutable snapshot；S11 目标 L2 | L0 | S11 | REF-03/AUTH-01/CODEX-0.147 |
+| PLUGIN-02 | Bundle Skills/Hooks/MCP | 只打包已验证组件，不建立第二套 Runtime；S11 目标 L2 | L0 | S11 | REF-03/AUTH-01/CODEX-0.147 |
+| PLUGIN-03 | Tool Provider SPI | 宿主 factory 返回有 lease/close 所有权的 Contribution；MCP-backed 仅引用 named Server，可信 PLUGIN Tool 逐次 ASK/Pipeline；拒绝任意 JAR；S11 目标 L2 | L0 | S11 | REF-03/AUTH-01 |
+| PLUGIN-04 | Install / Uninstall | S11 staged/quiescing L1 → S14 可恢复/迁移 L2 | L0 | S11/S14 | REF-03/AUTH-01 |
+| PLUGIN-05 | Trust / Signature | fingerprint 不等于签名；S11 保持 L0，供应链控制延期 | L0 | S13/S14 | REF-03 |
+| PLUGIN-06 | Marketplace | S11 保持 L0；发现、联网安装和分发延期 | L0 | S14/S15 | REF-03 |
 
 ## 19. Sub-Agent / Worktree 对照
 
@@ -722,15 +723,17 @@ Lazy Tool Loading 保持 L0，OAuth 与 OS 网络隔离分别留到 S13，稳定
 
 ### S11：Skills + Plugins
 
-完成条件：
+ADR-058～060 已完成双源 G0 研究、G1 范围与 G2 独立架构冻结；当前所有相关 Capability
+仍保持原等级，G3-G6 Open。退出目标与条件：
 
-- Skill metadata/markdown/lazy load；
-- explicit/model invocation；
-- resource 和 scoped hook；
-- plugin manifest/namespace；
-- Tool Provider SPI；
-- trust 和卸载；
-- 实际 Plugin Adapter 不能绕过 Permission Pipeline。
+- `SKILL-01..07`、`CTX-14` 达到 L2：metadata-first、markdown/lazy load、explicit/model invocation、resource、`runtimeVisibleTools ∩ skillAllowedTools` 纯收窄且每次调用重新执行 Permission/Approval、禁止 nested/reentrant、每 Run 每 Skill 至多一次、Hook/Scope 持续到 Run 唯一终态、无活动 Run 的 Resume 不恢复 Scope、Session digest/recovery；
+- `PLUGIN-01..03` 达到 L2：strict manifest/namespace、immutable snapshot、返回 Contribution 的 host-side Tool Provider SPI、named MCP Server 引用、可信 PLUGIN Network Tool 的受控 ASK 入口与关闭所有权；
+- `PLUGIN-04` 只达到 S11 L1：本地 staged install 与 quiescing uninstall；S14 再达到 L2；
+- `PLUGIN-05/06`、`SEC-11`、`MCP-08`、`TOOL-16` 保持 L0；fingerprint/catalog 不冒充签名、市场、Sandbox 或 Lazy Tool；
+- 明确拒绝任意 JAR/Class/ServiceLoader/native/script Tool Provider；
+- 实际 Plugin Adapter 经过 Permission/Approval/Hook/Pipeline，旁路执行次数为 0；
+- G4 证明 metadata 启动读取降低至少 90%、权限/协议/租约/隐私违规为 0，并覆盖恶意资源、恢复错配、安装故障点和活动引用卸载；
+- G5 记录真实 Demo 结果，G6 在实现 Commit 上对账 Evidence/Demo/Gap/看板。
 
 ### S12：Sub-Agent + Worktree
 

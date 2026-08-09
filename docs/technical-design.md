@@ -10,7 +10,8 @@
 > `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 已完成 ADR-048 G0-G6；ADR-049 的
 > `CLI-13`/`CTX-19` 补充切片已在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6；S09 已完成
 > Settings/Trust、Command/loopback HTTP、Compact、Context Projection 与生产装配并 Accepted；S10 MCP
-> Tool 主链已完成两个 Transport、多 Server、统一 Permission、Trust 与恢复并通过真实 E2E，Accepted
+> Tool 主链已完成两个 Transport、多 Server、统一 Permission、Trust 与恢复并通过真实 E2E，Accepted；
+> S11 Skills + Plugins 已完成 ADR-058～060 的 G0-G2 设计冻结，G3-G6 Open，Capability Level 无变化
 >
 > 当前实现状态：ADR-042/043/044 已固定并验证 Context Projection、条件式 Reduction、文件记忆和零等待
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
@@ -1127,6 +1128,32 @@ ToolRegistry、PermissionPolicy、Approval 与 ToolExecutionPipeline。STDIO 只
 只由环境变量名配置。多 Server 有界并行且失败隔离，首次调用断线只重建 initialize 并重试一次。
 Resource/Prompt 当前仅发现元数据；Lazy Tool 与 OAuth 仍是明确差距。完整决策见 ADR-056/057。
 
+### 18.5 S11 Skills + Plugins（G0-G2 冻结）
+
+S11 采用 ADR-058～060 的 metadata-first 与 immutable snapshot 设计：
+
+```text
+Skill roots → metadata-only catalog snapshot → explicit/model SkillInvoker
+  → digest recheck → lazy body/resources → Tool set intersection
+  → run-scoped Hook lease → transient Context Projection → terminal cleanup/recovery digest
+
+Plugin candidate → isolated staging → strict manifest/tree fingerprint → explicit trust
+  → immutable Session snapshot → Skill/Hook/MCP-backed host Provider
+  → ToolRegistry/Permission/Approval/Hook/Pipeline
+```
+
+- Skill frontmatter/catalog、正文、资源、Hook 与 Session 恢复分别由独立契约表达；正文和资源只进入有界、`untrusted` 的短生命周期 Projection，不改写 S06 Canonical Transcript。
+- `allowed-tools` 只计算 `effectiveVisibleTools = runtimeVisibleTools ∩ skillAllowedTools`；它不能预计算 Permission、新增 Tool、自动批准、创建/缓存 Grant或覆盖 PLAN/Deny/Hard Denial。每个真实 Tool Call 均在调用时重新执行 S05 Permission → Approval → Pipeline。
+- S11 禁止 nested/reentrant Skill。单 Run 可按稳定顺序激活多个不同 Skill但每项至多一次；模型 Skill Tool 成功并完成正文 Projection 前不启用 Scope/Hook。首个正文成功投影后，Tool 收窄与 Hook lease 持续到当前 Run 唯一终态；无活动 Run 的 Resume/Fork 不自动恢复 Scope/Hook。
+- Plugin 使用严格 v1 manifest、`plugin__<id>__<kind>__<component>` 命名空间、canonical tree SHA-256 与 Session immutable snapshot；磁盘更新只影响新 Session。
+- `PluginToolProviderFactory` 只能由宿主生产代码预注册，返回持有 AgentTool、底层资源与 snapshot lease 的 `PluginToolContribution`；close 属于 Contribution 而非共享 factory。S11 首个且唯一 Provider 类型为 MCP-backed，只能引用同一已验证 manifest 中的 named `mcpServers` 组件，并按 Registry 停止发布 → Contribution → 逆序 MCP client/transport → snapshot lease 顺序关闭。
+- G3 必须受控修改 `DefaultHardDenialPolicy`：`NETWORK_OR_REMOTE` 仅对宿主构造的可信 `ToolSource.MCP/PLUGIN` 继续进入规则评估并默认 ASK，其他来源继续 Hard Deny；Plugin manifest 不得直接构造 ToolDefinition/ToolSource。Plugin Session Grant 绑定 `ToolSource.PLUGIN`、完整 qualified name 与 selector。
+- S11 明确拒绝任意 JAR/Class/ServiceLoader/反射/native/脚本 Tool Provider。fingerprint 不是签名，Permission/Checkpoint/Plugin snapshot 也不是 OS Sandbox。
+- 安装只接受显式本地目录，archive 一律拒绝且不宣称 archive bomb 检测；经逐文件 staging、flush/force、同文件系统原子 rename、父目录 flush、registry staged flush/原子替换/父目录 flush 后激活，任一原子能力不支持即 Fail Closed。卸载先 QUIESCING、拒绝新 snapshot，引用归零后删除。S11 仅使 `PLUGIN-04` 达到 L1，恢复/迁移/跨平台管理留到 S14。
+- 数值 ceiling：单 root/合计 Skill 128/256，单 Skill 128KiB/4,000 行，资源 256KiB/单调用 1MiB，单 Plugin 128 组件/1,024 文件/32MiB；完整验收见 S11 Gate Evidence。
+
+上述公共 Domain/Core/Port/SPI 在实现时必须提供中文 Javadoc，解释职责、非职责、权限收窄、snapshot 所有权、取消、恢复、失败和“Trust 不等于签名/Sandbox”。当前 G3-G6 尚未开始，`MCP-08`/`TOOL-16` 不随本设计升级。
+
 ## 19. CLI、内部协议与终端
 
 ### 19.1 Java Headless
@@ -1649,6 +1676,9 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | [ADR-031](./adr/ADR-031-s02-provider-multi-tool-deviation.md) | Accepted | 当前 Provider 同回合多 Tool 是生成能力偏差；Adapter 继续保留完整协议 |
 | [ADR-032](./adr/ADR-032-s03-read-tools-security-contract.md) | Accepted | S03 固定五个只读 Tool、WorkspaceGuard、敏感路径、结果硬上限、根 `AGENTS.md` 与安全事件投影 |
 | [ADR-033](./adr/ADR-033-s03-ripgrep-search-backend.md) | Accepted | S03 以受控 ripgrep 子进程重实现成熟文本搜索机制，保留 Java 字面搜索降级并明确非 RAG 边界 |
+| [ADR-058](./adr/ADR-058-s11-dual-source-skills-plugins-study.md) | Accepted | S11 以授权快照和 Codex rust-v0.147.0 双源冻结 Skills/Plugins 采纳、偏离与 Unknown |
+| [ADR-059](./adr/ADR-059-s11-skill-runtime-contract.md) | Accepted | S11 冻结 metadata-first catalog、双入口、资源/Tool 收窄、run-scoped Hook 与 Session recovery |
+| [ADR-060](./adr/ADR-060-s11-plugin-host-contract.md) | Accepted | S11 冻结 strict manifest/namespace、immutable snapshot、宿主 SPI、MCP-backed Adapter 与 staged/quiescing 生命周期；拒绝任意 JAR |
 
 ## 26. 需求追踪
 
