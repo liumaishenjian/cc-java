@@ -105,7 +105,9 @@ public final class ExtensionConfigurationLoader {
                 projectFingerprint = Optional.of(fingerprint);
                 projectTrusted = trustMatches(fingerprint);
                 Parsed parsed = parse(project.orElseThrow(), projectTrusted);
-                merge(hookDefinitions, serverDefinitions, parsed);
+                if (projectTrusted) {
+                    merge(hookDefinitions, serverDefinitions, parsed);
+                }
                 if (!projectTrusted) {
                     diagnostic = Optional.of("PROJECT_TRUST_REQUIRED");
                 }

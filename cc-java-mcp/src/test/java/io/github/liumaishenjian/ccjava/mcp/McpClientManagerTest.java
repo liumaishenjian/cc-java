@@ -58,6 +58,75 @@ class McpClientManagerTest {
     }
 
     @Test
+    void ordinaryToolFailureIsNotRetriedBecauseTheFirstCallMayHaveSideEffects() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        AtomicInteger generations = new AtomicInteger();
+        McpClientFactory factory = ignored -> new McpRemoteClient() {
+            { generations.incrementAndGet(); }
+            @Override public void initialize() { }
+            @Override public List<McpToolDescriptor> listTools() {
+                return List.of(new McpToolDescriptor("write", "write", Map.of("type", "object")));
+            }
+            @Override public McpCallOutcome callTool(String name, Map<String, Object> arguments) {
+                calls.incrementAndGet();
+                throw new IllegalStateException("ambiguous failure after remote execution");
+            }
+            @Override public void close() { }
+        };
+        try (McpClientManager manager = new McpClientManager(
+                List.of(config("ordinary", true, List.of(), List.of())), factory)) {
+            var outcome = manager.start().getFirst().execute(new io.github.liumaishenjian.ccjava.core.ToolInvocation(
+                    new io.github.liumaishenjian.ccjava.domain.SessionId("session"),
+                    new io.github.liumaishenjian.ccjava.domain.RunId("run"), 1,
+                    new io.github.liumaishenjian.ccjava.domain.ToolCall(
+                            "call", "mcp__ordinary__write", io.github.liumaishenjian.ccjava.domain.JsonObject.empty())));
+
+            assertThat(outcome.successful()).isFalse();
+            assertThat(calls).hasValue(1);
+            assertThat(generations).hasValue(1);
+        }
+    }
+
+    @Test
+    void failedReconnectClosesReplacementAndLeavesConnectionUnavailable() throws Exception {
+        AtomicInteger generations = new AtomicInteger();
+        List<AtomicInteger> closes = new ArrayList<>();
+        McpClientFactory factory = ignored -> {
+            int generation = generations.incrementAndGet();
+            AtomicInteger closed = new AtomicInteger();
+            closes.add(closed);
+            return new McpRemoteClient() {
+                @Override public void initialize() {
+                    if (generation == 2) throw new IllegalStateException("initialize failed");
+                }
+                @Override public List<McpToolDescriptor> listTools() {
+                    return List.of(new McpToolDescriptor("read", "read", Map.of("type", "object")));
+                }
+                @Override public McpCallOutcome callTool(String name, Map<String, Object> arguments) {
+                    throw new McpSessionInvalidException(new IllegalStateException("expired"));
+                }
+                @Override public void close() { closed.incrementAndGet(); }
+            };
+        };
+        try (McpClientManager manager = new McpClientManager(
+                List.of(config("failed-reconnect", true, List.of(), List.of())), factory)) {
+            var tool = manager.start().getFirst();
+            var invocation = new io.github.liumaishenjian.ccjava.core.ToolInvocation(
+                    new io.github.liumaishenjian.ccjava.domain.SessionId("session"),
+                    new io.github.liumaishenjian.ccjava.domain.RunId("run"), 1,
+                    new io.github.liumaishenjian.ccjava.domain.ToolCall(
+                            "call", tool.definition().name(), io.github.liumaishenjian.ccjava.domain.JsonObject.empty()));
+
+            assertThat(tool.execute(invocation).successful()).isFalse();
+            assertThat(closes).hasSize(2);
+            assertThat(closes.get(0)).hasValue(1);
+            assertThat(closes.get(1)).hasValue(1);
+            assertThat(tool.execute(invocation).successful()).isFalse();
+            assertThat(generations).hasValue(2);
+        }
+    }
+
+    @Test
     void reconnectsAndRetriesToolCallOnlyOnceAfterSessionFailure() throws Exception {
         AtomicInteger generations = new AtomicInteger();
         McpClientFactory factory = ignored -> new McpRemoteClient() {
@@ -67,7 +136,8 @@ class McpClientManagerTest {
                 return List.of(new McpToolDescriptor("read", "read", Map.of("type", "object")));
             }
             @Override public McpCallOutcome callTool(String name, Map<String, Object> arguments) {
-                if (generation == 1) throw new IllegalStateException("expired");
+                if (generation == 1) throw new McpSessionInvalidException(
+                        new IllegalStateException("expired"));
                 return new McpCallOutcome(false, "recovered");
             }
             @Override public void close() { }
@@ -88,14 +158,74 @@ class McpClientManagerTest {
         }
     }
 
+    @Test
+    void runningToolCallObservesCancellationAndLocalTimeout() throws Exception {
+        java.util.concurrent.CountDownLatch started = new java.util.concurrent.CountDownLatch(1);
+        McpRemoteClient blocking = new McpRemoteClient() {
+            @Override public void initialize() { }
+            @Override public List<McpToolDescriptor> listTools() {
+                return List.of(new McpToolDescriptor("wait", "wait", Map.of("type", "object")));
+            }
+            @Override public McpCallOutcome callTool(String name, Map<String, Object> arguments) {
+                started.countDown();
+                try {
+                    Thread.sleep(10_000);
+                    return new McpCallOutcome(false, "late");
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new java.util.concurrent.CancellationException("interrupted");
+                }
+            }
+            @Override public void close() { }
+        };
+        try (McpClientManager manager = new McpClientManager(
+                List.of(config("cancel", true, List.of(), List.of(), Duration.ofMillis(100))), ignored -> blocking)) {
+            var tool = manager.start().getFirst();
+            var source = new io.github.liumaishenjian.ccjava.core.CancellationSource();
+            var invocation = new io.github.liumaishenjian.ccjava.core.ToolInvocation(
+                    new io.github.liumaishenjian.ccjava.domain.SessionId("session"),
+                    new io.github.liumaishenjian.ccjava.domain.RunId("run"), 1,
+                    new io.github.liumaishenjian.ccjava.domain.ToolCall(
+                            "call", tool.definition().name(), io.github.liumaishenjian.ccjava.domain.JsonObject.empty()),
+                    source.token());
+            var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+            try {
+                var future = executor.submit(() -> tool.execute(invocation));
+                assertThat(started.await(1, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                source.cancel();
+                assertThat(future.get(1, java.util.concurrent.TimeUnit.SECONDS).error().orElseThrow().code())
+                        .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolErrorCode.OPERATION_CANCELLED);
+            } finally {
+                executor.shutdownNow();
+            }
+        }
+
+        try (McpClientManager manager = new McpClientManager(
+                List.of(config("timeout", true, List.of(), List.of(), Duration.ofMillis(20))), ignored -> blocking)) {
+            var tool = manager.start().getFirst();
+            var outcome = tool.execute(new io.github.liumaishenjian.ccjava.core.ToolInvocation(
+                    new io.github.liumaishenjian.ccjava.domain.SessionId("session"),
+                    new io.github.liumaishenjian.ccjava.domain.RunId("run"), 1,
+                    new io.github.liumaishenjian.ccjava.domain.ToolCall(
+                            "call", tool.definition().name(), io.github.liumaishenjian.ccjava.domain.JsonObject.empty())));
+            assertThat(outcome.error().orElseThrow().code())
+                    .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolErrorCode.OPERATION_TIMED_OUT);
+        }
+    }
+
     private static McpServerConfig config(
             String name, boolean trusted, List<String> allow, List<String> deny) {
+        return config(name, trusted, allow, deny, Duration.ofSeconds(1));
+    }
+
+    private static McpServerConfig config(
+            String name, boolean trusted, List<String> allow, List<String> deny, Duration timeout) {
         return new McpServerConfig(
                 name,
                 new McpTransportConfig.Stdio(Path.of("C:\\tools\\mcp.exe"), List.of(), List.of()),
                 allow,
                 deny,
-                Duration.ofSeconds(1),
+                timeout,
                 trusted);
     }
 

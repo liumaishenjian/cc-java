@@ -9,6 +9,7 @@ import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapperSupplier;
 import io.modelcontextprotocol.spec.McpClientTransport;
 import io.modelcontextprotocol.spec.McpSchema;
+import io.modelcontextprotocol.spec.McpTransportSessionNotFoundException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.time.Duration;
@@ -152,7 +153,14 @@ public final class OfficialMcpClientFactory implements McpClientFactory {
 
         @Override
         public McpCallOutcome callTool(String name, Map<String, Object> arguments) {
-            McpSchema.CallToolResult result = client.callTool(new McpSchema.CallToolRequest(name, arguments));
+            try {
+                return projectCallResult(client.callTool(new McpSchema.CallToolRequest(name, arguments)));
+            } catch (RuntimeException failure) {
+                throw mapCallFailure(failure);
+            }
+        }
+
+        private McpCallOutcome projectCallResult(McpSchema.CallToolResult result) {
             StringBuilder output = new StringBuilder();
             for (McpSchema.Content content : result.content()) {
                 appendBounded(output, project(content));
@@ -165,6 +173,24 @@ public final class OfficialMcpClientFactory implements McpClientFactory {
                 }
             }
             return new McpCallOutcome(Boolean.TRUE.equals(result.isError()), output.toString());
+        }
+
+        private static RuntimeException mapCallFailure(Throwable failure) {
+            Throwable current = failure;
+            for (int depth = 0; current != null && depth < 16; depth++) {
+                if (current instanceof McpTransportSessionNotFoundException sessionInvalid) {
+                    return new McpSessionInvalidException(sessionInvalid);
+                }
+                Throwable cause = current.getCause();
+                if (cause == current) {
+                    break;
+                }
+                current = cause;
+            }
+            if (failure instanceof RuntimeException runtime) {
+                return runtime;
+            }
+            return new IllegalStateException("MCP Tool 调用失败", failure);
         }
 
         @Override

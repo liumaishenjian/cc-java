@@ -60,16 +60,42 @@ public final class McpAgentTool implements AgentTool {
             return ToolExecutionOutcome.failure(ToolError.of(
                     ToolErrorCode.OPERATION_CANCELLED, "MCP Tool 调用已取消"));
         }
-        try {
-            McpCallOutcome result = client.callTool(remoteName, invocation.call().arguments().values());
+        var executor = java.util.concurrent.Executors.newThreadPerTaskExecutor(
+                Thread.ofVirtual().name("cc-java-mcp-tool-", 0).factory());
+        var future = executor.submit(() -> client.callTool(
+                remoteName,
+                invocation.call().arguments().values(),
+                definition.defaultTimeout(),
+                invocation.cancellationToken()));
+        try (io.github.liumaishenjian.ccjava.core.CancellationToken.Registration registration =
+                     invocation.cancellationToken().onCancellation(() -> future.cancel(true))) {
+            McpCallOutcome result;
+            try {
+                result = future.get(definition.defaultTimeout().toNanos(),
+                        java.util.concurrent.TimeUnit.NANOSECONDS);
+            } catch (java.util.concurrent.TimeoutException failure) {
+                future.cancel(true);
+                return ToolExecutionOutcome.failure(ToolError.of(
+                        ToolErrorCode.OPERATION_TIMED_OUT, "MCP Tool 调用超时"));
+            } catch (InterruptedException failure) {
+                future.cancel(true);
+                Thread.currentThread().interrupt();
+                return ToolExecutionOutcome.failure(ToolError.of(
+                        ToolErrorCode.OPERATION_CANCELLED, "MCP Tool 调用已取消"));
+            } catch (java.util.concurrent.CancellationException failure) {
+                return ToolExecutionOutcome.failure(ToolError.of(
+                        ToolErrorCode.OPERATION_CANCELLED, "MCP Tool 调用已取消"));
+            } catch (java.util.concurrent.ExecutionException failure) {
+                return ToolExecutionOutcome.failure(ToolError.of(
+                        ToolErrorCode.EXECUTION_FAILED, "MCP Tool 调用失败"));
+            }
             if (result.error()) {
                 return ToolExecutionOutcome.failure(ToolError.of(
                         ToolErrorCode.EXECUTION_FAILED, "MCP Server 返回 Tool 错误"));
             }
             return ToolExecutionOutcome.success(result.content());
-        } catch (RuntimeException failure) {
-            return ToolExecutionOutcome.failure(ToolError.of(
-                    ToolErrorCode.EXECUTION_FAILED, "MCP Tool 调用失败"));
+        } finally {
+            executor.shutdownNow();
         }
     }
 

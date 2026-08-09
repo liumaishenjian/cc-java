@@ -201,14 +201,34 @@ public final class McpClientManager implements AutoCloseable {
 
         @Override
         public synchronized McpCallOutcome callTool(String name, Map<String, Object> arguments) {
-            if (closed) throw new IllegalStateException("MCP connection 已关闭");
+            return callTool(name, arguments, config.requestTimeout(),
+                    io.github.liumaishenjian.ccjava.core.CancellationToken.none());
+        }
+
+        @Override
+        public synchronized McpCallOutcome callTool(
+                String name,
+                Map<String, Object> arguments,
+                java.time.Duration timeout,
+                io.github.liumaishenjian.ccjava.core.CancellationToken cancellationToken) {
+            if (closed || delegate == null) throw new IllegalStateException("MCP connection 已关闭");
             try {
-                return delegate.callTool(name, arguments);
-            } catch (RuntimeException firstFailure) {
-                closeQuietly(delegate);
-                delegate = factory.create(config);
-                delegate.initialize();
-                return delegate.callTool(name, arguments);
+                return delegate.callTool(name, arguments, timeout, cancellationToken);
+            } catch (McpSessionInvalidException sessionInvalid) {
+                McpRemoteClient failedDelegate = delegate;
+                closeQuietly(failedDelegate);
+                delegate = null;
+                McpRemoteClient replacement = null;
+                try {
+                    replacement = factory.create(config);
+                    replacement.initialize();
+                    delegate = replacement;
+                    return replacement.callTool(name, arguments, timeout, cancellationToken);
+                } catch (RuntimeException reconnectFailure) {
+                    closeQuietly(replacement);
+                    delegate = null;
+                    throw reconnectFailure;
+                }
             }
         }
 
@@ -216,7 +236,9 @@ public final class McpClientManager implements AutoCloseable {
         public synchronized void close() {
             if (!closed) {
                 closed = true;
-                closeQuietly(delegate);
+                McpRemoteClient current = delegate;
+                delegate = null;
+                closeQuietly(current);
             }
         }
     }

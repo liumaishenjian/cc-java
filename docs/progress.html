@@ -223,7 +223,7 @@
     }
   </style>
 </head>
-<body data-matrix-digest="d31d25f21e2a" data-state-digest="8a4140381776" data-code-digest="eb910f567ceb">
+<body data-matrix-digest="d31d25f21e2a" data-state-digest="8c6d5c205d36" data-code-digest="f5e54420fab8">
   <main class="shell">
     <section class="hero">
       <p class="eyebrow">Reference-driven Java Agent Runtime</p>
@@ -330,13 +330,13 @@
         </div>
       </div>
       <dl class="evidence-grid">
-        <div class="evidence-item"><dt>Last change</dt><dd>S09 完成 Settings/Trust、Command/loopback HTTP、Compact 与生产接入；S10 新增独立 MCP Adapter、两个 Transport、多 Server、统一权限与恢复。HOOK-02/03/04/05/06/07/09/12/13 提升 L2、HOOK-10 提升 L1；MCP-01/02/03/04/05/06/07 提升 L2，MCP-09/10/11 提升 L1，MCP-08 无等级变化。</dd></div>
+        <div class="evidence-item"><dt>Last change</dt><dd>独立审查修复 S09/S10 四项确凿缺陷：未信任项目配置不再覆盖可信用户扩展，POST_COMPACT 观察最终终态，MCP 仅明确 Session 失效时单次重连且失败 Client 完整关闭，并新增单层权威墙钟下的运行中取消/本地 timeout；Capability Level 无变化。</dd></div>
         <div class="evidence-item"><dt>Evidence stage</dt><dd><code>S10</code></dd></div>
         <div class="evidence-item"><dt>Evidence class</dt><dd><code>COMMIT_VERIFIED</code></dd></div>
         <div class="evidence-item"><dt>Code commit</dt><dd><code>e4526f474fbfb597be1439bd5acb956cfcc9eafa</code></dd></div>
         <div class="evidence-item"><dt>Standard command</dt><dd><code>.mvnw.cmd clean verify；npm --prefix cc-java-tui run check；java scripts/ProgressDashboard.java；java scripts/ProgressDashboard.java --check；java scripts/ProgressDashboard.java --self-test；git diff --check</code></dd></div>
         <div class="evidence-item"><dt>Result</dt><dd>实现 Commit e4526f4 上 ADR-051～057、S09/S10 Evidence/Demo/Gap 已对账；完整 clean verify、TUI 128/128、零警告 JavaDoc、真实 STDIO/Streamable HTTP/Compact 与 Headless MCP Agent Loop E2E 通过。</dd></div>
-        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix d31d25f21e2a</code><br><code>state 8a4140381776</code><br><code>code/build eb910f567ceb</code></dd></div>
+        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix d31d25f21e2a</code><br><code>state 8c6d5c205d36</code><br><code>code/build f5e54420fab8</code></dd></div>
       </dl>
     </section>
 

@@ -15,6 +15,39 @@ import tools.jackson.databind.json.JsonMapper;
 class ExtensionConfigurationLoaderTest {
 
     @Test
+    void untrustedProjectEntriesCannotShadowTrustedUserEntriesWithTheSameName(@TempDir Path root) throws Exception {
+        Path workspace = Files.createDirectory(root.resolve("workspace"));
+        Path projectDirectory = Files.createDirectory(workspace.resolve(".cc-java"));
+        Path home = Files.createDirectories(root.resolve("home").resolve(".cc-java"));
+        Path userHook = root.resolve("user-hook.exe").toAbsolutePath();
+        Path projectHook = root.resolve("project-hook.exe").toAbsolutePath();
+        var json = JsonMapper.builder().build();
+        Files.write(home.resolve("extensions.json"), json.writeValueAsBytes(Map.of(
+                "version", 1,
+                "hooks", List.of(Map.of(
+                        "id", "same",
+                        "event", "PRE_TOOL",
+                        "failurePolicy", "FAIL_OPEN",
+                        "timeoutMs", 100,
+                        "command", List.of(userHook.toString()))))));
+        Files.write(projectDirectory.resolve("extensions.json"), json.writeValueAsBytes(Map.of(
+                "version", 1,
+                "hooks", List.of(Map.of(
+                        "id", "same",
+                        "event", "PRE_TOOL",
+                        "failurePolicy", "FAIL_CLOSED",
+                        "timeoutMs", 100,
+                        "command", List.of(projectHook.toString()))))));
+
+        try (ExtensionRuntime runtime = new ExtensionConfigurationLoader(
+                root.resolve("home"), new WorkspaceGuard(workspace)).load()) {
+            assertThat(runtime.status().projectTrusted()).isFalse();
+            assertThat(runtime.status().hookCount()).isOne();
+            assertThat(runtime.status().diagnosticCode()).contains("PROJECT_TRUST_REQUIRED");
+        }
+    }
+
+    @Test
     void projectHooksStayInactiveUntilExactFingerprintIsExplicitlyTrusted(@TempDir Path root) throws Exception {
         Path workspace = Files.createDirectory(root.resolve("workspace"));
         Path projectDirectory = Files.createDirectory(workspace.resolve(".cc-java"));

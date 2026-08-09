@@ -841,30 +841,34 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         var result = contextPreparation.compact(new io.github.liumaishenjian.ccjava.domain.ModelRequest(
                 session.id(), new RunId("compact-" + revision), 1, canonical, List.of()),
                 List.copyOf(effectiveAnchors), cancellationToken);
+        CompactResult finalResult;
+        synchronized (lifecycleMonitor) {
+            if (closed || activeRun != null || !canonical.equals(currentCanonicalSnapshot())) {
+                finalResult = CompactResult.STALE;
+            } else if (cancellationToken.isCancellationRequested() || result.status()
+                    == io.github.liumaishenjian.ccjava.core.ContextPreparationService.ExplicitCompactStatus.CANCELLED) {
+                finalResult = CompactResult.CANCELLED;
+            } else if (result.status()
+                    == io.github.liumaishenjian.ccjava.core.ContextPreparationService.ExplicitCompactStatus.ADOPTED) {
+                contextPreparation.installForNextRun(canonical, result.projection().orElseThrow());
+                finalResult = CompactResult.ADOPTED;
+            } else {
+                finalResult = switch (result.status()) {
+                    case UNAVAILABLE -> CompactResult.UNAVAILABLE;
+                    case SUMMARIZER_FAILURE -> CompactResult.SUMMARIZER_FAILURE;
+                    case SUMMARIZER_REJECTED, REJECTED -> CompactResult.REJECTED;
+                    case ADOPTED, CANCELLED -> throw new IllegalStateException("已处理的 compact status");
+                };
+            }
+        }
         extensions.hooks().evaluate(
                 new io.github.liumaishenjian.ccjava.domain.hook.HookInvocation(
                         io.github.liumaishenjian.ccjava.domain.hook.HookEventKind.POST_COMPACT,
                         session.id(), Optional.empty(), "compact",
                         new io.github.liumaishenjian.ccjava.domain.JsonObject(Map.of(
-                                "status", result.status().name()))),
+                                "status", finalResult.name()))),
                 cancellationToken);
-        synchronized (lifecycleMonitor) {
-            if (closed || activeRun != null || !canonical.equals(currentCanonicalSnapshot())) return CompactResult.STALE;
-            if (cancellationToken.isCancellationRequested() || result.status()
-                    == io.github.liumaishenjian.ccjava.core.ContextPreparationService.ExplicitCompactStatus.CANCELLED) {
-                return CompactResult.CANCELLED;
-            }
-            if (result.status() == io.github.liumaishenjian.ccjava.core.ContextPreparationService.ExplicitCompactStatus.ADOPTED) {
-                contextPreparation.installForNextRun(canonical, result.projection().orElseThrow());
-                return CompactResult.ADOPTED;
-            }
-            return switch (result.status()) {
-                case UNAVAILABLE -> CompactResult.UNAVAILABLE;
-                case SUMMARIZER_FAILURE -> CompactResult.SUMMARIZER_FAILURE;
-                case SUMMARIZER_REJECTED, REJECTED -> CompactResult.REJECTED;
-                case ADOPTED, CANCELLED -> throw new IllegalStateException("已处理的 compact status");
-            };
-        }
+        return finalResult;
     }
 
     /** Headless 显式 compact 的固定终态。 */

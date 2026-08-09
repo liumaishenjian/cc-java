@@ -28,6 +28,76 @@ import tools.jackson.databind.json.JsonMapper;
 class S09CompactHookE2ETest {
 
     @Test
+    void postCompactObservesFinalRejectedStatusRatherThanIntermediateSummarizerStatus(@TempDir Path root) throws Exception {
+        AtomicInteger observedRejected = new AtomicInteger();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/hook", exchange -> {
+            try (exchange) {
+                String input = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                if (input.contains("\"event\":\"POST_COMPACT\"")
+                        && input.contains("\"status\":\"REJECTED\"")) {
+                    observedRejected.incrementAndGet();
+                }
+                byte[] body = "{\"disposition\":\"CONTINUE\"}".getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
+            }
+        });
+        server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
+        server.start();
+        try {
+            Path workspace = Files.createDirectory(root.resolve("workspace"));
+            Path home = Files.createDirectories(root.resolve("home").resolve(".cc-java"));
+            Files.write(home.resolve("extensions.json"), JsonMapper.builder().build().writeValueAsBytes(Map.of(
+                    "version", 1,
+                    "hooks", List.of(Map.of(
+                            "id", "compact-observer",
+                            "event", "POST_COMPACT",
+                            "failurePolicy", "OBSERVE_ONLY",
+                            "timeoutMs", 1_000,
+                            "url", "http://127.0.0.1:" + server.getAddress().getPort() + "/hook")))));
+            ContextPreparationConfig config = new ContextPreparationConfig(
+                    new ContextCapacity("fake-model", 10_000, 1_000, 500),
+                    1_000, 2, 4_096, 1_000);
+            HeadlessRuntimeOptions options = new HeadlessRuntimeOptions(
+                    workspace, "fake-model", Duration.ofSeconds(5), PermissionMode.DEFAULT, List.of(),
+                    SessionOpenRequest.create(), root.resolve("sessions"), Optional.of(config));
+            LatestContextUsageCollector usage = new LatestContextUsageCollector();
+            java.util.concurrent.atomic.AtomicReference<HeadlessRuntimeSession> runtimeReference =
+                    new java.util.concurrent.atomic.AtomicReference<>();
+            ContextPreparationService preparation = new ContextPreparationService(
+                    config,
+                    (request, token) -> {
+                        runtimeReference.get().run("concurrent canonical change");
+                        String text = "short";
+                        return Optional.of(new io.github.liumaishenjian.ccjava.domain.SummaryCandidate(
+                                request.tier(), text, request.sourceRevision(), request.sourceMessageIds(),
+                                text.getBytes(StandardCharsets.UTF_8).length, 1));
+                    },
+                    usage);
+
+            try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(
+                    request -> io.github.liumaishenjian.ccjava.domain.ModelTurn.text("unused"),
+                    AgentEventSink.noop(), options,
+                    (invocation, definition, outcome) -> io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny(),
+                    preparation, usage,
+                    HeadlessRuntimeSession.HeadlessMemoryLayout.disabled(),
+                    HeadlessRuntimeSession.HeadlessInstructionLayout.production(() -> root.resolve("home")),
+                    null, true)) {
+                runtime.open();
+                runtimeReference.set(runtime);
+                assertThat(runtime.compactForNextRun(
+                        List.of(), io.github.liumaishenjian.ccjava.core.CancellationToken.none()))
+                        .isEqualTo(HeadlessRuntimeSession.CompactResult.REJECTED);
+            }
+        } finally {
+            server.stop(0);
+        }
+        assertThat(observedRejected).hasValue(1);
+    }
+
+    @Test
     void trustedUserPreCompactHookBlocksBeforeSummarizer(@TempDir Path root) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/hook", exchange -> {
