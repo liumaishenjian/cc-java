@@ -35,6 +35,11 @@ public final class StdioProtocolCodec {
             "checkpoint.undo",
             "session.command",
             "skill.invoke",
+            "task.inspect",
+            "task.wait",
+            "task.cancel",
+            "task.keep",
+            "task.remove",
             "file.suggest",
             "shutdown");
 
@@ -104,6 +109,9 @@ public final class StdioProtocolCodec {
         }
         if ("skill.invoke".equals(type)) {
             validateSkillInvoke(root, (ObjectNode) payloadNode, requestId);
+        }
+        if (type.startsWith("task.")) {
+            validateTaskCommand(root, (ObjectNode) payloadNode, requestId, type);
         }
         if ("file.suggest".equals(type)) {
             validateFileSuggest(root, (ObjectNode) payloadNode, requestId);
@@ -187,6 +195,25 @@ public final class StdioProtocolCodec {
     }
 
     /** 校验显式 Skill 命令的精确信封与有界参数。 */
+    private void validateTaskCommand(JsonNode root, ObjectNode payload, String requestId, String type)
+            throws StdioProtocolException {
+        Set<String> envelope = Set.of("version", "type", "requestId", "sessionId", "runId", "sequence", "payload");
+        Set<String> allowed = "task.wait".equals(type) ? Set.of("taskId", "timeoutMillis") : Set.of("taskId");
+        if (root.properties().stream().anyMatch(entry -> !envelope.contains(entry.getKey()))
+                || root.get("sessionId") == null || root.get("runId") != null
+                || payload.properties().stream().anyMatch(entry -> !allowed.contains(entry.getKey()))) {
+            throw new StdioProtocolException("INVALID_ENVELOPE", requestId, type + " 信封无效");
+        }
+        String taskId = requiredPayloadText(payload, "taskId", requestId);
+        if (!taskId.matches("task-[A-Za-z0-9_-]{1,96}"))
+            throw new StdioProtocolException("INVALID_PAYLOAD", requestId, "taskId 无效");
+        if ("task.wait".equals(type)) {
+            JsonNode timeout = payload.get("timeoutMillis");
+            if (timeout == null || !timeout.canConvertToInt() || timeout.intValue() < 1 || timeout.intValue() > 30_000)
+                throw new StdioProtocolException("INVALID_PAYLOAD", requestId, "timeoutMillis 无效");
+        }
+    }
+
     private void validateSkillInvoke(JsonNode root, ObjectNode payload, String requestId)
             throws StdioProtocolException {
         Set<String> envelope = Set.of("version", "type", "requestId", "sessionId", "runId", "sequence", "payload");

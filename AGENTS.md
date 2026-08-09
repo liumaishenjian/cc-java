@@ -122,8 +122,9 @@ S09/S10 Accepted 不表示远程 Hook、MCP OAuth/Lazy Tool/Resource 自动投�
 S14 稳定持久化能力已经可用。S11 Skills + Plugins 已在实现 Commit
 `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6：量化、安全矩阵、
 67/67 Demo、813 tests/21 skips、TUI 129/129 与 launcher 59/59 均通过，Stage Exit Accepted；
-`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1。下一路线节点仅为尚未启动的
-S12 G0；Sub-Agent、后台任务与 Worktree 能力仍未实现。
+`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1。S12 已由 ADR-061/062 完成
+双源 G0-G2 范围/架构冻结并进入 In Progress；`SUB-01..10`、`CTX-15`、
+`HOOK-08/11`、`TOOL-15` 已在当前 dirty worktree 完成 Batch A-C 工作树候选实现，G3-G5 candidate passed：除 `SUB-06/HOOK-11` 候选 L1 外其余候选 L2；但 G6/Stage Exit 必须等待真实 implementation Commit 的 commit-scoped 复验，仍保持 Open。
 
 ## 3. 项目定位
 

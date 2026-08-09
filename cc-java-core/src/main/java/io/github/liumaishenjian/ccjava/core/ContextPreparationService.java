@@ -34,6 +34,8 @@ public final class ContextPreparationService {
     private final boolean enabled;
     private final AtomicReference<InstalledProjection> installedProjection = new AtomicReference<>();
     private final ConcurrentMap<RunId, RunState> runs = new ConcurrentHashMap<>();
+    private final ConcurrentMap<io.github.liumaishenjian.ccjava.domain.SessionId, String> pendingExternalContext
+            = new ConcurrentHashMap<>();
 
     /**
      * 创建启用 C1-C4 的准备服务，默认不发布 Context Usage View。
@@ -187,6 +189,7 @@ public final class ContextPreparationService {
             CancellationToken cancellationToken) {
         Objects.requireNonNull(canonical, "canonical 不能为空");
         Objects.requireNonNull(cancellationToken, "cancellationToken 不能为空");
+        canonical = projectExternalContext(canonical);
         if (!enabled) {
             return canonical;
         }
@@ -386,6 +389,33 @@ public final class ContextPreparationService {
         } catch (RuntimeException ignored) {
             // Usage View 是旁路诊断，观察端故障不能影响模型请求或恢复。
         }
+    }
+
+    /**
+     * 记录只供指定 Session 下一模型回合消费的有界非可信外部 Context。
+     *
+     * <p>用于把 durable 子任务 Stop Hook 的 additional context 投影回父级；该内容不写入
+     * Canonical transcript，且最多保留一个固定上限的 pending 值。</p>
+     */
+    public void recordExternalContext(io.github.liumaishenjian.ccjava.domain.SessionId sessionId, String context) {
+        Objects.requireNonNull(sessionId, "sessionId 不能为空");
+        Objects.requireNonNull(context, "context 不能为空");
+        if (context.isBlank()) return;
+        int maximum = io.github.liumaishenjian.ccjava.domain.hook.HookAggregateResult.MAX_CONTEXT_CHARACTERS;
+        String bounded = context.codePointCount(0, context.length()) <= maximum
+                ? context : context.substring(0, context.offsetByCodePoints(0, maximum));
+        pendingExternalContext.put(sessionId, bounded);
+    }
+
+    private ModelRequest projectExternalContext(ModelRequest canonical) {
+        String context = pendingExternalContext.remove(canonical.sessionId());
+        if (context == null) return canonical;
+        List<AgentMessage> messages = new java.util.ArrayList<>(canonical.messages());
+        messages.add(new io.github.liumaishenjian.ccjava.domain.SystemMessage(
+                "<sub-agent-stop-context trust=\"untrusted\">\n" + context
+                        + "\n</sub-agent-stop-context>"));
+        return new ModelRequest(canonical.sessionId(), canonical.runId(), canonical.turnNumber(),
+                messages, canonical.toolDefinitions());
     }
 
     /**

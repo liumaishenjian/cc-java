@@ -288,6 +288,11 @@ public final class RuntimeStdioCommandHandler
             case "checkpoint.undo" -> checkpointUndo(command, events);
             case "session.command" -> sessionCommand(command, events);
             case "skill.invoke" -> invokeSkill(command, events);
+            case "task.inspect" -> inspectTask(command, events);
+            case "task.wait" -> waitTask(command, events);
+            case "task.cancel" -> cancelTask(command, events);
+            case "task.keep" -> keepTaskWorktree(command, events);
+            case "task.remove" -> removeTaskWorktree(command, events);
             case "file.suggest" -> suggestFiles(command, events);
             case "shutdown" -> shutdown();
             default -> throw protocolError(
@@ -308,6 +313,7 @@ public final class RuntimeStdioCommandHandler
                         command,
                         "initialize 不能携带 Session 或 Run");
             }
+            application.setChildTaskObserver(report -> emitBackgroundTaskTerminal(events, report));
             application.open();
             fileMentions = new io.github.liumaishenjian.ccjava.cli.mentions.FileMentionService(
                     application.workspaceGuard());
@@ -441,6 +447,113 @@ public final class RuntimeStdioCommandHandler
      * @return 连接继续读取下一条命令
      * @throws StdioProtocolException 状态、Session 或扫描不可用时
      */
+    private StdioProtocol.Disposition inspectTask(StdioProtocol.Command command,
+            StdioProtocol.EventEmitter events) throws StdioProtocolException {
+        requireSession(command);
+        var report = application.inspectChildTask(taskId(command))
+                .orElseThrow(() -> protocolError("TASK_NOT_FOUND", command, "子任务不存在"));
+        emitTask(command, events, report, "task.status");
+        return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    private StdioProtocol.Disposition waitTask(StdioProtocol.Command command,
+            StdioProtocol.EventEmitter events) throws StdioProtocolException {
+        requireSession(command);
+        try {
+            var report = application.waitForChildTask(taskId(command),
+                    Duration.ofMillis(command.payload().get("timeoutMillis").longValue()))
+                    .orElseThrow(() -> protocolError("TASK_NOT_FOUND", command, "子任务不存在"));
+            emitTask(command, events, report, "task.status");
+            return StdioProtocol.Disposition.CONTINUE;
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw protocolError("TASK_WAIT_INTERRUPTED", command, "等待子任务被中断");
+        }
+    }
+
+    private StdioProtocol.Disposition cancelTask(StdioProtocol.Command command,
+            StdioProtocol.EventEmitter events) throws StdioProtocolException {
+        requireSession(command);
+        if (!application.cancelChildTask(taskId(command)))
+            throw protocolError("TASK_NOT_FOUND_OR_TERMINAL", command, "子任务不存在或已终态");
+        var report = application.inspectChildTask(taskId(command)).orElseThrow();
+        emitTask(command, events, report, "task.status");
+        return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    private StdioProtocol.Disposition keepTaskWorktree(StdioProtocol.Command command,
+            StdioProtocol.EventEmitter events) throws StdioProtocolException {
+        requireSession(command);
+        String disposition = application.keepChildTaskWorktree(taskId(command))
+                .orElseThrow(() -> protocolError("TASK_WORKTREE_UNAVAILABLE", command,
+                        "任务不存在、未终态或没有 worktree"));
+        emitWorktreeDisposition(command, events, disposition);
+        return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    private StdioProtocol.Disposition removeTaskWorktree(StdioProtocol.Command command,
+            StdioProtocol.EventEmitter events) throws StdioProtocolException {
+        requireSession(command);
+        String disposition = application.removeChildTaskWorktree(taskId(command))
+                .orElseThrow(() -> protocolError("TASK_WORKTREE_UNAVAILABLE", command,
+                        "任务不存在、未终态或没有 worktree"));
+        emitWorktreeDisposition(command, events, disposition);
+        return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    private void emitWorktreeDisposition(StdioProtocol.Command command, StdioProtocol.EventEmitter events,
+            String disposition) {
+        ObjectNode payload = codec.objectNode();
+        payload.put("taskId", taskId(command).value());
+        payload.put("disposition", disposition.toLowerCase(Locale.ROOT));
+        events.emit("task.worktree", command.requestId(), Optional.of(application.sessionId().value()),
+                Optional.empty(), payload);
+    }
+
+    private io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskId taskId(StdioProtocol.Command command) {
+        return new io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskId(
+                command.payload().get("taskId").stringValue());
+    }
+
+    private void emitTask(StdioProtocol.Command command, StdioProtocol.EventEmitter events,
+            io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskReport report, String type) {
+        events.emit(type, command.requestId(), Optional.of(application.sessionId().value()), Optional.empty(),
+                taskPayload(report));
+    }
+
+    /**
+     * 主动投影后台任务终态；requestId 使用任务身份，避免错误关联任一已结束父 Run。
+     */
+    private void emitBackgroundTaskTerminal(StdioProtocol.EventEmitter events,
+            io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskReport report) {
+        if (!report.status().terminal()) return;
+        try {
+            events.emit("task.terminal", report.taskId().value(),
+                    Optional.of(application.sessionId().value()), Optional.empty(), taskPayload(report));
+        } catch (RuntimeException transportFailure) {
+            synchronized (lock) {
+                closeForTransportFailureLocked();
+            }
+        }
+    }
+
+    private ObjectNode taskPayload(io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskReport report) {
+        ObjectNode payload = codec.objectNode();
+        payload.put("taskId", report.taskId().value()); payload.put("definitionId", report.definitionId().value());
+        payload.put("status", report.status().name().toLowerCase(Locale.ROOT));
+        payload.put("failure", report.failureCode().name().toLowerCase(Locale.ROOT));
+        payload.put("modelTurns", report.modelTurns()); payload.put("toolCalls", report.toolCalls());
+        payload.put("estimatedTokens", report.estimatedTokens()); payload.put("elapsedMillis", report.elapsed().toMillis());
+        payload.put("summary", report.summary()); payload.put("verified", report.verified());
+        if (report.worktreeDisposition().isPresent()) {
+            payload.put("worktreeDisposition",
+                    report.worktreeDisposition().orElseThrow().toLowerCase(Locale.ROOT));
+        } else {
+            payload.putNull("worktreeDisposition");
+        }
+        return payload;
+    }
+
     private StdioProtocol.Disposition suggestFiles(
             StdioProtocol.Command command,
             StdioProtocol.EventEmitter events) throws StdioProtocolException {

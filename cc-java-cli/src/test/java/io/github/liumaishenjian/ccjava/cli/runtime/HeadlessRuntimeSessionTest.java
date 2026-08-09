@@ -357,7 +357,8 @@ class HeadlessRuntimeSessionTest {
                         "git_diff",
                         "apply_patch",
                         "write_file",
-                        "run_command");
+                        "run_command",
+                        "delegate_agent");
     }
 
     @Test
@@ -597,7 +598,7 @@ class HeadlessRuntimeSessionTest {
                 .extracting(definition -> definition.name())
                 .containsExactly(
                         "list_files", "search_text", "read_file", "git_status", "git_diff",
-                        "apply_patch", "write_file", "run_command");
+                        "apply_patch", "write_file", "run_command", "delegate_agent");
         assertThat(memoryExecutor.isShutdown()).isTrue();
 
         // Resume 只重放 Canonical User/Assistant；上一次短生命周期 Memory 不得写入 Journal。
@@ -944,7 +945,8 @@ class HeadlessRuntimeSessionTest {
                         "git_diff",
                         "apply_patch",
                         "write_file",
-                        "run_command");
+                        "run_command",
+                        "delegate_agent");
         assertThat(((SystemMessage) requests.getFirst().messages().getFirst()).content())
                 .contains(
                         "<instructions>",

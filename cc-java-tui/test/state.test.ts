@@ -120,6 +120,30 @@ describe('reduceTuiState', () => {
     expect(state.steeringQueueDepth).toBe(0);
   });
 
+  it('用 Java task.worktree 事件更新已有任务卡片而不自行决定删除', () => {
+    const task = {
+      taskId: 'task-a', definitionId: 'e2e', status: 'running' as const, failure: 'none',
+      modelTurns: 0, toolCalls: 0, estimatedTokens: 0, elapsedMillis: 1,
+      summary: '', verified: false, worktreeDisposition: undefined,
+    };
+    let state = reduceTuiState({...initialTuiState, childTasks: [task]}, {
+      type: 'event.received',
+      event: event('task.worktree', 1, {
+        taskId: 'task-a', disposition: 'removed',
+      }, 'req-remove', 'session-1'),
+    });
+    expect(state.childTasks).toEqual([{...task, worktreeDisposition: 'removed'}]);
+    expect(state.notice).toContain('removed');
+
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('task.worktree', 2, {
+        taskId: 'task-unknown', disposition: 'kept',
+      }, 'req-keep', 'session-1'),
+    });
+    expect(state.childTasks).toEqual([{...task, worktreeDisposition: 'removed'}]);
+  });
+
   it('不把协议错误文本原样显示', () => {
     const state = reduceTuiState(initialTuiState, {
       type: 'event.received',

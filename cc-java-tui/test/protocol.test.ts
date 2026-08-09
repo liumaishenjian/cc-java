@@ -286,6 +286,26 @@ describe('decodeEvent', () => {
     ]) expect(() => decodeEvent(JSON.stringify(invalid), 1)).toThrow(/file\.suggestions/);
   });
 
+  it('只接受 Java 权威且有界的 task.worktree 投影', () => {
+    const base = {
+      version: 0,
+      type: 'task.worktree',
+      requestId: 'req-worktree',
+      sessionId: 'session-1',
+      sequence: 1,
+      payload: {taskId: 'task-a', disposition: 'removed'},
+    };
+    expect(decodeEvent(JSON.stringify(base), 1).payload.disposition).toBe('removed');
+    for (const invalid of [
+      {...base, runId: 'run-1'},
+      {...base, payload: {...base.payload, taskId: 'invalid'}},
+      {...base, payload: {...base.payload, disposition: 'x'.repeat(65)}},
+      {...base, payload: {...base.payload, secret: 'leak'}},
+    ]) {
+      expect(() => decodeEvent(JSON.stringify(invalid), 1)).toThrowError(/task\.worktree/);
+    }
+  });
+
   it('拒绝包含控制字符的终止原因', () => {
     expect(() => decodeEvent(JSON.stringify({
       version: 0,

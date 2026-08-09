@@ -18,7 +18,7 @@
 > G0-G6 Accepted；`MCP-01`～`07` 为 L2，`MCP-09`～`11` 为 L1，`MCP-08` 仍为 L0；
 > rules 编辑、Provider discovery/多模型注册、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定协议/
 > Export/Retention/Migration 仍未实现。S11 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、Demo 与能力对账均通过，Stage Exit Accepted；
-> `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2、`PLUGIN-04` 为 L1。下一路线节点为 S12 G0，但尚未启动；Sub-Agent、后台任务与 Worktree 能力仍保持 L0。
+> `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2、`PLUGIN-04` 为 L1。S12 已完成 ADR-061/062 双源 G0-G2 范围/架构冻结并进入 `IN PROGRESS`；Sub-Agent、后台任务、并行安全 Tool 与 Worktree 尚无实现证据，全部相关能力仍保持 L0。
 
 ## 1. 文档目的
 
@@ -162,12 +162,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 197 |
-| 当前阶段 | S11 Skills + Plugins（ACCEPTED）；下一路线节点为尚未启动的 S12 G0 |
-| Stage Exit | S09/S10/S11 Accepted；S11 实现 Commit `7127843` 的 G0-G6 与 Stage Exit 已通过 |
-| 当前等级 | 110 项为 L2，36 项为 L1，51 项为 L0 |
+| 当前阶段 | S12 Sub-Agent + Worktree（IN PROGRESS）；G0-G5 candidate passed，G6 Open |
+| Stage Exit | S09/S10/S11 Accepted；S12 等待真实 implementation Commit 的 commit-scoped G6，不得提前视为 Accepted |
+| 当前等级 | 122 项为 L2，38 项为 L1，37 项为 L0 |
 | 默认最终目标 | 197 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 43.32%（197 项等权、目标 L3） |
-| 下一步 | 进入尚未启动的 S12 G0 授权机制研究；Sub-Agent/后台任务/Worktree 及 MCP-08、签名/市场/供应链能力保持未实现或延期 |
+| 当前能力覆盖 | 47.72%（197 项等权、目标 L3） |
+| 下一步 | 创建真实 implementation Commit 后执行 commit-scoped Java/TUI/Demo/Dashboard 全复验与 G6 对账 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -320,7 +320,7 @@ Stage 完成项。
 | TOOL-12 | Result Truncation | 显式截断、超长行计数、与已返回正文一致的结构化 continuation 和摘要 | L2 | S03/S07 | REF-01/AUTH-01 |
 | TOOL-13 | Structured Tool Error | 模型可纠正错误 | L2 | S01/S03 | REF-01 |
 | TOOL-14 | Tool Cancellation | 文件提交前取消 L1 → Process 取消与进程树 L2 | L1 | S04 | REF-02 |
-| TOOL-15 | 并行安全工具 | Read-only 并行执行 | L0 | S12 | REF-01 |
+| TOOL-15 | 并行安全工具 | 白名单 READ_WORKSPACE 同批并发已接入完整 AgentRuntime batch 与唯一 Pipeline，稳定按原 Call ID/顺序归并并覆盖取消收敛和真实墙钟门槛 | L2 | S12 | REF-01 |
 | TOOL-16 | Tool Search / Lazy Schema | 大工具集按需加载 | L0 | S10/S11 | REF-02/03 |
 | TOOL-17 | Code Intelligence | LSP / Symbol Tool | L0 | S14/S15 | REF-02/03 |
 | TOOL-18 | Web Tool | 可控网络检索 | L0 | S14 | REF-02 |
@@ -354,10 +354,10 @@ Stage 完成项。
 | HOOK-05 | User Prompt / Run | 输入处理 | L2 | S09 | REF-07/AUTH-01 |
 | HOOK-06 | Permission Request | 自定义审批逻辑 | L2 | S09 | REF-07/AUTH-01 |
 | HOOK-07 | External Compact Hooks | 建立在 S07 内部事件之上的可配置扩展 | L2 | S09 | REF-07/AUTH-01 |
-| HOOK-08 | Sub-Agent Hooks | 子任务生命周期 | L0 | S12 | REF-07 |
+| HOOK-08 | Sub-Agent Hooks | trusted start 可阻断/附加 child untrusted Context；durable terminal 后 stop 只观察，其 additional context 一次性投影父下一回合 | L2 | S12 | REF-07 |
 | HOOK-09 | Command Hook | JSON stdin/stdout + Exit Policy | L2 | S09 | REF-07/AUTH-01 |
 | HOOK-10 | HTTP Hook | 受控远程回调 | L1 | S09/S13 | REF-07/AUTH-01 |
-| HOOK-11 | Prompt / Agent Hook | 模型参与决策 | L0 | S12/S15 | REF-07 |
+| HOOK-11 | Prompt / Agent Hook | S12 仅 host-trusted definition narrowing seam；模型决策延期 S15，工作树候选 L1 | L1 | S12/S15 | REF-07 |
 | HOOK-12 | Matcher / Scope | Tool、路径、Session 条件 | L2 | S09 | REF-07/AUTH-01 |
 | HOOK-13 | Timeout / Error Policy | 阻断与非阻断错误 | L2 | S09 | REF-07/AUTH-01 |
 
@@ -396,7 +396,7 @@ Stage 完成项。
 | CTX-12 | Compact Instructions | 无参数时针对当前 Session、有界 anchors 可选的显式 compact，经既有 S07 Gate 生成一次性下一 Run 首个模型请求 Projection | L2 | S08 | REF-02 |
 | CTX-13 | `/context` | 最新 `ContextUsageView` 的数值/枚举白名单命令、stdio/封闭 Slash/TUI 协议投影 | L2 | S07/S08 | REF-02 |
 | CTX-14 | Skill Lazy Loading | Metadata-first catalog，正文/资源仅在调用时进入 transient Projection；S11 Commit-scoped 验收达到 L2 | L2 | S11 | REF-03 |
-| CTX-15 | Sub-Agent Isolation | 独立窗口与摘要返回 | L0 | S12 | REF-02/03 |
+| CTX-15 | Sub-Agent Isolation | 独立 child Session/Context/Permission/Tool scope 与 Workspace identity；完整 transcript/正文不注入父 Context，仅有界 report 与 Hook context | L2 | S12 | REF-02/03 |
 | CTX-16 | Prompt Cache | 稳定前缀和 Tool 顺序 | L0 | S14 | REF-01 |
 | CTX-17 | Auto Memory Index | `MEMORY.md`、有界 topic Catalog、可重建索引与真实 Headless 文件装配 | L2 | S07 | REF-05/AUTH-01 |
 | CTX-18 | Relevant Memory Prefetch | M4/M5 ready-only、零等待相关记忆投影与迟到结果隔离 | L2 | S07 | REF-05/AUTH-01 |
@@ -475,16 +475,16 @@ Stage 完成项。
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| SUB-01 | Agent Definition | Prompt/Model/Tools/Permission | L0 | S12 | REF-03 |
-| SUB-02 | Runtime Reuse | 相同 AgentRuntime + Scope | L0 | S12 | REF-03 |
-| SUB-03 | Isolated Context | 独立 Session 分支 | L0 | S12 | REF-02/03 |
-| SUB-04 | Parent/Child Task | 委托与结果摘要 | L0 | S12 | REF-03 |
-| SUB-05 | Tool-restricted Agent | Research/Plan 专用 Agent | L0 | S12 | REF-03 |
-| SUB-06 | Model/Budget Override | 子 Agent 独立预算 | L0 | S12 | REF-03 |
-| SUB-07 | Concurrent Agents | 有界并行 | L0 | S12 | REF-03 |
-| SUB-08 | Background Agent | 任务状态与唤醒 | L0 | S12 | REF-03 |
-| SUB-09 | Cancellation | 父子传播 | L0 | S12 | REF-03 |
-| SUB-10 | Git Worktree | 写任务目录隔离 | L0 | S12 | REF-02 |
+| SUB-01 | Agent Definition | User/Project strict schema、Extension/S08 精确 Project Trust、冲突隔离、TOCTOU identity 重检与 immutable digest snapshot 已完成 | L2 | S12 | REF-03 |
+| SUB-02 | Runtime Reuse | Headless production Composition 重新装配 child scope 并复用同一 AgentRuntime，无第二 Loop | L2 | S12 | REF-03 |
+| SUB-03 | Isolated Context | 独立 child Session、Canonical/Projection、Permission state、Registry 与 Workspace bootstrap，父仅接收有界 report | L2 | S12 | REF-02/03 |
+| SUB-04 | Parent/Child Task | 显式 identity/status、唯一 durable terminal、隐私 report、journal fail-closed 与 no-replay 恢复 registry | L2 | S12 | REF-03 |
+| SUB-05 | Tool-restricted Agent | definition/request/host 纯交集，每个 child Tool 调用重走独立 Permission/Approval/Pipeline | L2 | S12 | REF-03 |
+| SUB-06 | Model/Budget Override | 已配置模型子集、父预算原子 reservation 与 actual settlement；Provider discovery/pricing 延期，按冻结目标 L1 | L1 | S12 | REF-03 |
+| SUB-07 | Concurrent Agents | 公平 active≤4、queue≤32、depth≤2，同一 Supervisor 共享调度与预算，真实并发 Eval 无超卖 | L2 | S12 | REF-03 |
+| SUB-08 | Background Agent | 同进程 inspect/wait/cancel、异步 terminal observer、no-replay 恢复 registry 与有界 retention | L2 | S12 | REF-03 |
+| SUB-09 | Cancellation | parent/explicit/timeout/shutdown 传播、terminal CAS、反向清理与无 orphan 安全矩阵 | L2 | S12 | REF-03 |
+| SUB-10 | Git Worktree | fixed-argv create/enter/keep/remove、child root 重装配、identity/registration recovery 与保守 preserve 矩阵 | L2 | S12 | REF-02 |
 | SUB-11 | Team Task Board | 共享任务和消息 | L0 | S14/S15 | REF-03 |
 
 ## 20. Observability / Eval / Distribution 对照
@@ -735,21 +735,23 @@ Stage Exit Accepted。当前结果与边界：
 - 实际 Plugin Adapter 经过 Permission/Approval/Hook/Pipeline，旁路执行次数为 0；
 - G4 证明 metadata 启动读取降低至少 90%、权限/协议/租约/隐私违规为 0，并覆盖恶意资源、恢复错配、安装故障点和活动引用卸载；
 - G5 在实现 Commit 上记录 67/67 Demo，G6 已对账 Evidence/Demo/Gap/看板；Maven 813 tests/21 skips、TUI 129/129、launcher 59/59 与 Dashboard 均通过。
-- 下一路线节点为 S12 G0，但尚未启动；`SUB-01..10`、`CTX-15`、`HOOK-08/11`、`TOOL-15` 继续保持 L0。
+- S12 已由 ADR-061/062 完成 G0-G2 并进入 In Progress；`SUB-01..10`、`CTX-15`、`HOOK-08/11`、`TOOL-15` 在 G3-G6 前继续保持 L0。
 
 ### S12：Sub-Agent + Worktree
 
+ADR-061/062 已在双源边界内完成 G0-G2；当前 dirty worktree 已完成 Batch A-C 生产候选、确定性测试、真实 Git Worktree Demo 与六 seed Eval，相关 Feature 按上表记为工作树候选等级。G3-G5 仅为未提交 candidate evidence；G6 与 Stage Exit 必须等协调者创建真实实现 Commit 后重新 clean/commit-scoped 验收，当前仍 Open。
+
 完成条件：
 
-- Runtime Scope；
-- 独立 Context/Tool/Permission/Budget；
-- 父子任务与摘要；
-- 有界并行；
-- cancel；
-- Worktree；
-- 多 Agent Eval。
+- `SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 达到 L2；`SUB-06`、`HOOK-11` 达到 L1；
+- Runtime Scope 复用同一 `AgentRuntime`，独立 Context/Tool/Permission/Budget/Session mutable state；
+- 父子任务只返回有界摘要，前台/后台共享唯一状态与恢复 Gate；
+- Session 级公平有界并发、父预算原子 reservation、cancel/shutdown 无 orphan；
+- TOOL-15 只并行宿主白名单只读 Tool，结果按原批次顺序/Call ID 归并；
+- Git Worktree create/keep/remove、独立 root 重装配和 dirty/new commit 保守 preserve；
+- 至少 6 个 Seed Task 的单/多 Agent Eval，完成率不降，安全违规为 0，墙钟或 Token 中位数改善 ≥20%。
 
-按 `RuntimeScope → 单 Subagent → 有界并发/后台 → Worktree` 四个检查点推进。
+实施冻结为三个完整 Batch：A `Scope + single delegate` → B `bounded concurrency + background + TOOL-15` → C `Git Worktree + integrated Eval`。`SUB-11` Team Board、远程/跨重启 worker、稳定 task protocol、模型 Prompt/Agent Hook 与 S13 OS Sandbox 明确延期。
 
 ### S13：Sandbox + Security
 

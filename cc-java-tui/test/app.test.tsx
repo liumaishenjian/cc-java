@@ -341,6 +341,26 @@ describe('AgentView', () => {
     view.unmount();
   });
 
+  it('通过真实输入链路发送 wait/cancel/keep/remove 子任务动作', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+
+    for (const command of [
+      '/task wait task-a 1500', '/task cancel task-a',
+      '/task keep task-a', '/task remove task-a',
+    ]) {
+      view.stdin.write(command); view.stdin.write('\r');
+      await waitForFrame(() => client.taskCommands.length === ['/task wait task-a 1500', '/task cancel task-a', '/task keep task-a', '/task remove task-a'].indexOf(command) + 1);
+    }
+    expect(client.taskCommands).toEqual([
+      'wait:task-a:1500', 'cancel:task-a', 'keep:task-a', 'remove:task-a',
+    ]);
+    view.unmount();
+  });
+
   it('延迟 run.started 期间的后续编辑不会被确认快照覆盖', async () => {
     const client = new FakeAgentClient();
     const view = render(<AgentTui client={client} />);
@@ -783,6 +803,7 @@ class FakeAgentClient implements AgentClient {
   readonly checkpointCommands: string[] = [];
   readonly sessionCommands: string[] = [];
   readonly fileSuggestions: string[] = [];
+  readonly taskCommands: string[] = [];
   initializeCalls = 0;
   readonly #eventListeners = new Set<(event: ProtocolEvent) => void>();
 
@@ -830,6 +851,19 @@ class FakeAgentClient implements AgentClient {
   public undoCheckpoint(checkpointId: string, confirmed: boolean): string {
     this.checkpointCommands.push(`undo:${checkpointId}:${confirmed}`);
     return 'tui-checkpoint-undo';
+  }
+
+  public waitTask(taskId: string, timeoutMillis: number): string {
+    this.taskCommands.push(`wait:${taskId}:${timeoutMillis}`); return 'tui-task-wait';
+  }
+  public cancelTask(taskId: string): string {
+    this.taskCommands.push(`cancel:${taskId}`); return 'tui-task-cancel';
+  }
+  public keepTaskWorktree(taskId: string): string {
+    this.taskCommands.push(`keep:${taskId}`); return 'tui-task-keep';
+  }
+  public removeTaskWorktree(taskId: string): string {
+    this.taskCommands.push(`remove:${taskId}`); return 'tui-task-remove';
   }
 
   public sessionCommand(commandId: string, intent: 'help' | 'clear' | 'compact' | 'context' | 'doctor' | 'model' | 'permissions' | 'resume', arguments_: Readonly<Record<string, unknown>>): string {

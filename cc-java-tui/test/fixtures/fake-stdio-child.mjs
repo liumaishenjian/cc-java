@@ -195,6 +195,36 @@ reader.on('line', line => {
     );
     emit('run.completed', command.requestId, {stopReason: 'completed'}, sessionId, activeRunId);
     activeRunId = undefined;
+  } else if (command.type.startsWith('task.')) {
+    if (mode !== 'task-actions'
+      || command.payload.taskId !== 'task-a'
+      || (command.type === 'task.wait' && command.payload.timeoutMillis !== 1500)) {
+      process.exit(29);
+      return;
+    }
+    const disposition = command.type === 'task.keep'
+      ? 'kept'
+      : command.type === 'task.remove' ? 'removed' : undefined;
+    if (disposition !== undefined) {
+      emit('task.worktree', command.requestId, {
+        taskId: command.payload.taskId,
+        disposition,
+      }, sessionId);
+    } else {
+      emit('task.status', command.requestId, {
+        taskId: command.payload.taskId,
+        definitionId: 'e2e',
+        status: command.type === 'task.cancel' ? 'cancelled' : 'running',
+        failure: 'none',
+        modelTurns: 0,
+        toolCalls: 0,
+        estimatedTokens: 0,
+        elapsedMillis: 1,
+        summary: '',
+        verified: false,
+        worktreeDisposition: null,
+      }, sessionId);
+    }
   } else if (command.type === 'session.command') {
     if (mode === 'command-delay') {
       return;

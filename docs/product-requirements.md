@@ -9,7 +9,7 @@
 > Commit `5910a8f` 上完成 Commit-scoped G0-G6；`CLI-13`、`CTX-19` 达到 L2。S09 已完成
 > Settings/Trust、Command/loopback HTTP、生命周期、Compact 与生产装配并 Accepted；S10 MCP Tool
 > 主链已完成 STDIO/Streamable HTTP、多 Server、统一 Permission、Trust 与恢复并通过真实 E2E，Accepted。
-> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、安全矩阵、Demo 与能力对账均通过，Stage Exit Accepted。下一路线节点为 S12 G0，但尚未启动。
+> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、安全矩阵、Demo 与能力对账均通过，Stage Exit Accepted。S12 已由 ADR-061/062 完成双源 G0-G2 范围/架构冻结并进入 In Progress；生产/测试实现尚未开始，相关能力仍为 L0。
 >
 > 产品负责人：项目维护者
 
@@ -521,20 +521,26 @@ S11 已按 ADR-058～060 在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502
 - `MCP-08` 和通用 `TOOL-16` 不随 Skill catalog/MCP-backed Plugin 自动升级，仍需独立规模和质量证据；
 - FixBug、Review、Test Generation 可作为独立示例 Skill，但不得成为 Runtime 分支。
 
-实现 Commit `7127843` 的 G3-G6 证据确认 `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 达到 L2，`PLUGIN-04` 达到 L1；Maven 813 tests/21 skips、Demo 67/67、TUI 129/129、launcher 59/59 与 Dashboard 均通过。数值上限、metadata 99.51% 降幅、恶意资源、安装故障点、快照漂移、权限旁路、恢复错配及五类零泄漏结果见 S11 Gate Evidence/Demo/Gap。下一路线节点为 S12 G0，但尚未启动；全部 S12 Capability 仍保持 L0。
+实现 Commit `7127843` 的 G3-G6 证据确认 `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 达到 L2，`PLUGIN-04` 达到 L1；Maven 813 tests/21 skips、Demo 67/67、TUI 129/129、launcher 59/59 与 Dashboard 均通过。数值上限、metadata 99.51% 降幅、恶意资源、安装故障点、快照漂移、权限旁路、恢复错配及五类零泄漏结果见 S11 Gate Evidence/Demo/Gap。S12 已完成 ADR-061/062 G0-G2 并进入 In Progress；全部 S12 Capability 仍保持 L0。
 
 ## 15. S12-S13：高级 Agent 与安全重实现
 
 ### S12：Subagent 与任务系统
 
-- Subagent 复用同一 Agent Runtime，不建立第二套 Loop；
-- 每个 Subagent 具有独立 Context、工具集、权限、模型和预算；
-- 并发限制、父子任务、结果摘要和长任务恢复；
-- Background Tool、取消传播和孤儿进程清理；
-- Git Worktree 隔离并发编码任务。
+ADR-061/062 已完成双源 G0-G2，冻结以下产品契约；当前尚未实现：
 
-S12 按 `RuntimeScope → 单 Subagent → 有界并发/后台 → Worktree` 四个内部检查点推进，
-不能在 Scope 隔离尚未验证时直接实现并发写任务。
+- FR-SUB-001：Agent definition 使用严格、带来源和内容身份的 Session snapshot；未知字段、冲突、未知 Tool/Model 和权限放宽 Fail Closed。
+- FR-SUB-002：Subagent 复用同一 Agent Runtime，不建立第二套 Loop；每个 child 使用独立 Session、Canonical/Projection、Tool Registry、Permission state、模型/预算和 Cancellation。
+- FR-SUB-003：父子委托具有稳定 identity、显式状态和唯一终态；父只接收有界 privacy-safe report，不注入完整子 Transcript/Tool output。
+- FR-SUB-004：Tool/Permission/Agent Hook 只允许收窄，父 Session Grant 不泄漏；每个真实 child Tool Call 仍逐次经过统一 Permission/Approval/Hook/Pipeline。
+- FR-SUB-005：父预算在创建前原子 reservation；同 Session 根/嵌套 child 共享 active≤4、queue≤32、depth≤2 的公平容量，不得超卖。
+- FR-SUB-006：前台与后台共用任务状态、inspect/wait/cancel 和通知；后台仍由父 Session 拥有，parent cancel、显式取消、timeout、shutdown 均必须传播且无 orphan。
+- FR-SUB-007：Sub-Agent start Hook 可阻断或附加有界不可信 Context，stop Hook 只观察；S12 的 Agent Hook 仅为宿主预注册的 definition/delegation 纯收窄 seam，模型决策延期 S15。
+- FR-SUB-008：同一模型批次只并发宿主白名单 `READ_WORKSPACE` Tool；结果仍按原顺序和 Call ID 恰好一次归并，写/命令/远程保持顺序。
+- FR-SUB-009：Git Worktree 采用显式 lease/create/keep/remove；进入后重建 WorkspaceGuard、Settings/Instructions、Session/Tool composition；dirty、untracked、new commit、active lease 或不确定状态一律 preserve。
+- FR-SUB-010：S12 不自动 commit、merge、cherry-pick 或 push；Worktree/Permission/Checkpoint/进程清理不是 OS Sandbox。
+
+实施冻结为 Batch A `Scope + single delegate` → Batch B `bounded concurrency + background + TOOL-15` → Batch C `Git Worktree + integrated Eval`。`SUB-11` Team Board/peer messaging、remote/跨重启 worker、稳定 task protocol、模型 Prompt/Agent Hook 与 OS Sandbox 明确延期。
 
 ### S13：Sandbox
 

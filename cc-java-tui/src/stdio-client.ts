@@ -232,6 +232,48 @@ export class StdioClient {
     return this.#send('checkpoint.undo', {checkpointId, confirmed}, this.#sessionId);
   }
 
+  /** 查询 Java 权威子任务状态。 */
+  public inspectTask(taskId: string): string {
+    return this.#taskCommand('task.inspect', taskId, {});
+  }
+
+  /** 有界等待 Java 权威子任务状态；超时不会推断终态。 */
+  public waitTask(taskId: string, timeoutMillis: number): string {
+    if (!Number.isSafeInteger(timeoutMillis) || timeoutMillis < 1 || timeoutMillis > 300_000) {
+      throw new Error('子任务等待时间必须在 1..300000ms');
+    }
+    return this.#taskCommand('task.wait', taskId, {timeoutMillis});
+  }
+
+  /** 请求 Java 权威端取消子任务。 */
+  public cancelTask(taskId: string): string {
+    return this.#taskCommand('task.cancel', taskId, {});
+  }
+
+  /** 显式保留子任务绑定的 worktree。 */
+  public keepTaskWorktree(taskId: string): string {
+    return this.#taskCommand('task.keep', taskId, {});
+  }
+
+  /** 显式删除可证明 clean 的子任务 worktree。 */
+  public removeTaskWorktree(taskId: string): string {
+    return this.#taskCommand('task.remove', taskId, {});
+  }
+
+  #taskCommand(
+    type: 'task.inspect' | 'task.wait' | 'task.cancel' | 'task.keep' | 'task.remove',
+    taskId: string,
+    payload: Readonly<Record<string, unknown>>,
+  ): string {
+    if (this.#sessionId === undefined || this.#activeRunId !== undefined) {
+      throw new Error('只有就绪 Session 可以管理子任务');
+    }
+    if (!/^task-[A-Za-z0-9_-]{1,96}$/u.test(taskId)) {
+      throw new Error('子任务 ID 无效');
+    }
+    return this.#send(type, {taskId, ...payload}, this.#sessionId);
+  }
+
   public cancelRun(): string {
     if (this.#sessionId === undefined || this.#activeRunId === undefined) {
       throw new Error('当前没有可以取消的 Run');

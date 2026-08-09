@@ -13,9 +13,16 @@ export interface ParsedSlashCommand {
   readonly arguments: Readonly<Record<string, unknown>>;
 }
 
+export interface ParsedTaskCommand {
+  readonly action: 'wait' | 'cancel' | 'keep' | 'remove';
+  readonly taskId: string;
+  readonly timeoutMillis?: number;
+}
+
 export type SlashParseResult =
   | {readonly kind: 'not-command'}
   | {readonly kind: 'command'; readonly command: ParsedSlashCommand}
+  | {readonly kind: 'task'; readonly command: ParsedTaskCommand}
   | {readonly kind: 'skill'; readonly name: string; readonly arguments: string}
   | {readonly kind: 'invalid'; readonly message: string};
 
@@ -44,6 +51,7 @@ const COMMAND_USAGE: Readonly<Record<SlashIntent, string>> = {
 export function parseSlashCommand(input: string): SlashParseResult {
   if (!input.startsWith('/')) return {kind: 'not-command'};
   const [rawName, ...values] = input.slice(1).trim().split(/\s+/u);
+  if (rawName === 'task') return parseTaskCommand(values);
   if (rawName === undefined || rawName.length === 0 || !COMMANDS.has(rawName as SlashIntent)) {
     if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(rawName ?? '') && (rawName?.length ?? 0) <= 64) {
       const arguments_ = values.join(' ');
@@ -179,6 +187,27 @@ function safeList(value: unknown): string {
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseTaskCommand(values: readonly string[]): SlashParseResult {
+  const [action, taskId, timeout] = values;
+  if (!['wait', 'cancel', 'keep', 'remove'].includes(action ?? '')
+    || taskId === undefined || !/^task-[A-Za-z0-9_-]{1,96}$/u.test(taskId)) {
+    return {kind: 'invalid', message: '/task 只接受 wait|cancel|keep|remove 与有效 task ID'};
+  }
+  if (action === 'wait') {
+    if (values.length < 2 || values.length > 3) {
+      return {kind: 'invalid', message: '/task wait <task-id> [timeout-ms]'};
+    }
+    const timeoutMillis = timeout === undefined ? 30_000 : Number(timeout);
+    if (!Number.isSafeInteger(timeoutMillis) || timeoutMillis < 1 || timeoutMillis > 300_000) {
+      return {kind: 'invalid', message: '/task wait timeout 必须在 1..300000ms'};
+    }
+    return {kind: 'task', command: {action, taskId, timeoutMillis}};
+  }
+  return values.length === 2
+    ? {kind: 'task', command: {action: action as 'cancel' | 'keep' | 'remove', taskId}}
+    : {kind: 'invalid', message: `/task ${action} 只接受 task ID`};
 }
 
 function invalidArgument(value: string): boolean {

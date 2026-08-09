@@ -22,6 +22,18 @@ describe('parseSlashCommand', () => {
     expect(parseSlashCommand('/permissions mode ACCEPT_EDITS')).toEqual({
       kind: 'command', command: {intent: 'permissions', arguments: {mode: 'ACCEPT_EDITS'}},
     });
+    expect(parseSlashCommand('/task wait task-a 1500')).toEqual({
+      kind: 'task', command: {action: 'wait', taskId: 'task-a', timeoutMillis: 1500},
+    });
+    expect(parseSlashCommand('/task cancel task-a')).toEqual({
+      kind: 'task', command: {action: 'cancel', taskId: 'task-a'},
+    });
+    expect(parseSlashCommand('/task keep task-a')).toEqual({
+      kind: 'task', command: {action: 'keep', taskId: 'task-a'},
+    });
+    expect(parseSlashCommand('/task remove task-a')).toEqual({
+      kind: 'task', command: {action: 'remove', taskId: 'task-a'},
+    });
   });
 
   it('keeps ordinary prompts out of the command path and rejects invalid inputs', () => {
@@ -35,6 +47,8 @@ describe('parseSlashCommand', () => {
     expect(parseSlashCommand('/permissions change').kind).toBe('invalid');
     expect(parseSlashCommand('/permissions mode plan').kind).toBe('invalid');
     expect(parseSlashCommand('/permissions mode PLAN extra').kind).toBe('invalid');
+    expect(parseSlashCommand('/task wait task-a 0').kind).toBe('invalid');
+    expect(parseSlashCommand('/task remove invalid').kind).toBe('invalid');
   });
 
   it('renders fixed local status without server-provided text', () => {

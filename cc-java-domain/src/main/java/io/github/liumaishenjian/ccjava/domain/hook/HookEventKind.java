@@ -34,7 +34,13 @@ public enum HookEventKind {
     /** Context 压缩开始前。 */
     PRE_COMPACT(true),
     /** Context 压缩完成后。 */
-    POST_COMPACT(false);
+    POST_COMPACT(false),
+    /** 子 Scope 物化前；可信 Hook 可阻断或附加有界非可信 Context。 */
+    SUB_AGENT_START(true),
+    /** 子任务唯一终态持久后；只观察且不能改写终态。 */
+    SUB_AGENT_STOP(false),
+    /** HOOK-11 L1：宿主预注册的 Agent definition 纯收窄决策点。 */
+    AGENT_DEFINITION(true);
 
     private final boolean blockingAllowed;
 

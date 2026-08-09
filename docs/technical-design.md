@@ -11,7 +11,7 @@
 > `CLI-13`/`CTX-19` 补充切片已在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6；S09 已完成
 > Settings/Trust、Command/loopback HTTP、Compact、Context Projection 与生产装配并 Accepted；S10 MCP
 > Tool 主链已完成两个 Transport、多 Server、统一 Permission、Trust 与恢复并通过真实 E2E，Accepted；
-> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6；`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1，Stage Exit Accepted。下一路线节点为 S12 G0，但尚未启动。
+> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6；`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1，Stage Exit Accepted。S12 已由 ADR-061/062 完成双源 G0-G2 范围/架构冻结并进入 In Progress；G3-G6 Open，相关 Capability 仍全部为 L0。
 >
 > 当前实现状态：ADR-042/043/044 已固定并验证 Context Projection、条件式 Reduction、文件记忆和零等待
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
@@ -1152,7 +1152,34 @@ Plugin candidate → isolated staging → strict manifest/tree fingerprint → e
 - 安装只接受显式本地目录，archive 一律拒绝且不宣称 archive bomb 检测；经逐文件 staging、flush/force、同文件系统原子 rename、父目录 flush、registry staged flush/原子替换/父目录 flush 后激活，任一原子能力不支持即 Fail Closed。卸载先 QUIESCING、拒绝新 snapshot，引用归零后删除。S11 仅使 `PLUGIN-04` 达到 L1，恢复/迁移/跨平台管理留到 S14。
 - 数值 ceiling：单 root/合计 Skill 128/256，单 Skill 128KiB/4,000 行，资源 256KiB/单调用 1MiB，单 Plugin 128 组件/1,024 文件/32MiB；完整验收见 S11 Gate Evidence。
 
-上述公共 Domain/Core/Port/SPI 已提供中文 Javadoc，解释职责、非职责、权限收窄、snapshot 所有权、取消、恢复、失败和“Trust 不等于签名/Sandbox”。实现 Commit `7127843` 的 G3-G6 已通过 metadata 量化、按调用 transient Projection、production composition、多 Plugin 稳定 registry 更新、精确 content-addressed 目录、staged fault/quiescing、recovery/privacy 与 67/67 可复现 Demo；完整 Maven 813 tests/21 skips、TUI 129/129、launcher 59/59 与 Dashboard 均通过。`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1；`MCP-08`/`TOOL-16` 不随本实现升级。S11 Stage Exit Accepted，S12 G0 仅为下一路线节点且尚未启动。
+上述公共 Domain/Core/Port/SPI 已提供中文 Javadoc，解释职责、非职责、权限收窄、snapshot 所有权、取消、恢复、失败和“Trust 不等于签名/Sandbox”。实现 Commit `7127843` 的 G3-G6 已通过 metadata 量化、按调用 transient Projection、production composition、多 Plugin 稳定 registry 更新、精确 content-addressed 目录、staged fault/quiescing、recovery/privacy 与 67/67 可复现 Demo；完整 Maven 813 tests/21 skips、TUI 129/129、launcher 59/59 与 Dashboard 均通过。`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1；`MCP-08`/`TOOL-16` 不随本实现升级。S11 Stage Exit Accepted；后续 S12 已完成 ADR-061/062 G0-G2，但尚无实现证据。
+
+### 18.6 S12 Sub-Agent + Worktree（G0-G2 FROZEN）
+
+ADR-061/062 冻结 S12 独立控制链：
+
+```text
+delegate_agent Tool → unique Tool Pipeline → AgentSupervisor
+  → definition snapshot + parent budget reservation + shared permit
+  → optional WorktreeLease → ChildRuntimeScopeFactory
+  → same AgentRuntime / independent Session + Context + Permission state
+  → terminal CAS → bounded ChildTaskReport → parent/background notification
+  → reverse idempotent cleanup
+```
+
+Domain/Core 新增 definition/task/status/report/budget/worktree 值对象与 Supervisor/Scope Factory Port；CLI/Application 负责严格 definition catalog、task journal 与 Session composition；`cc-java-tools-local` 负责固定 argv Git Worktree Adapter；TUI 只消费任务事件。S12 不新增 Maven 模块，不让 CLI/TUI 建第二套 Loop。
+
+关键不变量：
+
+- child 不共享父 `AgentSession`、active Run、Permission Grant、Skill/Hook lease、mutable settings overlay 或 Path-bearing cache；Tool visibility/Permission/Hook/budget 只能收窄，每次 Tool 仍进唯一 Pipeline；
+- 父预算在创建前原子 reservation；同一 Session 所有嵌套 child 共享 active `4`、queue `32`、depth `2` 上限，后台也由父 Session 拥有；
+- terminal 状态先于可失败摘要、通知和 Worktree检查收敛；父只消费有界 report，完整 child Transcript 不进入父 Context；
+- `SUB_AGENT_START` 可阻断/附加不可信 Context，`SUB_AGENT_STOP` 只观察；`HOOK-11` 在 S12 只提供 host-trusted definition/delegation narrowing seam；
+- TOOL-15 只对白名单 `READ_WORKSPACE` 同批并发，Assistant batch 仍追加一次，结果按原顺序和 Call ID 恰好一次归并；
+- Worktree ready 后重建 WorkspaceGuard、Settings/Instructions、Session fingerprint 与 Tool adapters；dirty/untracked/new commit/active owner/identity uncertain 时保留，绝不强制删除；
+- 无自动 commit/merge/push。Git Worktree、Permission、Checkpoint 和进程清理均不是 S13 OS Sandbox。
+
+实现按 Batch A Scope/单委托、Batch B 并发/后台/TOOL-15、Batch C Worktree/集成 Eval 推进。当前只有 G0-G2 文档冻结，无生产/测试实现，不提升 Capability。
 
 ## 19. CLI、内部协议与终端
 
@@ -1679,6 +1706,8 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | [ADR-058](./adr/ADR-058-s11-dual-source-skills-plugins-study.md) | Accepted | S11 以授权快照和 Codex rust-v0.147.0 双源冻结 Skills/Plugins 采纳、偏离与 Unknown |
 | [ADR-059](./adr/ADR-059-s11-skill-runtime-contract.md) | Accepted | S11 冻结 metadata-first catalog、双入口、资源/Tool 收窄、run-scoped Hook 与 Session recovery |
 | [ADR-060](./adr/ADR-060-s11-plugin-host-contract.md) | Accepted | S11 冻结 strict manifest/namespace、immutable snapshot、宿主 SPI、MCP-backed Adapter 与 staged/quiescing 生命周期；拒绝任意 JAR |
+| [ADR-061](./adr/ADR-061-s12-dual-source-subagent-worktree-study.md) | Accepted | S12 双源冻结 Agent/任务/后台/取消/并发/Worktree 机制采纳、偏离与 Unknown |
+| [ADR-062](./adr/ADR-062-s12-subagent-runtime-worktree-contract.md) | Accepted | S12 冻结独立 Scope/Supervisor/预算/Hook/TOOL-15/Worktree 契约、Batch A-C 与 Eval 门槛；能力仍 L0 |
 
 ## 26. 需求追踪
 
@@ -1719,8 +1748,8 @@ S01 未使用任何授权或未核验参考源码；设计和代码由 ADR-017�
 `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd` 上通过 G4/G6；S01 Stage Exit 已
 Accepted。S02 的真实 Provider、Java Runtime/stdio、React/Ink、连续 Session、
 取消边界和隐私安全 Telemetry 已在实现 Commit `700251e` 上通过 G0-G6，
-Stage Exit 为 Accepted。S03-S11 也已按各自 Evidence 完成 Commit-scoped Stage Exit；下一路线节点为
-尚未启动的 S12 G0。S12 Sub-Agent、后台任务与 Worktree 能力仍保持 L0。
+Stage Exit 为 Accepted。S03-S11 也已按各自 Evidence 完成 Commit-scoped Stage Exit；S12 已由
+ADR-061/062 完成 G0-G2 并进入 In Progress。Sub-Agent、后台任务、并行安全 Tool 与 Worktree 尚未实现，相关能力仍保持 L0。
 
 ### 27.2 分 Stage 实现
 

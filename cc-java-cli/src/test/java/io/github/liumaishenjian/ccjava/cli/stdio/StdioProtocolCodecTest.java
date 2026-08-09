@@ -28,6 +28,23 @@ class StdioProtocolCodecTest {
     }
 
     @Test
+    void decodesTaskKeepAndRemoveAsStrictIdentityBoundCommands() throws Exception {
+        for (String type : java.util.List.of("task.keep", "task.remove")) {
+            StdioProtocol.Command command = codec.decodeCommand("""
+                    {"version":0,"type":"%s","requestId":"worktree-1",
+                     "sessionId":"session-1","sequence":2,"payload":{"taskId":"task-abc"}}
+                    """.formatted(type));
+            assertThat(command.type()).isEqualTo(type);
+            assertThat(command.payload().get("taskId").stringValue()).isEqualTo("task-abc");
+        }
+        assertProtocolError("""
+                {"version":0,"type":"task.remove","requestId":"worktree-2",
+                 "sessionId":"session-1","sequence":3,
+                 "payload":{"taskId":"task-abc","force":true}}
+                """, "INVALID_ENVELOPE");
+    }
+
+    @Test
     void decodesApprovalResolveAsAFirstClassCommand() throws Exception {
         StdioProtocol.Command command = codec.decodeCommand("""
                 {"version":0,"type":"approval.resolve","requestId":"approve-1",

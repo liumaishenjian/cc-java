@@ -59,6 +59,11 @@ export interface AgentClient {
   listCheckpoints?(): string;
   checkpointDiff?(checkpointId: string): string;
   undoCheckpoint?(checkpointId: string, confirmed: boolean): string;
+  inspectTask?(taskId: string): string;
+  waitTask?(taskId: string, timeoutMillis: number): string;
+  cancelTask?(taskId: string): string;
+  keepTaskWorktree?(taskId: string): string;
+  removeTaskWorktree?(taskId: string): string;
   sessionCommand?(commandId: string, intent: 'help' | 'clear' | 'compact' | 'context' | 'doctor' | 'model' | 'permissions' | 'resume', arguments_: Readonly<Record<string, unknown>>): string;
   suggestFiles?(query: string): string;
   shutdown(): Promise<void>;
@@ -392,7 +397,19 @@ export function AgentTui({client}: AgentTuiProps) {
       const prompt = submission.expandedText;
       if (prompt.trim().length === 0) return;
       const slash = parseSlashCommand(prompt.trim());
-      if (slash.kind === 'command') {
+      if (slash.kind === 'task') {
+        const {action, taskId, timeoutMillis} = slash.command;
+        try {
+          if (action === 'wait' && client.waitTask !== undefined) client.waitTask(taskId, timeoutMillis ?? 30_000);
+          else if (action === 'cancel' && client.cancelTask !== undefined) client.cancelTask(taskId);
+          else if (action === 'keep' && client.keepTaskWorktree !== undefined) client.keepTaskWorktree(taskId);
+          else if (action === 'remove' && client.removeTaskWorktree !== undefined) client.removeTaskWorktree(taskId);
+          else throw new Error('unsupported');
+        } catch {
+          dispatch({type: 'slash.notice', message: '当前连接或状态不支持子任务动作'});
+          return;
+        }
+      } else if (slash.kind === 'command') {
         if (client.sessionCommand === undefined) {
           dispatch({type: 'slash.notice', message: '当前连接不支持 Slash 命令'});
           return;
@@ -433,7 +450,7 @@ export function AgentTui({client}: AgentTuiProps) {
           return;
         }
       }
-      if (slash.kind === 'command') replaceComposer(acceptSubmittedComposer(submission.state));
+      if (slash.kind === 'command' || slash.kind === 'task') replaceComposer(acceptSubmittedComposer(submission.state));
       return;
     }
     if (key.upArrow || key.downArrow) {
@@ -547,6 +564,7 @@ export function AgentView({state, composer, input = '', columns, composerLayout}
           )}
         </Box>
       ))}
+      <ChildTaskPanel state={state} />
       <CheckpointPanel state={state} />
       {state.notice === undefined ? null : (
         <Box marginTop={1}>
@@ -612,6 +630,25 @@ export function AgentView({state, composer, input = '', columns, composerLayout}
           ))}
         </Box>
       )}
+    </Box>
+  );
+}
+
+function ChildTaskPanel({state}: {readonly state: AgentViewProps['state']}) {
+  const tasks = state.childTasks ?? [];
+  if (tasks.length === 0) return null;
+  return (
+    <Box marginTop={1} flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
+      <Text bold color="magenta">Sub-Agent Tasks</Text>
+      {tasks.map(task => (
+        <Text key={task.taskId} color={task.status === 'succeeded' ? 'green'
+          : task.status === 'failed' || task.status === 'cancelled' ? 'red' : 'yellow'}>
+          {task.taskId} · {task.definitionId} · {task.status}
+          {' · '}{task.modelTurns} turns / {task.toolCalls} tools / {task.estimatedTokens} tokens
+          {' · '}{task.elapsedMillis}ms
+          {task.worktreeDisposition === undefined ? '' : ` · worktree ${task.worktreeDisposition}`}
+        </Text>
+      ))}
     </Box>
   );
 }

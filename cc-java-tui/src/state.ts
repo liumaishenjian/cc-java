@@ -103,12 +103,27 @@ export interface CheckpointUndoView {
   readonly message: string;
 }
 
+export interface ChildTaskView {
+  readonly taskId: string;
+  readonly definitionId: string;
+  readonly status: 'queued' | 'starting' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted_unknown';
+  readonly failure: string;
+  readonly modelTurns: number;
+  readonly toolCalls: number;
+  readonly estimatedTokens: number;
+  readonly elapsedMillis: number;
+  readonly summary: string;
+  readonly verified: boolean;
+  readonly worktreeDisposition: string | undefined;
+}
+
 export interface TuiState {
   readonly phase: ClientPhase;
   readonly sessionId: string | undefined;
   readonly activeRunId: string | undefined;
   readonly runs: readonly RunView[];
   readonly checkpoints: readonly CheckpointView[];
+  readonly childTasks?: readonly ChildTaskView[];
   readonly checkpointPanelOpen: boolean;
   readonly selectedCheckpointId: string | undefined;
   readonly checkpointDiff: CheckpointDiffView | undefined;
@@ -141,6 +156,7 @@ export const initialTuiState: TuiState = {
   activeRunId: undefined,
   runs: [],
   checkpoints: [],
+  childTasks: [],
   checkpointPanelOpen: false,
   selectedCheckpointId: undefined,
   checkpointDiff: undefined,
@@ -248,6 +264,42 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
       return {...state, notice: event.payload.status === 'succeeded'
         ? `Skill /${String(event.payload.skillId)} 已完成`
         : `Skill /${String(event.payload.skillId)} 未完成`};
+    case 'task.status':
+    case 'task.terminal': {
+      const task: ChildTaskView = {
+        taskId: String(event.payload.taskId),
+        definitionId: String(event.payload.definitionId),
+        status: event.payload.status as ChildTaskView['status'],
+        failure: String(event.payload.failure),
+        modelTurns: Number(event.payload.modelTurns),
+        toolCalls: Number(event.payload.toolCalls),
+        estimatedTokens: Number(event.payload.estimatedTokens),
+        elapsedMillis: Number(event.payload.elapsedMillis),
+        summary: String(event.payload.summary),
+        verified: event.payload.verified === true,
+        worktreeDisposition: optionalText(event.payload.worktreeDisposition),
+      };
+      const childTasks = state.childTasks ?? [];
+      const existing = childTasks.findIndex(item => item.taskId === task.taskId);
+      return {
+        ...state,
+        childTasks: existing < 0
+          ? [...childTasks, task]
+          : childTasks.map(item => item.taskId === task.taskId ? task : item),
+        notice: event.type === 'task.terminal'
+          ? `子任务 ${task.taskId}：${task.status}` : state.notice,
+      };
+    }
+    case 'task.worktree': {
+      const taskId = String(event.payload.taskId);
+      const disposition = String(event.payload.disposition);
+      return {
+        ...state,
+        childTasks: (state.childTasks ?? []).map(task => task.taskId === taskId
+          ? {...task, worktreeDisposition: disposition} : task),
+        notice: `子任务 ${taskId} worktree：${disposition}`,
+      };
+    }
     case 'run.started':
       return updateCurrentRun(state, event, run => ({
         ...run,

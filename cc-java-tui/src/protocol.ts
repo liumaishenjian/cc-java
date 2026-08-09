@@ -35,6 +35,9 @@ const EVENT_TYPES = new Set([
   'run.started',
   'skill.invoked',
   'skill.completed',
+  'task.status',
+  'task.terminal',
+  'task.worktree',
   'model.text.delta',
   'approval.requested',
   'tool.started',
@@ -59,6 +62,9 @@ export type EventType =
   | 'run.started'
   | 'skill.invoked'
   | 'skill.completed'
+  | 'task.status'
+  | 'task.terminal'
+  | 'task.worktree'
   | 'model.text.delta'
   | 'approval.requested'
   | 'tool.started'
@@ -102,6 +108,11 @@ export interface ProtocolCommand {
     | 'checkpoint.undo'
     | 'session.command'
     | 'skill.invoke'
+    | 'task.inspect'
+    | 'task.wait'
+    | 'task.cancel'
+    | 'task.keep'
+    | 'task.remove'
     | 'file.suggest'
     | 'shutdown';
   readonly requestId: string;
@@ -221,6 +232,18 @@ function validateEventShape(
   ) {
     throw new ProtocolViolation(`${type} 缺少 sessionId 或 runId`);
   }
+  if (type === 'task.status' || type === 'task.terminal') {
+    validateTaskEvent(sessionId, runId, payload, type === 'task.terminal');
+  } else if (type === 'task.worktree') {
+    if (!hasExactFields(payload, new Set(['taskId', 'disposition']))
+      || sessionId === undefined || runId !== undefined
+      || typeof payload.taskId !== 'string'
+      || !/^task-[A-Za-z0-9_-]{1,96}$/u.test(payload.taskId)
+      || typeof payload.disposition !== 'string'
+      || payload.disposition.length > 64) {
+      throw new ProtocolViolation('task.worktree 投影无效');
+    }
+  }
   if (type === 'skill.invoked') {
     if (sessionId === undefined || runId !== undefined) {
       throw new ProtocolViolation('skill.invoked 必须携带 sessionId 且不能携带 runId');
@@ -285,6 +308,41 @@ function validateEventShape(
     validateOptionalTerminalCount(type, payload, 'modelTurns');
     validateOptionalTerminalCount(type, payload, 'toolCalls');
     validateOptionalModelFailure(type, payload);
+  }
+}
+
+function validateTaskEvent(
+  sessionId: string | undefined,
+  runId: string | undefined,
+  payload: Readonly<Record<string, unknown>>,
+  terminal: boolean,
+): void {
+  const statuses = new Set(['queued', 'starting', 'running', 'succeeded', 'failed', 'cancelled', 'interrupted_unknown']);
+  const dispositions = new Set([
+    'ready', 'in_use', 'kept', 'removed', 'removed_branch_preserved', 'failed_preserved',
+  ]);
+  const fields = new Set([
+    'taskId', 'definitionId', 'status', 'failure', 'modelTurns', 'toolCalls',
+    'estimatedTokens', 'elapsedMillis', 'summary', 'verified', 'worktreeDisposition',
+  ]);
+  if (!hasExactFields(payload, fields)
+    || sessionId === undefined || runId !== undefined
+    || typeof payload.taskId !== 'string' || !/^task-[A-Za-z0-9_-]{1,96}$/.test(payload.taskId)
+    || typeof payload.definitionId !== 'string' || payload.definitionId.length > MAX_IDENTIFIER_CHARS
+    || typeof payload.status !== 'string' || !statuses.has(payload.status)
+    || typeof payload.failure !== 'string'
+    || !Number.isSafeInteger(payload.modelTurns) || Number(payload.modelTurns) < 0
+    || !Number.isSafeInteger(payload.toolCalls) || Number(payload.toolCalls) < 0
+    || !Number.isSafeInteger(payload.estimatedTokens) || Number(payload.estimatedTokens) < 0
+    || !Number.isSafeInteger(payload.elapsedMillis) || Number(payload.elapsedMillis) < 0
+    || typeof payload.summary !== 'string' || Array.from(payload.summary).length > 4096
+    || /[\u0000-\u001f\u007f]/u.test(payload.summary)
+    || typeof payload.verified !== 'boolean'
+    || (payload.worktreeDisposition !== null
+      && (typeof payload.worktreeDisposition !== 'string'
+        || !dispositions.has(payload.worktreeDisposition)))
+    || (terminal && !['succeeded', 'failed', 'cancelled', 'interrupted_unknown'].includes(payload.status))) {
+    throw new ProtocolViolation('task event 字段无效');
   }
 }
 

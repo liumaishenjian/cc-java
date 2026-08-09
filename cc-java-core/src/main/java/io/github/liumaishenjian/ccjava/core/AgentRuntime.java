@@ -67,6 +67,7 @@ public final class AgentRuntime {
     private final SkillRunCoordinator skills;
     private final PluginRunCoordinator plugins;
     private final PluginRunHooks pluginHooks;
+    private final io.github.liumaishenjian.ccjava.core.subagent.ParallelToolBatchExecutor parallelToolBatch;
     private final ConcurrentMap<SessionId, ActiveRun> activeRuns = new ConcurrentHashMap<>();
 
     /**
@@ -402,6 +403,9 @@ public final class AgentRuntime {
         this.skills = Objects.requireNonNull(skills, "skills 不能为空");
         this.plugins = Objects.requireNonNull(plugins, "plugins 不能为空");
         this.pluginHooks = Objects.requireNonNull(pluginHooks, "pluginHooks 不能为空");
+        this.parallelToolBatch = new io.github.liumaishenjian.ccjava.core.subagent.ParallelToolBatchExecutor(
+                toolRegistry, toolPipeline,
+                java.util.Set.of("read_file", "list_files", "search_text", "git_status", "git_diff"), 4);
     }
 
     /**
@@ -682,33 +686,32 @@ public final class AgentRuntime {
                 }
 
                 appendAssistant(session, runId, assistant);
-                for (ToolCall call : calls) {
-                    int ordinal = state.recordToolCall();
-                    ToolResult result;
-                    try {
-                        result = toolPipeline.execute(
-                                session,
-                                runId,
-                                ordinal,
-                                call,
-                                activeRun.cancellation().token());
-                    } catch (ToolJournalPersistenceException journalFailure) {
-                        session.fence();
-                        return state.stop(StopReason.INTERNAL_ERROR);
-                    } catch (RuntimeException exception) {
-                        session.fence();
-                        return state.stop(StopReason.INTERNAL_ERROR);
-                    }
-                    if (!call.id().equals(result.callId())
-                            || !call.name().equals(result.toolName())) {
+                List<Integer> ordinals = new java.util.ArrayList<>(calls.size());
+                for (int ignored = 0; ignored < calls.size(); ignored++) {
+                    ordinals.add(state.recordToolCall());
+                }
+                List<ToolResult> batchResults;
+                try {
+                    batchResults = parallelToolBatch.executeSafeBatch(
+                            session, runId, ordinals, calls, activeRun.cancellation().token());
+                } catch (ToolJournalPersistenceException journalFailure) {
+                    session.fence();
+                    return state.stop(StopReason.INTERNAL_ERROR);
+                } catch (RuntimeException exception) {
+                    session.fence();
+                    return state.stop(StopReason.INTERNAL_ERROR);
+                }
+                for (int index = 0; index < calls.size(); index++) {
+                    ToolCall call = calls.get(index);
+                    ToolResult result = batchResults.get(index);
+                    if (!call.id().equals(result.callId()) || !call.name().equals(result.toolName())) {
                         session.fence();
                         return state.stop(StopReason.INTERNAL_ERROR);
                     }
                     session.appendToolResult(new ToolResultMessage(result));
                     if (result.status() == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS) {
                         try {
-                            instructionContext.recordSuccessfulTool(
-                                    call, result, activeRun.cancellation().token());
+                            instructionContext.recordSuccessfulTool(call, result, activeRun.cancellation().token());
                         } catch (RuntimeException ignored) {
                             // Instructions 刷新是短生命周期投影旁路，不能推翻已持久化的 Tool 成功事实。
                         }

@@ -115,6 +115,37 @@ describe('StdioClient', () => {
     expect(client.isClosed()).toBe(true);
   });
 
+  it('通过真实 stdio 编码 wait/cancel/keep/remove 并只消费 Java 权威事件', async () => {
+    const client = createClient('task-actions');
+    const events: ProtocolEvent[] = [];
+    client.onEvent(event => events.push(event));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+
+    client.waitTask('task-a', 1500);
+    await waitFor(() => events.filter(event => event.type === 'task.status').length === 1);
+    client.cancelTask('task-a');
+    await waitFor(() => events.filter(event => event.type === 'task.status').length === 2);
+    client.keepTaskWorktree('task-a');
+    await waitFor(() => events.some(event =>
+      event.type === 'task.worktree' && event.payload.disposition === 'kept'));
+    client.removeTaskWorktree('task-a');
+    await waitFor(() => events.some(event =>
+      event.type === 'task.worktree' && event.payload.disposition === 'removed'));
+
+    expect(events.filter(event => event.type.startsWith('task.')).map(event => [
+      event.type,
+      event.payload.taskId,
+      event.payload.status ?? event.payload.disposition,
+    ])).toEqual([
+      ['task.status', 'task-a', 'running'],
+      ['task.status', 'task-a', 'cancelled'],
+      ['task.worktree', 'task-a', 'kept'],
+      ['task.worktree', 'task-a', 'removed'],
+    ]);
+    await client.shutdown();
+  });
+
   it('活动 Run 可以通过命令取消', async () => {
     const client = createClient();
     const events: ProtocolEvent[] = [];

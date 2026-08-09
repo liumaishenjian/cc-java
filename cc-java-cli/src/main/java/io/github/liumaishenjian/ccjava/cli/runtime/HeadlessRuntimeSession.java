@@ -57,6 +57,7 @@ import java.util.Map;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -113,6 +114,12 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private final UuidAgentIdGenerator ids;
     private final AtomicReference<HeadlessRuntimeScope> scope;
     private final RuntimeScopeFactory runtimeScopeFactory;
+    private final Path agentDefinitionUserRoot;
+    private io.github.liumaishenjian.ccjava.cli.subagent.FileAgentDefinitionCatalog agentDefinitions;
+    private io.github.liumaishenjian.ccjava.cli.subagent.FileChildTaskJournal childTaskJournal;
+    private io.github.liumaishenjian.ccjava.core.subagent.AgentSupervisor agentSupervisor;
+    private volatile io.github.liumaishenjian.ccjava.core.subagent.ChildTaskObserver childTaskObserver =
+            io.github.liumaishenjian.ccjava.core.subagent.ChildTaskObserver.noop();
     private ModelDiagnostics diagnosticResource;
     private io.github.liumaishenjian.ccjava.core.AgentSession session;
     private SessionOpenResult openResult;
@@ -447,6 +454,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         telemetry = new RunTelemetryCollector();
         this.contextUsage = contextUsage;
         this.runtimeScopeFactory = runtimeScopeFactory == null ? this::createRuntimeScope : runtimeScopeFactory;
+        this.agentDefinitionUserRoot = checkedInstructionLayout.userHome().resolve(".cc-java").resolve("agents");
         try {
             workspaceBootstrap = LocalWorkspaceBootstrap.open(this.options.workspace());
             fileMentions = new io.github.liumaishenjian.ccjava.cli.mentions.FileMentionService(
@@ -569,6 +577,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             openResult = sessions.open(options.sessionOpenRequest(), spec);
             verifySkillRecovery(openResult);
             session = openResult.session();
+            initializeSubagents();
             return session.id();
         }
     }
@@ -694,6 +703,60 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     public SessionId sessionId() {
         requireOpen();
         return session.id();
+    }
+
+    /**
+     * 安装异步子任务终态观察者。
+     *
+     * <p>stdio/TUI 在 {@link #open()} 前安装该观察者；Observer 只接收有界
+     * {@code ChildTaskReport}，失败由 Supervisor 隔离，不能改变 durable terminal。</p>
+     *
+     * @param observer Surface 的非阻塞终态出口
+     */
+    public void setChildTaskObserver(io.github.liumaishenjian.ccjava.core.subagent.ChildTaskObserver observer) {
+        synchronized (lifecycleMonitor) {
+            if (session != null) throw new IllegalStateException("子任务观察者必须在 open 前安装");
+            childTaskObserver = Objects.requireNonNull(observer, "observer 不能为空");
+        }
+    }
+
+    /** 查询本 Session 拥有的子任务，不暴露子 transcript。 */
+    public Optional<io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskReport> inspectChildTask(
+            io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskId id) {
+        requireOpen();
+        return agentSupervisor == null ? Optional.empty() : agentSupervisor.find(id).map(handle -> handle.inspect());
+    }
+
+    /** 有界等待子任务终态；超时返回当时的状态。 */
+    public Optional<io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskReport> waitForChildTask(
+            io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskId id, Duration timeout)
+            throws InterruptedException {
+        requireOpen();
+        var handle = agentSupervisor == null ? Optional.<io.github.liumaishenjian.ccjava.core.subagent.ChildTaskHandle>empty()
+                : agentSupervisor.find(id);
+        return handle.isEmpty() ? Optional.empty() : Optional.of(handle.orElseThrow().await(timeout));
+    }
+
+    /** 请求取消本 Session 拥有的子任务。 */
+    public boolean cancelChildTask(io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskId id) {
+        requireOpen();
+        return agentSupervisor != null && agentSupervisor.find(id).map(handle -> handle.cancel()).orElse(false);
+    }
+
+    /** 显式保留任务绑定 worktree；任务不存在、未终态或无 worktree 时为空。 */
+    public Optional<String> keepChildTaskWorktree(
+            io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskId id) {
+        requireOpen();
+        return agentSupervisor == null ? Optional.empty()
+                : agentSupervisor.find(id).flatMap(handle -> handle.keepWorktree());
+    }
+
+    /** 显式删除可证明 clean 的任务绑定 worktree；不确定时返回 preserved disposition。 */
+    public Optional<String> removeChildTaskWorktree(
+            io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskId id) {
+        requireOpen();
+        return agentSupervisor == null ? Optional.empty()
+                : agentSupervisor.find(id).flatMap(handle -> handle.removeWorktree());
     }
 
     /**
@@ -1210,8 +1273,52 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         var skillTools = skills == null
                 ? java.util.stream.Stream.<io.github.liumaishenjian.ccjava.core.AgentTool>empty()
                 : skills.activationTools().stream();
-        return new ToolRegistry(java.util.stream.Stream.concat(workspaceBootstrap.tools().stream(), skillTools)
-                .filter(tool -> tool.definition().source() == ToolSource.BUILT_IN).toList());
+        var base = java.util.stream.Stream.concat(workspaceBootstrap.tools().stream(), skillTools)
+                .filter(tool -> tool.definition().source() == ToolSource.BUILT_IN);
+        return new ToolRegistry(agentSupervisor == null ? base.toList()
+                : java.util.stream.Stream.concat(base,
+                        java.util.stream.Stream.of(new io.github.liumaishenjian.ccjava.core.subagent.DelegateAgentTool(
+                                agentSupervisor))).toList());
+    }
+
+    private void initializeSubagents() {
+        Set<String> tools = registeredTools().stream().map(tool -> tool.definition().name())
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        agentDefinitions = io.github.liumaishenjian.ccjava.cli.subagent.FileAgentDefinitionCatalog.load(
+                agentDefinitionUserRoot,
+                workspaceBootstrap.workspaceGuard().workspace().resolve(".cc-java").resolve("agents"),
+                tools, Set.of(options.model()), io.github.liumaishenjian.ccjava.core.CancellationToken.none(),
+                extensions.status().projectTrusted());
+        childTaskJournal = new io.github.liumaishenjian.ccjava.cli.subagent.FileChildTaskJournal(
+                options.sessionStoreRoot().resolve("subagent-journal").resolve(session.id().value()));
+        // 恢复扫描只生成 INTERRUPTED_UNKNOWN 投影；不提交 Supervisor 任务，因此不会重放任何副作用。
+        var recoveredChildTasks = childTaskJournal.interruptedUnknown();
+        var scopeFactory = new io.github.liumaishenjian.ccjava.cli.subagent.HeadlessChildRuntimeScopeFactory(
+                workspaceBootstrap.workspaceGuard().workspace(), options.sessionStoreRoot(), configuredGateway,
+                approvalHandler, ids, lifecycle, extensions.hooks(), () -> agentSupervisor);
+        var total = new io.github.liumaishenjian.ccjava.domain.subagent.ChildBudget(
+                Math.max(AgentLimits.DEFAULT.maxModelTurns() * 4, 1),
+                Math.max(AgentLimits.DEFAULT.maxToolCalls() * 4, 0), 1_000_000L, 262_144,
+                options.timeout().multipliedBy(4));
+        agentSupervisor = new io.github.liumaishenjian.ccjava.core.subagent.AgentSupervisor(
+                agentDefinitions, scopeFactory, new io.github.liumaishenjian.ccjava.core.subagent.ChildBudgetLedger(total),
+                new io.github.liumaishenjian.ccjava.core.subagent.HookedAgentDefinitionNarrower(
+                        extensions.hooks(), session.id()), childTaskJournal,
+                childTaskObserver,
+                new io.github.liumaishenjian.ccjava.core.subagent.HookedChildTaskLifecycle(
+                        extensions.hooks(), session.id()),
+                context -> contextPreparation.recordExternalContext(session.id(), context), Clock.systemUTC(),
+                io.github.liumaishenjian.ccjava.core.subagent.AgentSupervisor.DEFAULT_MAX_ACTIVE,
+                io.github.liumaishenjian.ccjava.core.subagent.AgentSupervisor.DEFAULT_MAX_QUEUE,
+                io.github.liumaishenjian.ccjava.core.subagent.AgentSupervisor.DEFAULT_MAX_DEPTH);
+        recoveredChildTasks.forEach(agentSupervisor::registerRecovered);
+        // delegate_agent 是普通 builtin Tool；Scope 在 open 后重建，确保它也经过唯一 Pipeline。
+        RuntimeConfiguration current = scope.get().configuration();
+        List<String> enabled = new java.util.ArrayList<>(current.enabledBuiltinTools());
+        if (!enabled.contains("delegate_agent")) enabled.add("delegate_agent");
+        scope.set(buildScope(new RuntimeConfiguration(current.modelName(), current.permissionMode(),
+                current.permissionRules(), enabled, current.toolConfigurations(), current.compactAnchors(),
+                current.diagnosticsVerbosity())));
     }
 
     private RuntimeConfiguration initialConfiguration() {
@@ -1271,7 +1378,11 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         var external = java.util.stream.Stream.concat(
                 java.util.stream.Stream.concat(extensions.mcpTools().stream(), plugins.tools().stream()),
                 skillTools);
-        return java.util.stream.Stream.concat(workspaceBootstrap.tools().stream(), external).toList();
+        var base = java.util.stream.Stream.concat(workspaceBootstrap.tools().stream(), external);
+        return agentSupervisor == null ? base.toList()
+                : java.util.stream.Stream.concat(base,
+                        java.util.stream.Stream.of(new io.github.liumaishenjian.ccjava.core.subagent.DelegateAgentTool(
+                                agentSupervisor))).toList();
     }
 
     @FunctionalInterface
@@ -1487,6 +1598,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 diagnosticResource.close();
             }
             closeMemory(memoryResource);
+            if (agentSupervisor != null) agentSupervisor.close();
+            if (childTaskJournal != null) childTaskJournal.close();
             plugins.close();
             extensions.close();
             try {
