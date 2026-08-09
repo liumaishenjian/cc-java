@@ -48,10 +48,15 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public final class JsonlModelDiagnosticSink implements ModelDiagnosticSink, AutoCloseable {
 
+    /** 单条脱敏 JSONL 记录最大字节数。 */
     public static final int MAX_RECORD_BYTES = 4 * 1024;
+    /** 单个轮转文件最大字节数。 */
     public static final long MAX_FILE_BYTES = 1024L * 1024L;
+    /** 私有目录最多保留的轮转文件数。 */
     public static final int MAX_FILES = 5;
+    /** 异步写队列最大事件数。 */
     public static final int QUEUE_CAPACITY = 256;
+    /** 诊断文件最长保留时间。 */
     public static final Duration MAX_AGE = Duration.ofDays(7);
 
     private static final String PREFIX = "model-diagnostics-";
@@ -150,10 +155,20 @@ public final class JsonlModelDiagnosticSink implements ModelDiagnosticSink, Auto
         }
     }
 
+    /**
+     * 返回因队列或记录上限而丢弃的事件数。
+     *
+     * @return 丢弃事件累计值
+     */
     public long droppedCount() {
         return dropped.get();
     }
 
+    /**
+     * 返回序列化或异步写入失败数。
+     *
+     * @return 写入失败累计值
+     */
     public long failureCount() {
         return failures.get();
     }

@@ -17,11 +17,20 @@ import java.util.concurrent.TimeUnit;
  *
  * @since 0.4.0
  */
-final class ProcessTreeTerminator {
+public final class ProcessTreeTerminator {
 
     private static final Duration GRACE = Duration.ofMillis(500);
 
-    void terminate(Process process) {
+    /** 创建无状态的进程树终止器。 */
+    public ProcessTreeTerminator() {
+    }
+
+    /**
+     * 尽力终止主进程和调用时可观察到的全部后代，并等待一个有界宽限期。
+     *
+     * @param process 由受控适配器启动的主进程
+     */
+    public void terminate(Process process) {
         long pid = process.pid();
         List<ProcessHandle> descendants = process.descendants()
                 .toList();

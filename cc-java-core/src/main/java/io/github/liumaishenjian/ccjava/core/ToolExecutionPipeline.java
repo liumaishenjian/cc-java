@@ -602,7 +602,7 @@ public final class ToolExecutionPipeline {
             ToolResult result,
             CancellationToken cancellationToken) {
         lifecycle.dispatch(session, runId, new LifecycleEvent.AfterTool(ordinal, result));
-        hooks.evaluate(
+        HookAggregateResult post = hooks.evaluate(
                 new HookInvocation(
                         HookEventKind.POST_TOOL,
                         session.id(),
@@ -613,6 +613,7 @@ public final class ToolExecutionPipeline {
                                 "toolName", result.toolName(),
                                 "status", result.status().name()))),
                 cancellationToken);
+        post.additionalContext().ifPresent(context -> hooks.recordTransientContext(runId, context));
         return result;
     }
 

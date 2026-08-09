@@ -150,6 +150,25 @@ class PermissionPolicyTest {
         assertThat(outcome.reason()).isEqualTo(PermissionReason.HARD_DENIAL);
     }
 
+    @Test
+    void defaultHardDenialAllowsOnlyMcpNetworkToReachApproval() {
+        PermissionPolicy policy = new PermissionPolicy(
+                PermissionMode.DEFAULT,
+                List.of(),
+                new DefaultPermissionSelectorResolver(),
+                new DefaultHardDenialPolicy(),
+                sessions);
+
+        assertThat(policy.evaluate(
+                invocation("mcp__server__tool", Map.of()),
+                definition("mcp__server__tool", ToolEffect.NETWORK_OR_REMOTE, ToolSource.MCP)).decision())
+                .isEqualTo(PermissionDecision.ASK);
+        assertThat(policy.evaluate(
+                invocation("plugin_network", Map.of()),
+                definition("plugin_network", ToolEffect.NETWORK_OR_REMOTE, ToolSource.PLUGIN)).decision())
+                .isEqualTo(PermissionDecision.DENY);
+    }
+
     private PermissionPolicy policy(
             PermissionMode mode,
             List<PermissionRule> rules,

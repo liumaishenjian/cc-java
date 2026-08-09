@@ -16,6 +16,7 @@ import io.github.liumaishenjian.ccjava.core.PermissionPolicy;
 import io.github.liumaishenjian.ccjava.core.ToolExecutionPipeline;
 import io.github.liumaishenjian.ccjava.core.ToolRegistry;
 import io.github.liumaishenjian.ccjava.core.instructions.InstructionContextService;
+import io.github.liumaishenjian.ccjava.core.hook.HookCoordinator;
 import io.github.liumaishenjian.ccjava.cli.session.FileCheckpointCoordinator;
 import io.github.liumaishenjian.ccjava.cli.session.FileSessionStore;
 import io.github.liumaishenjian.ccjava.domain.PermissionRuleSource;
@@ -71,7 +72,8 @@ final class HeadlessRuntimeScope {
             InMemorySessionPermissionState permissionState,
             io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceGuard workspaceGuard,
             MemoryContextService memoryContext,
-            InstructionContextService instructionContext) {
+            InstructionContextService instructionContext,
+            HookCoordinator hooks) {
         RuntimeConfiguration checkedConfiguration = Objects.requireNonNull(configuration, "configuration 不能为空");
         if (checkedConfiguration.modelName().isPresent()
                 && !checkedConfiguration.modelName().orElseThrow().equals(configuredModel)) {
@@ -84,13 +86,17 @@ final class HeadlessRuntimeScope {
         if (!checkedConfiguration.toolConfigurations().isEmpty()) {
             throw new IllegalArgumentException("当前 builtin Tool 不支持 Runtime 配置");
         }
-        List<AgentTool> visibleTools = registeredTools.stream()
+        List<AgentTool> visibleBuiltins = registeredTools.stream()
                 .filter(tool -> tool.definition().source() == ToolSource.BUILT_IN)
                 .filter(tool -> checkedConfiguration.enabledBuiltinTools().contains(tool.definition().name()))
                 .toList();
-        if (visibleTools.size() != checkedConfiguration.enabledBuiltinTools().size()) {
+        if (visibleBuiltins.size() != checkedConfiguration.enabledBuiltinTools().size()) {
             throw new IllegalArgumentException("RuntimeConfiguration 含未注册 builtin Tool");
         }
+        List<AgentTool> visibleTools = java.util.stream.Stream.concat(
+                visibleBuiltins.stream(),
+                registeredTools.stream().filter(tool -> tool.definition().source() != ToolSource.BUILT_IN))
+                .toList();
         ToolRegistry registry = new ToolRegistry(visibleTools);
         PermissionPolicy policy = new PermissionPolicy(
                 checkedConfiguration.permissionMode(),
@@ -99,9 +105,9 @@ final class HeadlessRuntimeScope {
                 new DefaultHardDenialPolicy(new WorkspaceWriteHardDenial(workspaceGuard)),
                 permissionState);
         ToolExecutionPipeline pipeline = new ToolExecutionPipeline(
-                registry, policy, approvals, permissionState, lifecycle, sessions, checkpoints);
+                registry, policy, approvals, permissionState, lifecycle, sessions, checkpoints, hooks);
         return new HeadlessRuntimeScope(new AgentRuntime(
                 sessions, ids, gateway, new DefaultContextAssembler(), registry, pipeline, lifecycle, sessions,
-                contextPreparation, memoryContext, instructionContext), checkedConfiguration);
+                contextPreparation, memoryContext, instructionContext, hooks), checkedConfiguration);
     }
 }

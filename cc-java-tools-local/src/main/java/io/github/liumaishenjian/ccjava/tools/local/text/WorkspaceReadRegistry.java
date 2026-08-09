@@ -39,6 +39,10 @@ public final class WorkspaceReadRegistry {
     private final LinkedHashMap<String, LinkedHashMap<String, ReadEvidence>> sessions =
             new LinkedHashMap<>(16, 0.75f, true);
 
+    /** 创建空的进程内 Read 证据登记表。 */
+    public WorkspaceReadRegistry() {
+    }
+
     /**
      * 记录一次成功 Read 或写入后的权威内容证据。
      *

@@ -65,12 +65,20 @@ public final class ModelDiagnosticRecorder {
         this(mode, sink, Clock.systemUTC(), System::nanoTime);
     }
 
-    /** @return 诊断平面是否完全关闭 */
+    /**
+     * 判断诊断平面是否完全关闭。
+     *
+     * @return OFF 模式时为 {@code true}
+     */
     public boolean isOff() {
         return mode == ModelDiagnosticMode.OFF;
     }
 
-    /** @return 当前单调时钟值；OFF 或时钟故障返回 0，绝不影响 Provider 工作 */
+    /**
+     * 获取当前单调时钟值，供一次诊断计时开始时保存。
+     *
+     * @return 当前纳秒值；OFF 或时钟故障时返回 0，绝不影响 Provider 工作
+     */
     public long startNanos() {
         if (isOff()) {
             return 0L;
@@ -83,7 +91,16 @@ public final class ModelDiagnosticRecorder {
     }
 
     /**
-     * best-effort 记录封闭事件。
+     * 以 best-effort 方式记录一个封闭诊断事件。
+     *
+     * @param kind 事件种类
+     * @param request 当前模型请求，仅派生不可逆关联 ID 和回合号
+     * @param stage 失败或完成阶段
+     * @param reason 归一化原因
+     * @param statusClass 脱敏状态类别
+     * @param receivedProviderFrame 是否收到过 Provider frame
+     * @param emittedUserText 是否已向用户输出模型文本
+     * @param startedNanos 本次尝试开始时的单调时钟值
      */
     public void record(
             ModelDiagnosticKind kind,
@@ -140,7 +157,11 @@ public final class ModelDiagnosticRecorder {
         return key;
     }
 
-    /** @return 默认关闭且无分配记录的共享语义 */
+    /**
+     * 返回默认关闭且不写出记录的共享实例。
+     *
+     * @return OFF 模式记录器
+     */
     public static ModelDiagnosticRecorder off() {
         return OffHolder.INSTANCE;
     }

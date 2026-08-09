@@ -26,4 +26,7 @@ interface CliModeRunner {
      * @return 稳定进程退出码
      */
     int runStdio(CliOverrides overrides);
+
+    /** 查询或显式批准固定 Project Extension 配置，不加载模型 Provider。 */
+    int runExtensions(boolean approve, CliOverrides overrides);
 }

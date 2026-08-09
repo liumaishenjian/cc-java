@@ -6,6 +6,7 @@ import io.github.liumaishenjian.ccjava.domain.hook.HookDisposition;
 import io.github.liumaishenjian.ccjava.domain.hook.HookExecutionResult;
 import io.github.liumaishenjian.ccjava.domain.hook.HookExecutionStatus;
 import io.github.liumaishenjian.ccjava.domain.hook.HookInvocation;
+import io.github.liumaishenjian.ccjava.tools.local.command.ProcessTreeTerminator;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -21,6 +22,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
@@ -52,6 +54,7 @@ public final class CommandHookHandler implements HookHandler {
             "disposition", "reason", "additionalContext");
     private static final ObjectMapper MAPPER = JsonMapper.builder()
             .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
             .build();
 
     private final String handlerId;
@@ -135,6 +138,14 @@ public final class CommandHookHandler implements HookHandler {
                 () -> stdout.read(process.stdout()));
         Thread stderrThread = Thread.ofVirtual().name("cc-java-hook-stderr-" + handlerId).start(
                 () -> stderr.read(process.stderr()));
+        AtomicReference<IOException> inputFailure = new AtomicReference<>();
+        Thread inputThread = Thread.ofVirtual().name("cc-java-hook-stdin-" + handlerId).start(() -> {
+            try {
+                writeInput(process.stdin(), input);
+            } catch (IOException failure) {
+                inputFailure.set(failure);
+            }
+        });
         AtomicReference<CommandHookOutcome> outcome = new AtomicReference<>();
         CancellationToken.Registration cancellation = cancellationToken.onCancellation(() -> {
             process.destroyTree();
@@ -142,7 +153,6 @@ public final class CommandHookHandler implements HookHandler {
                     new CommandHookOutcome(HookExecutionStatus.CANCELLED, "Hook 调用已取消"));
         });
         try {
-            writeInput(process.stdin(), input);
             if (!await(process, cancellationToken)) {
                 CommandHookOutcome cancelled = outcome.get();
                 if (cancelled != null) {
@@ -151,6 +161,7 @@ public final class CommandHookHandler implements HookHandler {
                 process.destroyTree();
                 return failure(HookExecutionStatus.TIMED_OUT, "Hook 超过时间上限");
             }
+            inputThread.join();
             join(stdoutThread, stderrThread);
             if (outcome.get() != null) {
                 CommandHookOutcome cancelled = outcome.get();
@@ -158,6 +169,9 @@ public final class CommandHookHandler implements HookHandler {
             }
             if (stdout.exceeded() || stderr.exceeded()) {
                 return failure(HookExecutionStatus.INVALID_OUTPUT, "Hook 输出超过上限");
+            }
+            if (inputFailure.get() != null) {
+                return failure(HookExecutionStatus.FAILED, "Hook stdin 写入失败");
             }
             if (process.exitCode() != 0) {
                 return failure(HookExecutionStatus.FAILED, "Hook 进程返回非零状态");
@@ -167,7 +181,7 @@ public final class CommandHookHandler implements HookHandler {
             Thread.currentThread().interrupt();
             process.destroyTree();
             return failure(HookExecutionStatus.CANCELLED, "Hook 调用被中断");
-        } catch (IOException | RuntimeException failure) {
+        } catch (RuntimeException failure) {
             process.destroyTree();
             return failure(HookExecutionStatus.FAILED, "Hook 进程通信失败");
         } finally {
@@ -178,6 +192,7 @@ public final class CommandHookHandler implements HookHandler {
             }
             joinQuietly(stdoutThread);
             joinQuietly(stderrThread);
+            joinQuietly(inputThread);
         }
     }
 
@@ -390,6 +405,8 @@ public final class CommandHookHandler implements HookHandler {
     }
 
     private record JdkCommandProcess(Process process) implements CommandProcess {
+
+        private static final ProcessTreeTerminator TERMINATOR = new ProcessTreeTerminator();
         @Override
         public OutputStream stdin() {
             return process.getOutputStream();
@@ -422,16 +439,7 @@ public final class CommandHookHandler implements HookHandler {
 
         @Override
         public void destroyTree() {
-            process.descendants().forEach(child -> {
-                child.destroy();
-                if (child.isAlive()) {
-                    child.destroyForcibly();
-                }
-            });
-            process.destroy();
-            if (process.isAlive()) {
-                process.destroyForcibly();
-            }
+            TERMINATOR.terminate(process);
         }
     }
 

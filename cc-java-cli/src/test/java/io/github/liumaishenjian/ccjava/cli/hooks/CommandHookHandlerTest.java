@@ -25,6 +25,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -157,6 +158,40 @@ class CommandHookHandlerTest {
         assertThat(result.additionalContext()).isEmpty();
     }
 
+    @Test
+    void rejectsTrailingJsonTokens(@TempDir Path workspace) {
+        CommandHookHandler handler = handler(
+                workspace,
+                (command, workingDirectory) -> new ScriptedProcess(
+                        "{\"disposition\":\"CONTINUE\"} {\"extra\":true}", "", 0, true));
+
+        var result = handler.execute(INVOCATION, CancellationToken.none());
+
+        assertThat(result.status()).isEqualTo(HookExecutionStatus.INVALID_OUTPUT);
+    }
+
+    @Test
+    void blockedStdinWriteIsCoveredByDeadlineAndUnblockedDuringCleanup(@TempDir Path workspace) {
+        AtomicReference<BlockingInputProcess> processSeen = new AtomicReference<>();
+        CommandHookHandler handler = handler(
+                workspace,
+                (command, workingDirectory) -> {
+                    BlockingInputProcess process = new BlockingInputProcess();
+                    processSeen.set(process);
+                    return process;
+                },
+                Duration.ofMillis(20),
+                1_024);
+
+        var result = handler.execute(INVOCATION, CancellationToken.none());
+
+        assertThat(result.status()).isEqualTo(HookExecutionStatus.TIMED_OUT);
+        assertThat(processSeen).hasValueSatisfying(process -> {
+            assertThat(process.destroyed).isTrue();
+            assertThat(process.stdin.closed).isTrue();
+        });
+    }
+
     private static CommandHookHandler handler(
             Path workspace,
             CommandHookHandler.ProcessLauncher launcher) {
@@ -244,6 +279,46 @@ class CommandHookHandlerTest {
                     capture.set(toString(StandardCharsets.UTF_8));
                 }
             }
+        }
+    }
+
+    private static final class BlockingInputProcess implements CommandHookHandler.CommandProcess {
+        private final BlockingOutputStream stdin = new BlockingOutputStream();
+        private volatile boolean destroyed;
+
+        @Override public OutputStream stdin() { return stdin; }
+        @Override public InputStream stdout() { return InputStream.nullInputStream(); }
+        @Override public InputStream stderr() { return InputStream.nullInputStream(); }
+        @Override public boolean waitFor(long timeout, TimeUnit unit) throws InterruptedException {
+            Thread.sleep(Math.min(2, Math.max(1, unit.toMillis(timeout))));
+            return false;
+        }
+        @Override public int exitCode() { return 0; }
+        @Override public boolean isAlive() { return !destroyed; }
+        @Override public void destroyTree() { destroyed = true; }
+    }
+
+    private static final class BlockingOutputStream extends OutputStream {
+        private final CountDownLatch released = new CountDownLatch(1);
+        private volatile boolean closed;
+
+        @Override
+        public void write(int value) throws java.io.IOException {
+            try {
+                released.await();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new java.io.IOException("interrupted", interrupted);
+            }
+            if (closed) {
+                throw new java.io.IOException("closed");
+            }
+        }
+
+        @Override
+        public void close() {
+            closed = true;
+            released.countDown();
         }
     }
 }

@@ -174,7 +174,7 @@ public final class SessionCommandDispatcher {
                         SessionCommandResultCode.ACTIVE_RUN);
                 case UNAVAILABLE -> rejected(SessionCommandKind.COMPACT, commandId, sessionId,
                         SessionCommandResultCode.UNAVAILABLE);
-                case STALE, REJECTED -> rejected(SessionCommandKind.COMPACT, commandId, sessionId,
+                case STALE, REJECTED, HOOK_BLOCKED -> rejected(SessionCommandKind.COMPACT, commandId, sessionId,
                         SessionCommandResultCode.COMPACTION_REJECTED);
                 case SUMMARIZER_FAILURE -> terminal(SessionCommandKind.COMPACT, commandId, sessionId,
                         SessionCommandStatus.FAILED, SessionCommandResultCode.INTERNAL_FAILURE,

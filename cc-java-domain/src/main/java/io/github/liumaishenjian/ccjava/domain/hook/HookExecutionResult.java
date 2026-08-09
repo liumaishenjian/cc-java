@@ -37,7 +37,12 @@ public record HookExecutionResult(
         additionalContext = bounded(additionalContext, "additionalContext");
     }
 
-    /** 创建成功且不改变决策的结果。 */
+    /**
+     * 创建成功且不改变决策的结果。
+     *
+     * @param handlerId 产生结果的稳定 Handler ID
+     * @return COMPLETED/CONTINUE 且无正文摘要的结果
+     */
     public static HookExecutionResult continued(String handlerId) {
         return new HookExecutionResult(
                 handlerId,

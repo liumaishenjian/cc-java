@@ -1,16 +1,16 @@
 # cc-java 技术设计文档
 
-> 文档状态：Proposed v0.9
+> 文档状态：Proposed v0.10
 >
-> 最后更新：2026-08-08
+> 最后更新：2026-08-09
 >
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
 > 当前学习阶段：S01-S08 已 Accepted；ADR-048 corrective implementation Commit
 > `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 已完成 ADR-048 G0-G6；ADR-049 的
-> `CLI-13`/`CTX-19` 补充切片已在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6；当前 S09
-> 已完成 ADR-051/052/053 与 Core/Tool、生命周期和 Command Adapter 第一批 G0-G4，Hook Settings/Trust、
-> Compact/HTTP 与生产装配仍未实现
+> `CLI-13`/`CTX-19` 补充切片已在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6；S09 已完成
+> Settings/Trust、Command/loopback HTTP、Compact、Context Projection 与生产装配并 Accepted；S10 MCP
+> Tool 主链已完成两个 Transport、多 Server、统一 Permission、Trust 与恢复并通过真实 E2E，Accepted
 >
 > 当前实现状态：ADR-042/043/044 已固定并验证 Context Projection、条件式 Reduction、文件记忆和零等待
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
@@ -1114,9 +1114,18 @@ CLI 只根据事件渲染，不通过轮询访问 Runtime 私有状态。
 [ADR-054](./adr/ADR-054-s09-hook-settings-trust-gate.md)。实现上必须把只读
 `LifecycleDispatcher` 与可阻断 `HookCoordinator` 分开：Pre Tool 在参数校验后、Permission
 前执行，ASK 前执行 Permission Hook，Post Tool 在规范 Result 和 durable 记录后只做观察；多个 Handler
-可以有界并发，但必须按稳定绑定顺序聚合。当前已提供 Core Port/Fake、Session/Run 生命周期和本地
-固定 argv + JSON 协议 Adapter；当前已提供独立 Trust/fingerprint Gate，但尚未提供 Settings schema/loader。
-loopback HTTP、Command 生产装配和 stdio/TUI 展示按 G3-G5 逐步接入，不提前兼容其他产品的全部 Hook Event。
+可以有界并发，但必须按稳定绑定顺序聚合。ADR-055 已完成固定 user/project 扩展配置、精确指纹
+Trust、Command/loopback HTTP、生产装配、Pre/Post Compact 与下一回合 transient Context Projection。
+远程 HTTP、Prompt/Agent/Sub-Agent Hook、稳定 stdio/TUI 活动协议和 OS Sandbox 仍按后续 Stage 推进。
+
+### 18.4 S10 MCP
+
+`cc-java-mcp` 是官方 MCP Java SDK 2.0.0 的边缘 Adapter。SDK/Reactor 不进入 Domain/Core；Manager
+将已 initialize、过滤并加 Server 前缀的远端 Tool 映射为项目 `AgentTool`，再注册到同一个
+ToolRegistry、PermissionPolicy、Approval 与 ToolExecutionPipeline。STDIO 只接受绝对 executable、
+结构化 argv 和 allowlist 环境；Streamable HTTP 只接受 HTTPS/loopback HTTP、不跟随重定向，Bearer
+只由环境变量名配置。多 Server 有界并行且失败隔离，首次调用断线只重建 initialize 并重试一次。
+Resource/Prompt 当前仅发现元数据；Lazy Tool 与 OAuth 仍是明确差距。完整决策见 ADR-056/057。
 
 ## 19. CLI、内部协议与终端
 

@@ -17,6 +17,8 @@ import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * 在 Core 决策点同步收敛多个匹配 Hook。
@@ -35,6 +37,9 @@ public final class HookCoordinator {
     private final List<HookBinding> bindings;
     private final ExecutorService executor;
     private final Duration timeout;
+    private final ConcurrentMap<io.github.liumaishenjian.ccjava.domain.RunId, String> pendingContext =
+            new ConcurrentHashMap<>();
+    private static final int MAX_PENDING_RUNS = 64;
 
     /**
      * 创建 Hook 协调器。
@@ -60,7 +65,11 @@ public final class HookCoordinator {
         }
     }
 
-    /** 返回无绑定的观察空实现，供未启用 S09 Hook 的旧装配路径使用。 */
+    /**
+     * 返回无绑定的观察空实现，供未启用 S09 Hook 的旧装配路径使用。
+     *
+     * @return 不执行任何 Handler 的共享协调器
+     */
     public static HookCoordinator disabled() {
         return DISABLED;
     }
@@ -126,6 +135,58 @@ public final class HookCoordinator {
         return aggregate(invocation.event(), results);
     }
 
+    /**
+     * 保存同一 Run 下一模型回合一次性消费的非规范 Hook Context。
+     *
+     * @param runId Context 所属的当前 Run
+     * @param context 已有界的非可信 Hook Context
+     */
+    public void recordTransientContext(
+            io.github.liumaishenjian.ccjava.domain.RunId runId,
+            String context) {
+        Objects.requireNonNull(runId, "runId 不能为空");
+        Objects.requireNonNull(context, "context 不能为空");
+        if (context.isBlank() || (!pendingContext.containsKey(runId) && pendingContext.size() >= MAX_PENDING_RUNS)) {
+            return;
+        }
+        pendingContext.merge(runId, context, (existing, added) -> {
+            String combined = existing + '\n' + added;
+            int maximum = HookAggregateResult.MAX_CONTEXT_CHARACTERS;
+            return combined.codePointCount(0, combined.length()) <= maximum
+                    ? combined
+                    : combined.substring(0, combined.offsetByCodePoints(0, maximum));
+        });
+    }
+
+    /**
+     * 将 pending Hook Context 作为不可信 System 投影追加一次并立即清除。
+     *
+     * @param request 尚未发送给 Provider 的模型请求
+     * @return 附加一次性 Context 的新请求；没有 pending Context 时返回原请求
+     */
+    public io.github.liumaishenjian.ccjava.domain.ModelRequest projectTransientContext(
+            io.github.liumaishenjian.ccjava.domain.ModelRequest request) {
+        Objects.requireNonNull(request, "request 不能为空");
+        String context = pendingContext.remove(request.runId());
+        if (context == null) {
+            return request;
+        }
+        List<io.github.liumaishenjian.ccjava.domain.AgentMessage> messages = new ArrayList<>(request.messages());
+        messages.add(new io.github.liumaishenjian.ccjava.domain.SystemMessage(
+                "<hook-context trust=\"untrusted\">\n" + context + "\n</hook-context>"));
+        return new io.github.liumaishenjian.ccjava.domain.ModelRequest(
+                request.sessionId(), request.runId(), request.turnNumber(), messages, request.toolDefinitions());
+    }
+
+    /**
+     * 在 Run 唯一终态清除尚未消费的短生命周期 Context。
+     *
+     * @param runId 已到达终态的 Run
+     */
+    public void clearTransientContext(io.github.liumaishenjian.ccjava.domain.RunId runId) {
+        pendingContext.remove(Objects.requireNonNull(runId, "runId 不能为空"));
+    }
+
     private HookExecutionResult invoke(
             HookBinding binding,
             HookInvocation invocation,
@@ -147,9 +208,12 @@ public final class HookCoordinator {
                         result.status(),
                         result.reason().orElse("Hook 未完成"));
             }
+            HookDisposition disposition = binding.failurePolicy() == HookFailurePolicy.OBSERVE_ONLY
+                    ? HookDisposition.CONTINUE
+                    : result.disposition();
             return new HookExecutionResult(
                     binding.id(),
-                    result.disposition(),
+                    disposition,
                     result.status(),
                     result.reason(),
                     result.additionalContext());

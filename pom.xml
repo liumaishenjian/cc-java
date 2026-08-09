@@ -17,6 +17,7 @@
         <module>cc-java-core</module>
         <module>cc-java-model-spring-ai</module>
         <module>cc-java-tools-local</module>
+        <module>cc-java-mcp</module>
         <module>cc-java-cli</module>
     </modules>
 
@@ -35,6 +36,7 @@
         <spring-ai.version>2.0.0</spring-ai.version>
         <victools.version>5.0.0</victools.version>
         <picocli.version>4.7.7</picocli.version>
+        <mcp.version>2.0.0</mcp.version>
 
         <maven.compiler.plugin.version>3.15.0</maven.compiler.plugin.version>
         <maven.surefire.plugin.version>3.5.5</maven.surefire.plugin.version>
@@ -96,6 +98,16 @@
                 <groupId>info.picocli</groupId>
                 <artifactId>picocli</artifactId>
                 <version>${picocli.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.modelcontextprotocol.sdk</groupId>
+                <artifactId>mcp</artifactId>
+                <version>${mcp.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.modelcontextprotocol.sdk</groupId>
+                <artifactId>mcp-json-jackson3</artifactId>
+                <version>${mcp.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

@@ -135,21 +135,65 @@ final class DefaultCliModeRunner implements CliModeRunner {
         }
     }
 
-    private PreparedRun prepare(CliOverrides overrides) {
-        Path workspace;
+    @Override
+    public int runExtensions(boolean approve, CliOverrides overrides) {
+        Objects.requireNonNull(overrides, "overrides 不能为空");
         try {
-            if (!Files.isDirectory(overrides.workspace())) {
-                throw new WorkspaceConfigurationException();
+            Path workspace = resolveWorkspace(overrides);
+            var bootstrap = io.github.liumaishenjian.ccjava.tools.local.LocalWorkspaceBootstrap.open(workspace);
+            Path userHome = Path.of(Objects.requireNonNull(System.getProperty("user.home"), "user.home 不能为空"));
+            var loader = new io.github.liumaishenjian.ccjava.cli.extensions.ExtensionConfigurationLoader(
+                    userHome, bootstrap.workspaceGuard());
+            if (approve) {
+                var result = loader.approveProject();
+                if (!result.successful()) {
+                    errorOutput.println("cc-java: extension trust failed (" + result.code() + ")");
+                    return CliExitCode.USAGE_OR_CONFIGURATION;
+                }
+                printOutput.println("cc-java: project extensions trusted; restart required");
+                printOutput.println("fingerprint=" + result.fingerprint().orElseThrow());
+                return CliExitCode.SUCCESS;
             }
-            workspace = overrides.workspace().toRealPath();
-        } catch (IOException exception) {
-            throw new WorkspaceConfigurationException();
+            var runtime = loader.load();
+            try {
+                var status = runtime.status();
+                printOutput.println("userLoaded=" + status.userLoaded());
+                printOutput.println("projectPresent=" + status.projectPresent());
+                printOutput.println("projectTrusted=" + status.projectTrusted());
+                printOutput.println("hooks=" + status.hookCount());
+                printOutput.println("mcpServers=" + status.mcpServerCount());
+                status.projectFingerprint().ifPresent(value -> printOutput.println("projectFingerprint=" + value));
+                status.diagnosticCode().ifPresent(value -> printOutput.println("diagnostic=" + value));
+                runtime.mcpSnapshots().forEach(server -> printOutput.println(
+                        "mcp=" + server.serverName() + ",status=" + server.status() + ",tools=" + server.toolCount()));
+                return CliExitCode.SUCCESS;
+            } finally {
+                runtime.close();
+            }
+        } catch (Exception failure) {
+            errorOutput.println("cc-java: extension status failed");
+            return CliExitCode.USAGE_OR_CONFIGURATION;
         }
+    }
+
+    private PreparedRun prepare(CliOverrides overrides) {
+        Path workspace = resolveWorkspace(overrides);
         OpenAiCompatibleSettings settings = settingsLoader.load(repositoryRoot);
         if (overrides.model().isPresent()) {
             settings = settings.withModel(overrides.model().orElseThrow());
         }
         return new PreparedRun(workspace, settings);
+    }
+
+    private Path resolveWorkspace(CliOverrides overrides) {
+        try {
+            if (!Files.isDirectory(overrides.workspace())) {
+                throw new WorkspaceConfigurationException();
+            }
+            return overrides.workspace().toRealPath();
+        } catch (IOException exception) {
+            throw new WorkspaceConfigurationException();
+        }
     }
 
     static int exitCode(AgentRunResult result, PrintWriter errorOutput) {

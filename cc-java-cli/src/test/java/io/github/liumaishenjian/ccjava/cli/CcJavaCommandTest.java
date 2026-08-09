@@ -37,6 +37,21 @@ class CcJavaCommandTest {
     }
 
     @Test
+    void dispatchesExtensionStatusAndExplicitTrustAsProviderFreeModes() {
+        FakeCliModeRunner status = new FakeCliModeRunner(17, 18);
+        FakeCliModeRunner trust = new FakeCliModeRunner(17, 18);
+
+        assertThat(execute(status, "--extension-status").exitCode()).isEqualTo(18);
+        assertThat(execute(trust, "--trust-project-extensions").exitCode()).isEqualTo(18);
+
+        assertThat(status.extensionCalls).isOne();
+        assertThat(status.extensionApprove).isFalse();
+        assertThat(trust.extensionCalls).isOne();
+        assertThat(trust.extensionApprove).isTrue();
+        assertThat(status.stdioCalls).isZero();
+    }
+
+    @Test
     void parsesWorkspaceModelAndHumanDurationAsTypedOverrides() {
         FakeCliModeRunner runner = new FakeCliModeRunner(0, 0);
 
@@ -307,6 +322,8 @@ class CcJavaCommandTest {
         private String printPrompt;
         private CliOverrides overrides;
         private int stdioCalls;
+        private int extensionCalls;
+        private boolean extensionApprove;
 
         private FakeCliModeRunner(int printExitCode, int stdioExitCode) {
             this.printExitCode = printExitCode;
@@ -324,6 +341,14 @@ class CcJavaCommandTest {
         public int runStdio(CliOverrides overrides) {
             this.overrides = overrides;
             stdioCalls++;
+            return stdioExitCode;
+        }
+
+        @Override
+        public int runExtensions(boolean approve, CliOverrides overrides) {
+            this.overrides = overrides;
+            extensionCalls++;
+            extensionApprove = approve;
             return stdioExitCode;
         }
     }

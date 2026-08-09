@@ -108,7 +108,7 @@ public final class PermissionPolicy implements PermissionGate {
                     PermissionReason.ACCEPT_EDITS_DEFAULT,
                     selector);
         }
-        return effectDefault(definition.effect(), selector);
+        return effectDefault(definition, selector);
     }
 
     private List<PermissionRule> matchingRules(
@@ -129,9 +129,9 @@ public final class PermissionPolicy implements PermissionGate {
     }
 
     private static PermissionOutcome effectDefault(
-            ToolEffect effect,
+            ToolDefinition definition,
             PermissionSelector selector) {
-        return switch (effect) {
+        return switch (definition.effect()) {
             case READ_WORKSPACE -> PermissionOutcome.of(
                     PermissionDecision.ALLOW,
                     PermissionReason.EFFECT_DEFAULT,
@@ -140,7 +140,13 @@ public final class PermissionPolicy implements PermissionGate {
                     PermissionDecision.ASK,
                     PermissionReason.EFFECT_DEFAULT,
                     selector);
-            case NETWORK_OR_REMOTE, SYSTEM_OR_DESTRUCTIVE -> PermissionOutcome.of(
+            case NETWORK_OR_REMOTE -> PermissionOutcome.of(
+                    definition.source() == io.github.liumaishenjian.ccjava.domain.ToolSource.MCP
+                            ? PermissionDecision.ASK : PermissionDecision.DENY,
+                    definition.source() == io.github.liumaishenjian.ccjava.domain.ToolSource.MCP
+                            ? PermissionReason.EFFECT_DEFAULT : PermissionReason.HARD_DENIAL,
+                    selector);
+            case SYSTEM_OR_DESTRUCTIVE -> PermissionOutcome.of(
                     PermissionDecision.DENY,
                     PermissionReason.HARD_DENIAL,
                     selector);

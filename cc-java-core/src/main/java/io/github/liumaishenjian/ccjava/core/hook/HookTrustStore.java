@@ -24,7 +24,11 @@ public interface HookTrustStore {
      */
     Optional<String> approvedFingerprint(String bindingId, HookSourceKind source);
 
-    /** 返回没有任何显式批准记录的安全实现。 */
+    /**
+     * 返回没有任何显式批准记录的安全实现。
+     *
+     * @return 所有查询都返回空的 Trust Store
+     */
     static HookTrustStore none() {
         return (bindingId, source) -> Optional.empty();
     }

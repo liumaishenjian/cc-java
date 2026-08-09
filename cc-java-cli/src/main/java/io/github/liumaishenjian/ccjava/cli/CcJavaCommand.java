@@ -121,6 +121,9 @@ final class CcJavaCommand implements Callable<Integer> {
         if (mode.printPrompt != null) {
             return runner.runPrint(mode.printPrompt, overrides);
         }
+        if (mode.extensionStatus || mode.trustProjectExtensions) {
+            return runner.runExtensions(mode.trustProjectExtensions, overrides);
+        }
         return runner.runStdio(overrides);
     }
 
@@ -248,5 +251,15 @@ final class CcJavaCommand implements Callable<Integer> {
                 names = "--stdio",
                 description = "启动供 React/Ink TUI 使用的内部 NDJSON stdio v0")
         private boolean stdio;
+
+        @Option(
+                names = "--extension-status",
+                description = "检查固定 Hook/MCP 配置与 Project trust 状态；不加载 Provider")
+        private boolean extensionStatus;
+
+        @Option(
+                names = "--trust-project-extensions",
+                description = "显式信任当前 Project Hook/MCP 配置的精确指纹；配置变化后失效")
+        private boolean trustProjectExtensions;
     }
 }

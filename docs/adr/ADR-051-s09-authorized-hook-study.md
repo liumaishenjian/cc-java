@@ -57,7 +57,7 @@ Codex 公共设计还提示：匹配组应以稳定配置顺序聚合，多个�
 
 ## 可证伪验证
 
-- Matcher 正则、事件边界、绑定顺序和多个 Handler 的并发聚合；
+- Matcher glob、事件边界、绑定顺序和多个 Handler 的并发聚合；
 - deny/block 优先、非阻断 Post 不可停止 Pipeline、Hard Denial 不可被 Hook 覆盖；
 - 超时、取消、异常、非法输出、输出上限和未信任 Handler；
 - Pre Tool 的 Tool Result 保留原始 Call ID，且 Permission/副作用不会提前发生；

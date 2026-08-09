@@ -20,6 +20,10 @@ public final class HookTrustGate {
 
     private static final Pattern FINGERPRINT = Pattern.compile("[0-9a-f]{64}");
 
+    /** 创建无状态的 Hook 信任评估器。 */
+    public HookTrustGate() {
+    }
+
     /** 供诊断和测试使用的信任结果。 */
     public enum TrustStatus {
         /** 绑定通过当前来源的信任规则。 */
@@ -42,6 +46,7 @@ public final class HookTrustGate {
      * @param fingerprint 当前规范化配置指纹
      */
     public record Evaluation(HookBinding binding, TrustStatus status, Optional<String> fingerprint) {
+        /** 校验状态与指纹存在性保持一致。 */
         public Evaluation {
             binding = Objects.requireNonNull(binding, "binding 不能为空");
             status = Objects.requireNonNull(status, "status 不能为空");

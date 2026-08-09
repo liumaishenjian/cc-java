@@ -382,6 +382,7 @@ public final class AgentRuntime {
             deadlineThread.interrupt();
             activeRuns.remove(sessionId, activeRun);
             contextPreparation.closeRun(runId);
+            hooks.clearTransientContext(runId);
         }
 
         try {
@@ -468,8 +469,9 @@ public final class AgentRuntime {
                         runId,
                         turnNumber,
                         toolRegistry.definitions());
+                ModelRequest withHookContext = hooks.projectTransientContext(canonicalRequest);
                 ModelRequest withInstructions = instructionContext.project(
-                        canonicalRequest,
+                        withHookContext,
                         activeRun.cancellation().token());
                 ModelRequest withMemory = memoryContext.consumeReady(
                         withInstructions,

@@ -38,6 +38,9 @@
    [ADR-052](./docs/adr/ADR-052-s09-hook-contract.md)、
    [ADR-053](./docs/adr/ADR-053-s09-command-hook-adapter.md)、
    [ADR-054](./docs/adr/ADR-054-s09-hook-settings-trust-gate.md)、
+   [ADR-055](./docs/adr/ADR-055-s09-production-hooks.md)、
+   [ADR-056](./docs/adr/ADR-056-s10-authorized-mcp-study.md)、
+   [ADR-057](./docs/adr/ADR-057-s10-mcp-adapter.md)、
    [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)、
    [ADR-018](./docs/adr/ADR-018-authorized-reference-study.md)、
    [ADR-019](./docs/adr/ADR-019-s07-progressive-context-reduction.md)与
@@ -95,9 +98,9 @@ Checkpoint/Diff/显式 Undo、Behavior Replay 与 Java CLI/Print/stdio/TUI 生�
   回归必须保持通过；Command 的固定 Shell、精确预览、最小环境、输出上限、
   timeout/cancel 和 Windows 进程树清理回归也必须保持通过；
 - 当前生产代码支持 Allow Once/Session/Deny、声明性 Startup/Session 规则与 Hard Denial；
-  S09 已有 Core Hook 协议、确定性协调器、Tool Pipeline Pre/Post/Permission、Session/Run
-  生命周期 L1 切片、CLI 边缘 Command Adapter 测试和独立指纹 Trust Gate，但分层持久 Hook Settings/Trust、
-  Command Adapter 的生产装配、HTTP、完整 Compact UX 和 OS Sandbox 不得描述为可用；
+  S09 的严格扩展 Settings/Trust、Command/loopback HTTP、Tool/Session/Run/Prompt/Permission/Compact
+  生命周期和 transient Context Projection 已生产接入并 Accepted；远程 Hook、Prompt/Agent Hook、
+  稳定外部活动协议和 OS Sandbox 不得描述为可用；
 - S06 的 JSONL、恢复选择、Checkpoint phase、Recovery Gate 与 Undo 安全回归必须继续通过；
   任何后续修改不得自动重放有副作用操作、解析商业产品内部 JSONL、绕过 Writer/fence/active-run/
   显式确认 Gate，或把 Checkpoint 描述成 Git/OS Sandbox；
@@ -107,13 +110,13 @@ Checkpoint/Diff/显式 Undo、Behavior Replay 与 Java CLI/Print/stdio/TUI 生�
   Stage Exit 为 Accepted：Canonical Transcript/Projection、条件式 C1-C4、typed overflow 至多一次恢复、
   内部 Usage View、文件记忆 M1-M5 与 ready-only 零等待预取均已验证；LOOP-11、CTX-06/07/08/09/10/11/17/18
   达到 L2，CTX-12/13 与 OBS-04 为 L1；
-- S08 Instructions + Settings 已 Accepted；当前进入 S09 Hooks 的 IN_PROGRESS Core/Tool、生命周期
-  与 Command Adapter 第一切片。S09 的 Compact 入口、持久 Hook Settings/Trust schema/loader、Command 的生产装配、HTTP、
-  S12 Sub-Agent/后台任务/Worktree、S13 OS Sandbox、S14 稳定 Export/Retention/Migration 及后续
-  能力继续保持未实现状态。
+- S08 Instructions + Settings 与 S09 Hooks 已 Accepted；S10 MCP Tool 主链也已完成 STDIO/
+  Streamable HTTP、多 Server、filter/prefix、统一 Permission/Approval/Pipeline、Trust 与单次恢复并
+  通过真实 E2E。MCP Lazy Tool、Resource/Prompt 完整投影、OAuth，以及 S12 Sub-Agent/后台任务/
+  Worktree、S13 OS Sandbox、S14 稳定 Export/Retention/Migration 继续保持未实现状态。
 
-S08 Accepted 不表示 S09 完整配置/外部集成、S13 OS Sandbox 或 S14 稳定持久化能力已经可用。
-当前 S09 只完成 G0-G4 第一批切片，下一步继续关闭 S09 未完成 Feature 与 G5/G6。
+S09/S10 Accepted 不表示远程 Hook、MCP OAuth/Lazy Tool/Resource 自动投影、S13 OS Sandbox 或
+S14 稳定持久化能力已经可用。下一步只进入 S11 Skills + Plugins G0 授权机制研究与范围冻结。
 
 ## 3. 项目定位
 

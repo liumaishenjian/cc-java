@@ -50,7 +50,11 @@ public final class ModelDiagnostics implements AutoCloseable {
         }
     }
 
-    /** @return 仅接受封闭事件的 Core 记录器 */
+    /**
+     * 返回仅接受封闭事件的 Core 记录器。
+     *
+     * @return 当前模式对应的诊断记录器
+     */
     public ModelDiagnosticRecorder recorder() {
         return recorder;
     }

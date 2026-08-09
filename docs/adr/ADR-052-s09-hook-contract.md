@@ -37,7 +37,8 @@ Pre Tool 阻断必须保留原始 Tool Call ID；Post Tool 不能撤销已完成
 
 ## Matcher、绑定与聚合
 
-- Matcher 首版按 Event 和有界 `subject` 正则匹配；不把任意 Prompt 或未验证路径当作隐式范围。
+- Matcher 首版按 Event 和有界 `subject` glob（仅 `*`/`?`）匹配；采用线性算法，不执行任意正则，
+  也不把 Prompt 或未验证路径当作隐式范围。
 - Handler 绑定带稳定 ID、来源顺序、失败策略、信任状态和有界超时；配置层合并不依赖 Map 遍历顺序。
 - 多个匹配 Handler 可在共享有界执行器中并发运行，结果按 `order,id` 排序重新聚合。
 - 聚合优先级：`DENY` > `BLOCK` > `ALLOW` > `CONTINUE`；Post/其他非阻断 Event 将所有阻断意见降级为

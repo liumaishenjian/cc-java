@@ -207,6 +207,101 @@ class HookCoordinatorTest {
     }
 
     @Test
+    void observeOnlyBindingCannotAllowOrBlockAtDecisionPoint() {
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            HookCoordinator coordinator = new HookCoordinator(
+                    List.of(
+                            new HookBinding(
+                                    "allow-observer",
+                                    HookMatcher.event(HookEventKind.PRE_TOOL),
+                                    (invocation, token) -> new HookExecutionResult(
+                                            "ignored",
+                                            HookDisposition.ALLOW,
+                                            HookExecutionStatus.COMPLETED,
+                                            Optional.empty(),
+                                            Optional.of("allow note")),
+                                    HookFailurePolicy.OBSERVE_ONLY,
+                                    true,
+                                    0),
+                            new HookBinding(
+                                    "block-observer",
+                                    HookMatcher.event(HookEventKind.PRE_TOOL),
+                                    (invocation, token) -> new HookExecutionResult(
+                                            "ignored",
+                                            HookDisposition.BLOCK,
+                                            HookExecutionStatus.COMPLETED,
+                                            Optional.of("ignored block"),
+                                            Optional.of("block note")),
+                                    HookFailurePolicy.OBSERVE_ONLY,
+                                    true,
+                                    1)),
+                    executor,
+                    Duration.ofSeconds(1));
+
+            var result = coordinator.evaluate(PRE_TOOL, CancellationToken.none());
+
+            assertThat(result.disposition()).isEqualTo(HookDisposition.CONTINUE);
+            assertThat(result.blockingReason()).isEmpty();
+            assertThat(result.executions()).extracting("disposition")
+                    .containsOnly(HookDisposition.CONTINUE);
+            assertThat(result.additionalContext()).contains("allow note\nblock note");
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void subjectGlobMatchesWithoutRegularExpressionEvaluation() {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            HookCoordinator coordinator = new HookCoordinator(
+                    List.of(new HookBinding(
+                            "commands",
+                            HookMatcher.subject(HookEventKind.PRE_TOOL, "run_*"),
+                            (invocation, token) -> HookExecutionResult.continued("commands"),
+                            HookFailurePolicy.FAIL_OPEN,
+                            true,
+                            0)),
+                    executor,
+                    Duration.ofSeconds(1));
+
+            assertThat(coordinator.evaluate(PRE_TOOL, CancellationToken.none()).executions())
+                    .hasSize(1);
+            HookInvocation other = new HookInvocation(
+                    HookEventKind.PRE_TOOL,
+                    PRE_TOOL.sessionId(),
+                    PRE_TOOL.runId(),
+                    "read_file",
+                    PRE_TOOL.data());
+            assertThat(coordinator.evaluate(other, CancellationToken.none()).executions())
+                    .isEmpty();
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void transientContextProjectsOnceWithoutChangingCanonicalRequest() {
+        HookCoordinator coordinator = HookCoordinator.disabled();
+        RunId runId = new RunId("run-context");
+        var canonical = new io.github.liumaishenjian.ccjava.domain.ModelRequest(
+                new SessionId("session-context"), runId, 2,
+                List.of(new io.github.liumaishenjian.ccjava.domain.UserMessage("question")), List.of());
+        coordinator.recordTransientContext(runId, "review this result");
+
+        var projected = coordinator.projectTransientContext(canonical);
+
+        assertThat(canonical.messages()).hasSize(1);
+        assertThat(projected.messages()).hasSize(2);
+        assertThat(projected.messages().getLast())
+                .isInstanceOfSatisfying(io.github.liumaishenjian.ccjava.domain.SystemMessage.class,
+                        message -> assertThat(message.content()).contains(
+                                "trust=\"untrusted\"", "review this result"));
+        assertThat(coordinator.projectTransientContext(canonical)).isSameAs(canonical);
+    }
+
+    @Test
     void cancellationPreventsHandlerExecution() {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         AtomicInteger invocations = new AtomicInteger();

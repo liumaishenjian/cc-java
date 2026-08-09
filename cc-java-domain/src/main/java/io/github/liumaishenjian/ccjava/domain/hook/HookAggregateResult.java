@@ -44,7 +44,12 @@ public record HookAggregateResult(
         blockingReason = Objects.requireNonNull(blockingReason, "blockingReason 不能为空");
     }
 
-    /** 返回没有匹配绑定的无效果结果。 */
+    /**
+     * 返回没有匹配绑定的无效果结果。
+     *
+     * @param event 当前生命周期事件
+     * @return disposition 为继续且不含执行记录的结果
+     */
     public static HookAggregateResult empty(HookEventKind event) {
         return new HookAggregateResult(
                 event,
@@ -54,7 +59,11 @@ public record HookAggregateResult(
                 Optional.empty());
     }
 
-    /** 判断该聚合结果是否会阻止当前决策点。 */
+    /**
+     * 判断该聚合结果是否会阻止当前决策点。
+     *
+     * @return BLOCK 或 DENY 时为 {@code true}
+     */
     public boolean blocking() {
         return disposition == HookDisposition.BLOCK || disposition == HookDisposition.DENY;
     }

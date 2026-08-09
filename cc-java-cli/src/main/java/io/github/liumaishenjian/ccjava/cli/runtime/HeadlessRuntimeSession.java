@@ -10,6 +10,8 @@ import io.github.liumaishenjian.ccjava.cli.instructions.InstructionFoundationFac
 import io.github.liumaishenjian.ccjava.cli.diagnostics.ModelDiagnostics;
 import io.github.liumaishenjian.ccjava.cli.instructions.InstructionDoctorSnapshot;
 import io.github.liumaishenjian.ccjava.cli.instructions.InstructionProjectionState;
+import io.github.liumaishenjian.ccjava.cli.extensions.ExtensionConfigurationLoader;
+import io.github.liumaishenjian.ccjava.cli.extensions.ExtensionRuntime;
 import io.github.liumaishenjian.ccjava.core.settings.EffectiveSettingsSnapshot;
 import io.github.liumaishenjian.ccjava.core.LatestContextUsageCollector;
 import io.github.liumaishenjian.ccjava.cli.session.FileCheckpointCoordinator;
@@ -76,6 +78,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
 
     /** ADR-048 展开后输入的 Unicode、UTF-16 与 UTF-8 独立上限。 */
     public static final int MAX_PROMPT_CHARS = 1_048_576;
+    /** 单次提交给 Runtime 的用户 Prompt UTF-8 最大字节数。 */
     public static final int MAX_PROMPT_UTF8_BYTES = 1_048_576;
 
     static final String SYSTEM_INSTRUCTIONS =
@@ -116,6 +119,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private SettingsApplicationService settingsApplication;
     private long compactRevision;
     private final io.github.liumaishenjian.ccjava.cli.mentions.FileMentionService fileMentions;
+    private ExtensionRuntime extensions = ExtensionRuntime.disabled();
 
     /**
      * 使用已校验的 OpenAI-compatible 设置创建真实模型 Session 装配器。
@@ -201,7 +205,9 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 provider.contextPreparation(),
                 provider.contextUsage(),
                 HeadlessMemoryLayout.production(),
-                instructionLayout);
+                instructionLayout,
+                null,
+                true);
         diagnosticResource = provider.diagnostics();
         try {
             settingsApplication = SettingsApplicationService.production(this, instructionLayout.userHome());
@@ -370,7 +376,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             HeadlessMemoryLayout memoryLayout,
             HeadlessInstructionLayout instructionLayout) {
         this(model, eventSink, options, approvalHandler, contextPreparation, contextUsage, memoryLayout,
-                instructionLayout, null);
+                instructionLayout, null, false);
     }
 
     HeadlessRuntimeSession(
@@ -383,6 +389,21 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             HeadlessMemoryLayout memoryLayout,
             HeadlessInstructionLayout instructionLayout,
             RuntimeScopeFactory runtimeScopeFactory) {
+        this(model, eventSink, options, approvalHandler, contextPreparation, contextUsage, memoryLayout,
+                instructionLayout, runtimeScopeFactory, false);
+    }
+
+    HeadlessRuntimeSession(
+            ModelGateway model,
+            AgentEventSink eventSink,
+            HeadlessRuntimeOptions options,
+            ApprovalHandler approvalHandler,
+            ContextPreparationService contextPreparation,
+            LatestContextUsageCollector contextUsage,
+            HeadlessMemoryLayout memoryLayout,
+            HeadlessInstructionLayout instructionLayout,
+            RuntimeScopeFactory runtimeScopeFactory,
+            boolean productionExtensions) {
         HeadlessMemoryLayout checkedMemoryLayout = Objects.requireNonNull(
                 memoryLayout, "memoryLayout 不能为空");
         HeadlessInstructionLayout checkedInstructionLayout = Objects.requireNonNull(
@@ -409,6 +430,10 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                     workspaceBootstrap.workspaceGuard());
             instructionContext = new InstructionProjectionState(InstructionFoundationFactory.open(
                     checkedInstructionLayout.userHome(), workspaceBootstrap.workspaceGuard()));
+            if (productionExtensions) {
+                extensions = new ExtensionConfigurationLoader(
+                        checkedInstructionLayout.userHome(), workspaceBootstrap.workspaceGuard()).load();
+            }
         } catch (java.io.IOException | WorkspaceAccessException exception) {
             checkedMemoryLayout.closeUnused();
             throw new IllegalArgumentException("Workspace 只读能力初始化失败");
@@ -431,7 +456,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                     this.options.workspace(),
                     ids,
                     lifecycle,
-                    Clock.systemUTC());
+                    Clock.systemUTC(),
+                    extensions.hooks());
             checkpoints = new FileCheckpointCoordinator(
                     this.options.sessionStoreRoot(),
                     workspaceBootstrap.workspaceGuard(),
@@ -455,6 +481,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             if (!memoryOwnershipTransferred.get()) {
                 checkedMemoryLayout.closeUnused();
             }
+            extensions.close();
             throw failure;
         }
     }
@@ -799,8 +826,28 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             anchors = mergedCompactAnchors(scope.get().configuration().compactAnchors(), commandAnchors);
             revision = ++compactRevision;
         }
+        var preCompact = extensions.hooks().evaluate(
+                new io.github.liumaishenjian.ccjava.domain.hook.HookInvocation(
+                        io.github.liumaishenjian.ccjava.domain.hook.HookEventKind.PRE_COMPACT,
+                        session.id(), Optional.empty(), "compact",
+                        new io.github.liumaishenjian.ccjava.domain.JsonObject(Map.of(
+                                "messageCount", canonical.size(), "anchorCount", anchors.size()))),
+                cancellationToken);
+        if (preCompact.blocking()) {
+            return CompactResult.HOOK_BLOCKED;
+        }
+        List<String> effectiveAnchors = new java.util.ArrayList<>(anchors);
+        preCompact.additionalContext().ifPresent(effectiveAnchors::add);
         var result = contextPreparation.compact(new io.github.liumaishenjian.ccjava.domain.ModelRequest(
-                session.id(), new RunId("compact-" + revision), 1, canonical, List.of()), anchors, cancellationToken);
+                session.id(), new RunId("compact-" + revision), 1, canonical, List.of()),
+                List.copyOf(effectiveAnchors), cancellationToken);
+        extensions.hooks().evaluate(
+                new io.github.liumaishenjian.ccjava.domain.hook.HookInvocation(
+                        io.github.liumaishenjian.ccjava.domain.hook.HookEventKind.POST_COMPACT,
+                        session.id(), Optional.empty(), "compact",
+                        new io.github.liumaishenjian.ccjava.domain.JsonObject(Map.of(
+                                "status", result.status().name()))),
+                cancellationToken);
         synchronized (lifecycleMonitor) {
             if (closed || activeRun != null || !canonical.equals(currentCanonicalSnapshot())) return CompactResult.STALE;
             if (cancellationToken.isCancellationRequested() || result.status()
@@ -835,7 +882,9 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         /** 请求或摘要候选未被接受。 */
         REJECTED,
         /** 摘要器内部失败，命令层只返回固定失败码。 */
-        SUMMARIZER_FAILURE
+        SUMMARIZER_FAILURE,
+        /** PRE_COMPACT Hook 在摘要器调用前明确阻断。 */
+        HOOK_BLOCKED
     }
 
     private List<String> mergedCompactAnchors(List<String> settingsAnchors, List<String> commandAnchors) {
@@ -1085,6 +1134,14 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 Map.of(), java.util.List.of(), RuntimeDiagnosticsVerbosity.SUMMARY);
     }
 
+    io.github.liumaishenjian.ccjava.cli.extensions.ExtensionStatus extensionStatus() {
+        return extensions.status();
+    }
+
+    List<io.github.liumaishenjian.ccjava.mcp.McpServerSnapshot> mcpSnapshots() {
+        return extensions.mcpSnapshots();
+    }
+
     private void validatePrompt(String prompt) {
         if (prompt.isBlank()
                 || prompt.length() > MAX_PROMPT_CHARS
@@ -1100,9 +1157,14 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
 
     private HeadlessRuntimeScope createRuntimeScope(RuntimeConfiguration configuration) {
         return HeadlessRuntimeScope.create(
-                configuration, options.model(), configuredGateway, contextPreparation, workspaceBootstrap.tools(),
+                configuration, options.model(), configuredGateway, contextPreparation, registeredTools(),
                 sessions, checkpoints, lifecycle, ids, approvalHandler, permissionState,
-                workspaceBootstrap.workspaceGuard(), memoryContext, instructionContext);
+                workspaceBootstrap.workspaceGuard(), memoryContext, instructionContext, extensions.hooks());
+    }
+
+    private List<io.github.liumaishenjian.ccjava.core.AgentTool> registeredTools() {
+        return java.util.stream.Stream.concat(
+                workspaceBootstrap.tools().stream(), extensions.mcpTools().stream()).toList();
     }
 
     @FunctionalInterface
@@ -1318,6 +1380,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 diagnosticResource.close();
             }
             closeMemory(memoryResource);
+            extensions.close();
             try {
                 if (session != null && !session.isClosed() && openResult != null && !openResult.readOnly()) {
                     try {

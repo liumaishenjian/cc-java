@@ -2,13 +2,13 @@
 
 > 文档状态：Draft v0.9
 >
-> 最后更新：2026-08-08
+> 最后更新：2026-08-09
 >
 > 当前阶段：S01-S08 已 Accepted；S08 ADR-048 的既有能力已在 Commit
 > `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 上 Accepted，ADR-049 的显式文件引用又在实现
-> Commit `5910a8f` 上完成 Commit-scoped G0-G6；`CLI-13`、`CTX-19` 达到 L2。当前进入 S09，
-> 已完成 ADR-051/052/053/054 与 Core/Tool、生命周期、指纹 Trust Gate 和 Command Adapter 第一批 G0-G4；Hook Settings schema/loader、
-> Compact/HTTP 与 Command 生产装配仍未实现。
+> Commit `5910a8f` 上完成 Commit-scoped G0-G6；`CLI-13`、`CTX-19` 达到 L2。S09 已完成
+> Settings/Trust、Command/loopback HTTP、生命周期、Compact 与生产装配并 Accepted；S10 MCP Tool
+> 主链已完成 STDIO/Streamable HTTP、多 Server、统一 Permission、Trust 与恢复并通过真实 E2E，Accepted。
 >
 > 产品负责人：项目维护者
 
@@ -495,6 +495,8 @@ Command Intent/Event 与 G3/G4 测试矩阵。G3-C/D/F 的有界子切片现已�
 - Hooks 的结构化输入、超时、阻断语义和失败隔离；
 - 固定 argv 的本地 Command Hook 与有界 JSON stdin/stdout；
 - Hook 不能绕过 Permission Pipeline，也不能直接污染核心状态。
+- 项目 Hook 必须经过精确内容指纹的显式 Trust；配置变化必须重新批准；
+- Compact Hook 可在摘要器前阻断，Post Context 只能投影到后续请求，不能改写 Canonical Transcript。
 
 ### S10：MCP
 
@@ -502,6 +504,9 @@ Command Intent/Event 与 G3/G4 测试矩阵。G3-C/D/F 的有界子切片现已�
 - MCP Tool 到统一 Tool Registry 的映射；
 - MCP Tool 仍经过本项目的 Permission Gate、输出裁剪和审计；
 - 覆盖连接失败、Schema 变化和不可信返回值。
+- 支持真实 STDIO 与 Streamable HTTP、多 Server 隔离、filter/prefix、单次重连和环境 Bearer；
+- Project MCP 配置复用扩展 Trust Gate，MCP Tool 默认 ASK 且仍走统一 Approval/Pipeline；
+- Resource/Prompt 完整消费、OAuth 与 Lazy Tool Loading 不属于本次 Tool 主链退出，必须如实保留差距。
 
 ### S11：Skills 与 Plugins
 
