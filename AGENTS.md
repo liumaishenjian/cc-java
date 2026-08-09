@@ -119,8 +119,9 @@ Checkpoint/Diff/显式 Undo、Behavior Replay 与 Java CLI/Print/stdio/TUI 生�
   Worktree、S13 OS Sandbox、S14 稳定 Export/Retention/Migration 继续保持未实现状态。
 
 S09/S10 Accepted 不表示远程 Hook、MCP OAuth/Lazy Tool/Resource 自动投影、S13 OS Sandbox 或
-S14 稳定持久化能力已经可用。S11 Skills + Plugins 已按 ADR-058～060 完成 G0-G2 双源研究、
-退出范围与独立架构冻结；G3-G6 Open，Capability Level 无变化，下一步只进入 S11 独立实现。
+S14 稳定持久化能力已经可用。S11 Skills + Plugins 已完成 G0-G6 工作树候选实现、量化、Demo
+与能力对账，当前为 WORKTREE VERIFIED / PENDING FINAL COMMIT；`SKILL-01..07`、`CTX-14`、
+`PLUGIN-01..03` 候选 L2，`PLUGIN-04` 候选 L1，G3-G6 机器状态保持 Open，Stage Exit 未 Accepted。
 
 ## 3. 项目定位
 

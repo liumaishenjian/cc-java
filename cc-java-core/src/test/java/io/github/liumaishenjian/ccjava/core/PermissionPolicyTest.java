@@ -137,6 +137,34 @@ class PermissionPolicyTest {
     }
 
     @Test
+    void pluginSessionGrantCannotCrossPluginComponentToolOrSource() {
+        String grantedName = "plugin__alpha__tool-provider__remote__search";
+        PermissionSelector granted = new PermissionSelector(
+                grantedName, ToolSource.PLUGIN, "remote-scope");
+        sessions.grant(SESSION, granted);
+        PermissionPolicy policy = new PermissionPolicy(
+                PermissionMode.DEFAULT, List.of(),
+                (invocation, definition) -> new PermissionSelector(
+                        definition.name(), definition.source(), "remote-scope"),
+                new DefaultHardDenialPolicy(), sessions);
+
+        assertThat(policy.evaluate(invocation(grantedName, Map.of()),
+                definition(grantedName, ToolEffect.NETWORK_OR_REMOTE, ToolSource.PLUGIN)).reason())
+                .isEqualTo(PermissionReason.SESSION_GRANT);
+        for (String other : List.of(
+                "plugin__beta__tool-provider__remote__search",
+                "plugin__alpha__tool-provider__other__search",
+                "plugin__alpha__tool-provider__remote__write")) {
+            assertThat(policy.evaluate(invocation(other, Map.of()),
+                    definition(other, ToolEffect.NETWORK_OR_REMOTE, ToolSource.PLUGIN)).decision())
+                    .isEqualTo(PermissionDecision.ASK);
+        }
+        assertThat(policy.evaluate(invocation(grantedName, Map.of()),
+                definition(grantedName, ToolEffect.NETWORK_OR_REMOTE, ToolSource.MCP)).reason())
+                .isNotEqualTo(PermissionReason.SESSION_GRANT);
+    }
+
+    @Test
     void sourceAndModelSuppliedPseudoRulesCannotExpandPermission() {
         PermissionPolicy policy = policy(PermissionMode.DEFAULT, List.of(), false);
         ToolDefinition external = definition(
@@ -151,7 +179,7 @@ class PermissionPolicyTest {
     }
 
     @Test
-    void defaultHardDenialAllowsOnlyMcpNetworkToReachApproval() {
+    void defaultHardDenialAllowsOnlyMcpAndPluginNetworkToReachApproval() {
         PermissionPolicy policy = new PermissionPolicy(
                 PermissionMode.DEFAULT,
                 List.of(),
@@ -164,8 +192,17 @@ class PermissionPolicyTest {
                 definition("mcp__server__tool", ToolEffect.NETWORK_OR_REMOTE, ToolSource.MCP)).decision())
                 .isEqualTo(PermissionDecision.ASK);
         assertThat(policy.evaluate(
-                invocation("plugin_network", Map.of()),
-                definition("plugin_network", ToolEffect.NETWORK_OR_REMOTE, ToolSource.PLUGIN)).decision())
+                invocation("plugin__alpha__tool-provider__remote__search", Map.of()),
+                definition("plugin__alpha__tool-provider__remote__search",
+                        ToolEffect.NETWORK_OR_REMOTE, ToolSource.PLUGIN)).decision())
+                .isEqualTo(PermissionDecision.ASK);
+        assertThat(policy.evaluate(
+                invocation("fake_network", Map.of()),
+                definition("fake_network", ToolEffect.NETWORK_OR_REMOTE, ToolSource.BUILT_IN)).decision())
+                .isEqualTo(PermissionDecision.DENY);
+        assertThat(policy.evaluate(
+                invocation("plugin_system", Map.of()),
+                definition("plugin_system", ToolEffect.SYSTEM_OR_DESTRUCTIVE, ToolSource.PLUGIN)).decision())
                 .isEqualTo(PermissionDecision.DENY);
     }
 

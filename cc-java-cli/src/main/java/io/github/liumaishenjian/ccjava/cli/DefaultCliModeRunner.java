@@ -83,7 +83,9 @@ final class DefaultCliModeRunner implements CliModeRunner {
                         .unstarted(application::cancelActive);
                 Runtime.getRuntime().addShutdownHook(shutdownHook);
                 try {
-                    AgentRunResult result = application.run(prompt);
+                    AgentRunResult result = explicitSkill(prompt)
+                            .map(application::runSkill)
+                            .orElseGet(() -> application.run(prompt));
                     events.finish(result);
                     return exitCode(result, errorOutput);
                 } finally {
@@ -100,6 +102,20 @@ final class DefaultCliModeRunner implements CliModeRunner {
         } catch (RuntimeException exception) {
             errorOutput.println("cc-java: runtime failed");
             return CliExitCode.RUNTIME_FAILURE;
+        }
+    }
+
+    private static java.util.Optional<io.github.liumaishenjian.ccjava.domain.skill.ExplicitSkillInvocation> explicitSkill(
+            String prompt) {
+        if (!prompt.startsWith("/") || prompt.startsWith("//")) return java.util.Optional.empty();
+        int split = prompt.indexOf(' ');
+        String name = split < 0 ? prompt.substring(1) : prompt.substring(1, split);
+        String arguments = split < 0 ? "" : prompt.substring(split + 1).strip();
+        try {
+            return java.util.Optional.of(new io.github.liumaishenjian.ccjava.domain.skill.ExplicitSkillInvocation(
+                    new io.github.liumaishenjian.ccjava.domain.skill.SkillId(name), arguments));
+        } catch (IllegalArgumentException invalid) {
+            return java.util.Optional.empty();
         }
     }
 

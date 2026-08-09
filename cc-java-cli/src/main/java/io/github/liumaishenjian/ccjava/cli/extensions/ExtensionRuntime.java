@@ -21,14 +21,23 @@ public final class ExtensionRuntime implements AutoCloseable {
     private final ExecutorService hookExecutor;
     private final McpClientManager mcp;
     private final List<AgentTool> mcpTools;
+    private final List<io.github.liumaishenjian.ccjava.mcp.McpServerConfig> mcpConfigs;
     private final ExtensionStatus status;
 
     ExtensionRuntime(HookCoordinator hooks, ExecutorService hookExecutor, McpClientManager mcp,
                      List<AgentTool> mcpTools, ExtensionStatus status) {
+        this(hooks, hookExecutor, mcp, mcpTools, List.of(), status);
+    }
+
+    ExtensionRuntime(HookCoordinator hooks, ExecutorService hookExecutor, McpClientManager mcp,
+                     List<AgentTool> mcpTools,
+                     List<io.github.liumaishenjian.ccjava.mcp.McpServerConfig> mcpConfigs,
+                     ExtensionStatus status) {
         this.hooks = Objects.requireNonNull(hooks, "hooks 不能为空");
         this.hookExecutor = hookExecutor;
         this.mcp = mcp;
         this.mcpTools = List.copyOf(Objects.requireNonNull(mcpTools, "mcpTools 不能为空"));
+        this.mcpConfigs = List.copyOf(Objects.requireNonNull(mcpConfigs, "mcpConfigs 不能为空"));
         this.status = Objects.requireNonNull(status, "status 不能为空");
     }
 
@@ -53,6 +62,8 @@ public final class ExtensionRuntime implements AutoCloseable {
      * @return MCP Tool 快照
      */
     public List<AgentTool> mcpTools() { return mcpTools; }
+    /** @return 已通过来源 trust Gate 的固定 MCP configs，供宿主 Plugin factory 精确 digest 匹配 */
+    public List<io.github.liumaishenjian.ccjava.mcp.McpServerConfig> mcpConfigs() { return mcpConfigs; }
     /**
      * 返回不含外部正文的扩展加载状态。
      *

@@ -35,6 +35,10 @@ public final class HookCoordinator {
     private static final HookCoordinator DISABLED = new HookCoordinator(List.of(), null, Duration.ZERO);
 
     private final List<HookBinding> bindings;
+    private final ConcurrentMap<io.github.liumaishenjian.ccjava.domain.RunId,
+            ConcurrentMap<Long, List<HookBinding>>> runBindings = new ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicLong runBindingSequence =
+            new java.util.concurrent.atomic.AtomicLong();
     private final ExecutorService executor;
     private final Duration timeout;
     private final ConcurrentMap<io.github.liumaishenjian.ccjava.domain.RunId, String> pendingContext =
@@ -53,14 +57,12 @@ public final class HookCoordinator {
             ExecutorService executor,
             Duration timeout) {
         this.bindings = sortBindings(bindings);
-        this.executor = this.bindings.isEmpty()
-                ? null
-                : Objects.requireNonNull(executor, "executor 不能为空");
+        this.executor = executor;
         this.timeout = Objects.requireNonNull(timeout, "timeout 不能为空");
         if (!timeout.isZero() && timeout.isNegative()) {
             throw new IllegalArgumentException("timeout 必须大于 0");
         }
-        if (!this.bindings.isEmpty() && timeout.toMillis() < 1) {
+        if (executor != null && timeout.toMillis() < 1) {
             throw new IllegalArgumentException("启用 Handler 时 timeout 必须大于 0");
         }
     }
@@ -86,7 +88,11 @@ public final class HookCoordinator {
             CancellationToken cancellationToken) {
         Objects.requireNonNull(invocation, "invocation 不能为空");
         Objects.requireNonNull(cancellationToken, "cancellationToken 不能为空");
-        List<HookBinding> matching = bindings.stream()
+        List<HookBinding> candidates = new ArrayList<>(bindings);
+        invocation.runId().map(runBindings::get).ifPresent(scoped -> scoped.entrySet().stream()
+                .sorted(java.util.Map.Entry.comparingByKey())
+                .forEach(entry -> candidates.addAll(entry.getValue())));
+        List<HookBinding> matching = sortBindings(candidates).stream()
                 .filter(binding -> binding.matcher().matches(invocation))
                 .toList();
         if (matching.isEmpty()) {
@@ -133,6 +139,49 @@ public final class HookCoordinator {
             }
         }
         return aggregate(invocation.event(), results);
+    }
+
+    /**
+     * 为当前 Run 原子绑定已通过宿主 trust Gate 的 Skill/Plugin Hooks。
+     *
+     * <p>该 seam 不修改全局绑定；同一 Run 可以按调用顺序持有多个彼此独立的 lease，关闭任一 lease
+     * 只移除自身 bindings。调用者必须持有返回 lease 到唯一 Run 终态。Resume/Fork 没有活动 Run，
+     * 因此不会调用本方法。Handler/Executor 仍复用当前 S09 协调器，不改变聚合优先级或失败策略。</p>
+     *
+     * @param runId 当前活动 Run
+     * @param scopedBindings 已由宿主验证 trust 与来源的绑定
+     * @return 幂等解绑 lease
+     */
+    public AutoCloseable bindRun(io.github.liumaishenjian.ccjava.domain.RunId runId,
+            List<HookBinding> scopedBindings) {
+        Objects.requireNonNull(runId, "runId 不能为空");
+        List<HookBinding> checked = sortBindings(scopedBindings);
+        if (checked.stream().anyMatch(binding -> !binding.trusted())) {
+            throw new IllegalArgumentException("Run scoped Hook 必须已通过 trust Gate");
+        }
+        if (checked.isEmpty()) return () -> { };
+        if (executor == null) {
+            throw new IllegalStateException("HookCoordinator 没有可用执行器");
+        }
+        long leaseId = runBindingSequence.incrementAndGet();
+        ConcurrentMap<Long, List<HookBinding>> leases = runBindings.computeIfAbsent(
+                runId, ignored -> new ConcurrentHashMap<>());
+        leases.put(leaseId, checked);
+        java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean();
+        return () -> {
+            if (!closed.compareAndSet(false, true)) return;
+            ConcurrentMap<Long, List<HookBinding>> current = runBindings.get(runId);
+            if (current == null) return;
+            current.remove(leaseId, checked);
+            if (current.isEmpty()) runBindings.remove(runId, current);
+        };
+    }
+
+    /** @return 当前 Run 的 scoped Hook 数量，仅供安全生命周期测试与诊断 */
+    public int runBindingCount(io.github.liumaishenjian.ccjava.domain.RunId runId) {
+        ConcurrentMap<Long, List<HookBinding>> scoped = runBindings.get(
+                Objects.requireNonNull(runId, "runId 不能为空"));
+        return scoped == null ? 0 : scoped.values().stream().mapToInt(List::size).sum();
     }
 
     /**

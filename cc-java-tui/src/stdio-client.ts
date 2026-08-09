@@ -165,6 +165,17 @@ export class StdioClient {
     return requestId;
   }
 
+  /** 启动 Java 权威的显式 Skill Run。 */
+  public invokeSkill(name: string, arguments_: string): string {
+    if (this.#sessionId === undefined || this.#activeRunId !== undefined
+      || this.#pendingRunStartRequestId !== undefined) {
+      throw new Error('只有就绪 Session 可以显式调用 Skill');
+    }
+    const requestId = this.#send('skill.invoke', {name, arguments: arguments_}, this.#sessionId);
+    this.#pendingRunStartRequestId = requestId;
+    return requestId;
+  }
+
   public sessionCommand(
     commandId: string,
     intent: 'help' | 'clear' | 'compact' | 'context' | 'doctor' | 'model' | 'permissions' | 'resume',

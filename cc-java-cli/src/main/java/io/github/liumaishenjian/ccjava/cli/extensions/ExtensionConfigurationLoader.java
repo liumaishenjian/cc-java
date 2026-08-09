@@ -125,19 +125,18 @@ public final class ExtensionConfigurationLoader {
                 bindings.add(definition.binding(workspace.workspace(), order++));
             }
         }
-        var executor = bindings.isEmpty() ? null : Executors.newFixedThreadPool(Math.min(4, bindings.size()),
+        var executor = Executors.newFixedThreadPool(Math.max(1, Math.min(4, Math.max(1, bindings.size()))),
                 Thread.ofVirtual().name("cc-java-hook-", 0).factory());
         McpClientManager manager = null;
         try {
-            HookCoordinator hooks = bindings.isEmpty() ? HookCoordinator.disabled()
-                    : new HookCoordinator(bindings, executor, Duration.ofSeconds(30));
+            HookCoordinator hooks = new HookCoordinator(bindings, executor, Duration.ofSeconds(30));
             List<McpServerConfig> servers = serverDefinitions.values().stream()
                     .map(ServerDefinition::config).toList();
             manager = servers.isEmpty() ? null
                     : new McpClientManager(servers, new OfficialMcpClientFactory());
             List<io.github.liumaishenjian.ccjava.core.AgentTool> tools = manager == null
                     ? List.of() : manager.start();
-            return new ExtensionRuntime(hooks, executor, manager, tools,
+            return new ExtensionRuntime(hooks, executor, manager, tools, servers,
                     new ExtensionStatus(userLoaded, projectPresent, projectTrusted, bindings.size(), servers.size(),
                             projectFingerprint, diagnostic));
         } catch (RuntimeException failure) {

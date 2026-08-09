@@ -4,6 +4,7 @@ import io.github.liumaishenjian.ccjava.domain.AgentMessage;
 import io.github.liumaishenjian.ccjava.domain.ContextSummaryMessage;
 import io.github.liumaishenjian.ccjava.domain.MemoryContextMessage;
 import io.github.liumaishenjian.ccjava.domain.ModelRequest;
+import io.github.liumaishenjian.ccjava.domain.SkillContextMessage;
 import io.github.liumaishenjian.ccjava.domain.ToolDefinition;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
 import org.springframework.ai.chat.messages.Message;
@@ -32,6 +33,7 @@ final class SpringAiPromptMapper {
     private static final String SUMMARY_ENVELOPE_VERSION = "cc-java-context-summary-v1";
     private static final String MEMORY_ENVELOPE_VERSION = "cc-java-memory-context-v1";
     private static final String FILE_CONTEXT_ENVELOPE_VERSION = "cc-java-user-file-context-v1";
+    private static final String SKILL_CONTEXT_ENVELOPE_VERSION = "cc-java-skill-context-v1";
 
     Prompt map(ModelRequest request, String model) {
         Objects.requireNonNull(request, "request 不能为空");
@@ -60,6 +62,7 @@ final class SpringAiPromptMapper {
                     mapToolResult(toolResult.result());
             case ContextSummaryMessage summary -> mapSummary(summary);
             case MemoryContextMessage memory -> mapMemory(memory);
+            case SkillContextMessage skill -> mapSkill(skill);
         };
     }
 
@@ -131,6 +134,20 @@ final class SpringAiPromptMapper {
             encoded.put("bodyBase64", base64(item.body()));
             return encoded;
         }).toList());
+        return new org.springframework.ai.chat.messages.UserMessage(SpringAiJson.write(fields));
+    }
+
+    /** 将 Skill 正文编码为显式不可信 User envelope，不赋予 System 或 Tool 角色。 */
+    private org.springframework.ai.chat.messages.UserMessage mapSkill(SkillContextMessage skill) {
+        LinkedHashMap<String, Object> fields = new LinkedHashMap<>();
+        fields.put("kind", SKILL_CONTEXT_ENVELOPE_VERSION);
+        fields.put("untrusted", true);
+        fields.put("skillId", skill.skillId().value());
+        fields.put("snapshotId", skill.snapshotId());
+        fields.put("contentDigest", skill.contentDigest());
+        fields.put("invocationKind", skill.invocationKind().name());
+        fields.put("argumentsBase64", base64(skill.arguments()));
+        fields.put("markdownBase64", base64(skill.markdown()));
         return new org.springframework.ai.chat.messages.UserMessage(SpringAiJson.write(fields));
     }
 

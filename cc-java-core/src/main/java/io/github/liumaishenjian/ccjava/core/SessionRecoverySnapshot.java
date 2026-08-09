@@ -7,6 +7,7 @@ import io.github.liumaishenjian.ccjava.domain.SessionSpec;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillRecoveryRecord;
 
 /**
  * 文件 Adapter 完整校验 journal 后交给 Core 的框架无关恢复快照。
@@ -20,6 +21,7 @@ import java.util.Optional;
  * @param runIds 历史 Run ID，用于阻止恢复后重复
  * @param parentSessionId Fork 来源
  * @param issues 阻止无条件继续写入的安全恢复问题
+ * @param skillRecords 历史成功激活的 privacy-safe Skill 身份；只用于验证，不自动重放
  * @since 0.6.0
  */
 public record SessionRecoverySnapshot(
@@ -28,7 +30,8 @@ public record SessionRecoverySnapshot(
         List<AgentMessage> messages,
         List<RunId> runIds,
         Optional<SessionId> parentSessionId,
-        List<SessionRecoveryIssue> issues) {
+        List<SessionRecoveryIssue> issues,
+        List<SkillRecoveryRecord> skillRecords) {
 
     /**
      * 防御性复制恢复数据。
@@ -40,5 +43,12 @@ public record SessionRecoverySnapshot(
         runIds = List.copyOf(Objects.requireNonNull(runIds, "runIds 不能为空"));
         parentSessionId = Objects.requireNonNull(parentSessionId, "parentSessionId 不能为空");
         issues = List.copyOf(Objects.requireNonNull(issues, "issues 不能为空"));
+        skillRecords = List.copyOf(Objects.requireNonNull(skillRecords, "skillRecords 不能为空"));
+    }
+
+    /** 兼容不含 S11 Skill 记录的既有构造路径。 */
+    public SessionRecoverySnapshot(SessionId sessionId, SessionSpec spec, List<AgentMessage> messages,
+            List<RunId> runIds, Optional<SessionId> parentSessionId, List<SessionRecoveryIssue> issues) {
+        this(sessionId, spec, messages, runIds, parentSessionId, issues, List.of());
     }
 }

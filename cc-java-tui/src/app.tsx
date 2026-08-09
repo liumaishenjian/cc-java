@@ -50,6 +50,7 @@ export interface AgentClient {
   onExit(listener: () => void): () => void;
   initialize(): string;
   startRun(prompt: string): string;
+  invokeSkill?(name: string, arguments_: string): string;
   cancelRun(): string;
   resolveApproval(
     approvalId: string,
@@ -397,6 +398,21 @@ export function AgentTui({client}: AgentTuiProps) {
           return;
         }
         client.sessionCommand(`tui-command-${nextCommandNumber.current++}`, slash.command.intent, slash.command.arguments);
+      } else if (slash.kind === 'skill') {
+        if (client.invokeSkill === undefined || state.phase !== 'ready') {
+          dispatch({type: 'slash.notice', message: '当前连接或状态不支持 Skill 调用'});
+          return;
+        }
+        try {
+          const requestId = client.invokeSkill(slash.name, slash.arguments);
+          const label = submittedComposerLabel(submission.state);
+          pendingSubmissionsRef.current.set(requestId, {composer: submission.state, label});
+          replaceComposer(beginPendingComposer(submission.state));
+          dispatch({type: 'run.submitted', requestId, prompt: label});
+        } catch {
+          dispatch({type: 'slash.notice', message: 'Skill 调用未被 Java 接受'});
+          return;
+        }
       } else if (slash.kind === 'invalid') {
         dispatch({type: 'slash.notice', message: slash.message});
         return;

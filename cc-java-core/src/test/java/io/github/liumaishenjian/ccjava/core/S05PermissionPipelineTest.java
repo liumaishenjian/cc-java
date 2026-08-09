@@ -246,6 +246,24 @@ class S05PermissionPipelineTest {
     }
 
     @Test
+    void pluginQualifiedToolUsesUnifiedPipelineCallIdApprovalAndOutputCeiling() {
+        String name = "plugin__alpha__tool-provider__remote__search";
+        String content = "x".repeat(ToolExecutionPipeline.ABSOLUTE_MAX_OUTPUT_CHARACTERS + 500);
+        RecordingTool tool = new RecordingTool(name, ToolSource.PLUGIN, Integer.MAX_VALUE, content);
+        Fixture fixture = fixture(tool, new InMemorySessionPermissionState(),
+                (invocation, definition, outcome) -> ApprovalResponse.allowOnce());
+
+        ToolResult result = fixture.execute("plugin-call", Map.of());
+
+        assertThat(result.callId()).isEqualTo("plugin-call");
+        assertThat(result.status()).isEqualTo(ToolResultStatus.SUCCESS);
+        assertThat(result.content().codePointCount(0, result.content().length()))
+                .isEqualTo(ToolExecutionPipeline.ABSOLUTE_MAX_OUTPUT_CHARACTERS);
+        assertThat(result.metadata().truncated()).isTrue();
+        assertThat(tool.executions).hasValue(1);
+    }
+
+    @Test
     void fakeExternalSourcesUseSamePermissionAndAbsoluteOutputCeiling() {
         for (ToolSource source : List.of(
                 ToolSource.MCP, ToolSource.PLUGIN, ToolSource.SUB_AGENT)) {

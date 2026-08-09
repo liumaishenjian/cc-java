@@ -33,6 +33,8 @@ const CHECKPOINT_UNDO_STATUSES = new Set([
 const EVENT_TYPES = new Set([
   'initialized',
   'run.started',
+  'skill.invoked',
+  'skill.completed',
   'model.text.delta',
   'approval.requested',
   'tool.started',
@@ -55,6 +57,8 @@ const EVENT_TYPES = new Set([
 export type EventType =
   | 'initialized'
   | 'run.started'
+  | 'skill.invoked'
+  | 'skill.completed'
   | 'model.text.delta'
   | 'approval.requested'
   | 'tool.started'
@@ -97,6 +101,7 @@ export interface ProtocolCommand {
     | 'checkpoint.diff'
     | 'checkpoint.undo'
     | 'session.command'
+    | 'skill.invoke'
     | 'file.suggest'
     | 'shutdown';
   readonly requestId: string;
@@ -202,6 +207,7 @@ function validateEventShape(
   }
   if (
     (type === 'run.started'
+      || type === 'skill.completed'
       || type === 'model.text.delta'
       || type === 'approval.requested'
       || type === 'tool.started'
@@ -214,6 +220,14 @@ function validateEventShape(
     && (sessionId === undefined || runId === undefined)
   ) {
     throw new ProtocolViolation(`${type} 缺少 sessionId 或 runId`);
+  }
+  if (type === 'skill.invoked') {
+    if (sessionId === undefined || runId !== undefined) {
+      throw new ProtocolViolation('skill.invoked 必须携带 sessionId 且不能携带 runId');
+    }
+    validateSkillEvent(payload, false);
+  } else if (type === 'skill.completed') {
+    validateSkillEvent(payload, true);
   }
   if (type === 'model.text.delta' && typeof payload.text !== 'string') {
     throw new ProtocolViolation('model.text.delta 缺少文本');
@@ -271,6 +285,24 @@ function validateEventShape(
     validateOptionalTerminalCount(type, payload, 'modelTurns');
     validateOptionalTerminalCount(type, payload, 'toolCalls');
     validateOptionalModelFailure(type, payload);
+  }
+}
+
+function validateSkillEvent(payload: Readonly<Record<string, unknown>>, completed: boolean): void {
+  const fields = completed
+    ? new Set(['skillId', 'invocationKind', 'status', 'stopReason'])
+    : new Set(['skillId', 'invocationKind']);
+  if (!hasExactFields(payload, fields)
+    || typeof payload.skillId !== 'string'
+    || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(payload.skillId)
+    || Array.from(payload.skillId).length > 64
+    || payload.invocationKind !== 'explicit') {
+    throw new ProtocolViolation('Skill 事件缺少安全身份摘要');
+  }
+  if (completed && ((payload.status !== 'succeeded' && payload.status !== 'failed')
+    || typeof payload.stopReason !== 'string'
+    || !/^[a-z][a-z0-9_]{0,63}$/u.test(payload.stopReason))) {
+    throw new ProtocolViolation('skill.completed 缺少安全终态');
   }
 }
 

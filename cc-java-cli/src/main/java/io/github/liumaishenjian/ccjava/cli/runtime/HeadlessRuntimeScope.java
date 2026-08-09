@@ -73,7 +73,10 @@ final class HeadlessRuntimeScope {
             io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceGuard workspaceGuard,
             MemoryContextService memoryContext,
             InstructionContextService instructionContext,
-            HookCoordinator hooks) {
+            HookCoordinator hooks,
+            io.github.liumaishenjian.ccjava.core.skill.SkillRunCoordinator skills,
+            io.github.liumaishenjian.ccjava.core.plugin.PluginRunCoordinator plugins,
+            io.github.liumaishenjian.ccjava.core.plugin.PluginRunHooks pluginHooks) {
         RuntimeConfiguration checkedConfiguration = Objects.requireNonNull(configuration, "configuration 不能为空");
         if (checkedConfiguration.modelName().isPresent()
                 && !checkedConfiguration.modelName().orElseThrow().equals(configuredModel)) {
@@ -105,9 +108,10 @@ final class HeadlessRuntimeScope {
                 new DefaultHardDenialPolicy(new WorkspaceWriteHardDenial(workspaceGuard)),
                 permissionState);
         ToolExecutionPipeline pipeline = new ToolExecutionPipeline(
-                registry, policy, approvals, permissionState, lifecycle, sessions, checkpoints, hooks);
+                registry, policy, approvals, permissionState, lifecycle, sessions, checkpoints, hooks, skills);
         return new HeadlessRuntimeScope(new AgentRuntime(
                 sessions, ids, gateway, new DefaultContextAssembler(), registry, pipeline, lifecycle, sessions,
-                contextPreparation, memoryContext, instructionContext, hooks), checkedConfiguration);
+                contextPreparation, memoryContext, instructionContext, hooks, skills, plugins, pluginHooks),
+                checkedConfiguration);
     }
 }

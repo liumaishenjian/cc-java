@@ -12,7 +12,8 @@ import java.util.Objects;
  * 单 Run Skill 激活状态机。
  *
  * <p>不同 Skill 按成功提交顺序各激活一次；准备期间设置 reentrant guard，禁止正文、资源或
- * 回调嵌套调用。只有正文/资源准备成功后调用 {@link #commit(SkillId)} 才改变 Scope。</p>
+ * 回调嵌套调用。只有正文、资源和 Hook lease 都成功后调用 {@link #commit(SkillId)} 才改变
+ * Scope；失败路径必须调用 {@link #abort(SkillId)}。</p>
  *
  * @since 0.11.0
  */
@@ -39,6 +40,16 @@ public final class SkillScope implements AutoCloseable {
     }
 
     public synchronized void abort(SkillId id) { if (Objects.equals(preparing, id)) preparing = null; }
+
+    /** 回滚刚提交但 durable activation 未完成的最后一个 Skill。 */
+    public synchronized void rollbackLast(SkillId id) {
+        List<SkillId> ordered = new ArrayList<>(active);
+        if (ordered.isEmpty() || !ordered.getLast().equals(id)) {
+            throw new IllegalStateException("只能回滚最后提交的 Skill");
+        }
+        active.remove(id);
+    }
+
     public synchronized List<SkillId> activatedInOrder() { return List.copyOf(new ArrayList<>(active)); }
     public RunId runId() { return runId; }
     @Override public synchronized void close() { closed = true; preparing = null; active.clear(); }

@@ -12,14 +12,15 @@ import java.util.Objects;
  * @param source 来源
  * @param safeSourceId 不含绝对路径的 Adapter 逻辑句柄
  * @param contentDigest 完整 SKILL.md SHA-256
- * @param allowedTools 仅用于收窄可见工具的名称
+ * @param toolRestriction 仅用于收窄可见工具的可选声明；显式空列表表示隐藏全部工具
  * @param resources Skill-root-relative 资源名
  * @param hooks 已验证的 Hook 模板逻辑名
  * @since 0.11.0
  */
 public record SkillDescriptor(SkillId id, String description, SkillInvocationPolicy policy,
         SkillSource source, String safeSourceId, String contentDigest,
-        List<String> allowedTools, List<String> resources, List<String> hooks) {
+        SkillToolRestriction toolRestriction, List<String> resources, List<String> hooks) {
+    /** 校验 metadata 字段、摘要、安全逻辑来源与列表上限。 */
     public SkillDescriptor {
         id = Objects.requireNonNull(id, "id 不能为空");
         description = requireLine(description, 512, "description");
@@ -31,10 +32,20 @@ public record SkillDescriptor(SkillId id, String description, SkillInvocationPol
         }
         contentDigest = Objects.requireNonNull(contentDigest, "contentDigest 不能为空");
         if (!contentDigest.matches("[0-9a-f]{64}")) throw new IllegalArgumentException("digest 非法");
-        allowedTools = List.copyOf(allowedTools == null ? List.of() : allowedTools);
-        resources = List.copyOf(resources == null ? List.of() : resources);
-        hooks = List.copyOf(hooks == null ? List.of() : hooks);
-        if (allowedTools.size() > 32 || resources.size() > 32 || hooks.size() > 16) throw new IllegalArgumentException("Skill 列表超限");
+        toolRestriction = Objects.requireNonNull(toolRestriction, "toolRestriction 不能为空");
+        resources = validatedNames(resources, 32, "resources");
+        hooks = validatedNames(hooks, 16, "hooks");
+    }
+
+    private static List<String> validatedNames(List<String> values, int maximum, String field) {
+        List<String> copy = List.copyOf(values == null ? List.of() : values);
+        if (copy.size() > maximum
+                || copy.stream().anyMatch(value -> value == null || value.isBlank()
+                        || !value.equals(value.trim()) || value.contains("\n") || value.contains("\r"))
+                || copy.stream().distinct().count() != copy.size()) {
+            throw new IllegalArgumentException(field + " 非法或超限");
+        }
+        return copy;
     }
 
     private static String requireLine(String value, int max, String field) {

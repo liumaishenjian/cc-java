@@ -287,6 +287,7 @@ public final class RuntimeStdioCommandHandler
             case "checkpoint.diff" -> checkpointDiff(command, events);
             case "checkpoint.undo" -> checkpointUndo(command, events);
             case "session.command" -> sessionCommand(command, events);
+            case "skill.invoke" -> invokeSkill(command, events);
             case "file.suggest" -> suggestFiles(command, events);
             case "shutdown" -> shutdown();
             default -> throw protocolError(
@@ -339,6 +340,46 @@ public final class RuntimeStdioCommandHandler
             StdioProtocol.EventEmitter events) throws StdioProtocolException {
         String prompt = requiredPrompt(command);
         return startAcceptedInput(command, events, prompt);
+    }
+
+    /** 将 TUI 的类型化 Skill 命令启动为普通 Run；Java 仍生成 Run ID 并拥有终态。 */
+    private StdioProtocol.Disposition invokeSkill(
+            StdioProtocol.Command command,
+            StdioProtocol.EventEmitter events) throws StdioProtocolException {
+        String name;
+        String arguments;
+        synchronized (lock) {
+            ensureState(State.READY, command);
+            requireSession(command);
+            requireNoRunId(command);
+            JsonNode rawName = command.payload().get("name");
+            JsonNode rawArguments = command.payload().get("arguments");
+            if (rawName == null || !rawName.isString()
+                    || rawArguments == null || !rawArguments.isString()) {
+                throw protocolError("INVALID_PAYLOAD", command, "skill.invoke 参数无效");
+            }
+            name = rawName.stringValue();
+            arguments = rawArguments.stringValue();
+        }
+        io.github.liumaishenjian.ccjava.domain.skill.ExplicitSkillInvocation invocation;
+        try {
+            invocation = new io.github.liumaishenjian.ccjava.domain.skill.ExplicitSkillInvocation(
+                    new io.github.liumaishenjian.ccjava.domain.skill.SkillId(name), arguments);
+        } catch (IllegalArgumentException invalid) {
+            throw protocolError("INVALID_PAYLOAD", command, "skill.invoke 参数无效");
+        }
+        ActiveRun run;
+        synchronized (lock) {
+            run = startRunLocked(command.requestId(), arguments.length(), events);
+        }
+        ObjectNode invoked = codec.objectNode();
+        invoked.put("skillId", name);
+        invoked.put("invocationKind", "explicit");
+        events.emit("skill.invoked", command.requestId(), Optional.of(application.sessionId().value()),
+                Optional.empty(), invoked);
+        var accepted = invocation;
+        executor.submit(() -> executeSkillRun(run, accepted));
+        return StdioProtocol.Disposition.CONTINUE;
     }
 
     private StdioProtocol.Disposition startAcceptedInput(
@@ -1086,6 +1127,30 @@ public final class RuntimeStdioCommandHandler
         try {
             application.run(message);
         } catch (RuntimeException exception) {
+            emitUnexpectedFailure(run);
+        }
+    }
+
+    private void executeSkillRun(ActiveRun run,
+            io.github.liumaishenjian.ccjava.domain.skill.ExplicitSkillInvocation invocation) {
+        try {
+            AgentRunResult result = application.runSkill(invocation);
+            ObjectNode completed = codec.objectNode();
+            completed.put("skillId", invocation.skillId().value());
+            completed.put("invocationKind", "explicit");
+            completed.put("status", result.stopReason() == io.github.liumaishenjian.ccjava.domain.StopReason.COMPLETED
+                    ? "succeeded" : "failed");
+            completed.put("stopReason", result.stopReason().name().toLowerCase(Locale.ROOT));
+            run.events.emit("skill.completed", run.requestId, Optional.of(application.sessionId().value()),
+                    Optional.of(result.runId().value()), completed);
+        } catch (RuntimeException exception) {
+            ObjectNode completed = codec.objectNode();
+            completed.put("skillId", invocation.skillId().value());
+            completed.put("invocationKind", "explicit");
+            completed.put("status", "failed");
+            completed.put("stopReason", "internal_error");
+            run.events.emit("skill.completed", run.requestId, Optional.of(application.sessionId().value()),
+                    Optional.ofNullable(run.runId).map(RunId::value), completed);
             emitUnexpectedFailure(run);
         }
     }

@@ -12,8 +12,9 @@ import java.util.Objects;
 /**
  * 准备 Skill 激活所需正文、资源和 Tool visibility。
  *
- * <p>只有所有 Port 成功返回后才提交 {@link SkillScope}；本服务不注册 Hook、不写 Session、
- * 不执行 Tool，也不缓存 Permission 决定。</p>
+ * <p>本服务只在 {@link SkillScope} 中持有准备 guard，并返回已经通过全部内容 Gate 的候选
+ * Projection；最终 Scope、Hook 与 durable 事实由 {@link SkillRunCoordinator} 在 Tool 成功边界
+ * 一次提交。本服务不注册 Hook、不写 Session、不执行 Tool，也不缓存 Permission 决定。</p>
  *
  * @since 0.11.0
  */
@@ -32,7 +33,7 @@ public final class SkillInvoker {
     }
 
     /**
-     * 准备并原子提交一次 Skill 激活。
+     * 准备一次 Skill 激活，但不提交 Run scope。
      *
      * @param request 调用意图
      * @param scope 当前 Run scope
@@ -54,17 +55,24 @@ public final class SkillInvoker {
         SkillErrorCode begin = scope.begin(request.skillId());
         if (begin != null) return SkillInvocationResult.failure(begin);
         try {
-            if (cancellationToken.isCancellationRequested()) return SkillInvocationResult.failure(SkillErrorCode.CANCELLED);
-            var content = contentLoader.load(descriptor.get(), catalog.snapshot().snapshotId(), cancellationToken);
-            var resources = resourceReader.read(descriptor.get(), cancellationToken);
-            List<String> effective = narrower.narrow(runtimeVisibleTools, descriptor.get().allowedTools());
-            SkillProjection projection = new SkillProjection(content, resources, effective);
-            scope.commit(request.skillId());
+            if (cancellationToken.isCancellationRequested()) {
+                scope.abort(request.skillId());
+                return SkillInvocationResult.failure(SkillErrorCode.CANCELLED);
+            }
+            var content = contentLoader.load(catalog.snapshot(), descriptor.get(), cancellationToken);
+            var resources = resourceReader.read(catalog.snapshot(), descriptor.get(), cancellationToken);
+            List<String> effective = narrower.narrow(runtimeVisibleTools, descriptor.get().toolRestriction());
+            SkillProjection projection = new SkillProjection(request.arguments(), content, resources, effective);
+            if (cancellationToken.isCancellationRequested()) {
+                return SkillInvocationResult.failure(SkillErrorCode.CANCELLED);
+            }
             return SkillInvocationResult.success(projection);
         } catch (SkillLoadingException exception) {
-            return SkillInvocationResult.failure(exception.code());
-        } finally {
             scope.abort(request.skillId());
+            return SkillInvocationResult.failure(exception.code());
+        } catch (RuntimeException exception) {
+            scope.abort(request.skillId());
+            throw exception;
         }
     }
 }

@@ -7,6 +7,10 @@ import io.github.liumaishenjian.ccjava.domain.StopReason;
 import io.github.liumaishenjian.ccjava.domain.ToolEffect;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillErrorCode;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillId;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillInvocationKind;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillRecoveryRecord;
 
 /**
  * 在 Core 状态迁移与架构边缘的 durable Session journal 之间建立强一致语义边界。
@@ -86,6 +90,31 @@ public interface SessionJournal {
      * @param result 完整有界 Tool Result
      */
     void toolCompleted(SessionId sessionId, RunId runId, int ordinal, ToolResult result);
+
+    /**
+     * 在 Skill Projection 提交到 Run scope 后持久记录隐私安全身份。
+     *
+     * <p>记录不含正文、资源文本、参数、物理路径或 Hook 输出；恢复只验证身份，不自动重放激活。</p>
+     *
+     * @param sessionId 当前 Session
+     * @param runId 当前 Run
+     * @param kind 激活入口
+     * @param record catalog/content 身份
+     */
+    default void skillInvoked(SessionId sessionId, RunId runId, SkillInvocationKind kind,
+            SkillRecoveryRecord record) {
+    }
+
+    /**
+     * 持久记录一次 Skill 激活尝试的唯一安全终态。
+     *
+     * @param skillId 规范 Skill ID
+     * @param kind 激活入口
+     * @param errorCode 失败时的固定分类；成功为空
+     */
+    default void skillCompleted(SessionId sessionId, RunId runId, SkillId skillId,
+            SkillInvocationKind kind, SkillErrorCode errorCode) {
+    }
 
     /**
      * 在 Run 释放活动状态前持久记录唯一终态。

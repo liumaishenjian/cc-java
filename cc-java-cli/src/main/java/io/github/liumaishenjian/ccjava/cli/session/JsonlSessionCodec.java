@@ -20,6 +20,10 @@ import io.github.liumaishenjian.ccjava.domain.ToolResultStatus;
 import io.github.liumaishenjian.ccjava.domain.ToolResultTruncationReason;
 import io.github.liumaishenjian.ccjava.domain.UserFileAttachment;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillErrorCode;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillId;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillInvocationKind;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillRecoveryRecord;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -193,6 +197,36 @@ final class JsonlSessionCodec {
         return root;
     }
 
+    ObjectNode encodeSkillInvoked(long sequence, RunId runId, SkillInvocationKind kind,
+            SkillRecoveryRecord recovery) {
+        ObjectNode root = record(sequence, "skill.invoked");
+        root.put("runId", checkedIdentifier(runId.value(), "runId"));
+        root.put("skillId", checkedIdentifier(recovery.skillId().value(), "skillId"));
+        root.put("invocationKind", kind.name());
+        root.put("snapshotId", checkedDigest(recovery.snapshotId(), "snapshotId"));
+        root.put("manifestDigest", checkedDigest(recovery.manifestDigest(), "manifestDigest"));
+        root.put("bodyDigest", checkedDigest(recovery.bodyDigest(), "bodyDigest"));
+        root.put("contentDigest", checkedDigest(recovery.contentDigest(), "contentDigest"));
+        root.put("resourcesDigest", checkedDigest(recovery.resourcesDigest(), "resourcesDigest"));
+        root.put("effectiveToolDigest", checkedDigest(recovery.effectiveToolDigest(), "effectiveToolDigest"));
+        root.put("hookSetDigest", checkedDigest(recovery.hookSetDigest(), "hookSetDigest"));
+        root.put("pluginTreeDigest", checkedDigest(recovery.pluginTreeDigest(), "pluginTreeDigest"));
+        root.put("pluginManifestDigest", checkedDigest(recovery.pluginManifestDigest(), "pluginManifestDigest"));
+        root.put("mcpConfigDigest", checkedDigest(recovery.mcpConfigDigest(), "mcpConfigDigest"));
+        return root;
+    }
+
+    ObjectNode encodeSkillCompleted(long sequence, RunId runId, SkillId skillId,
+            SkillInvocationKind kind, SkillErrorCode errorCode) {
+        ObjectNode root = record(sequence, "skill.completed");
+        root.put("runId", checkedIdentifier(runId.value(), "runId"));
+        root.put("skillId", checkedIdentifier(skillId.value(), "skillId"));
+        root.put("invocationKind", kind.name());
+        root.put("status", errorCode == null ? "SUCCEEDED" : "FAILED");
+        if (errorCode != null) root.put("errorCode", errorCode.name());
+        return root;
+    }
+
     ObjectNode encodeRunCompleted(long sequence, RunId runId, String stopReason) {
         ObjectNode root = record(sequence, "run.completed");
         root.put("runId", runId.value());
@@ -290,6 +324,8 @@ final class JsonlSessionCodec {
         List<AgentMessage> messages = new ArrayList<>();
         List<RunId> runIds = new ArrayList<>();
         List<SessionRecoveryIssue> issues = new ArrayList<>();
+        List<SkillRecoveryRecord> skillRecords = new ArrayList<>();
+        Map<String, SkillInvocationState> skillInvocations = new LinkedHashMap<>();
         Map<String, ToolCallState> calls = new LinkedHashMap<>();
         Map<String, CheckpointRecordState> checkpoints = new LinkedHashMap<>();
         Set<String> activeRuns = new HashSet<>();
@@ -414,6 +450,54 @@ final class JsonlSessionCodec {
                     state.complete(result, ordinal);
                     messages.add(new ToolResultMessage(result));
                 }
+                case "skill.invoked" -> {
+                    String run = requireActiveRun(record, activeRuns);
+                    SkillId skillId = new SkillId(requiredText(record, "skillId", SkillId.MAX_GLOBAL_LENGTH));
+                    SkillInvocationKind kind = requiredEnumValue(
+                            SkillInvocationKind.class, record, "invocationKind");
+                    SkillRecoveryRecord recovery = new SkillRecoveryRecord(
+                            skillId,
+                            requiredDigest(record, "snapshotId"),
+                            requiredDigest(record, "manifestDigest"),
+                            requiredDigest(record, "bodyDigest"),
+                            requiredDigest(record, "contentDigest"),
+                            requiredDigest(record, "resourcesDigest"),
+                            requiredDigest(record, "effectiveToolDigest"),
+                            requiredDigest(record, "hookSetDigest"),
+                            requiredDigest(record, "pluginTreeDigest"),
+                            requiredDigest(record, "pluginManifestDigest"),
+                            requiredDigest(record, "mcpConfigDigest"));
+                    String key = skillKey(run, skillId, kind);
+                    if (skillInvocations.putIfAbsent(key, new SkillInvocationState(true)) != null) {
+                        throw invalid("INVALID_RECORD", "Skill invocation 重复");
+                    }
+                    skillRecords.add(recovery);
+                }
+                case "skill.completed" -> {
+                    String run = requireActiveRun(record, activeRuns);
+                    SkillId skillId = new SkillId(requiredText(record, "skillId", SkillId.MAX_GLOBAL_LENGTH));
+                    SkillInvocationKind kind = requiredEnumValue(
+                            SkillInvocationKind.class, record, "invocationKind");
+                    String status = requiredText(record, "status", MAX_IDENTIFIER_CHARS);
+                    String key = skillKey(run, skillId, kind);
+                    SkillInvocationState state = skillInvocations.get(key);
+                    if ("SUCCEEDED".equals(status)) {
+                        if (record.has("errorCode") || state == null || state.completed) {
+                            throw invalid("INVALID_RECORD", "Skill completed 配对无效");
+                        }
+                    } else if ("FAILED".equals(status)) {
+                        requiredEnumValue(SkillErrorCode.class, record, "errorCode");
+                        if (state == null) {
+                            state = new SkillInvocationState(false);
+                            skillInvocations.put(key, state);
+                        } else if (state.invoked || state.completed) {
+                            throw invalid("INVALID_RECORD", "Skill failed 配对无效");
+                        }
+                    } else {
+                        throw invalid("INVALID_RECORD", "Skill status 无效");
+                    }
+                    state.completed = true;
+                }
                 case "checkpoint.created" -> {
                     requireActiveRun(record, activeRuns);
                     int ordinal = requiredPositiveOrdinal(record);
@@ -482,13 +566,17 @@ final class JsonlSessionCodec {
         for (ToolCallState state : calls.values()) {
             state.issue().ifPresent(issues::add);
         }
+        if (skillInvocations.values().stream().anyMatch(state -> !state.completed)) {
+            issues.add(SessionRecoveryIssue.session(SessionRecoveryIssueKind.SKILL_INVOCATION_UNFINISHED));
+        }
         return new SessionRecoverySnapshot(
                 java.util.Objects.requireNonNull(sessionId),
                 java.util.Objects.requireNonNull(spec),
                 messages,
                 runIds,
                 parent,
-                issues);
+                issues,
+                skillRecords);
     }
 
     private List<UserFileAttachment> decodeAttachments(ObjectNode record) {
@@ -661,11 +749,16 @@ final class JsonlSessionCodec {
                 field);
     }
 
-    private void requireActiveRun(ObjectNode record, Set<String> activeRuns) {
+    private String requireActiveRun(ObjectNode record, Set<String> activeRuns) {
         String runId = requiredText(record, "runId", MAX_IDENTIFIER_CHARS);
         if (!activeRuns.contains(runId)) {
             throw invalid("INVALID_RECORD", "record 没有活动 Run");
         }
+        return runId;
+    }
+
+    private static String skillKey(String runId, SkillId skillId, SkillInvocationKind kind) {
+        return runId + '\0' + skillId.value() + '\0' + kind.name();
     }
 
     private ToolCallState requireCall(
@@ -727,6 +820,12 @@ final class JsonlSessionCodec {
             return value;
         }
         return checkedDigest(value, "preDigest");
+    }
+
+    private String requiredDigest(JsonNode node, String field) {
+        String value = requiredText(node, field, MAX_IDENTIFIER_CHARS);
+        requireDigest(value, field);
+        return value;
     }
 
     private String checkedDigest(String value, String field) {
@@ -801,6 +900,15 @@ final class JsonlSessionCodec {
 
     private SessionOpenException invalid(String code, String message) {
         return new SessionOpenException(code, message);
+    }
+
+    private static final class SkillInvocationState {
+        private final boolean invoked;
+        private boolean completed;
+
+        private SkillInvocationState(boolean invoked) {
+            this.invoked = invoked;
+        }
     }
 
     private final class ToolCallState {

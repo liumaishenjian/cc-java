@@ -16,6 +16,7 @@ export interface ParsedSlashCommand {
 export type SlashParseResult =
   | {readonly kind: 'not-command'}
   | {readonly kind: 'command'; readonly command: ParsedSlashCommand}
+  | {readonly kind: 'skill'; readonly name: string; readonly arguments: string}
   | {readonly kind: 'invalid'; readonly message: string};
 
 const MAX_ARGUMENT_CHARS = 256;
@@ -44,6 +45,12 @@ export function parseSlashCommand(input: string): SlashParseResult {
   if (!input.startsWith('/')) return {kind: 'not-command'};
   const [rawName, ...values] = input.slice(1).trim().split(/\s+/u);
   if (rawName === undefined || rawName.length === 0 || !COMMANDS.has(rawName as SlashIntent)) {
+    if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(rawName ?? '') && (rawName?.length ?? 0) <= 64) {
+      const arguments_ = values.join(' ');
+      return Array.from(arguments_).length <= 8_192
+        ? {kind: 'skill', name: rawName ?? '', arguments: arguments_}
+        : {kind: 'invalid', message: 'Skill 参数超过上限'};
+    }
     return {kind: 'invalid', message: '未知 Slash 命令'};
   }
   const intent = rawName as SlashIntent;

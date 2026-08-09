@@ -16,6 +16,23 @@ describe('decodeEvent', () => {
     expect(event.payload.text).toBe('你好');
   });
 
+  it('接受 privacy-safe Skill lifecycle 并拒绝参数或正文泄漏', () => {
+    const invoked = {
+      version: 0, type: 'skill.invoked', requestId: 'req-skill', sessionId: 'session-1', sequence: 1,
+      payload: {skillId: 'code-review', invocationKind: 'explicit'},
+    };
+    expect(decodeEvent(JSON.stringify(invoked), 1).payload.skillId).toBe('code-review');
+    const completed = {
+      ...invoked, type: 'skill.completed', runId: 'run-1', sequence: 2,
+      payload: {skillId: 'code-review', invocationKind: 'explicit', status: 'succeeded', stopReason: 'completed'},
+    };
+    expect(decodeEvent(JSON.stringify(completed), 2).payload.status).toBe('succeeded');
+    expect(() => decodeEvent(JSON.stringify({
+      ...invoked, payload: {...invoked.payload, arguments: 'SECRET'},
+    }), 1)).toThrowError(/Skill/);
+    expect(() => decodeEvent(JSON.stringify({...completed, runId: undefined}), 2)).toThrowError(/runId/);
+  });
+
   it('拒绝乱序事件', () => {
     expect(() => decodeEvent(JSON.stringify({
       version: 0,

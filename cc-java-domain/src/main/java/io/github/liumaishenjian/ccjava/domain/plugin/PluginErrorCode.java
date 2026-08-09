@@ -1,0 +1,24 @@
+package io.github.liumaishenjian.ccjava.domain.plugin;
+
+/**
+ * Plugin 边界向 Core/CLI 暴露的隐私安全结构化错误码。
+ *
+ * @since 0.11.0
+ */
+public enum PluginErrorCode {
+    MANIFEST_TOO_LARGE,
+    MANIFEST_INVALID,
+    COMPONENT_LIMIT_EXCEEDED,
+    PACKAGE_NOT_DIRECTORY,
+    ARCHIVE_REJECTED,
+    PATH_REJECTED,
+    LINK_OR_SPECIAL_FILE_REJECTED,
+    TREE_FILE_LIMIT_EXCEEDED,
+    TREE_SIZE_LIMIT_EXCEEDED,
+    CONTENT_CHANGED,
+    FINGERPRINT_UNTRUSTED,
+    PROVIDER_REJECTED,
+    INSTALL_FAILED,
+    UNINSTALL_DEFERRED,
+    UNINSTALL_TOMBSTONED
+}

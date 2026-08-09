@@ -12,8 +12,9 @@ import java.util.function.Predicate;
 /**
  * S05 默认 Hard Denial 策略。
  *
- * <p>System Effect 与非 MCP Network Effect 永久拒绝；只有已经由 Composition Root
- * 标记为 {@link ToolSource#MCP} 的可信适配器可把 Network Effect 交给后续 ASK/Rule 决策。
+ * <p>System Effect 与非 MCP/Plugin Network Effect 永久拒绝；只有已经由 Composition Root
+ * 标记为 {@link ToolSource#MCP} 或 {@link ToolSource#PLUGIN} 的可信适配器可把 Network Effect
+ * 交给后续 ASK/Rule 决策。
  * 文件写入 selector 必须具体且不得命中 Git 元数据、
  * Provider 本地配置或常见 Secret 文件。绝对路径、Traversal 与不可解释范围会被
  * selector resolver 收敛为 Tool-wide，并在写入/命令范围上拒绝。</p>
@@ -55,7 +56,9 @@ public final class DefaultHardDenialPolicy implements HardDenialPolicy {
         Objects.requireNonNull(selector, "selector 不能为空");
         ToolEffect effect = definition.effect();
         if (effect == ToolEffect.SYSTEM_OR_DESTRUCTIVE
-                || (effect == ToolEffect.NETWORK_OR_REMOTE && definition.source() != ToolSource.MCP)) {
+                || (effect == ToolEffect.NETWORK_OR_REMOTE
+                    && definition.source() != ToolSource.MCP
+                    && definition.source() != ToolSource.PLUGIN)) {
             return true;
         }
         if (effect != ToolEffect.WRITE_WORKSPACE) {

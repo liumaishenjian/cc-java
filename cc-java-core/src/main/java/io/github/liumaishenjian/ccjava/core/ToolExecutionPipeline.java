@@ -20,6 +20,7 @@ import io.github.liumaishenjian.ccjava.domain.hook.HookDisposition;
 import io.github.liumaishenjian.ccjava.domain.hook.HookEventKind;
 import io.github.liumaishenjian.ccjava.domain.hook.HookInvocation;
 import io.github.liumaishenjian.ccjava.core.hook.HookCoordinator;
+import io.github.liumaishenjian.ccjava.core.skill.SkillRunCoordinator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -50,6 +51,7 @@ public final class ToolExecutionPipeline {
     private final SessionJournal sessionJournal;
     private final CheckpointCoordinator checkpoints;
     private final HookCoordinator hooks;
+    private final SkillRunCoordinator skills;
 
     /**
      * 创建 Tool 执行管线。
@@ -183,6 +185,28 @@ public final class ToolExecutionPipeline {
             SessionJournal sessionJournal,
             CheckpointCoordinator checkpoints,
             HookCoordinator hooks) {
+        this(registry, permissionGate, approvalHandler, permissionState, lifecycle, sessionJournal,
+                checkpoints, hooks, SkillRunCoordinator.disabled());
+    }
+
+    /**
+     * 创建同时接入 Skill Run visibility Gate 的唯一执行管线。
+     *
+     * <p>Gate 位于 Registry 解析前，确保模型即使提出已从 definitions 隐藏的 Tool，也只得到
+     * durable execute=0 结果，不会触发 Hook、Permission、Approval 或 Adapter。</p>
+     *
+     * @param skills 当前 Runtime 的 Skill Run 协调器
+     */
+    public ToolExecutionPipeline(
+            ToolRegistry registry,
+            PermissionGate permissionGate,
+            ApprovalHandler approvalHandler,
+            SessionPermissionState permissionState,
+            LifecycleDispatcher lifecycle,
+            SessionJournal sessionJournal,
+            CheckpointCoordinator checkpoints,
+            HookCoordinator hooks,
+            SkillRunCoordinator skills) {
         this.registry = Objects.requireNonNull(registry, "registry 不能为空");
         this.permissionGate = Objects.requireNonNull(permissionGate, "permissionGate 不能为空");
         this.approvalHandler = Objects.requireNonNull(
@@ -196,6 +220,7 @@ public final class ToolExecutionPipeline {
                 sessionJournal, "sessionJournal 不能为空");
         this.checkpoints = Objects.requireNonNull(checkpoints, "checkpoints 不能为空");
         this.hooks = Objects.requireNonNull(hooks, "hooks 不能为空");
+        this.skills = Objects.requireNonNull(skills, "skills 不能为空");
     }
 
     /**
@@ -246,6 +271,16 @@ public final class ToolExecutionPipeline {
                 cancellationToken,
                 (stream, text) -> publishToolOutput(
                         session, runId, ordinal, call.name(), stream, text));
+
+        if (!skills.isToolVisible(runId, call.name())) {
+            return resolveWithoutExecution(
+                    session,
+                    runId,
+                    ordinal,
+                    ToolResult.denied(call.id(), call.name(), "Tool 不在当前 Skill scope"),
+                    ToolResolutionReason.SKILL_SCOPE_DENIED,
+                    cancellationToken);
+        }
 
         AgentTool tool = registry.find(call.name()).orElse(null);
         if (tool == null) {

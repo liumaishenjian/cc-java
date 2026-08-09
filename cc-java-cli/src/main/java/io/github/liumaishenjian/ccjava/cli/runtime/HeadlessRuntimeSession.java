@@ -120,6 +120,9 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private long compactRevision;
     private final io.github.liumaishenjian.ccjava.cli.mentions.FileMentionService fileMentions;
     private ExtensionRuntime extensions = ExtensionRuntime.disabled();
+    private io.github.liumaishenjian.ccjava.cli.skills.SkillRuntimeResources skills;
+    private io.github.liumaishenjian.ccjava.cli.plugins.PluginRuntimeResources plugins =
+            io.github.liumaishenjian.ccjava.cli.plugins.PluginRuntimeResources.disabled();
 
     /**
      * 使用已校验的 OpenAI-compatible 设置创建真实模型 Session 装配器。
@@ -376,7 +379,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             HeadlessMemoryLayout memoryLayout,
             HeadlessInstructionLayout instructionLayout) {
         this(model, eventSink, options, approvalHandler, contextPreparation, contextUsage, memoryLayout,
-                instructionLayout, null, false);
+                instructionLayout, null, false,
+                new io.github.liumaishenjian.ccjava.mcp.OfficialMcpClientFactory());
     }
 
     HeadlessRuntimeSession(
@@ -390,7 +394,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             HeadlessInstructionLayout instructionLayout,
             RuntimeScopeFactory runtimeScopeFactory) {
         this(model, eventSink, options, approvalHandler, contextPreparation, contextUsage, memoryLayout,
-                instructionLayout, runtimeScopeFactory, false);
+                instructionLayout, runtimeScopeFactory, false,
+                new io.github.liumaishenjian.ccjava.mcp.OfficialMcpClientFactory());
     }
 
     HeadlessRuntimeSession(
@@ -404,6 +409,24 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             HeadlessInstructionLayout instructionLayout,
             RuntimeScopeFactory runtimeScopeFactory,
             boolean productionExtensions) {
+        this(model, eventSink, options, approvalHandler, contextPreparation, contextUsage, memoryLayout,
+                instructionLayout, runtimeScopeFactory, productionExtensions,
+                new io.github.liumaishenjian.ccjava.mcp.OfficialMcpClientFactory());
+    }
+
+    /** 测试 composition seam：仅替换 MCP client factory，其余仍走普通 Headless 生产装配。 */
+    HeadlessRuntimeSession(
+            ModelGateway model,
+            AgentEventSink eventSink,
+            HeadlessRuntimeOptions options,
+            ApprovalHandler approvalHandler,
+            ContextPreparationService contextPreparation,
+            LatestContextUsageCollector contextUsage,
+            HeadlessMemoryLayout memoryLayout,
+            HeadlessInstructionLayout instructionLayout,
+            RuntimeScopeFactory runtimeScopeFactory,
+            boolean productionExtensions,
+            io.github.liumaishenjian.ccjava.mcp.McpClientFactory pluginMcpClientFactory) {
         HeadlessMemoryLayout checkedMemoryLayout = Objects.requireNonNull(
                 memoryLayout, "memoryLayout 不能为空");
         HeadlessInstructionLayout checkedInstructionLayout = Objects.requireNonNull(
@@ -462,6 +485,24 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                     this.options.sessionStoreRoot(),
                     workspaceBootstrap.workspaceGuard(),
                     sessions);
+            if (productionExtensions) {
+                plugins = io.github.liumaishenjian.ccjava.cli.plugins.PluginRuntimeResources.load(
+                        checkedInstructionLayout.userHome().resolve(".cc-java").resolve("plugins"),
+                        extensions.mcpConfigs(),
+                        Objects.requireNonNull(pluginMcpClientFactory, "pluginMcpClientFactory 不能为空"));
+                List<String> runtimeToolNames = java.util.stream.Stream.of(
+                                workspaceBootstrap.tools().stream(), extensions.mcpTools().stream(),
+                                plugins.tools().stream())
+                        .flatMap(java.util.function.Function.identity())
+                        .map(tool -> tool.definition().name()).toList();
+                skills = new io.github.liumaishenjian.ccjava.cli.skills.SkillRuntimeResources(
+                        checkedInstructionLayout.userHome().resolve(".cc-java").resolve("skills"),
+                        workspaceBootstrap.workspaceGuard().workspace().resolve(".cc-java").resolve("skills"),
+                        runtimeToolNames,
+                        sessions,
+                        plugins.skills(),
+                        plugins.skillHookBinder(extensions.hooks()));
+            }
             permissionState = new io.github.liumaishenjian.ccjava.core.InMemorySessionPermissionState();
             configuredGateway = checkedModel;
             this.contextPreparation = Objects.requireNonNull(contextPreparation, "contextPreparation 不能为空");
@@ -481,6 +522,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             if (!memoryOwnershipTransferred.get()) {
                 checkedMemoryLayout.closeUnused();
             }
+            plugins.close();
             extensions.close();
             throw failure;
         }
@@ -525,6 +567,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                             "gitUnstaged", Integer.toString(snapshot.unstaged()),
                             "gitUntracked", Integer.toString(snapshot.untracked())));
             openResult = sessions.open(options.sessionOpenRequest(), spec);
+            verifySkillRecovery(openResult);
             session = openResult.session();
             return session.id();
         }
@@ -546,13 +589,37 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     }
 
     /**
+     * 执行 Surface 已类型化解析的显式 Skill Run。
+     *
+     * <p>Slash 命令本身不写入 Canonical User Message；传给模型的用户任务使用有界参数，Skill
+     * 正文只通过 transient Projection 注入。模型入口仍必须调用普通 {@code activate_skill} Tool。</p>
+     *
+     * @param invocation 显式 Skill 身份和参数
+     * @return Runtime 唯一终态
+     */
+    public AgentRunResult runSkill(io.github.liumaishenjian.ccjava.domain.skill.ExplicitSkillInvocation invocation) {
+        Objects.requireNonNull(invocation, "invocation 不能为空");
+        String prompt = invocation.arguments().isBlank()
+                ? "Apply the explicitly selected workflow to the current task."
+                : invocation.arguments();
+        validatePrompt(prompt);
+        return run(new UserMessage(prompt), Optional.of(invocation));
+    }
+
+    /**
      * 执行已经在 CLI 边界解析完成的用户消息与文件快照。
      *
      * @param userMessage 不再访问文件系统的不可变输入
      * @return 唯一 Run 终态
      */
     public AgentRunResult run(UserMessage userMessage) {
+        return run(userMessage, Optional.empty());
+    }
+
+    private AgentRunResult run(UserMessage userMessage,
+            Optional<io.github.liumaishenjian.ccjava.domain.skill.ExplicitSkillInvocation> explicitSkill) {
         Objects.requireNonNull(userMessage, "userMessage 不能为空");
+        explicitSkill = Objects.requireNonNull(explicitSkill, "explicitSkill 不能为空");
         String prompt = userMessage.content();
         validatePrompt(prompt);
         ActiveRun captured;
@@ -572,7 +639,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                             new AgentLimits(
                                     AgentLimits.DEFAULT.maxModelTurns(),
                                     AgentLimits.DEFAULT.maxToolCalls(),
-                                    options.timeout())));
+                                    options.timeout()),
+                            explicitSkill));
         } finally {
             synchronized (lifecycleMonitor) {
                 if (activeRun == captured) {
@@ -664,6 +732,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         final SessionOpenResult candidate;
         try {
             candidate = sessions.open(SessionOpenRequest.resume(targetId), session.spec());
+            verifySkillRecovery(candidate);
         } catch (io.github.liumaishenjian.ccjava.cli.session.SessionOpenException failure) {
             return ResumeResult.from(failure.code());
         } catch (RuntimeException failure) {
@@ -715,6 +784,15 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             sessions.close(previousId);
         } catch (RuntimeException ignored) {
             // 新 Session 已经发布；旧 lease 回收失败只能保留给 Store 关闭时统一释放，不能回滚已提交切换。
+        }
+    }
+
+    private void verifySkillRecovery(SessionOpenResult candidate) {
+        if (candidate.skillRecords().isEmpty()) return;
+        if (skills == null || !skills.verifyRecovery(candidate.skillRecords()).matched()) {
+            closeCandidate(candidate);
+            throw new io.github.liumaishenjian.ccjava.cli.session.SessionOpenException(
+                    "RECOVERY_REQUIRED", "Skill identity 与当前 catalog 不一致");
         }
     }
 
@@ -1123,15 +1201,27 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         }
     }
 
+    io.github.liumaishenjian.ccjava.core.hook.HookCoordinator hookCoordinator() {
+        requireOpen();
+        return extensions.hooks();
+    }
+
     ToolRegistry builtinToolRegistry() {
-        return new ToolRegistry(workspaceBootstrap.tools().stream()
+        var skillTools = skills == null
+                ? java.util.stream.Stream.<io.github.liumaishenjian.ccjava.core.AgentTool>empty()
+                : skills.activationTools().stream();
+        return new ToolRegistry(java.util.stream.Stream.concat(workspaceBootstrap.tools().stream(), skillTools)
                 .filter(tool -> tool.definition().source() == ToolSource.BUILT_IN).toList());
     }
 
     private RuntimeConfiguration initialConfiguration() {
         return new RuntimeConfiguration(
                 Optional.of(options.model()), options.permissionMode(), options.startupPermissionRules(),
-                workspaceBootstrap.tools().stream()
+                java.util.stream.Stream.concat(
+                                workspaceBootstrap.tools().stream(),
+                                skills == null
+                                        ? java.util.stream.Stream.<io.github.liumaishenjian.ccjava.core.AgentTool>empty()
+                                        : skills.activationTools().stream())
                         .filter(tool -> tool.definition().source() == ToolSource.BUILT_IN)
                         .map(tool -> tool.definition().name())
                         .toList(),
@@ -1144,6 +1234,11 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
 
     List<io.github.liumaishenjian.ccjava.mcp.McpServerSnapshot> mcpSnapshots() {
         return extensions.mcpSnapshots();
+    }
+
+    /** @return 当前 Session metadata-only Skill catalog，供 Slash UX 使用 */
+    public List<io.github.liumaishenjian.ccjava.domain.skill.SkillDescriptor> skillCatalog() {
+        return skills == null ? List.of() : skills.catalog().entries();
     }
 
     private void validatePrompt(String prompt) {
@@ -1163,12 +1258,20 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         return HeadlessRuntimeScope.create(
                 configuration, options.model(), configuredGateway, contextPreparation, registeredTools(),
                 sessions, checkpoints, lifecycle, ids, approvalHandler, permissionState,
-                workspaceBootstrap.workspaceGuard(), memoryContext, instructionContext, extensions.hooks());
+                workspaceBootstrap.workspaceGuard(), memoryContext, instructionContext, extensions.hooks(),
+                skills == null ? io.github.liumaishenjian.ccjava.core.skill.SkillRunCoordinator.disabled()
+                        : skills.coordinator(),
+                plugins.runCoordinator(),
+                plugins.runHooks());
     }
 
     private List<io.github.liumaishenjian.ccjava.core.AgentTool> registeredTools() {
-        return java.util.stream.Stream.concat(
-                workspaceBootstrap.tools().stream(), extensions.mcpTools().stream()).toList();
+        var skillTools = skills == null ? java.util.stream.Stream.<io.github.liumaishenjian.ccjava.core.AgentTool>empty()
+                : skills.activationTools().stream();
+        var external = java.util.stream.Stream.concat(
+                java.util.stream.Stream.concat(extensions.mcpTools().stream(), plugins.tools().stream()),
+                skillTools);
+        return java.util.stream.Stream.concat(workspaceBootstrap.tools().stream(), external).toList();
     }
 
     @FunctionalInterface
@@ -1384,6 +1487,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 diagnosticResource.close();
             }
             closeMemory(memoryResource);
+            plugins.close();
             extensions.close();
             try {
                 if (session != null && !session.isClosed() && openResult != null && !openResult.readOnly()) {

@@ -1285,6 +1285,39 @@ class RuntimeStdioCommandHandlerTest {
     }
 
     @Test
+    void skillInvokeEmitsPrivacySafeLifecycleEvenWhenCatalogRejectsUnknownSkill() throws Exception {
+        workspace();
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        AtomicInteger modelCalls = new AtomicInteger();
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            modelCalls.incrementAndGet();
+            return ModelTurn.text("unused");
+        }, testOptions())) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\","
+                            + "\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"skill.invoke\","
+                    + "\"requestId\":\"skill\",\"sessionId\":\"%s\",\"sequence\":2,"
+                    + "\"payload\":{\"name\":\"missing-skill\",\"arguments\":\"ARG_SENTINEL\"}}")
+                    .formatted(sessionId)), emitter);
+
+            CapturedEvent invoked = awaitEvent(events, "skill.invoked");
+            CapturedEvent completed = awaitEvent(events, "skill.completed");
+            assertThat(invoked.runId()).isEmpty();
+            assertThat(invoked.payload().toString()).contains("missing-skill", "explicit")
+                    .doesNotContain("ARG_SENTINEL");
+            assertThat(completed.runId()).isPresent();
+            assertThat(completed.payload().toString()).contains("failed")
+                    .doesNotContain("ARG_SENTINEL");
+            assertThat(modelCalls).hasValue(0);
+        }
+    }
+
+    @Test
     void invalidExplicitMentionIsRejectedBeforeAnyRunOrModelRequest() throws Exception {
         workspace();
         StdioProtocolCodec codec = new StdioProtocolCodec();

@@ -1,4 +1,9 @@
 package io.github.liumaishenjian.ccjava.domain.skill;
 
 /** Skill 实际调用入口。 @since 0.11.0 */
-public enum SkillInvocationKind { EXPLICIT, MODEL }
+public enum SkillInvocationKind {
+    /** 用户显式入口。 */
+    EXPLICIT,
+    /** 模型普通 Tool 入口。 */
+    MODEL
+}

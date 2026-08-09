@@ -101,6 +101,71 @@ class FileSessionStoreTest {
     }
 
     @Test
+    void skillJournalPersistsOnlyIdentityAndResumeNeverReplaysInvocation() throws IOException {
+        Path workspace = workspace("skill-journal");
+        Path storeRoot = storeRoot("skill-journal");
+        SessionId sessionId;
+        RunId runId = new RunId("run-skill");
+        var recovery = new io.github.liumaishenjian.ccjava.domain.skill.SkillRecoveryRecord(
+                new io.github.liumaishenjian.ccjava.domain.skill.SkillId("review"),
+                "a".repeat(64), "b".repeat(64), "c".repeat(64), "d".repeat(64),
+                "e".repeat(64), "f".repeat(64), "1".repeat(64), "2".repeat(64),
+                "3".repeat(64), "4".repeat(64));
+        try (FileSessionStore store = store(storeRoot, workspace, 1)) {
+            sessionId = store.create(SPEC).id();
+            store.runStarted(sessionId, runId, new UserMessage("invoke"));
+            store.skillInvoked(sessionId, runId,
+                    io.github.liumaishenjian.ccjava.domain.skill.SkillInvocationKind.EXPLICIT, recovery);
+            store.skillCompleted(sessionId, runId, recovery.skillId(),
+                    io.github.liumaishenjian.ccjava.domain.skill.SkillInvocationKind.EXPLICIT, null);
+            store.runCompleted(sessionId, runId, StopReason.COMPLETED);
+            store.close(sessionId);
+        }
+
+        String jsonl = Files.readString(journal(storeRoot, sessionId), StandardCharsets.UTF_8);
+        assertThat(jsonl).contains("skill.invoked", "skill.completed", "\"skillId\":\"review\"")
+                .contains("a".repeat(64), "b".repeat(64))
+                .doesNotContain("ARG_SENTINEL", "PRIVATE_BODY_SENTINEL",
+                        "PRIVATE_RESOURCE_SENTINEL", "PRIVATE_PATH_SENTINEL",
+                        "PRIVATE_ENDPOINT_SENTINEL", "PRIVATE_ENV_SENTINEL", "absolutePath");
+        try (FileSessionStore resumed = store(storeRoot, workspace, 100)) {
+            SessionOpenResult opened = resumed.open(
+                    new SessionOpenRequest(SessionOpenMode.RESUME, java.util.Optional.of(sessionId)), SPEC);
+            assertThat(opened.skillRecords()).containsExactly(recovery);
+            assertThat(opened.session().messages()).containsExactly(new UserMessage("invoke"));
+            assertThat(opened.issues()).isEmpty();
+        }
+    }
+
+    @Test
+    void unfinishedSkillInvocationFailsClosedOnResume() throws IOException {
+        Path workspace = workspace("skill-unfinished");
+        Path storeRoot = storeRoot("skill-unfinished");
+        SessionId sessionId;
+        try (FileSessionStore store = store(storeRoot, workspace, 1)) {
+            sessionId = store.create(SPEC).id();
+            RunId runId = new RunId("run-skill-unfinished");
+            store.runStarted(sessionId, runId, new UserMessage("invoke"));
+            store.skillInvoked(sessionId, runId,
+                    io.github.liumaishenjian.ccjava.domain.skill.SkillInvocationKind.MODEL,
+                    new io.github.liumaishenjian.ccjava.domain.skill.SkillRecoveryRecord(
+                            new io.github.liumaishenjian.ccjava.domain.skill.SkillId("review"),
+                            "a".repeat(64), "b".repeat(64), "c".repeat(64), "d".repeat(64),
+                            "e".repeat(64), "f".repeat(64), "1".repeat(64), "2".repeat(64),
+                            "3".repeat(64), "4".repeat(64)));
+            store.runCompleted(sessionId, runId, StopReason.INTERNAL_ERROR);
+            store.close(sessionId);
+        }
+        try (FileSessionStore resumed = store(storeRoot, workspace, 100)) {
+            assertThatThrownBy(() -> resumed.open(
+                    new SessionOpenRequest(SessionOpenMode.RESUME, java.util.Optional.of(sessionId)), SPEC))
+                    .isInstanceOf(SessionOpenException.class)
+                    .extracting(failure -> ((SessionOpenException) failure).code())
+                    .isEqualTo("RECOVERY_REQUIRED");
+        }
+    }
+
+    @Test
     void forkCopiesCompletedHistoryWithoutChangingSourceAndResumesCleanly() throws IOException {
         Path workspace = workspace("fork");
         Path storeRoot = storeRoot("fork");

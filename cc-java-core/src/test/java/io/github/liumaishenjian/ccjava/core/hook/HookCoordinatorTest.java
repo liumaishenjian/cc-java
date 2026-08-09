@@ -40,6 +40,69 @@ class HookCoordinatorTest {
             new JsonObject(Map.of("callId", "call-1", "toolName", "run_command")));
 
     @Test
+    void runScopedBindingAppliesOnlyToMatchingRunAndLeaseUnbindsExactlyOnce() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            HookCoordinator coordinator = new HookCoordinator(List.of(), executor, Duration.ofSeconds(1));
+            AtomicInteger calls = new AtomicInteger();
+            RunId runId = new RunId("run-1");
+            AutoCloseable lease = coordinator.bindRun(runId, List.of(new HookBinding(
+                    "plugin-hook", HookMatcher.event(HookEventKind.PRE_TOOL),
+                    (invocation, token) -> {
+                        calls.incrementAndGet();
+                        return HookExecutionResult.continued("plugin-hook");
+                    }, HookFailurePolicy.FAIL_OPEN, true, 10)));
+
+            assertThat(coordinator.runBindingCount(runId)).isEqualTo(1);
+            coordinator.evaluate(PRE_TOOL, CancellationToken.none());
+            coordinator.evaluate(new HookInvocation(HookEventKind.PRE_TOOL, new SessionId("session-1"),
+                    Optional.of(new RunId("other-run")), "run_command", JsonObject.empty()),
+                    CancellationToken.none());
+            assertThat(calls).hasValue(1);
+            lease.close();
+            lease.close();
+            assertThat(coordinator.runBindingCount(runId)).isZero();
+            coordinator.evaluate(PRE_TOOL, CancellationToken.none());
+            assertThat(calls).hasValue(1);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void multipleRunLeasesAppendIndependentlyAndOneCloseDoesNotRemoveOthers() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            HookCoordinator coordinator = new HookCoordinator(List.of(), executor, Duration.ofSeconds(1));
+            AtomicInteger firstCalls = new AtomicInteger();
+            AtomicInteger secondCalls = new AtomicInteger();
+            RunId runId = new RunId("run-1");
+            AutoCloseable first = coordinator.bindRun(runId, List.of(new HookBinding(
+                    "first", HookMatcher.event(HookEventKind.PRE_TOOL),
+                    (invocation, token) -> { firstCalls.incrementAndGet(); return HookExecutionResult.continued("first"); },
+                    HookFailurePolicy.FAIL_OPEN, true, 20)));
+            AutoCloseable second = coordinator.bindRun(runId, List.of(new HookBinding(
+                    "second", HookMatcher.event(HookEventKind.PRE_TOOL),
+                    (invocation, token) -> { secondCalls.incrementAndGet(); return HookExecutionResult.continued("second"); },
+                    HookFailurePolicy.FAIL_OPEN, true, 10)));
+
+            assertThat(coordinator.runBindingCount(runId)).isEqualTo(2);
+            assertThat(coordinator.evaluate(PRE_TOOL, CancellationToken.none()).executions())
+                    .extracting(HookExecutionResult::handlerId).containsExactly("second", "first");
+            first.close();
+            assertThat(coordinator.runBindingCount(runId)).isEqualTo(1);
+            coordinator.evaluate(PRE_TOOL, CancellationToken.none());
+            assertThat(firstCalls).hasValue(1);
+            assertThat(secondCalls).hasValue(2);
+            second.close();
+            second.close();
+            assertThat(coordinator.runBindingCount(runId)).isZero();
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     void aggregatesInBindingOrderAndDenyWinsOverAllow() {
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {

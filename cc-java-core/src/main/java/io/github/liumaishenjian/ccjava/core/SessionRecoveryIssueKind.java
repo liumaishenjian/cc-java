@@ -26,5 +26,11 @@ public enum SessionRecoveryIssueKind {
     POTENTIAL_SIDE_EFFECT,
 
     /** Undo metadata 表明操作已准备或应用，但 durable journal 终态无法安全确认。 */
-    CHECKPOINT_UNDO_UNCERTAIN
+    CHECKPOINT_UNDO_UNCERTAIN,
+
+    /** Skill activation 没有 durable completed，恢复不得猜测或重放。 */
+    SKILL_INVOCATION_UNFINISHED,
+
+    /** 历史 Skill identity/content 与当前受信 catalog 不一致。 */
+    SKILL_RECOVERY_MISMATCH
 }

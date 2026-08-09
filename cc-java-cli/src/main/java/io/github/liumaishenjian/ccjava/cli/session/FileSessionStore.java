@@ -20,6 +20,10 @@ import io.github.liumaishenjian.ccjava.domain.ToolEffect;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillErrorCode;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillId;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillInvocationKind;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillRecoveryRecord;
 import io.github.liumaishenjian.ccjava.domain.hook.HookEventKind;
 import io.github.liumaishenjian.ccjava.domain.hook.HookInvocation;
 import java.io.IOException;
@@ -229,6 +233,21 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
     }
 
     @Override
+    public synchronized void skillInvoked(SessionId sessionId, RunId runId, SkillInvocationKind kind,
+            SkillRecoveryRecord record) {
+        OpenSession opened = writer(sessionId);
+        appendAndAdvance(opened, codec.encodeSkillInvoked(opened.nextSequence, runId, kind, record));
+    }
+
+    @Override
+    public synchronized void skillCompleted(SessionId sessionId, RunId runId, SkillId skillId,
+            SkillInvocationKind kind, SkillErrorCode errorCode) {
+        OpenSession opened = writer(sessionId);
+        appendAndAdvance(opened, codec.encodeSkillCompleted(
+                opened.nextSequence, runId, skillId, kind, errorCode));
+    }
+
+    @Override
     public synchronized void runCompleted(
             SessionId sessionId,
             RunId runId,
@@ -345,7 +364,7 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
                             id.value(),
                             new JsonObject(Map.of("sessionId", id.value()))),
                     CancellationToken.none());
-            return new SessionOpenResult(opened.session, mode, parent, false, List.of());
+            return new SessionOpenResult(opened.session, mode, parent, false, List.of(), List.of());
         } catch (RuntimeException failure) {
             opened.release();
             deleteEmptyFiles(id);
@@ -374,7 +393,8 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
                     snapshot.messages(),
                     snapshot.runIds(),
                     snapshot.parentSessionId(),
-                    merged);
+                    merged,
+                    snapshot.skillRecords());
         }
         AgentSession session = AgentSession.restore(snapshot);
         if (readOnly) {
@@ -386,7 +406,8 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
                     snapshot.messages(),
                     snapshot.runIds(),
                     snapshot.parentSessionId(),
-                    issues));
+                    issues,
+                    snapshot.skillRecords()));
             OpenSession inspected = OpenSession.readOnly(session, read.nextSequence);
             inspectedSessions.add(inspected);
             return new SessionOpenResult(
@@ -394,7 +415,8 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
                     mode,
                     snapshot.parentSessionId(),
                     true,
-                    issues);
+                    issues,
+                    snapshot.skillRecords());
         }
         if (!snapshot.issues().isEmpty()) {
             throw new SessionOpenException(
@@ -404,7 +426,7 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
         OpenSession opened = acquireWriter(id, session, read.nextSequence);
         writerSessions.put(id, opened);
         return new SessionOpenResult(
-                session, mode, snapshot.parentSessionId(), false, snapshot.issues());
+                session, mode, snapshot.parentSessionId(), false, snapshot.issues(), snapshot.skillRecords());
     }
 
     private List<io.github.liumaishenjian.ccjava.core.SessionRecoveryIssue> inspectIssues(
@@ -434,7 +456,8 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
                     source.messages(),
                     source.runIds(),
                     source.parentSessionId(),
-                    merged);
+                    merged,
+                    source.skillRecords());
         }
         if (!source.issues().isEmpty()) {
             throw new SessionOpenException(
@@ -477,7 +500,8 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
                     SessionOpenMode.FORK,
                     Optional.of(sourceId),
                     false,
-                    List.of());
+                    List.of(),
+                    targetSnapshot.skillRecords());
         } catch (RuntimeException failure) {
             target.release();
             deleteEmptyFiles(targetId);

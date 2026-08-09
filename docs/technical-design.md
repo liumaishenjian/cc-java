@@ -11,7 +11,7 @@
 > `CLI-13`/`CTX-19` 补充切片已在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6；S09 已完成
 > Settings/Trust、Command/loopback HTTP、Compact、Context Projection 与生产装配并 Accepted；S10 MCP
 > Tool 主链已完成两个 Transport、多 Server、统一 Permission、Trust 与恢复并通过真实 E2E，Accepted；
-> S11 Skills + Plugins 已完成 ADR-058～060 的 G0-G2 设计冻结，G3-G6 Open，Capability Level 无变化
+> S11 Skills + Plugins 已完成 G0-G6 工作树候选实现、量化、安全矩阵、Demo 与能力对账；`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 候选 L2，`PLUGIN-04` 候选 L1，G3-G6 机器状态保持 Open，Stage Exit 未 Accepted
 >
 > 当前实现状态：ADR-042/043/044 已固定并验证 Context Projection、条件式 Reduction、文件记忆和零等待
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
@@ -1128,9 +1128,9 @@ ToolRegistry、PermissionPolicy、Approval 与 ToolExecutionPipeline。STDIO 只
 只由环境变量名配置。多 Server 有界并行且失败隔离，首次调用断线只重建 initialize 并重试一次。
 Resource/Prompt 当前仅发现元数据；Lazy Tool 与 OAuth 仍是明确差距。完整决策见 ADR-056/057。
 
-### 18.5 S11 Skills + Plugins（G0-G2 冻结）
+### 18.5 S11 Skills + Plugins（WORKTREE VERIFIED / PENDING FINAL COMMIT）
 
-S11 采用 ADR-058～060 的 metadata-first 与 immutable snapshot 设计：
+S11 已按 ADR-058～060 实现并验证 metadata-first 与 immutable snapshot 设计：
 
 ```text
 Skill roots → metadata-only catalog snapshot → explicit/model SkillInvoker
@@ -1152,7 +1152,7 @@ Plugin candidate → isolated staging → strict manifest/tree fingerprint → e
 - 安装只接受显式本地目录，archive 一律拒绝且不宣称 archive bomb 检测；经逐文件 staging、flush/force、同文件系统原子 rename、父目录 flush、registry staged flush/原子替换/父目录 flush 后激活，任一原子能力不支持即 Fail Closed。卸载先 QUIESCING、拒绝新 snapshot，引用归零后删除。S11 仅使 `PLUGIN-04` 达到 L1，恢复/迁移/跨平台管理留到 S14。
 - 数值 ceiling：单 root/合计 Skill 128/256，单 Skill 128KiB/4,000 行，资源 256KiB/单调用 1MiB，单 Plugin 128 组件/1,024 文件/32MiB；完整验收见 S11 Gate Evidence。
 
-上述公共 Domain/Core/Port/SPI 在实现时必须提供中文 Javadoc，解释职责、非职责、权限收窄、snapshot 所有权、取消、恢复、失败和“Trust 不等于签名/Sandbox”。当前 G3-G6 尚未开始，`MCP-08`/`TOOL-16` 不随本设计升级。
+上述公共 Domain/Core/Port/SPI 已提供中文 Javadoc，解释职责、非职责、权限收窄、snapshot 所有权、取消、恢复、失败和“Trust 不等于签名/Sandbox”。G3-G6 工作树候选已通过 metadata 量化、按调用 transient Projection、production composition、多 Plugin 稳定 registry 更新、精确 content-addressed 目录、staged fault/quiescing、recovery/privacy 与可复现 Demo；`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 候选 L2，`PLUGIN-04` 候选 L1，`MCP-08`/`TOOL-16` 不随本实现升级，最终 Accepted 等待 Commit-scoped 复验。
 
 ## 19. CLI、内部协议与终端
 

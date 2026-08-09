@@ -12,5 +12,5 @@ package io.github.liumaishenjian.ccjava.domain;
  */
 public sealed interface AgentMessage
         permits SystemMessage, UserMessage, AssistantMessage, ToolResultMessage,
-                ContextSummaryMessage, MemoryContextMessage {
+                ContextSummaryMessage, MemoryContextMessage, SkillContextMessage {
 }

@@ -23,6 +23,9 @@ import io.github.liumaishenjian.ccjava.domain.hook.HookEventKind;
 import io.github.liumaishenjian.ccjava.domain.hook.HookInvocation;
 import io.github.liumaishenjian.ccjava.core.instructions.InstructionContextService;
 import io.github.liumaishenjian.ccjava.core.hook.HookCoordinator;
+import io.github.liumaishenjian.ccjava.core.skill.SkillRunCoordinator;
+import io.github.liumaishenjian.ccjava.core.plugin.PluginRunCoordinator;
+import io.github.liumaishenjian.ccjava.core.plugin.PluginRunHooks;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -61,6 +64,9 @@ public final class AgentRuntime {
     private final MemoryContextService memoryContext;
     private final InstructionContextService instructionContext;
     private final HookCoordinator hooks;
+    private final SkillRunCoordinator skills;
+    private final PluginRunCoordinator plugins;
+    private final PluginRunHooks pluginHooks;
     private final ConcurrentMap<SessionId, ActiveRun> activeRuns = new ConcurrentHashMap<>();
 
     /**
@@ -94,7 +100,10 @@ public final class AgentRuntime {
                 ContextPreparationService.noop(),
                 MemoryContextService.noop(),
                 InstructionContextService.noop(),
-                HookCoordinator.disabled());
+                HookCoordinator.disabled(),
+                SkillRunCoordinator.disabled(),
+                PluginRunCoordinator.disabled(),
+                PluginRunHooks.none());
     }
 
     /**
@@ -130,7 +139,10 @@ public final class AgentRuntime {
                 ContextPreparationService.noop(),
                 MemoryContextService.noop(),
                 InstructionContextService.noop(),
-                HookCoordinator.disabled());
+                HookCoordinator.disabled(),
+                SkillRunCoordinator.disabled(),
+                PluginRunCoordinator.disabled(),
+                PluginRunHooks.none());
     }
 
     /**
@@ -168,7 +180,10 @@ public final class AgentRuntime {
                 contextPreparation,
                 MemoryContextService.noop(),
                 InstructionContextService.noop(),
-                HookCoordinator.disabled());
+                HookCoordinator.disabled(),
+                SkillRunCoordinator.disabled(),
+                PluginRunCoordinator.disabled(),
+                PluginRunHooks.none());
     }
 
     /**
@@ -211,7 +226,10 @@ public final class AgentRuntime {
                 contextPreparation,
                 memoryContext,
                 InstructionContextService.noop(),
-                HookCoordinator.disabled());
+                HookCoordinator.disabled(),
+                SkillRunCoordinator.disabled(),
+                PluginRunCoordinator.disabled(),
+                PluginRunHooks.none());
     }
 
     /**
@@ -253,7 +271,10 @@ public final class AgentRuntime {
                 contextPreparation,
                 memoryContext,
                 instructionContext,
-                HookCoordinator.disabled());
+                HookCoordinator.disabled(),
+                SkillRunCoordinator.disabled(),
+                PluginRunCoordinator.disabled(),
+                PluginRunHooks.none());
     }
 
     /**
@@ -289,6 +310,77 @@ public final class AgentRuntime {
             MemoryContextService memoryContext,
             InstructionContextService instructionContext,
             HookCoordinator hooks) {
+        this(sessionStore, idGenerator, modelGateway, contextAssembler, toolRegistry, toolPipeline, lifecycle,
+                sessionJournal, contextPreparation, memoryContext, instructionContext, hooks,
+                SkillRunCoordinator.disabled(), PluginRunCoordinator.disabled(), PluginRunHooks.none());
+    }
+
+    /**
+     * 创建同时接入 S11 Run scoped Skill Projection 的 Runtime。
+     *
+     * @param skills Skill 双入口、投影与 Tool visibility 协调器
+     */
+    public AgentRuntime(
+            SessionStore sessionStore,
+            AgentIdGenerator idGenerator,
+            ModelGateway modelGateway,
+            ContextAssembler contextAssembler,
+            ToolRegistry toolRegistry,
+            ToolExecutionPipeline toolPipeline,
+            LifecycleDispatcher lifecycle,
+            SessionJournal sessionJournal,
+            ContextPreparationService contextPreparation,
+            MemoryContextService memoryContext,
+            InstructionContextService instructionContext,
+            HookCoordinator hooks,
+            SkillRunCoordinator skills) {
+        this(sessionStore, idGenerator, modelGateway, contextAssembler, toolRegistry, toolPipeline, lifecycle,
+                sessionJournal, contextPreparation, memoryContext, instructionContext, hooks, skills,
+                PluginRunCoordinator.disabled(), PluginRunHooks.none());
+    }
+
+    /**
+     * 创建同时捕获 S11 Plugin snapshot Run lease 的 Runtime。
+     *
+     * @param plugins Plugin generation Run 生命周期协调器
+     */
+    public AgentRuntime(
+            SessionStore sessionStore,
+            AgentIdGenerator idGenerator,
+            ModelGateway modelGateway,
+            ContextAssembler contextAssembler,
+            ToolRegistry toolRegistry,
+            ToolExecutionPipeline toolPipeline,
+            LifecycleDispatcher lifecycle,
+            SessionJournal sessionJournal,
+            ContextPreparationService contextPreparation,
+            MemoryContextService memoryContext,
+            InstructionContextService instructionContext,
+            HookCoordinator hooks,
+            SkillRunCoordinator skills,
+            PluginRunCoordinator plugins) {
+        this(sessionStore, idGenerator, modelGateway, contextAssembler, toolRegistry, toolPipeline, lifecycle,
+                sessionJournal, contextPreparation, memoryContext, instructionContext, hooks, skills, plugins,
+                PluginRunHooks.none());
+    }
+
+    /** 创建同时接入受信 Plugin Run-scoped Hook templates 的 Runtime。 */
+    public AgentRuntime(
+            SessionStore sessionStore,
+            AgentIdGenerator idGenerator,
+            ModelGateway modelGateway,
+            ContextAssembler contextAssembler,
+            ToolRegistry toolRegistry,
+            ToolExecutionPipeline toolPipeline,
+            LifecycleDispatcher lifecycle,
+            SessionJournal sessionJournal,
+            ContextPreparationService contextPreparation,
+            MemoryContextService memoryContext,
+            InstructionContextService instructionContext,
+            HookCoordinator hooks,
+            SkillRunCoordinator skills,
+            PluginRunCoordinator plugins,
+            PluginRunHooks pluginHooks) {
         this.sessionStore = Objects.requireNonNull(sessionStore, "sessionStore 不能为空");
         this.idGenerator = Objects.requireNonNull(idGenerator, "idGenerator 不能为空");
         this.modelGateway = Objects.requireNonNull(modelGateway, "modelGateway 不能为空");
@@ -307,6 +399,9 @@ public final class AgentRuntime {
         this.instructionContext = Objects.requireNonNull(
                 instructionContext, "instructionContext 不能为空");
         this.hooks = Objects.requireNonNull(hooks, "hooks 不能为空");
+        this.skills = Objects.requireNonNull(skills, "skills 不能为空");
+        this.plugins = Objects.requireNonNull(plugins, "plugins 不能为空");
+        this.pluginHooks = Objects.requireNonNull(pluginHooks, "pluginHooks 不能为空");
     }
 
     /**
@@ -360,6 +455,42 @@ public final class AgentRuntime {
             throw new IllegalStateException("Session 已有活动 Run");
         }
         lifecycle.dispatch(session, runId, new LifecycleEvent.RunStarted(request));
+        AutoCloseable runHookLease = () -> { };
+        try {
+            plugins.openRun(runId);
+            runHookLease = hooks.bindRun(runId,
+                    pluginHooks.bindings(runId, plugins.fingerprints(runId)));
+        } catch (RuntimeException pluginFailure) {
+            activeRuns.remove(sessionId, activeRun);
+            plugins.closeRun(runId);
+            sessionJournal.runCompleted(sessionId, runId, StopReason.INTERNAL_ERROR);
+            session.endRun(runId);
+            AgentRunResult rejected = AgentRunResult.stopped(
+                    sessionId, runId, StopReason.INTERNAL_ERROR, 0, 0);
+            lifecycle.dispatch(session, runId, new LifecycleEvent.RunFinished(rejected));
+            return rejected;
+        }
+        if (request.explicitSkill().isPresent()) {
+            var explicit = request.explicitSkill().orElseThrow();
+            var activation = skills.invokeExplicit(sessionId,
+                    new io.github.liumaishenjian.ccjava.domain.skill.SkillInvocationRequest(
+                            runId, explicit.skillId(),
+                            io.github.liumaishenjian.ccjava.domain.skill.SkillInvocationKind.EXPLICIT,
+                            explicit.arguments()),
+                    cancellation.token());
+            if (!activation.succeeded()) {
+                activeRuns.remove(sessionId, activeRun);
+                skills.closeRun(runId);
+                closeRunHooks(runHookLease);
+                plugins.closeRun(runId);
+                sessionJournal.runCompleted(sessionId, runId, StopReason.HOOK_BLOCKED);
+                session.endRun(runId);
+                AgentRunResult rejected = AgentRunResult.stopped(
+                        sessionId, runId, StopReason.HOOK_BLOCKED, 0, 0);
+                lifecycle.dispatch(session, runId, new LifecycleEvent.RunFinished(rejected));
+                return rejected;
+            }
+        }
         hooks.evaluate(
                 new HookInvocation(
                         HookEventKind.RUN_START,
@@ -382,6 +513,9 @@ public final class AgentRuntime {
             deadlineThread.interrupt();
             activeRuns.remove(sessionId, activeRun);
             contextPreparation.closeRun(runId);
+            skills.closeRun(runId);
+            closeRunHooks(runHookLease);
+            plugins.closeRun(runId);
             hooks.clearTransientContext(runId);
         }
 
@@ -470,8 +604,9 @@ public final class AgentRuntime {
                         turnNumber,
                         toolRegistry.definitions());
                 ModelRequest withHookContext = hooks.projectTransientContext(canonicalRequest);
+                ModelRequest withSkillContext = skills.project(withHookContext);
                 ModelRequest withInstructions = instructionContext.project(
-                        withHookContext,
+                        withSkillContext,
                         activeRun.cancellation().token());
                 ModelRequest withMemory = memoryContext.consumeReady(
                         withInstructions,
@@ -582,6 +717,14 @@ public final class AgentRuntime {
             } finally {
                 memoryPrefetch.close();
             }
+        }
+    }
+
+    private static void closeRunHooks(AutoCloseable lease) {
+        try {
+            lease.close();
+        } catch (Exception ignored) {
+            // Hook lease 只做内存解绑；失败不能跳过后续 Plugin lease 清理或泄漏异常文本。
         }
     }
 

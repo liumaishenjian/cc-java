@@ -34,6 +34,7 @@ public final class StdioProtocolCodec {
             "checkpoint.diff",
             "checkpoint.undo",
             "session.command",
+            "skill.invoke",
             "file.suggest",
             "shutdown");
 
@@ -100,6 +101,9 @@ public final class StdioProtocolCodec {
         }
         if ("session.command".equals(type)) {
             validateSessionCommand(root, (ObjectNode) payloadNode, requestId);
+        }
+        if ("skill.invoke".equals(type)) {
+            validateSkillInvoke(root, (ObjectNode) payloadNode, requestId);
         }
         if ("file.suggest".equals(type)) {
             validateFileSuggest(root, (ObjectNode) payloadNode, requestId);
@@ -180,6 +184,26 @@ public final class StdioProtocolCodec {
             throw new StdioProtocolException("INVALID_PAYLOAD", requestId, "arguments 必须是 JSON Object");
         }
         validateSessionCommandArguments(intent, (ObjectNode) arguments, requestId);
+    }
+
+    /** 校验显式 Skill 命令的精确信封与有界参数。 */
+    private void validateSkillInvoke(JsonNode root, ObjectNode payload, String requestId)
+            throws StdioProtocolException {
+        Set<String> envelope = Set.of("version", "type", "requestId", "sessionId", "runId", "sequence", "payload");
+        if (root.properties().stream().anyMatch(entry -> !envelope.contains(entry.getKey()))) {
+            throw new StdioProtocolException("UNKNOWN_FIELD", requestId, "skill.invoke 包含未知信封字段");
+        }
+        if (root.get("sessionId") == null || root.get("runId") != null
+                || payload.properties().stream().anyMatch(entry -> !Set.of("name", "arguments").contains(entry.getKey()))) {
+            throw new StdioProtocolException("INVALID_ENVELOPE", requestId, "skill.invoke 信封无效");
+        }
+        String name = requiredPayloadText(payload, "name", requestId);
+        JsonNode arguments = payload.get("arguments");
+        if (!name.matches("[a-z0-9]+(?:-[a-z0-9]+)*") || name.length() > 64
+                || arguments == null || !arguments.isString()
+                || arguments.stringValue().codePointCount(0, arguments.stringValue().length()) > 8_192) {
+            throw new StdioProtocolException("INVALID_PAYLOAD", requestId, "skill.invoke 参数无效");
+        }
     }
 
     /**

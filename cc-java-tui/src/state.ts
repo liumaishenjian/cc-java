@@ -242,6 +242,12 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
         steeringQueueDepth: 0,
         notice: undefined,
       };
+    case 'skill.invoked':
+      return {...state, notice: `Skill /${String(event.payload.skillId)} 已提交`};
+    case 'skill.completed':
+      return {...state, notice: event.payload.status === 'succeeded'
+        ? `Skill /${String(event.payload.skillId)} 已完成`
+        : `Skill /${String(event.payload.skillId)} 未完成`};
     case 'run.started':
       return updateCurrentRun(state, event, run => ({
         ...run,

@@ -140,12 +140,16 @@ public final class PermissionPolicy implements PermissionGate {
                     PermissionDecision.ASK,
                     PermissionReason.EFFECT_DEFAULT,
                     selector);
-            case NETWORK_OR_REMOTE -> PermissionOutcome.of(
-                    definition.source() == io.github.liumaishenjian.ccjava.domain.ToolSource.MCP
-                            ? PermissionDecision.ASK : PermissionDecision.DENY,
-                    definition.source() == io.github.liumaishenjian.ccjava.domain.ToolSource.MCP
-                            ? PermissionReason.EFFECT_DEFAULT : PermissionReason.HARD_DENIAL,
-                    selector);
+            case NETWORK_OR_REMOTE -> {
+                boolean trustedExternal = definition.source()
+                        == io.github.liumaishenjian.ccjava.domain.ToolSource.MCP
+                        || definition.source()
+                        == io.github.liumaishenjian.ccjava.domain.ToolSource.PLUGIN;
+                yield PermissionOutcome.of(
+                        trustedExternal ? PermissionDecision.ASK : PermissionDecision.DENY,
+                        trustedExternal ? PermissionReason.EFFECT_DEFAULT : PermissionReason.HARD_DENIAL,
+                        selector);
+            }
             case SYSTEM_OR_DESTRUCTIVE -> PermissionOutcome.of(
                     PermissionDecision.DENY,
                     PermissionReason.HARD_DENIAL,

@@ -10,5 +10,8 @@ import java.util.List;
  * @since 0.11.0
  */
 public record SkillRecoveryResult(boolean matched, List<SkillId> mismatches) {
-    public SkillRecoveryResult { mismatches = List.copyOf(mismatches == null ? List.of() : mismatches); }
+    /** 固定不匹配 Skill 的不可变顺序。 */
+    public SkillRecoveryResult {
+        mismatches = List.copyOf(mismatches == null ? List.of() : mismatches);
+    }
 }

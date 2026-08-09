@@ -13,6 +13,7 @@ import java.util.Objects;
  */
 public record SkillCatalogSnapshot(String snapshotId, List<SkillDescriptor> entries,
         List<SkillDiagnostic> diagnostics) {
+    /** 校验 snapshot digest、不可变集合与 catalog 总项数。 */
     public SkillCatalogSnapshot {
         snapshotId = Objects.requireNonNull(snapshotId, "snapshotId 不能为空");
         if (!snapshotId.matches("[0-9a-f]{64}")) throw new IllegalArgumentException("snapshotId 非法");

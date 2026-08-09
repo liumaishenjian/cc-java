@@ -13,6 +13,19 @@ import io.github.liumaishenjian.ccjava.domain.ToolResult;
 import io.github.liumaishenjian.ccjava.domain.ToolResultMetadata;
 import io.github.liumaishenjian.ccjava.domain.ToolResultTruncationReason;
 import io.github.liumaishenjian.ccjava.domain.ToolResultStatus;
+import io.github.liumaishenjian.ccjava.core.skill.ImmutableSkillCatalog;
+import io.github.liumaishenjian.ccjava.core.skill.SkillInvoker;
+import io.github.liumaishenjian.ccjava.core.skill.SkillRunCoordinator;
+import io.github.liumaishenjian.ccjava.core.skill.SkillToolScopeNarrower;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillCatalogSnapshot;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillContentSnapshot;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillDescriptor;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillId;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillInvocationKind;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillInvocationPolicy;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillInvocationRequest;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillSource;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillToolRestriction;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -108,6 +121,52 @@ class ToolExecutionPipelineTest {
                 cancellation.token());
 
         assertThat(observed.get()).isSameAs(cancellation.token());
+    }
+
+    @Test
+    void skillVisibilityGatePersistsExecuteZeroAndSkipsAdapterAndPermission() {
+        AtomicBoolean executed = new AtomicBoolean();
+        AtomicBoolean permissionChecked = new AtomicBoolean();
+        AgentTool tool = new RecordingAgentTool(
+                "hidden",
+                ignored -> ToolValidationResult.validResult(),
+                ignored -> {
+                    executed.set(true);
+                    return ToolExecutionOutcome.success("should-not-run");
+                });
+        SkillId id = new SkillId("locked");
+        var descriptor = new SkillDescriptor(id, "locked", SkillInvocationPolicy.BOTH, SkillSource.USER,
+                "user/locked", "a".repeat(64), SkillToolRestriction.declared(List.of()), List.of(), List.of());
+        var catalog = new ImmutableSkillCatalog(new SkillCatalogSnapshot("b".repeat(64), List.of(descriptor), List.of()));
+        var invoker = new SkillInvoker(catalog,
+                (snapshot, entry, cancellation) -> new SkillContentSnapshot(id, snapshot.snapshotId(),
+                        entry.contentDigest(), "body"),
+                (snapshot, entry, cancellation) -> List.of(), new SkillToolScopeNarrower());
+        var skills = new SkillRunCoordinator(catalog, invoker, List.of("hidden"));
+        RunId runId = new RunId("run-skill-gate");
+        assertThat(skills.invokeExplicit(new SkillInvocationRequest(runId, id, SkillInvocationKind.EXPLICIT, ""),
+                CancellationToken.none()).succeeded()).isTrue();
+        var journal = new RecordingSessionJournal();
+        RecordingAgentEventSink events = new RecordingAgentEventSink();
+        LifecycleDispatcher lifecycle = new LifecycleDispatcher(CLOCK, events);
+        SequentialAgentIdGenerator ids = new SequentialAgentIdGenerator();
+        InMemorySessionStore sessions = new InMemorySessionStore(ids, lifecycle);
+        AgentSession session = sessions.create(SessionSpec.of("test"));
+        ToolExecutionPipeline pipeline = new ToolExecutionPipeline(new ToolRegistry(List.of(tool)),
+                (invocation, definition) -> {
+                    permissionChecked.set(true);
+                    throw new AssertionError("permission must not run");
+                }, (invocation, definition, outcome) -> { throw new AssertionError("approval must not run"); },
+                new InMemorySessionPermissionState(), lifecycle, journal, CheckpointCoordinator.noop(),
+                io.github.liumaishenjian.ccjava.core.hook.HookCoordinator.disabled(), skills);
+
+        ToolResult result = pipeline.execute(session, runId, 1,
+                new ToolCall("call-hidden", "hidden", JsonObject.empty()));
+
+        assertThat(result.status()).isEqualTo(ToolResultStatus.DENIED);
+        assertThat(executed).isFalse();
+        assertThat(permissionChecked).isFalse();
+        assertThat(journal.resolutionReasons).containsExactly(ToolResolutionReason.SKILL_SCOPE_DENIED);
     }
 
     @Test
@@ -226,6 +285,25 @@ class ToolExecutionPipelineTest {
                 approvalHandler,
                 lifecycle);
         return new PipelineFixture(pipeline, session, tool.definition().name());
+    }
+
+    private static final class RecordingSessionJournal implements SessionJournal {
+        private final List<ToolResolutionReason> resolutionReasons = new java.util.ArrayList<>();
+        @Override public void runStarted(io.github.liumaishenjian.ccjava.domain.SessionId sessionId,
+                RunId runId, io.github.liumaishenjian.ccjava.domain.UserMessage message) { }
+        @Override public void assistantAppended(io.github.liumaishenjian.ccjava.domain.SessionId sessionId,
+                RunId runId, io.github.liumaishenjian.ccjava.domain.AssistantMessage message) { }
+        @Override public void toolResolved(io.github.liumaishenjian.ccjava.domain.SessionId sessionId,
+                RunId runId, int ordinal, ToolResult result, ToolResolutionReason reason) {
+            resolutionReasons.add(reason);
+        }
+        @Override public void toolStarted(io.github.liumaishenjian.ccjava.domain.SessionId sessionId,
+                RunId runId, int ordinal, String callId, String toolName,
+                io.github.liumaishenjian.ccjava.domain.ToolEffect effect) { }
+        @Override public void toolCompleted(io.github.liumaishenjian.ccjava.domain.SessionId sessionId,
+                RunId runId, int ordinal, ToolResult result) { }
+        @Override public void runCompleted(io.github.liumaishenjian.ccjava.domain.SessionId sessionId,
+                RunId runId, io.github.liumaishenjian.ccjava.domain.StopReason stopReason) { }
     }
 
     private record PipelineFixture(

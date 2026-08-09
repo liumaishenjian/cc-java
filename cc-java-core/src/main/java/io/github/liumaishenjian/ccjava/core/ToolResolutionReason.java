@@ -19,5 +19,8 @@ public enum ToolResolutionReason {
     PERMISSION_DENIED,
 
     /** Pre Tool Hook 在 Permission 前明确阻断。 */
-    HOOK_BLOCKED
+    HOOK_BLOCKED,
+
+    /** 当前 Run 的 Skill allowlist 隐藏了该 Tool。 */
+    SKILL_SCOPE_DENIED
 }

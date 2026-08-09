@@ -4,22 +4,71 @@ import io.github.liumaishenjian.ccjava.domain.skill.SkillCatalogSnapshot;
 import io.github.liumaishenjian.ccjava.domain.skill.SkillId;
 import io.github.liumaishenjian.ccjava.domain.skill.SkillRecoveryRecord;
 import io.github.liumaishenjian.ccjava.domain.skill.SkillRecoveryResult;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 
 /**
- * 比较历史 Skill digest 与当前 snapshot；不恢复 Hook 或 Tool Scope。
+ * 精确比较历史 Skill 恢复身份与当前受信 snapshot；不恢复 Hook、Projection 或 Tool Scope。
+ *
+ * <p>manifest/body/content/resources/tool/hook 与 Plugin/MCP component 摘要必须全部匹配；任一缺失
+ * 或差异均 Fail Closed。effective Tool 摘要由历史激活时的实际交集产生，因此调用方还必须提供
+ * 当前 Runtime 对同一 Skill 重新计算的记录。</p>
  *
  * @since 0.11.0
  */
 public final class SkillRecoveryVerifier {
-    public SkillRecoveryResult verify(SkillCatalogSnapshot snapshot, List<SkillRecoveryRecord> records) {
+    public SkillRecoveryResult verify(SkillCatalogSnapshot snapshot, List<SkillRecoveryRecord> records,
+            SkillRecoveryIdentityCatalog identities, List<String> runtimeToolNames) {
+        Objects.requireNonNull(snapshot, "snapshot 不能为空");
+        Objects.requireNonNull(records, "records 不能为空");
+        Objects.requireNonNull(identities, "identities 不能为空");
+        runtimeToolNames = List.copyOf(Objects.requireNonNull(runtimeToolNames, "runtimeToolNames 不能为空"));
         List<SkillId> mismatches = new ArrayList<>();
+        List<String> visibleTools = runtimeToolNames;
         for (SkillRecoveryRecord record : records) {
-            var found = snapshot.entries().stream().filter(e -> e.id().equals(record.skillId())).findFirst();
-            if (!snapshot.snapshotId().equals(record.snapshotId()) || found.isEmpty()
-                    || !found.get().contentDigest().equals(record.contentDigest())) mismatches.add(record.skillId());
+            var found = identities.find(record.skillId());
+            if (!snapshot.snapshotId().equals(record.snapshotId()) || found.isEmpty()) {
+                mismatches.add(record.skillId());
+                continue;
+            }
+            var current = found.get();
+            var descriptor = snapshot.entries().stream()
+                    .filter(value -> value.id().equals(record.skillId())).findFirst();
+            if (descriptor.isEmpty()) {
+                mismatches.add(record.skillId());
+                continue;
+            }
+            visibleTools = new SkillToolScopeNarrower().narrow(visibleTools, descriptor.get().toolRestriction());
+            if (!current.manifestDigest().equals(record.manifestDigest())
+                    || !current.bodyDigest().equals(record.bodyDigest())
+                    || !current.contentDigest().equals(record.contentDigest())
+                    || !current.resourcesDigest().equals(record.resourcesDigest())
+                    || !digestStrings(visibleTools).equals(record.effectiveToolDigest())
+                    || !current.hookSetDigest().equals(record.hookSetDigest())
+                    || !current.pluginTreeDigest().equals(record.pluginTreeDigest())
+                    || !current.pluginManifestDigest().equals(record.pluginManifestDigest())
+                    || !current.mcpConfigDigest().equals(record.mcpConfigDigest())) {
+                mismatches.add(record.skillId());
+            }
         }
         return new SkillRecoveryResult(mismatches.isEmpty(), mismatches);
+    }
+
+    private static String digestStrings(List<String> values) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            values.stream().sorted().forEach(value -> {
+                digest.update(value.getBytes(StandardCharsets.UTF_8));
+                digest.update((byte) 0);
+            });
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
     }
 }

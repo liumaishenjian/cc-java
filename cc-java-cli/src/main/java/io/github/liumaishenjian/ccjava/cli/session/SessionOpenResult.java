@@ -3,6 +3,7 @@ package io.github.liumaishenjian.ccjava.cli.session;
 import io.github.liumaishenjian.ccjava.core.AgentSession;
 import io.github.liumaishenjian.ccjava.core.SessionRecoveryIssue;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
+import io.github.liumaishenjian.ccjava.domain.skill.SkillRecoveryRecord;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -15,6 +16,7 @@ import java.util.Optional;
  * @param parentSessionId Fork 来源
  * @param readOnly 是否仅允许 Inspect
  * @param issues 恢复问题
+ * @param skillRecords 历史 Skill 身份，只用于当前 catalog 验证
  * @since 0.6.0
  */
 public record SessionOpenResult(
@@ -22,7 +24,8 @@ public record SessionOpenResult(
         SessionOpenMode mode,
         Optional<SessionId> parentSessionId,
         boolean readOnly,
-        List<SessionRecoveryIssue> issues) {
+        List<SessionRecoveryIssue> issues,
+        List<SkillRecoveryRecord> skillRecords) {
 
     /** 防御性复制打开结果。 */
     public SessionOpenResult {
@@ -30,5 +33,12 @@ public record SessionOpenResult(
         mode = Objects.requireNonNull(mode, "mode 不能为空");
         parentSessionId = Objects.requireNonNull(parentSessionId, "parentSessionId 不能为空");
         issues = List.copyOf(Objects.requireNonNull(issues, "issues 不能为空"));
+        skillRecords = List.copyOf(Objects.requireNonNull(skillRecords, "skillRecords 不能为空"));
+    }
+
+    /** 兼容没有 S11 Skill 恢复身份的既有创建路径。 */
+    public SessionOpenResult(AgentSession session, SessionOpenMode mode, Optional<SessionId> parentSessionId,
+            boolean readOnly, List<SessionRecoveryIssue> issues) {
+        this(session, mode, parentSessionId, readOnly, issues, List.of());
     }
 }
