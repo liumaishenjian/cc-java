@@ -9,7 +9,7 @@
 > Commit `5910a8f` 上完成 Commit-scoped G0-G6；`CLI-13`、`CTX-19` 达到 L2。S09 已完成
 > Settings/Trust、Command/loopback HTTP、生命周期、Compact 与生产装配并 Accepted；S10 MCP Tool
 > 主链已完成 STDIO/Streamable HTTP、多 Server、统一 Permission、Trust 与恢复并通过真实 E2E，Accepted。
-> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、安全矩阵、Demo 与能力对账均通过，Stage Exit Accepted。S12 已由 ADR-061/062 完成双源 G0-G2 范围/架构冻结并进入 In Progress；生产/测试实现尚未开始，相关能力仍为 L0。
+> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、安全矩阵、Demo 与能力对账均通过，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted；相关 Feature 达到冻结的 L2/L1 目标。当前路线移至 S13，但 G0 尚未开始，不得声称 OS Sandbox 已研究或实现。
 >
 > 产品负责人：项目维护者
 
@@ -521,13 +521,13 @@ S11 已按 ADR-058～060 在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502
 - `MCP-08` 和通用 `TOOL-16` 不随 Skill catalog/MCP-backed Plugin 自动升级，仍需独立规模和质量证据；
 - FixBug、Review、Test Generation 可作为独立示例 Skill，但不得成为 Runtime 分支。
 
-实现 Commit `7127843` 的 G3-G6 证据确认 `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 达到 L2，`PLUGIN-04` 达到 L1；Maven 813 tests/21 skips、Demo 67/67、TUI 129/129、launcher 59/59 与 Dashboard 均通过。数值上限、metadata 99.51% 降幅、恶意资源、安装故障点、快照漂移、权限旁路、恢复错配及五类零泄漏结果见 S11 Gate Evidence/Demo/Gap。S12 已完成 ADR-061/062 G0-G2 并进入 In Progress；全部 S12 Capability 仍保持 L0。
+实现 Commit `7127843` 的 G3-G6 证据确认 `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 达到 L2，`PLUGIN-04` 达到 L1；Maven 813 tests/21 skips、Demo 67/67、TUI 129/129、launcher 59/59 与 Dashboard 均通过。数值上限、metadata 99.51% 降幅、恶意资源、安装故障点、快照漂移、权限旁路、恢复错配及五类零泄漏结果见 S11 Gate Evidence/Demo/Gap。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 G0-G6 与 Stage Exit；相关 Feature 达到冻结的 L2/L1 目标。
 
 ## 15. S12-S13：高级 Agent 与安全重实现
 
 ### S12：Subagent 与任务系统
 
-ADR-061/062 已完成双源 G0-G2，冻结以下产品契约；当前尚未实现：
+ADR-061/062 完成双源研究与契约冻结，下列产品行为已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上通过 commit-scoped G0-G6 验收：
 
 - FR-SUB-001：Agent definition 使用严格、带来源和内容身份的 Session snapshot；未知字段、冲突、未知 Tool/Model 和权限放宽 Fail Closed。
 - FR-SUB-002：Subagent 复用同一 Agent Runtime，不建立第二套 Loop；每个 child 使用独立 Session、Canonical/Projection、Tool Registry、Permission state、模型/预算和 Cancellation。
@@ -543,6 +543,8 @@ ADR-061/062 已完成双源 G0-G2，冻结以下产品契约；当前尚未实�
 实施冻结为 Batch A `Scope + single delegate` → Batch B `bounded concurrency + background + TOOL-15` → Batch C `Git Worktree + integrated Eval`。`SUB-11` Team Board/peer messaging、remote/跨重启 worker、稳定 task protocol、模型 Prompt/Agent Hook 与 OS Sandbox 明确延期。
 
 ### S13：Sandbox
+
+当前仅为下一阶段，G0 来源/权利边界研究尚未开始；以下是目标，不表示已研究或已实现。
 
 - 区分应用层 Permission 与 OS 级隔离；
 - 提供可替换的 OS Sandbox 或 Container Backend；

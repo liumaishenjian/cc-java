@@ -115,16 +115,19 @@ Checkpoint/Diff/显式 Undo、Behavior Replay 与 Java CLI/Print/stdio/TUI 生�
   达到 L2，CTX-12/13 与 OBS-04 为 L1；
 - S08 Instructions + Settings 与 S09 Hooks 已 Accepted；S10 MCP Tool 主链也已完成 STDIO/
   Streamable HTTP、多 Server、filter/prefix、统一 Permission/Approval/Pipeline、Trust 与单次恢复并
-  通过真实 E2E。MCP Lazy Tool、Resource/Prompt 完整投影、OAuth，以及 S12 Sub-Agent/后台任务/
-  Worktree、S13 OS Sandbox、S14 稳定 Export/Retention/Migration 继续保持未实现状态。
+  通过真实 E2E。MCP Lazy Tool、Resource/Prompt 完整投影、OAuth、S13 OS Sandbox 与 S14 稳定
+  Export/Retention/Migration 继续保持未实现状态。
 
 S09/S10 Accepted 不表示远程 Hook、MCP OAuth/Lazy Tool/Resource 自动投影、S13 OS Sandbox 或
 S14 稳定持久化能力已经可用。S11 Skills + Plugins 已在实现 Commit
 `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6：量化、安全矩阵、
 67/67 Demo、813 tests/21 skips、TUI 129/129 与 launcher 59/59 均通过，Stage Exit Accepted；
-`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1。S12 已由 ADR-061/062 完成
-双源 G0-G2 范围/架构冻结并进入 In Progress；`SUB-01..10`、`CTX-15`、
-`HOOK-08/11`、`TOOL-15` 已在当前 dirty worktree 完成 Batch A-C 工作树候选实现，G3-G5 candidate passed：除 `SUB-06/HOOK-11` 候选 L1 外其余候选 L2；但 G6/Stage Exit 必须等待真实 implementation Commit 的 commit-scoped 复验，仍保持 Open。
+`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1。S12 已在实现 Commit
+`cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6：标准 clean verify
+838 tests/21 skips、TUI 133/133、launcher 59 assertions 与 Dashboard 均通过，Stage Exit Accepted；
+`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1。
+Worktree reparse、Git fault/timeout、Windows remove/branch-lock cancellation recovery 仍是明确 gap；
+S13 只是下一阶段，G0 尚未开始，不得描述为已研究或已实现。
 
 ## 3. 项目定位
 

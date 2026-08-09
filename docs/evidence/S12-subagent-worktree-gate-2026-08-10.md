@@ -1,11 +1,11 @@
-# S12 Sub-Agent + Worktree G0-G2 Gate 证据
+# S12 Sub-Agent + Worktree G0-G6 Stage Exit 证据
 
 ## 元数据
 
 ```text
 Stage: S12 Sub-Agent + Worktree
-Status: IN PROGRESS（G0-G2 PASSED；G3-G6 OPEN）
-Release / Commit: N/A - documentation scope freeze; working tree only
+Status: ACCEPTED（G0-G6 PASSED；Stage Exit ACCEPTED）
+Release / Commit: cfbe0282b37a93e38256c3d2d6f22ed2207975a5
 Reference Behavior Baseline: R2026.03
 Authorized Snapshot ID: AUTH-SRC-2026-07-29-A
 Public Source Snapshot: OpenAI Codex rust-v0.147.0 / be6e8eac029b183056b7e4402879f15d2c85f61b
@@ -21,10 +21,10 @@ Date: 2026-08-10
 | G0 | PASSED | ADR-061 完成授权快照 + 固定 Codex tag/commit 双源受控研究、来源边界、Unknown 与非复制声明 |
 | G1 | PASSED | ADR-062 冻结全部 S12 Feature 的 L1/L2 退出目标、延期、数值上限与可证伪验收 |
 | G2 | PASSED | ADR-061/062 冻结 Scope/定义/任务/预算/并发/后台/取消/Hook/并行 Tool/Worktree 独立契约 |
-| G3 | CANDIDATE PASSED | Phase 3 整体修正补齐 Project Trust、恢复 registry、Stop Context 父下一回合投影、AgentRuntime batch 并行及真实 child composition |
-| G4 | CANDIDATE PASSED | Java 安全矩阵、真实 Git Worktree、TOOL-15 Runtime 路径与六 seed × 五次/策略真实 Supervisor/AgentRuntime Eval 通过 |
-| G5 | CANDIDATE PASSED | Demo 已改为真实生产链路与实测结果，不再使用公式生成指标 |
-| G6 | OPEN | dirty worktree 无 implementation Commit；必须由协调者提交后执行 commit-scoped 全复验 |
+| G3 | PASSED | Phase 3 整体修正补齐 Project Trust、恢复 registry、Stop Context 父下一回合投影、AgentRuntime batch 并行及真实 child composition |
+| G4 | PASSED | Java 安全矩阵、真实 Git Worktree、TOOL-15 Runtime 路径与六 seed × 五次/策略真实 Supervisor/AgentRuntime Eval 通过 |
+| G5 | PASSED | Demo 已改为真实生产链路与实测结果，不再使用公式生成指标 |
+| G6 | PASSED | 实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上的标准 clean verify、TUI、launcher、Dashboard 与文档/等级对账全部通过 |
 
 ## G0：来源与授权
 
@@ -45,7 +45,7 @@ Date: 2026-08-10
 
 ## G1：范围与目标
 
-目标表以 ADR-062 为权威：`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 目标 L2；`SUB-06`、`HOOK-11` 目标 L1。`SUB-11`、远程/跨重启 worker、稳定外部 task protocol、模型 Prompt/Agent Hook、自动 merge/push、OS Sandbox 全部延期。本文档冻结目标但不提升当前 L0。
+目标表以 ADR-062 为权威：`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 达到 L2；`SUB-06`、`HOOK-11` 达到 L1。`SUB-11`、远程/跨重启 worker、稳定外部 task protocol、模型 Prompt/Agent Hook、自动 merge/push、OS Sandbox 全部延期。
 
 ## G2：架构冻结
 
@@ -80,9 +80,9 @@ delegate_agent Tool
 - Agent definition、Hook、仓库、模型输出和子摘要均不可信，不能扩大 Tool、Permission、Workspace、Budget 或取消所有权。
 - 无自动 commit/merge/push；无远端写入；无参考私有格式兼容。
 
-## G4/G5 预注册验证
+## G4/G5 验证
 
-G4 必须执行 ADR-062 的隔离、权限、协议、预算、并发、后台、取消、Worktree、安全和 6-task 多 Agent Eval。G5 Demo skeleton 见 `docs/demos/S12-subagent-worktree.md`；没有实际运行前保持 Planned，不能作为能力证据。
+G4 已执行 ADR-062 的隔离、权限、协议、预算、并发、后台、取消、Worktree、安全和 6-task 多 Agent Eval；G5 可复现结果见 `docs/demos/S12-subagent-worktree.md`。
 
 ## 当前未决问题
 
@@ -96,8 +96,8 @@ G4 必须执行 ADR-062 的隔离、权限、协议、预算、并发、后台�
 
 整体 Review 证明先前 focused 10/10 与 TUI 129/129 只覆盖浅层路径，不能支撑候选 L2。尤其 `S12MultiAgentEvalTest` 仅按公式生成 wall/token/completed，不驱动任何 production Supervisor/Runtime/Tool/Worktree，因此 100% 完成率、40% 墙钟改善与 10% Token 增加全部从证据中撤销。
 
-本轮在上述修正上继续接入 Extension/S08 Project Trust、no-replay 恢复 registry、Stop Hook additional context 父下一回合一次性投影，并确认 TOOL-15 位于完整 AgentRuntime batch path。旧公式 Eval 已重写为真实 Supervisor/AgentRuntime child runs；协调者在最终工作树独立执行标准 `.\mvnw.cmd clean verify`，连续通过 838 tests/21 skips、0 failure/error（Domain 53/0、Core 238/0、Spring 45/2、Tools 162/8、MCP 13/0、CLI 327/11），TUI check 133/133、launcher 59 assertions、Dashboard generate/check/self-test 与 `git diff --check` 均通过。`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 因此为 L2 candidate，`SUB-06/HOOK-11` 为冻结的 L1 candidate；commit-scoped G6 仍 Open。
+本轮在上述修正上继续接入 Extension/S08 Project Trust、no-replay 恢复 registry、Stop Hook additional context 父下一回合一次性投影，并确认 TOOL-15 位于完整 AgentRuntime batch path。旧公式 Eval 已重写为真实 Supervisor/AgentRuntime child runs；协调者在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上独立执行标准 `.\mvnw.cmd clean verify`，连续通过 838 tests/21 skips、0 failure/error（Domain 53/0、Core 238/0、Spring 45/2、Tools 162/8、MCP 13/0、CLI 327/11），TUI check 133/133、launcher 59 assertions、Dashboard check/self-test 与 clean Git 状态均通过。首轮 full verify 的 Settings Git `CreateProcess error=5` 由 focused test 1/1 后同一 Commit 上连续完整 clean verify 全绿取代，不计为通过证据。`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 因此达到 L2，`SUB-06/HOOK-11` 达到冻结的 L1。
 
 ## 结论
 
-S12 G0-G2 Passed，G3-G5 candidate passed；矩阵记录 ADR-062 冻结的 L2/L1 candidate。G6 与 Stage Exit 必须等待真实 implementation Commit 后的 commit-scoped acceptance，当前仍不得宣称 S12 Accepted；Worktree 也不得描述成 OS Sandbox。
+S12 G0-G6 Passed，Stage Exit Accepted，固定实现 Commit 为 `cfbe0282b37a93e38256c3d2d6f22ed2207975a5`。Worktree reparse、Git fault/timeout、Windows remove/branch-lock cancellation recovery 仍是明确 gap；Worktree 也不得描述成 OS Sandbox。

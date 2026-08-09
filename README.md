@@ -49,7 +49,7 @@
 > Workspace-aware metadata、本机单 Writer、未完成 Tool Recovery Gate、写前 ordinary-file
 > Checkpoint、有界 Diff 与逐项显式 Undo；Java CLI/Print/stdio/TUI 共用同一 Runtime，Behavior Replay
 > 已验证 Resume/Fork canonical history。任何有副作用操作都绝不自动重放；`SESSION-08` 仍仅为 L1；
-> S07 Context Engineering 已在 Commit-scoped G0-G6 对账后 Accepted：生产路径提供短生命周期 Context Projection、条件式 C1-C4、typed overflow 至多一次恢复、内部 Usage View、M1-M5 文件记忆及 ready-only 零等待预取；离线长会话 Eval 保持 Canonical/Tool 协议、事实/硬约束与完成率，并取得 49% 的估算 Token 降幅中位数。S08 已在 corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 上完成 ADR-048 G0-G6；ADR-049 的 Workspace-safe `@file` 候选、提交时快照、Session Resume/Fork、模型附件投影与 TUI token 补全又在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6，`CLI-13`/`CTX-19` 达到 L2，S08 保持 Accepted。S09 现已完成严格 user/project Settings、精确指纹 Trust、Command/loopback HTTP、生命周期、Compact 与 transient Context Projection，G0-G6 Accepted。S10 新增隔离的 `cc-java-mcp` Adapter，STDIO/Streamable HTTP、多 Server、filter/prefix、统一 Permission/Approval/Pipeline、Trust 与单次断线恢复均通过真实 Transport 和 Headless E2E，Tool 主链 G0-G6 Accepted；S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，Stage Exit Accepted；`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1。Maven 813 tests/21 skips、Demo 67/67、TUI 129/129、launcher 59/59 与 Dashboard 均通过。S12 已由 ADR-061/062 完成授权快照与 OpenAI Codex `rust-v0.147.0` 双源 G0-G2 范围/架构冻结并进入 In Progress；当前 dirty worktree 已完成 Project Trust、独立 child composition、恢复 registry、Stop Hook 父下一回合投影、后台/取消、完整 AgentRuntime 并行只读 batch、保守 Git Worktree 与真实六 seed Supervisor/AgentRuntime Eval。`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2 candidate，`SUB-06/HOOK-11` 为 L1 candidate，G3-G5 candidate passed；G6/Stage Exit 等待真实 implementation Commit 的 commit-scoped 全复验。Marketplace、签名、Lazy Tool、Resource/Prompt 自动投影、OAuth、S13 OS Sandbox 与 S14 稳定协议也仍明确未实现。
+> S07 Context Engineering 已在 Commit-scoped G0-G6 对账后 Accepted：生产路径提供短生命周期 Context Projection、条件式 C1-C4、typed overflow 至多一次恢复、内部 Usage View、M1-M5 文件记忆及 ready-only 零等待预取；离线长会话 Eval 保持 Canonical/Tool 协议、事实/硬约束与完成率，并取得 49% 的估算 Token 降幅中位数。S08 已在 corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 上完成 ADR-048 G0-G6；ADR-049 的 Workspace-safe `@file` 候选、提交时快照、Session Resume/Fork、模型附件投影与 TUI token 补全又在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6，`CLI-13`/`CTX-19` 达到 L2，S08 保持 Accepted。S09 现已完成严格 user/project Settings、精确指纹 Trust、Command/loopback HTTP、生命周期、Compact 与 transient Context Projection，G0-G6 Accepted。S10 新增隔离的 `cc-java-mcp` Adapter，STDIO/Streamable HTTP、多 Server、filter/prefix、统一 Permission/Approval/Pipeline、Trust 与单次断线恢复均通过真实 Transport 和 Headless E2E，Tool 主链 G0-G6 Accepted；S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，Stage Exit Accepted；`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1。Maven 813 tests/21 skips、Demo 67/67、TUI 129/129、launcher 59/59 与 Dashboard 均通过。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit；标准 clean verify 838 tests/21 skips、TUI 133/133、launcher 59 assertions 与 Dashboard 均通过。`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1；Worktree reparse、Git fault/timeout 与 Windows remove/branch-lock cancellation recovery 仍是明确 gap。当前仅将路线推进到 S13，S13 G0 尚未开始，OS Sandbox 不得描述为已研究或已实现；Marketplace、签名、Lazy Tool、Resource/Prompt 自动投影、OAuth 与 S14 稳定协议也仍明确未实现。
 
 ## 项目目标
 
@@ -85,9 +85,9 @@ Stage 证据为准。
 | L3 | 关键行为和异常路径可与参考基线比较 |
 | L4 | 在评测数据支持下形成 Java 生态差异化 |
 
-R2026.03 基线目前追踪 197 个 Capability ID。S01-S08 已完成 Accepted Stage Exit；当前
-83 项为 L2、31 项为 L1、83 项为 L0。S07 的 `CTX-17/18` 与 S08 的 20 个 Instructions/Settings/
-CLI Feature 已达到 L2；这不表示已有 Managed Policy、OS Sandbox 或 S14 稳定持久化能力。
+R2026.03 基线目前追踪 197 个 Capability ID。S01-S12 已完成 Accepted Stage Exit；当前
+122 项为 L2、38 项为 L1、37 项为 L0。S12 的 Sub-Agent/后台任务/Worktree 能力已达到冻结的
+L2/L1 退出目标；这不表示已有 Managed Policy、OS Sandbox 或 S14 稳定持久化能力。
 默认最终目标为 L3，任何不实现项都必须记录 `Accepted Deviation`。
 
 项目同时度量四件事：
@@ -193,7 +193,7 @@ Spring AI 只位于模型和集成适配层，React/Ink 只位于终端前端。
 37. [ADR-056](./docs/adr/ADR-056-s10-authorized-mcp-study.md)与[ADR-057](./docs/adr/ADR-057-s10-mcp-adapter.md)：S10 授权/公开 MCP 研究、SDK Adapter、Transport、统一权限与恢复契约；
 38. [S09 证据](./docs/evidence/S09-hooks-2026-08-09.md)与[S10 证据](./docs/evidence/S10-mcp-2026-08-09.md)：两个 Stage 的 G0-G6、真实 E2E、Demo 与 Gap 对账；
 39. [ADR-058](./docs/adr/ADR-058-s11-dual-source-skills-plugins-study.md)至[ADR-060](./docs/adr/ADR-060-s11-plugin-host-contract.md)、[S11 Gate Evidence](./docs/evidence/S11-skills-plugins-gate-2026-08-09.md)与[G5/G6 Commit 验收结果](./docs/evidence/S11-g5-g6-worktree-2026-08-09.md)：S11 双源边界、Skill/Plugin 独立契约、量化/Demo/G6 Commit-scoped 对账与延期能力；
-40. [ADR-061](./docs/adr/ADR-061-s12-dual-source-subagent-worktree-study.md)、[ADR-062](./docs/adr/ADR-062-s12-subagent-runtime-worktree-contract.md)与[S12 Evidence](./docs/evidence/S12-subagent-worktree-gate-2026-08-10.md)：S12 双源研究及 Batch A-C 工作树候选实现；同 Runtime 独立 Scope、后台/取消、TOOL-15、fixed-argv Worktree 与六 seed Eval 已形成 G3-G5 candidate evidence，G6/Stage Exit 等待真实实现 Commit 复验；
+40. [ADR-061](./docs/adr/ADR-061-s12-dual-source-subagent-worktree-study.md)、[ADR-062](./docs/adr/ADR-062-s12-subagent-runtime-worktree-contract.md)与[S12 Evidence](./docs/evidence/S12-subagent-worktree-gate-2026-08-10.md)：S12 双源研究、同 Runtime 独立 Scope、后台/取消、TOOL-15、fixed-argv Worktree、六 seed Eval 与实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 的 Commit-scoped G0-G6/Stage Exit Accepted 证据；
 30. [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)：仍有效的 Provider 与 Streaming 目标；
 26. [ADR-020（历史）](./docs/adr/ADR-020-quarantine-unverified-reference-source.md)：此前暂停研究的审计记录；
 27. [Stage 证据包模板](./docs/templates/stage-evidence-package.md)：每个阶段统一的 G0-G6 Gate；

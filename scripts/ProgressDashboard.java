@@ -63,7 +63,7 @@ public final class ProgressDashboard {
     private static final Set<String> GATE_STATUS_VALUES =
             Set.of("PASSED", "OPEN", "BLOCKED");
     private static final Set<String> STAGE_STATUS_VALUES =
-            Set.of("ACCEPTED", "IN_PROGRESS", "BLOCKED", "PLANNED");
+            Set.of("ACCEPTED", "IN_PROGRESS", "BLOCKED", "NOT_STARTED", "PLANNED");
     private static final Set<String> EXIT_VALUES =
             Set.of("OPEN", "ACCEPTED", "BLOCKED");
 
@@ -335,7 +335,7 @@ public final class ProgressDashboard {
      * 校验 Stage 状态机及 Accepted 证据闭环。
      *
      * <p>Stage Status 与 Exit 是同一工作流状态的两个视角，允许的组合只有
-     * {@code PLANNED/OPEN}、{@code IN_PROGRESS/OPEN}、
+     * {@code NOT_STARTED/OPEN}、{@code PLANNED/OPEN}、{@code IN_PROGRESS/OPEN}、
      * {@code BLOCKED/BLOCKED} 与 {@code ACCEPTED/ACCEPTED}。
      * Accepted 还必须由全部 Gate、零阻塞项和提交级证据共同支撑，防止仅修改一个
      * 属性就让看板错误宣称 Stage 已退出。</p>
@@ -363,7 +363,7 @@ public final class ProgressDashboard {
         String expectedExit = switch (currentStatus) {
             case "ACCEPTED" -> "ACCEPTED";
             case "BLOCKED" -> "BLOCKED";
-            case "IN_PROGRESS", "PLANNED" -> "OPEN";
+            case "IN_PROGRESS", "NOT_STARTED", "PLANNED" -> "OPEN";
             default -> throw new IllegalStateException(
                     "Unreachable current Stage status: " + currentStatus);
         };
@@ -1289,7 +1289,7 @@ public final class ProgressDashboard {
             case "IN_PROGRESS" -> "in-progress";
             case "OPEN" -> "open";
             case "BLOCKED" -> "blocked";
-            case "PLANNED" -> "planned";
+            case "NOT_STARTED", "PLANNED" -> "planned";
             default -> throw new IllegalStateException("Unreachable status: " + status);
         };
     }
@@ -1300,7 +1300,7 @@ public final class ProgressDashboard {
             case "IN_PROGRESS" -> "进行中";
             case "OPEN" -> "待关闭";
             case "BLOCKED" -> "阻塞";
-            case "PLANNED" -> "未开始";
+            case "NOT_STARTED", "PLANNED" -> "未开始";
             default -> throw new IllegalStateException("Invalid status label: " + status);
         };
     }
@@ -1469,6 +1469,18 @@ public final class ProgressDashboard {
         assertCondition(
                 "S03".equals(acceptedData.currentStage().id()),
                 "valid Accepted state was not parsed");
+
+        Properties notStarted = copyProperties(accepted);
+        notStarted.setProperty("current.stage.status", "NOT_STARTED");
+        notStarted.setProperty("current.stage.exit", "OPEN");
+        notStarted.setProperty("stage.S03.status", "NOT_STARTED");
+        for (String gate : GATES) {
+            notStarted.setProperty("gate." + gate + ".status", "OPEN");
+        }
+        DashboardData notStartedData = parse(matrix, notStarted);
+        assertCondition(
+                "NOT_STARTED".equals(notStartedData.currentStatus()),
+                "valid NOT_STARTED state was not parsed");
 
         Properties openGate = copyProperties(accepted);
         openGate.setProperty("gate.G4.status", "OPEN");

@@ -1,6 +1,6 @@
-# S12 Sub-Agent + Worktree 可复现 Demo（Worktree Candidate）
+# S12 Sub-Agent + Worktree 可复现 Demo（Accepted）
 
-> 状态：G5 WORKTREE CANDIDATE。当前结果来自未提交 dirty worktree；必须由协调者创建真实 implementation Commit 并重新执行 commit-scoped G3-G6，Stage Exit 才可验收。
+> 状态：G5 PASSED。结果已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 commit-scoped G0-G6 与 Stage Exit 验收。
 
 ## 实际执行
 
@@ -25,7 +25,7 @@ npm --prefix cc-java-tui run check
 | recovery | 1/1：requested/started 无 terminal → `INTERRUPTED_UNKNOWN`，不重放模型/Tool/Git |
 | real Git Worktree | 2/2：clean create/enter/remove 无 registration/branch/path 泄漏；dirty/new commit 均 preserve；traversal slug 拒绝 |
 | six-seed real Eval | 1/1，6 seed × 5 replay × 单/多策略 = 60 个真实 Supervisor/AgentRuntime child runs；两侧完成率 100%，冲突/未审批副作用 0；实测墙钟中位数改善 ≥20%，不伪造 Token 收益 |
-| TUI | build + 129/129 Vitest；`task.status/task.terminal` 投影通过类型检查与既有回归 |
+| TUI | build + 133/133 Vitest；`task.status/task.terminal/task.worktree` 与 wait/cancel/keep/remove 输入链路通过 |
 
 ## 生产链路
 

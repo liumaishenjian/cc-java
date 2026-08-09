@@ -174,4 +174,4 @@ IN_USE → REMOVING → REMOVED
 
 ## Gate 结论
 
-ADR-061/062、S12 Evidence/Demo/Gap skeleton 与权威文档共同冻结 G0-G2。`SUB-01..10`、`CTX-15`、`HOOK-08/11`、`TOOL-15` 当前仍全部为 L0；G3-G6 Open，S12 Stage Exit Open。
+ADR-061/062 冻结 G0-G2 后，Batch A-C、Evidence/Demo/Gap 与权威文档已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 commit-scoped G0-G6 对账，S12 Stage Exit Accepted。`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 达到 L2，`SUB-06/HOOK-11` 达到 L1；延期项与 Worktree 自动故障注入 gaps 保持不变。
