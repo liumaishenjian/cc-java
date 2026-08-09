@@ -4,7 +4,7 @@
 >
 > 参考版本：R2026.03
 >
-> 最后更新：2026-08-09
+> 最后更新：2026-08-10
 >
 > 当前代码状态：S01-S07 已 Accepted；S07 的 Canonical Transcript/Projection、条件式 C1-C4、文件记忆
 > M1-M5、ready-only 零等待预取、内部 Usage View 与 latest-only Recovery Analytics 已在离线 Fake、Demo、
@@ -17,8 +17,8 @@
 > filter/prefix、Permission、Trust 与单次断线恢复的 Tool 主链并通过真实 Transport/Headless E2E，
 > G0-G6 Accepted；`MCP-01`～`07` 为 L2，`MCP-09`～`11` 为 L1，`MCP-08` 仍为 L0；
 > rules 编辑、Provider discovery/多模型注册、S12 Sub-Agent、S13 OS Sandbox 与 S14 稳定协议/
-> Export/Retention/Migration 仍未实现。S11 已完成 G0-G6 工作树候选实现、量化、Demo 与能力对账，当前为 WORKTREE VERIFIED / PENDING FINAL COMMIT；
-> 工作树候选已将 `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 更新为 L2、`PLUGIN-04` 更新为 L1；机器 Gate G3-G6 仍保持 Open，Stage Exit 等待真实实现 Commit 上复验。
+> Export/Retention/Migration 仍未实现。S11 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、Demo 与能力对账均通过，Stage Exit Accepted；
+> `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2、`PLUGIN-04` 为 L1。下一路线节点为 S12 G0，但尚未启动；Sub-Agent、后台任务与 Worktree 能力仍保持 L0。
 
 ## 1. 文档目的
 
@@ -162,12 +162,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 197 |
-| 当前阶段 | S11 Skills + Plugins（WORKTREE VERIFIED / PENDING FINAL COMMIT） |
-| Stage Exit | S09/S10 Accepted；S11 G0-G6 工作树候选已验证，G3-G6 机器状态保持 Open，Stage Exit 未 Accepted |
+| 当前阶段 | S11 Skills + Plugins（ACCEPTED）；下一路线节点为尚未启动的 S12 G0 |
+| Stage Exit | S09/S10/S11 Accepted；S11 实现 Commit `7127843` 的 G0-G6 与 Stage Exit 已通过 |
 | 当前等级 | 110 项为 L2，36 项为 L1，51 项为 L0 |
 | 默认最终目标 | 197 项达到 L3，或存在明确 `Accepted Deviation` |
 | 当前能力覆盖 | 43.32%（197 项等权、目标 L3） |
-| 下一步 | 在实现 Commit 上完成 S11 Commit-scoped 最终复验与 Accepted；MCP-08、签名/市场/供应链能力保持延期 |
+| 下一步 | 进入尚未启动的 S12 G0 授权机制研究；Sub-Agent/后台任务/Worktree 及 MCP-08、签名/市场/供应链能力保持未实现或延期 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -395,7 +395,7 @@ Stage 完成项。
 | CTX-11 | Thrashing Guard | Run/revision/tier 冷却与单次 typed-overflow 恢复 | L2 | S07 | REF-02 |
 | CTX-12 | Compact Instructions | 无参数时针对当前 Session、有界 anchors 可选的显式 compact，经既有 S07 Gate 生成一次性下一 Run 首个模型请求 Projection | L2 | S08 | REF-02 |
 | CTX-13 | `/context` | 最新 `ContextUsageView` 的数值/枚举白名单命令、stdio/封闭 Slash/TUI 协议投影 | L2 | S07/S08 | REF-02 |
-| CTX-14 | Skill Lazy Loading | Metadata-first catalog，正文/资源仅在调用时进入 transient Projection；工作树候选待 Commit-scoped Accepted | L2 | S11 | REF-03 |
+| CTX-14 | Skill Lazy Loading | Metadata-first catalog，正文/资源仅在调用时进入 transient Projection；S11 Commit-scoped 验收达到 L2 | L2 | S11 | REF-03 |
 | CTX-15 | Sub-Agent Isolation | 独立窗口与摘要返回 | L0 | S12 | REF-02/03 |
 | CTX-16 | Prompt Cache | 稳定前缀和 Tool 顺序 | L0 | S14 | REF-01 |
 | CTX-17 | Auto Memory Index | `MEMORY.md`、有界 topic Catalog、可重建索引与真实 Headless 文件装配 | L2 | S07 | REF-05/AUTH-01 |
@@ -457,17 +457,17 @@ Stage 完成项。
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| SKILL-01 | Skill Metadata | 严格有界 metadata、触发方式与 immutable catalog snapshot；S11 工作树候选已达 L2，待最终 Commit-scoped Accepted | L2 | S11 | REF-03/AUTH-01/CODEX-0.147 |
-| SKILL-02 | Markdown Workflow | 按 digest 加载的不可信 Markdown workflow 与 transient Projection；S11 工作树候选已达 L2 | L2 | S11 | REF-03/AUTH-01/CODEX-0.147 |
-| SKILL-03 | Explicit Invocation | `/skill-name` 类型化入口，共用 SkillInvoker；S11 工作树候选已达 L2 | L2 | S11 | REF-03/AUTH-01/CODEX-0.147 |
-| SKILL-04 | Model Invocation | metadata catalog → 普通 Skill Tool；成功投影后激活，禁止 nested/reentrant；每个真实 Tool Call 仍逐次走 Permission/Approval/Pipeline；S11 工作树候选已达 L2 | L2 | S11 | REF-03/AUTH-01/CODEX-0.147 |
-| SKILL-05 | Lazy Content | 本地 Skill 启动只 materialize metadata，正文/资源调用时加载；Plugin Skill 在受信 Session composition 冻结；S11 工作树候选已达 L2 | L2 | S11 | REF-03/AUTH-01/CODEX-0.147 |
-| SKILL-06 | Bundled Resources | Skill-root 内普通 UTF-8 资源，有界且不执行脚本；S11 工作树候选已达 L2 | L2 | S11 | REF-03/AUTH-01 |
-| SKILL-07 | Scoped Hooks | 正文成功投影后启用并持续到 Run 唯一终态；无活动 Run 的 Resume 不恢复；S11 工作树候选已达 L2 | L2 | S11 | REF-03/07/AUTH-01 |
-| PLUGIN-01 | Plugin Manifest | 严格 v1 manifest、namespace、tree fingerprint 与 immutable snapshot；S11 工作树候选已达 L2 | L2 | S11 | REF-03/AUTH-01/CODEX-0.147 |
-| PLUGIN-02 | Bundle Skills/Hooks/MCP | 只打包已验证组件，不建立第二套 Runtime；S11 工作树候选已达 L2 | L2 | S11 | REF-03/AUTH-01/CODEX-0.147 |
-| PLUGIN-03 | Tool Provider SPI | 宿主 factory 返回有 lease/close 所有权的 Contribution；MCP-backed 仅引用 named Server，可信 PLUGIN Tool 逐次 ASK/Pipeline；拒绝任意 JAR；S11 工作树候选已达 L2 | L2 | S11 | REF-03/AUTH-01 |
-| PLUGIN-04 | Install / Uninstall | 本地 staged install 与 quiescing uninstall 的 S11 工作树候选达到 L1；S14 再实现可恢复/迁移 L2 | L1 | S11/S14 | REF-03/AUTH-01 |
+| SKILL-01 | Skill Metadata | 严格有界 metadata、触发方式与 immutable catalog snapshot；S11 Commit-scoped 验收达到 L2 | L2 | S11 | REF-03/AUTH-01/CODEX-0.147 |
+| SKILL-02 | Markdown Workflow | 按 digest 加载的不可信 Markdown workflow 与 transient Projection；S11 Commit-scoped 验收达到 L2 | L2 | S11 | REF-03/AUTH-01/CODEX-0.147 |
+| SKILL-03 | Explicit Invocation | `/skill-name` 类型化入口，共用 SkillInvoker；S11 Commit-scoped 验收达到 L2 | L2 | S11 | REF-03/AUTH-01/CODEX-0.147 |
+| SKILL-04 | Model Invocation | metadata catalog → 普通 Skill Tool；成功投影后激活，禁止 nested/reentrant；每个真实 Tool Call 仍逐次走 Permission/Approval/Pipeline；S11 Commit-scoped 验收达到 L2 | L2 | S11 | REF-03/AUTH-01/CODEX-0.147 |
+| SKILL-05 | Lazy Content | 本地 Skill 启动只 materialize metadata，正文/资源调用时加载；Plugin Skill 在受信 Session composition 冻结；S11 Commit-scoped 验收达到 L2 | L2 | S11 | REF-03/AUTH-01/CODEX-0.147 |
+| SKILL-06 | Bundled Resources | Skill-root 内普通 UTF-8 资源，有界且不执行脚本；S11 Commit-scoped 验收达到 L2 | L2 | S11 | REF-03/AUTH-01 |
+| SKILL-07 | Scoped Hooks | 正文成功投影后启用并持续到 Run 唯一终态；无活动 Run 的 Resume 不恢复；S11 Commit-scoped 验收达到 L2 | L2 | S11 | REF-03/07/AUTH-01 |
+| PLUGIN-01 | Plugin Manifest | 严格 v1 manifest、namespace、tree fingerprint 与 immutable snapshot；S11 Commit-scoped 验收达到 L2 | L2 | S11 | REF-03/AUTH-01/CODEX-0.147 |
+| PLUGIN-02 | Bundle Skills/Hooks/MCP | 只打包已验证组件，不建立第二套 Runtime；S11 Commit-scoped 验收达到 L2 | L2 | S11 | REF-03/AUTH-01/CODEX-0.147 |
+| PLUGIN-03 | Tool Provider SPI | 宿主 factory 返回有 lease/close 所有权的 Contribution；MCP-backed 仅引用 named Server，可信 PLUGIN Tool 逐次 ASK/Pipeline；拒绝任意 JAR；S11 Commit-scoped 验收达到 L2 | L2 | S11 | REF-03/AUTH-01 |
+| PLUGIN-04 | Install / Uninstall | 本地 staged install 与 quiescing uninstall 经 S11 Commit-scoped 验收达到 L1；S14 再实现可恢复/迁移 L2 | L1 | S11/S14 | REF-03/AUTH-01 |
 | PLUGIN-05 | Trust / Signature | fingerprint 不等于签名；S11 保持 L0，供应链控制延期 | L0 | S13/S14 | REF-03 |
 | PLUGIN-06 | Marketplace | S11 保持 L0；发现、联网安装和分发延期 | L0 | S14/S15 | REF-03 |
 
@@ -723,18 +723,19 @@ Lazy Tool Loading 保持 L0，OAuth 与 OS 网络隔离分别留到 S13，稳定
 
 ### S11：Skills + Plugins
 
-ADR-058～060 继续约束双源研究、范围与独立架构；G0-G6 工作树候选实现、量化、Demo 与 Review
-修正已验证，当前为 WORKTREE VERIFIED / PENDING FINAL COMMIT。候选等级已更新，但机器 Gate G3-G6
-仍保持 Open，Stage Exit 等待真实实现 Commit 上复验。当前结果与边界：
+ADR-058～060 继续约束双源研究、范围与独立架构；实现 Commit
+`71278431dd1e5c7c4e279b44f43e084755502a5d` 上的 G0-G6、量化、Demo、Review 修正与能力对账均已验证，
+Stage Exit Accepted。当前结果与边界：
 
-- `SKILL-01..07`、`CTX-14` 候选达到 L2：metadata-first、markdown/lazy load、explicit/model invocation、resource、`runtimeVisibleTools ∩ skillAllowedTools` 纯收窄且每次调用重新执行 Permission/Approval、禁止 nested/reentrant、每 Run 每 Skill 至多一次、Hook/Scope 持续到 Run 唯一终态、无活动 Run 的 Resume 不恢复 Scope、Session digest/recovery；
-- `PLUGIN-01..03` 候选达到 L2：strict manifest/namespace、immutable snapshot、返回 Contribution 的 host-side Tool Provider SPI、named MCP Server 引用、可信 PLUGIN Network Tool 的受控 ASK 入口与关闭所有权；
-- `PLUGIN-04` 候选只达到 S11 L1：本地 staged install 与 quiescing uninstall；S14 再达到 L2；
+- `SKILL-01..07`、`CTX-14` 达到 L2：metadata-first、markdown/lazy load、explicit/model invocation、resource、`runtimeVisibleTools ∩ skillAllowedTools` 纯收窄且每次调用重新执行 Permission/Approval、禁止 nested/reentrant、每 Run 每 Skill 至多一次、Hook/Scope 持续到 Run 唯一终态、无活动 Run 的 Resume 不恢复 Scope、Session digest/recovery；
+- `PLUGIN-01..03` 达到 L2：strict manifest/namespace、immutable snapshot、返回 Contribution 的 host-side Tool Provider SPI、named MCP Server 引用、可信 PLUGIN Network Tool 的受控 ASK 入口与关闭所有权；
+- `PLUGIN-04` 在 S11 只达到 L1：本地 staged install 与 quiescing uninstall；S14 再达到 L2；
 - `PLUGIN-05/06`、`SEC-11`、`MCP-08`、`TOOL-16` 保持 L0；fingerprint/catalog 不冒充签名、市场、Sandbox 或 Lazy Tool；
 - 明确拒绝任意 JAR/Class/ServiceLoader/native/script Tool Provider；
 - 实际 Plugin Adapter 经过 Permission/Approval/Hook/Pipeline，旁路执行次数为 0；
 - G4 证明 metadata 启动读取降低至少 90%、权限/协议/租约/隐私违规为 0，并覆盖恶意资源、恢复错配、安装故障点和活动引用卸载；
-- G5 记录真实 Demo 结果，G6 在实现 Commit 上对账 Evidence/Demo/Gap/看板。
+- G5 在实现 Commit 上记录 67/67 Demo，G6 已对账 Evidence/Demo/Gap/看板；Maven 813 tests/21 skips、TUI 129/129、launcher 59/59 与 Dashboard 均通过。
+- 下一路线节点为 S12 G0，但尚未启动；`SUB-01..10`、`CTX-15`、`HOOK-08/11`、`TOOL-15` 继续保持 L0。
 
 ### S12：Sub-Agent + Worktree
 

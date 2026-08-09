@@ -2,14 +2,14 @@
 
 > 文档状态：Draft v0.9
 >
-> 最后更新：2026-08-09
+> 最后更新：2026-08-10
 >
 > 当前阶段：S01-S08 已 Accepted；S08 ADR-048 的既有能力已在 Commit
 > `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 上 Accepted，ADR-049 的显式文件引用又在实现
 > Commit `5910a8f` 上完成 Commit-scoped G0-G6；`CLI-13`、`CTX-19` 达到 L2。S09 已完成
 > Settings/Trust、Command/loopback HTTP、生命周期、Compact 与生产装配并 Accepted；S10 MCP Tool
 > 主链已完成 STDIO/Streamable HTTP、多 Server、统一 Permission、Trust 与恢复并通过真实 E2E，Accepted。
-> S11 Skills + Plugins 已完成 G0-G6 工作树候选实现、量化、安全矩阵、Demo 与能力对账，当前为 WORKTREE VERIFIED / PENDING FINAL COMMIT；G3-G6 机器状态保持 Open，Stage Exit 未 Accepted。
+> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、安全矩阵、Demo 与能力对账均通过，Stage Exit Accepted。下一路线节点为 S12 G0，但尚未启动。
 >
 > 产品负责人：项目维护者
 
@@ -511,17 +511,17 @@ Command Intent/Event 与 G3/G4 测试矩阵。G3-C/D/F 的有界子切片现已�
 
 ### S11：Skills 与 Plugins
 
-S11 已按 ADR-058～060 完成 G0-G6 工作树实现、量化、安全矩阵和可复现离线 Demo，当前为 WORKTREE VERIFIED / PENDING FINAL COMMIT；最终 Accepted 仍须在实现 Commit 上独立复验。退出候选范围为：
+S11 已按 ADR-058～060 在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、安全矩阵与可复现离线 Demo 均通过，Stage Exit Accepted。验收范围为：
 
-- `SKILL-01..07` 与 `CTX-14` 工作树候选 L2：有界 metadata-first catalog、`/skill-name` 显式调用、模型 Skill Tool、正文与资源仅在调用时进入 transient Projection；`allowed-tools` 仅计算 runtime visibility 与 Skill allowlist 的交集，每个真实调用仍逐次执行 S05 Permission/Approval/Pipeline；禁止 nested/reentrant，单 Run 可稳定激活多个不同 Skill但每项至多一次，Scope/Hook 从正文成功投影持续到 Run 唯一终态，无活动 Run 的 Resume 不自动恢复；
-- `PLUGIN-01..03` 目标 L2：严格 manifest/namespace、Session immutable snapshot、host-side factory 返回持有 Tool/lease/close 的 Contribution，以及只引用已验证 named MCP Server 的首个 MCP-backed Adapter；G3 受控允许可信 `ToolSource.PLUGIN + NETWORK_OR_REMOTE` 进入 ASK，manifest 不得构造 ToolDefinition/ToolSource，Plugin Tool 仍逐次经过统一 Permission/Approval/Hook/Pipeline；
+- `SKILL-01..07` 与 `CTX-14` L2：有界 metadata-first catalog、`/skill-name` 显式调用、模型 Skill Tool、正文与资源仅在调用时进入 transient Projection；`allowed-tools` 仅计算 runtime visibility 与 Skill allowlist 的交集，每个真实调用仍逐次执行 S05 Permission/Approval/Pipeline；禁止 nested/reentrant，单 Run 可稳定激活多个不同 Skill但每项至多一次，Scope/Hook 从正文成功投影持续到 Run 唯一终态，无活动 Run 的 Resume 不自动恢复；
+- `PLUGIN-01..03` 已验收达到 L2：严格 manifest/namespace、Session immutable snapshot、host-side factory 返回持有 Tool/lease/close 的 Contribution，以及只引用已验证 named MCP Server 的首个 MCP-backed Adapter；G3 受控允许可信 `ToolSource.PLUGIN + NETWORK_OR_REMOTE` 进入 ASK，manifest 不得构造 ToolDefinition/ToolSource，Plugin Tool 仍逐次经过统一 Permission/Approval/Hook/Pipeline；
 - `PLUGIN-04` 在 S11 只达到 L1：仅接受本地目录，archive 一律拒绝；staging 文件/目录 flush、同文件系统原子发布、registry staged flush/原子替换任一步不支持即 Fail Closed；卸载采用 quiescing/lease 归零，S14 再以崩溃恢复、迁移和跨平台管理达到 L2；
 - `PLUGIN-05/06` 与 `SEC-11` 保持 L0；fingerprint 只做精确内容 Trust，不冒充签名、Marketplace、供应链隔离或 OS Sandbox；
 - S11 明确拒绝任意 JAR、Class、ServiceLoader、native library、安装脚本或插件自带 Java Tool 代码；Provider factory 只能由宿主生产代码预注册；
 - `MCP-08` 和通用 `TOOL-16` 不随 Skill catalog/MCP-backed Plugin 自动升级，仍需独立规模和质量证据；
 - FixBug、Review、Test Generation 可作为独立示例 Skill，但不得成为 Runtime 分支。
 
-G3-G6 工作树候选证据支持 `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 达到 L2，`PLUGIN-04` 达到 L1；矩阵已按候选能力更新，但 Stage Exit/Accepted 仍等待实现 Commit 上的协调者复验。数值上限、metadata 99.51% 降幅、恶意资源、安装故障点、快照漂移、权限旁路、恢复错配及五类零泄漏结果见 S11 Gate Evidence/Demo/Gap。
+实现 Commit `7127843` 的 G3-G6 证据确认 `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 达到 L2，`PLUGIN-04` 达到 L1；Maven 813 tests/21 skips、Demo 67/67、TUI 129/129、launcher 59/59 与 Dashboard 均通过。数值上限、metadata 99.51% 降幅、恶意资源、安装故障点、快照漂移、权限旁路、恢复错配及五类零泄漏结果见 S11 Gate Evidence/Demo/Gap。下一路线节点为 S12 G0，但尚未启动；全部 S12 Capability 仍保持 L0。
 
 ## 15. S12-S13：高级 Agent 与安全重实现
 

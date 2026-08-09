@@ -1,11 +1,11 @@
-# S11 Skills + Plugins G0-G6 工作树候选证据
+# S11 Skills + Plugins G0-G6 Commit-scoped 验收证据
 
 ## 元数据
 
 ```text
 Stage: S11 Skills + Plugins
-Status: WORKTREE VERIFIED / PENDING FINAL COMMIT（G0-G6 candidate；Stage Exit not Accepted）
-Release / Commit: N/A-DESIGN-WORKTREE（dirty worktree；不得伪造 Commit hash）
+Status: ACCEPTED（G0-G6 PASSED；Stage Exit Accepted）
+Release / Commit: 71278431dd1e5c7c4e279b44f43e084755502a5d
 Reference Behavior Baseline: R2026.03
 Authorized Snapshot ID: AUTH-SRC-2026-07-29-A
 Public Source Snapshot: OpenAI Codex rust-v0.147.0 / be6e8eac029b183056b7e4402879f15d2c85f61b
@@ -21,10 +21,10 @@ Initial evidence: 2026-08-09 / final independent rerun: 2026-08-10
 | G0 | PASSED | ADR-058 双源来源、固定 Codex tag/commit、授权快照指纹、Unknown 与非复制边界 |
 | G1 | PASSED | ADR-059/060 冻结 Feature、等级、数值上限、延期与最小可证伪行为 |
 | G2 | PASSED | 独立 Skill/Plugin 契约、模块所有权、权限/恢复/生命周期与被否决方案 |
-| G3 | PENDING FINAL COMMIT | G3-A/B/C 工作树实现、production composition 与独立回修已验证；待实现 Commit 上复验 |
-| G4 | PENDING FINAL COMMIT | 量化、安全、故障与恢复矩阵达到冻结阈值；待实现 Commit 上复验 |
-| G5 | PENDING FINAL COMMIT | 可复现临时独立 Fixture Demo 最新实际运行 67/67（Core 4、MCP 5、CLI 58），0 skip/failure/error；待实现 Commit 上复验 |
-| G6 | PENDING FINAL COMMIT | 矩阵候选已对账为 SKILL-01..07/CTX-14/PLUGIN-01..03 L2、PLUGIN-04 L1；Stage Exit 尚未 Accepted |
+| G3 | PASSED | 实现 Commit `7127843` 的 G3-A/B/C、production composition 与独立回修已验证 |
+| G4 | PASSED | 量化、安全、故障与恢复矩阵达到冻结阈值；clean verify 813 tests/21 skips，0 failures/errors |
+| G5 | PASSED | 可复现临时独立 Fixture Demo 在实现 Commit 上运行 67/67（Core 4、MCP 5、CLI 58），0 skip/failure/error |
+| G6 | PASSED | 矩阵已对账为 SKILL-01..07/CTX-14/PLUGIN-01..03 L2、PLUGIN-04 L1；权威文档与 Dashboard 同步，Stage Exit Accepted |
 
 ## G0：来源与授权
 
@@ -155,11 +155,11 @@ Initial evidence: 2026-08-09 / final independent rerun: 2026-08-10
 | Lease/resource/Hook leak | 0 | contribution、client、Plugin generation、Skill Hook 在 normal/failure/cancel/terminal 后计数归零并验证幂等 close |
 | Privacy sentinel leak | 0 | JSONL/异常/诊断断言不含正文、资源、args、path、endpoint、env sentinel；只持久化规范 ID、枚举与 digest |
 
-G4 在工作树已满足量化和离线证伪要求，但 Gate 仍为 `OPEN`：当前没有实现 Commit，也没有协调者在该 Commit 上完成 Commit-scoped 独立验收；Capability Level 不提升。
+G4 的量化和离线证伪要求已在实现 Commit `7127843` 上完成 Commit-scoped 独立验收，Gate 为 `PASSED`；本次验收不额外改变已对账的 Capability Level。
 
 ### G4 实际验证命令与环境
 
-- 环境：Windows 10 Pro 10.0.19045、Java 21、Maven Wrapper 3.9.16、Node.js 22；dirty working tree，`evidence.commit=N/A-DESIGN-WORKTREE`。
+- 环境：Windows 10 Pro 10.0.19045、Java 21、Maven Wrapper 3.9.16、Node.js 22；`evidence.commit=71278431dd1e5c7c4e279b44f43e084755502a5d`。
 - Focused：`.\\mvnw.cmd -pl cc-java-cli -am "-Dtest=FileSkillRepositoryTest,SkillRunCoordinatorTest,PluginLocalAdapterTest,FileSessionStoreTest,SkillFoundationTest,HookCoordinatorTest,S11PluginSkillHeadlessE2ETest,McpBackedPluginToolProviderFactoryTest,PluginMcpPipelineIntegrationTest,DeterministicContextReducerTest" "-Dsurefire.failIfNoSpecifiedTests=false" "-DforkCount=0" test`；Core 37、MCP 5、CLI 51，共 93 tests，0 failures/errors/skips。
 - 历史 G4 完整基线：`.\\mvnw.cmd -pl cc-java-cli -am test`；模块汇总 `806 tests / 24 skips`，0 failures/errors；CLI 模块 `311 tests / 12 skips`。该时点计数已被下方最终独立验收取代。
 - TUI：`npm --prefix cc-java-tui run check`；10 files / 129 tests，0 failures。
@@ -182,11 +182,11 @@ G4 在工作树已满足量化和离线证伪要求，但 Gate 仍为 `OPEN`：�
 6. 卸载进入 QUIESCING，活动 Session 结束前文件保留，新 Session 看不到 Plugin，归零后清理。
 7. 负例：digest 变化、JAR 声明、链接逃逸、namespace 冲突均拒绝。
 
-实际命令、环境、`N/A-DESIGN-WORKTREE`、最新 67/67（Core 4、MCP 5、CLI 58，0 skip/failure/error）及正负观察已记录在 Demo 与 `S11-g5-g6-worktree-2026-08-09.md`；早期 pre-review 60/60 已被取代；G5 为 WORKTREE VERIFIED / PENDING FINAL COMMIT。
+实际命令、环境、实现 Commit `7127843`、最新 67/67（Core 4、MCP 5、CLI 58，0 skip/failure/error）及正负观察已记录在 Demo 与 `S11-g5-g6-worktree-2026-08-09.md`；早期 pre-review 60/60 已被取代；G5 为 `PASSED`。
 
 ## G6 候选对账结果
 
-`docs/gap-reports/S11.md` 已对账矩阵、README、PRD、技术设计、ADR、测试、Demo、Dashboard。工作树候选将 `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 记为 L2、`PLUGIN-04` 记为 L1；延期能力保持 L0。最终 Stage Exit 仍必须由协调者在真实实现 Commit 上完成完整 Reactor/TUI/launcher、安全扫描与 dashboard 复验后决定 Accepted。
+`docs/gap-reports/S11.md` 已在实现 Commit `7127843` 上对账矩阵、README、PRD、技术设计、ADR、测试、Demo 与 Dashboard。`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1；延期能力保持 L0。完整 Reactor、Demo、TUI、launcher、安全扫描与 Dashboard 复验通过，G6 与 Stage Exit Accepted。下一路线节点仅为尚未启动的 S12 G0。
 
 ## 当前未决问题
 

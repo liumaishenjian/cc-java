@@ -1,6 +1,6 @@
 # S11 Skills + Plugins 可复现离线 Demo
 
-> 状态：WORKTREE VERIFIED / PENDING FINAL COMMIT。Demo 已在 dirty worktree 使用临时、公开、独立 Fixture 实际运行；G5 最终 Commit-scoped 复验与 Accepted 由协调者在实现 Commit 上完成。
+> 状态：ACCEPTED。Demo 已使用临时、公开、独立 Fixture 实际运行，并在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped 复验；G5 PASSED。
 
 ## 目标 Fixture
 
@@ -29,7 +29,7 @@
 ```text
 Initial evidence: 2026-08-09 / final independent rerun: 2026-08-10
 Environment: Windows 10 Pro 10.0.19045 / Java 21 / Maven Wrapper 3.9.16 / Node.js 22
-Commit: N/A-DESIGN-WORKTREE（禁止伪造 hash；未 commit/push）
+Commit: 71278431dd1e5c7c4e279b44f43e084755502a5d
 ```
 
 Demo runner 使用 Maven Surefire 驱动真实 production composition 和临时目录 Fixture；不访问网络、不读取 API Key：
@@ -65,7 +65,7 @@ Demo runner 使用 Maven Surefire 驱动真实 production composition 和临时�
 
 ## 当前边界
 
-- G6 工作树候选将 `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 对账为 L2、`PLUGIN-04` 为 L1；最终 Accepted 仍等待实现 Commit 上的协调者复验；
+- G6 已在实现 Commit `7127843` 上将 `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 对账为 L2、`PLUGIN-04` 为 L1，S11 Stage Exit Accepted；
 - 不加载任意 JAR；
 - `PLUGIN-05/06`、`SEC-11`、`MCP-08`、`TOOL-16` 保持 L0；
 - 不具备 Marketplace、签名、OS Sandbox、Sub-Agent Skill 或稳定安装/迁移协议。
