@@ -1,53 +1,114 @@
-# S13 Sandbox + Security G3-G5 Candidate Evidence
+# S13 Sandbox + Security Commit-scoped Stage Evidence
 
 - Stage: S13
-- Status: In Progress（G3-G5 Candidate；G6 waits implementation Commit）
-- Release / Commit: working tree after `33086a7`; no commit created
+- Status: Accepted
+- Release / Commit: `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3`
 - Reference: `R2026.03` / `AUTH-SRC-2026-07-29-A` / Codex `rust-v0.147.0`
 - Date: 2026-08-10
+- Stage Exit: PASSED
 
-## G0-G2
+## G0：来源与授权 — PASSED
 
-ADR-063/064 的双源、范围、独立契约与停止条件继续有效。实现没有复制参考表达或新增依赖。
+ADR-063 固定授权快照、Codex 公开固定版本、采纳/偏离/Unknown 与停止条件；ADR-064 使用本项目独立 Java 契约、命名、策略和 Fixture。实现没有复制参考表达、引入参考字节或新增依赖。
 
-## G3 Candidate
+## G1：范围与目标 — PASSED
 
-Batch A-C 已一次性落地：
+| Feature | 验收前 | 验收后 | 结论 |
+| --- | ---: | ---: | --- |
+| `SEC-02/03/04/05` | L1 | L2 | native 应用层回归 + Linux Sandbox A 组合证据 |
+| `SEC-06/07/12`、`EVAL-04` | L0 | L2 | Windows-hosted WSL2+bwrap Linux A 与攻击矩阵 |
+| `SEC-08` | L0 | L1 | Docker daemon + pinned image B |
+| `PERM-08/09/12`、`SEC-09` | L2 | L2 | 组合回归，不升 L3 |
+| `PERM-05`、`CFG-07` | L0 | L0 | 只有未接线骨架，未生产接入 |
+| `HOOK-10` | L1 | L1 | JVM 内 HTTP 不受进程 backend 强制 |
+| `SEC-11` | L0 | L0 | 签名、SBOM、撤销与供应链隔离延期 |
 
-- Domain/Core 新增不可变 ExecutionBackend request/outcome/failure、selector/fallback、capability snapshot/status、五维 policy/report、Managed baseline/provenance 和 PERM-05 deterministic auto skeleton；公共安全契约含中文 Javadoc。
-- `LocalCommandExecutor` 不再直接启动 ProcessBuilder，而是适配唯一 backend seam；Local 明确报告 `UNSANDBOXED_LOCAL`。run_command 结果展示 backend/enforcement/fallback，Call ID 进入 request。
-- CLI 新增明确 `--execution-backend local|sandbox|container` 和 `--execution-shell platform|linux-sh`；Sandbox/Container 若非 LINUX_SH 立即拒绝，PowerShell/cmd 不隐式转换。stdio/TUI 沿用参数透传与既有协议，无需第二套 UI/Loop/Pipeline。
-- WSL2 backend 固定系统 `wsl.exe`、Ubuntu、`/usr/bin/bwrap`，双向 fixed-drive path identity、user/pid/net/ipc/uts namespace、只读 host、显式 writable Workspace/tmp、控制面 ro-bind、空环境与统一 cleanup。
-- Docker backend 使用 fixed CLI、pinned `nginx@sha256:0d17...9b31`、network none、read-only、非 root、cap-drop all、no-new-privileges、PID limit 与 rm cleanup。
-- native Windows 真实报告仅 process/env/secret B，file/network UNKNOWN；macOS C/U。JVM HTTP/MCP remote 不经过 backend，HOOK-10 保持 L1。
+S14 明确为 `NOT_STARTED`，不因 S13 Accepted 自动开始。
 
-Command Hook 与 MCP stdio 已复用共享 `ManagedProcessLauncher` 的 fixed argv/minimal env seam，Sub-Agent run_command 显式继承父 backend/shell。宿主 Git 控制操作仍是可信 fixed-argv 端口；这些入口均不冒充 OS Sandbox，MCP HTTP 继续排除。
+## G2：研究与 ADR — PASSED
 
-## G4 Candidate 实际验证
+ADR-063/064 已固定：
 
-| 验证 | 结果 |
-| --- | --- |
-| `mvnw clean verify` | PASS；标准离线 Surefire XML 汇总 851 tests/10 skips/0 failure/error：Domain 53/0、Core 238/0、Spring 45/2、Tools 175/8、MCP 13/0、CLI 327/0 |
-| focused real | 13/13 PASS、0 skip：`S13RealBackendAttackTest` 8/8 + `ExecutionBackendSelectorTest` 5/5 |
-| `S13RealBackendAttackTest` | disposable fixture、`/proc/net/dev` 仅 lo、outside 隔离、WSL timeout/cancel orphan、Docker readonly mask、PIDS_BLOCKED 非超时终态及无 limit 对照、生产 Bootstrap→RunCommandTool 组合与零残留 |
-| TUI | 133/133 PASS |
-| launcher | 59/59 PASS |
+- Permission/Approval 与 OS 强制边界正交；
+- `ExecutionBackend`、五维 policy、truthful capability probe 与 fail-closed selector；
+- Local 明确为 `UNSANDBOXED_LOCAL`，fallback 不能静默发生；
+- Windows-hosted WSL2 Ubuntu+bwrap、Docker optional backend、显式 `LINUX_SH` 与双向 path identity；
+- Linux A / Container B / native Windows B-U / macOS C-U 的诚实证据分级；
+- JVM 内 HTTP、MCP/Plugin remote 不计入 `SEC-07`；
+- Permission、Checkpoint、Worktree、Job cleanup、最小环境与 Local backend 均不等于 Sandbox。
 
-真实环境：Windows 10 host；Ubuntu WSL2；bubblewrap 0.4.0；Docker Desktop 4.31.1 / Engine 26.1.4 linux amd64；pinned nginx digest already present。
+## G3：独立实现 — PASSED
 
-安全观察：outside/control-plane write、direct network、Secret sentinel、静默 fallback、测试产生 orphan 均为 0。Linux 证据分类 A（hosted on Windows），Container B，native Windows B（file/network U），macOS C/U。
+Batch A-C 已在固定 implementation commit 中完成：
 
-## Candidate levels
+- Domain/Core：不可变 ExecutionBackend request/outcome/failure、selector/fallback、capability snapshot/status、五维 policy/report、Managed baseline/provenance；公共安全契约具有中文 Javadoc。
+- `run_command`：通过唯一 backend seam 执行；结果明确报告 backend/enforcement/fallback，Call ID 进入 request。
+- CLI：明确 `--execution-backend local|sandbox|container` 与 `--execution-shell platform|linux-sh`；PowerShell/cmd 不隐式转换。
+- WSL2：固定系统 `wsl.exe`、Ubuntu、`/usr/bin/bwrap`，实施 path identity、namespace、只读 host、显式 writable Workspace/tmp、控制面保护、空环境和统一 cleanup。
+- Docker：fixed CLI、pinned nginx digest、`--network none`、read-only、非 root、cap-drop、no-new-privileges、PID limit 与清理。
+- 进程入口：Command Hook 与 MCP stdio 复用 `ManagedProcessLauncher` 的 fixed-argv/minimal-env seam；Sub-Agent root/child execution composition 显式继承 backend/shell。
+- native Windows：只报告实际 process/env/secret B，file/network U；macOS C/U。
 
-- L1→L2: SEC-02/03/04/05
-- L0→L2: SEC-06/07/12, EVAL-04
-- L0→L1: SEC-08；PERM-05、CFG-07 因未生产接入保持 L0
-- unchanged: PERM-08/09/12, SEC-09 L2; HOOK-10 L1; SEC-11 L0
+## G4：验证 — PASSED
 
-## G5 Candidate
+### 标准离线验证
 
-`docs/demos/S13-sandbox-security.md` 已记录真实可复现命令、正负例与环境结果。
+| 模块 | Tests | Skips | Failures | Errors |
+| --- | ---: | ---: | ---: | ---: |
+| domain | 53 | 0 | 0 | 0 |
+| core | 238 | 0 | 0 | 0 |
+| model-spring-ai | 45 | 2 | 0 | 0 |
+| tools-local | 175 | 16 | 0 | 0 |
+| mcp | 13 | 0 | 0 | 0 |
+| cli | 327 | 11 | 0 | 0 |
+| **合计** | **851** | **29** | **0** | **0** |
 
-## G6 Open
+命令：
 
-没有 implementation Commit，故不做 commit-scoped 复验、不宣称 Stage Exit Accepted。Command Hook/MCP stdio 已收敛到共享 managed fixed-argv seam，Sub-Agent run_command 已继承父 execution 配置；MCP HTTP、Managed/Auto 生产接入与完整 OS 级覆盖仍是后续 gap。
+```powershell
+.\mvnw.cmd clean verify
+npm --prefix cc-java-tui test
+pwsh -NoProfile -File scripts/TestCodejDevLauncher.ps1
+```
+
+结果：Maven 851 tests/29 skips，TUI 133/133，launcher 59 assertions，均通过。
+
+### 真实后端验证与环境恢复
+
+真实测试为 selector 5/5 + attack 8/8，共 13/13，0 skip/failure/error：
+
+```powershell
+$env:CC_JAVA_S13_REAL_BACKENDS='true'
+$env:CC_JAVA_S13_DOCKER_IMAGE='nginx@sha256:0d17b565c37bcbd895e9d92315a05c1c3c9a29f762b011a10c54a66cd53c9b31'
+.\mvnw.cmd -pl cc-java-tools-local -am `
+  '-Dtest=ExecutionBackendSelectorTest,S13RealBackendAttackTest' `
+  '-Dsurefire.failIfNoSpecifiedTests=false' test
+```
+
+首次运行时 Docker daemon 未启动，5 个 Docker 用例失败。该失败不计入通过证据，也没有被隐藏；启动 Docker Desktop并确认 daemon 26.1.4 后，完整 13/13 通过。真实环境为 Windows 10 host、Ubuntu WSL2、bubblewrap 0.4.0、Docker Engine 26.1.4 linux/amd64 与 pinned nginx digest。
+
+真实攻击覆盖 disposable fixture、仅 loopback network namespace、Workspace 外隔离、WSL timeout/cancel orphan、Docker readonly mask、PID 限制、生产 Bootstrap→RunCommandTool composition。测试后 `label=cc-java.s13=true` 的 Docker residue 为 0。
+
+安全结果：Workspace 外写、deny-read、保护路径修改、直接网络绕过、Secret sentinel 泄漏、静默 fallback、Permission/Pipeline 旁路与 orphan process 均为 0。
+
+证据分级：Linux A（hosted on Windows）、Container B、native Windows process/env B（file/network U）、macOS C/U。
+
+## G5：可复现 Demo — PASSED
+
+[`docs/demos/S13-sandbox-security.md`](../demos/S13-sandbox-security.md)记录了环境前置条件、标准命令、真实测试、Docker daemon 首次失败与恢复、正负例、residue 检查和 A/B/C/U 边界。
+
+## G6：退出对账 — PASSED
+
+- implementation commit 已固定为 `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3`；
+- README、根 AGENTS、矩阵、PRD、技术设计、ADR、Evidence、Demo、Gap 与 progress state 已对账；
+- Dashboard generate/check/self-test、`git diff --check` 与 secret scan 通过；
+- secret scan 唯一命中是 `FileMemoryRepositoryTest` 中故意使用的私钥哨兵，不是真实凭证；
+- S13 G0-G6 全部 PASSED，Stage Exit Accepted；
+- S14 为 NOT_STARTED。
+
+## 剩余边界
+
+1. `PERM-05` Auto Mode、`CFG-07` Managed Policy 未生产接入，保持 L0。
+2. JVM 内 HTTP、MCP/Plugin remote 不受 `ExecutionBackend` 强制；`HOOK-10` 保持 L1。
+3. native Windows file/network 为 U，WSL2 Linux A 不等于 native Windows A；macOS 无真实主机，仅 C/U。
+4. `SEC-11` 保持 L0；Docker image 签名/SBOM/更新、Marketplace、OAuth、稳定协议与迁移属于 S14/S15 后续范围。

@@ -2,13 +2,13 @@
 
 - Status: Accepted
 - Date: 2026-08-10
-- Stage: S13 Sandbox + Security（G1-G2 范围/架构冻结）
+- Stage: S13 Sandbox + Security（Commit-scoped G0-G6 / Stage Exit Accepted）
 - Feature IDs: `SEC-02..09/12`、`PERM-05/08/09/12`、`CFG-07`、`HOOK-10`、`EVAL-04`；审视但不提升 `SEC-11`
 - Current → Exit Target:
   - `SEC-02/03/04/05`：L1 → L2（既有 native 应用层回归 + Linux Sandbox A 级组合证据）
   - `SEC-06/07/12`、`EVAL-04`：L0 → L2（以真实 Linux Sandbox A 为可用主路径；不声称 native Windows/macOS L2）
   - `SEC-08`：L0 → L1（Docker daemon 可用时的显式 opt-in B 级 smoke；仅有 CLI 不算）
-  - `PERM-05`、`CFG-07`：L0 → L1
+  - `PERM-05`、`CFG-07`：L0 → L0（未生产接入）
   - `HOOK-10`：L1 → L1（当前 JVM 内 HTTP 不受 `ExecutionBackend` 强制；S14 或新增 `NetworkAccessPort` 后再提升）
   - `PERM-08`：L2 → L2、`PERM-09`：L2 → L2、`PERM-12`：L2 → L2、`SEC-09`：L2 → L2（只做组合回归，不升级）
   - `SEC-11`：L0 → L0（明确延期）
@@ -43,11 +43,11 @@ ToolExecutionPipeline
 | `SEC-08` | Docker daemon 可用时，Container Adapter 完成显式 opt-in B 级 smoke；CLI-only 为 UNAVAILABLE | L1 |
 | `SEC-09` | 恶意仓库/Tool 输出不能改变 policy/backend/fallback | 保持 L2 |
 | `SEC-12/EVAL-04` | Linux A + Container B + Windows native B/C/U + macOS C/U 的诚实安全矩阵 | L2 |
-| `PERM-05` | 仅在本次进程 backend 强制报告满足策略时提供确定性免询问骨架 | L1 |
+| `PERM-05` | 仅有未接线的确定性免询问骨架，生产装配不可用 | 保持 L0 |
 | `PERM-08` | Protected Paths 组合回归 | 保持 L2 |
 | `PERM-09` | Hard Denial 组合回归 | 保持 L2 |
-| `PERM-12` | 既有 user/project/local Settings scope 组合回归；Managed 仍由 `CFG-07` L1 单列 | 保持 L2 |
-| `CFG-07` | 受管安全底线 provenance + deny-only merge；缺失/损坏 fail closed | L1 |
+| `PERM-12` | 既有 user/project/local Settings scope 组合回归；Managed 仍由保持 L0 的 `CFG-07` 单列 | 保持 L2 |
+| `CFG-07` | baseline/provenance 仅为未接线骨架，尚无生产 Managed Policy | 保持 L0 |
 | `HOOK-10` | 保持 loopback HTTP L1；远程 JVM HTTP 不因进程 backend 自动受控 | 保持 L1 |
 
 ## 独立 Java 契约
@@ -223,4 +223,8 @@ Stage Exit 最低要求：Windows-hosted WSL2 Ubuntu 中的真实 bwrap Linux ba
 
 ## Gate 结论
 
-ADR-063/064 冻结 S13 G0-G2；所有 Capability Level 维持当前值，G3-G6 与 Stage Exit 保持 Open。第二阶段必须按 Batch A-C 一次性完整实现并在实际证据满足上述门槛后，才可更新等级。
+## Gate 结论（2026-08-10）
+
+S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Batch A-C 与 Commit-scoped G0-G6，Stage Exit Accepted。标准 clean verify 为 851 tests/29 skips（0 failure/error），TUI 133/133、launcher 59 assertions，真实 selector 5/5 + attack 8/8 共 13/13。首次真实测试因 Docker daemon 未运行导致 5 个 Docker 用例失败；启动 Docker Desktop、确认 daemon 26.1.4 后完整通过，测试后 label residue 为 0。
+
+等级只按实际证据更新：`SEC-02/03/04/05/06/07/12`、`EVAL-04` 为 L2，`SEC-08` 为 L1；`PERM-08/09/12`、`SEC-09` 保持 L2，`PERM-05/CFG-07` 保持 L0，`HOOK-10` 保持 L1，`SEC-11` 保持 L0。JVM 内 HTTP、native Windows file/network、macOS 真实隔离、Managed/Auto 生产接入与供应链安全继续是明确 gap。S14 为 NOT_STARTED。

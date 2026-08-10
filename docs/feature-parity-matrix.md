@@ -16,9 +16,9 @@
 > `HOOK-10` 为 L1 外，本 Stage 条目达到 L2。S10 已完成 STDIO/Streamable HTTP、多 Server、Tool
 > filter/prefix、Permission、Trust 与单次断线恢复的 Tool 主链并通过真实 Transport/Headless E2E，
 > G0-G6 Accepted；`MCP-01`～`07` 为 L2，`MCP-09`～`11` 为 L1，`MCP-08` 仍为 L0；
-> rules 编辑、Provider discovery/多模型注册、S13 OS Sandbox 与 S14 稳定协议/Export/Retention/Migration
+> rules 编辑、Provider discovery/多模型注册、S13 尚未覆盖的 JVM 内 HTTP 强制网络边界、native Windows file/network、Managed/Auto 与供应链安全，以及 S14 稳定协议/Export/Retention/Migration
 > 仍未实现。S11 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、Demo 与能力对账均通过，Stage Exit Accepted；
-> `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2、`PLUGIN-04` 为 L1。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit；`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1。S13 已由 ADR-063/064 完成双源 G0-G2、Feature 目标与 ExecutionBackend 架构冻结；未写实现、Capability Level 无变化，G3-G6 与 Stage Exit 仍 Open。
+> `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2、`PLUGIN-04` 为 L1。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit；`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit，状态为 Accepted；`SEC-02/03/04/05/06/07/12`、`EVAL-04` 为 L2，`SEC-08` 为 L1，`PERM-05/CFG-07` 保持 L0、`HOOK-10` 保持 L1、`SEC-11` 保持 L0。S14 为 NOT_STARTED。
 
 ## 1. 文档目的
 
@@ -162,12 +162,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 197 |
-| 当前阶段 | S13 Sandbox + Security；G0-G2 已冻结，G3-G6 Open |
-| Stage Exit | S09/S10/S11/S12 Accepted；S13 Stage Exit Open |
-| 当前等级 | 130 项为 L2，35 项为 L1，32 项为 L0（S13 G3-G5 candidate；G6 Open） |
+| 当前阶段 | S13 Sandbox + Security 已 Accepted；S14 Production Harness NOT_STARTED |
+| Stage Exit | S01-S13 Accepted；S14 NOT_STARTED |
+| 当前等级 | 130 项为 L2，35 项为 L1，32 项为 L0 |
 | 默认最终目标 | 197 项达到 L3，或存在明确 `Accepted Deviation` |
 | 当前能力覆盖 | 49.92%（197 项等权、目标 L3） |
-| 下一步 | 按 ADR-064 Batch A-C 实现；取得 WSL2+bwrap Linux A、Docker B、native Windows B 的诚实证据前不得提升对应能力 |
+| 下一步 | 停在 S13 Accepted 边界等待验收；S14 尚未启动，需另行完成 G0-G2 后方可开始 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -755,7 +755,7 @@ ADR-061/062 在双源边界内冻结范围与架构；实现 Commit `cfbe0282b37
 
 ### S13：Sandbox + Security
 
-ADR-063/064 已完成双源 G0-G2，并冻结以下 Current→Exit Target；当前未写生产/测试实现，全部 Capability Level 保持原值，G3-G6 与 Stage Exit Open：
+ADR-063/064 冻结的范围已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit，状态为 Accepted。只确认以下由固定证据证明的等级：
 
 - `SEC-02/03/04/05`：L1→L2；`SEC-06/07/12`、`EVAL-04`：L0→L2；
 - `SEC-08`：L0→L1；`PERM-05`、`CFG-07` 因未生产接入保持 L0；`HOOK-10` 保持 L1；
@@ -771,9 +771,11 @@ ADR-063/064 已完成双源 G0-G2，并冻结以下 Current→Exit Target；当�
 - Windows fixed-drive 到 Linux path 双向 identity 与显式 `LINUX_SH`，禁止隐式转换 PowerShell/cmd；
 - attack fixture、安全矩阵与 A/B/C/U 证据；最低为 WSL2+bwrap Linux A、Docker Container B、native Windows B（file/network C/U）、macOS C/U。
 
-实施最多三个完整 Batch：A `Contracts + Local refactor + truthful probe` → B `WSL2 Ubuntu + bwrap Linux A/path identity/LINUX_SH` → C `Docker B + attack matrix + native Windows/macOS诚实分级 + G4-G6`。所有新增/修改核心公共契约必须提供准确中文 Javadoc。Permission、Checkpoint、Worktree、Job cleanup、最小环境和 Local backend 均不等于 Sandbox。
+三个完整 Batch 已完成：A `Contracts + Local refactor + truthful probe` → B `WSL2 Ubuntu + bwrap Linux A/path identity/LINUX_SH` → C `Docker B + attack matrix + native Windows/macOS诚实分级 + G4-G6`。标准 clean verify 为 851 tests/29 skips（0 failure/error），TUI 133/133、launcher 59 assertions，真实 selector 5/5 + attack 8/8 共 13/13。首次真实测试因 Docker daemon 未运行导致 5 个 Docker 用例失败；启动 Docker Desktop、确认 daemon 26.1.4 后完整 13/13 通过，测试后 `cc-java.s13=true` residue 为 0。所有新增/修改核心公共契约具有中文 Javadoc。Permission、Checkpoint、Worktree、Job cleanup、最小环境和 Local backend 均不等于 Sandbox；JVM 内 HTTP 与 native Windows file/network 仍不受当前强制边界。
 
 ### S14：Production Harness
+
+状态：`NOT_STARTED`。S13 Accepted 不表示 S14 已启动；进入实现前仍须独立完成 S14 的 G0-G2。
 
 完成条件：
 

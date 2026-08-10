@@ -11,7 +11,7 @@
 > `CLI-13`/`CTX-19` 补充切片已在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6；S09 已完成
 > Settings/Trust、Command/loopback HTTP、Compact、Context Projection 与生产装配并 Accepted；S10 MCP
 > Tool 主链已完成两个 Transport、多 Server、统一 Permission、Trust 与恢复并通过真实 E2E，Accepted；
-> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6；`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6；冻结的 L2/L1 目标与 Stage Exit Accepted。S13 已在当前工作树完成 Batch A-C G3-G5 candidate：ExecutionBackend/五维 policy、WSL2+bwrap Linux A、Docker B、Windows B/U 与攻击验证已落地；Command Hook/MCP stdio managed seam 与 root/child execution composition 已收敛；无 implementation Commit 和 commit-scoped G6 复验，故 G6/Stage Exit Open。
+> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6；`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6；冻结的 L2/L1 目标与 Stage Exit Accepted。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted：ExecutionBackend/五维 policy、WSL2+bwrap Linux A、Docker B、Windows process/env B（file/network U）、攻击验证、Command Hook/MCP stdio managed seam 与 root/child execution composition 均已固定。`PERM-05/CFG-07` 保持 L0、`HOOK-10` 保持 L1、`SEC-11` 保持 L0；S14 为 NOT_STARTED。
 >
 > 当前实现状态：ADR-042/043/044 已固定并验证 Context Projection、条件式 Reduction、文件记忆和零等待
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
@@ -1181,9 +1181,9 @@ Domain/Core 新增 definition/task/status/report/budget/worktree 值对象与 Su
 
 实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 已完成 Batch A Scope/单委托、Batch B 并发/后台/TOOL-15、Batch C Worktree/集成 Eval，并通过 commit-scoped G0-G6。`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1；Worktree reparse、Git fault/timeout、Windows remove/branch-lock cancellation recovery 仍是明确 gap。
 
-### 18.7 S13 ExecutionBackend + Security（G0-G2 FROZEN）
+### 18.7 S13 ExecutionBackend + Security（ACCEPTED）
 
-ADR-063/064 冻结的独立控制链已在当前工作树形成 G3-G5 candidate；G6/Stage Exit 仍 Open：
+ADR-063/064 冻结的独立控制链已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit：
 
 ```text
 ToolExecutionPipeline allow
@@ -1195,7 +1195,7 @@ ToolExecutionPipeline allow
   → normalized/durable Tool Result
 ```
 
-Domain/Core 计划持有框架无关的 `ExecutionBackend`、request/outcome/failure、file/process/network/environment/secret policy、managed provenance、capability snapshot、enforcement report 和 fallback decision；平台 Path、Process、Job Object、namespace、系统 sandbox、代理与容器 SDK 只位于基础设施 Adapter。所有新增或修改的核心公共契约必须使用准确中文 Javadoc解释职责、非职责、策略所有权、取消、失败、fallback 和证据等级。
+Domain/Core 持有框架无关的 `ExecutionBackend`、request/outcome/failure、file/process/network/environment/secret policy、managed provenance、capability snapshot、enforcement report 和 fallback decision；平台 Path、Process、Job Object、namespace、系统 sandbox、代理与容器工具只位于基础设施 Adapter。新增或修改的核心公共契约已使用准确中文 Javadoc 解释职责、非职责、策略所有权、取消、失败、fallback 和证据等级。
 
 关键不变量：
 
@@ -1210,7 +1210,7 @@ Domain/Core 计划持有框架无关的 `ExecutionBackend`、request/outcome/fai
 - timeout/cancel/shutdown 进入同一幂等进程树清理；若后代约束不可证明，Process dimension 不得报告 ENFORCED；
 - Permission、Checkpoint、Worktree、Job cleanup、最小环境与 Local backend 均不等于 Sandbox。
 
-实施最多三个 Batch：A Contracts/Local refactor/truthful probe；B WSL2 Ubuntu+bwrap Linux A、path identity 与显式 `LINUX_SH`；C Docker daemon+pinned image B、attack matrix、native Windows/macOS 诚实分级与 G4-G6。证据使用 A（真实攻击矩阵）/B（真实 smoke/部分矩阵）/C（编译契约）/U（未验证）；Stage Exit 要求 Linux A、Container B、native Windows 至少 B（file/network C/U 可接受并列 gap）、macOS C/U。WSL2 Linux A 不得写成 native Windows A；Fake 不得冒充隔离。新非测试依赖必须先有兼容/许可证/Spike ADR，优先 JDK 21 与显式外部工具。
+三个 Batch 已完成：A Contracts/Local refactor/truthful probe；B WSL2 Ubuntu+bwrap Linux A、path identity 与显式 `LINUX_SH`；C Docker daemon+pinned image B、attack matrix、native Windows/macOS 诚实分级与 G4-G6。证据使用 A（真实攻击矩阵）/B（真实 smoke/部分矩阵）/C（编译契约）/U（未验证）；实际结论为 Linux A、Container B、native Windows process/env B（file/network U）、macOS C/U。WSL2 Linux A 不得写成 native Windows A；Fake 不得冒充隔离。标准 clean verify 为 851 tests/29 skips，TUI 133/133、launcher 59 assertions，真实 selector 5/5 + attack 8/8 共 13/13。首次真实测试在 Docker daemon 未运行时有 5 个 Docker 用例失败；启动 Docker Desktop、确认 daemon 26.1.4 后完整通过，测试后 `cc-java.s13=true` residue 为 0。未新增非测试依赖。
 
 ## 19. CLI、内部协议与终端
 
@@ -1740,7 +1740,7 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | [ADR-061](./adr/ADR-061-s12-dual-source-subagent-worktree-study.md) | Accepted | S12 双源冻结 Agent/任务/后台/取消/并发/Worktree 机制采纳、偏离与 Unknown |
 | [ADR-062](./adr/ADR-062-s12-subagent-runtime-worktree-contract.md) | Accepted | S12 独立 Scope/Supervisor/预算/Hook/TOOL-15/Worktree 契约、Batch A-C 与 Eval 门槛；实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 已完成 G0-G6 与 Stage Exit |
 | [ADR-063](./adr/ADR-063-s13-dual-source-sandbox-security-study.md) | Accepted | S13 双源冻结 Sandbox 平台、策略、fallback、统一入口的采纳/偏离/Unknown |
-| [ADR-064](./adr/ADR-064-s13-execution-backend-security-contract.md) | Accepted | S13 ExecutionBackend、capability probe、五类 policy、三 Batch 与跨平台攻击证据门槛；G3-G6 Open |
+| [ADR-064](./adr/ADR-064-s13-execution-backend-security-contract.md) | Accepted | S13 ExecutionBackend、capability probe、五类 policy、三 Batch 与跨平台攻击证据门槛；实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 已完成 G0-G6 与 Stage Exit |
 
 ## 26. 需求追踪
 
@@ -1781,8 +1781,9 @@ S01 未使用任何授权或未核验参考源码；设计和代码由 ADR-017�
 `5ef0bbbf54c75fcc3c8479c2c52bfbaa29beaabd` 上通过 G4/G6；S01 Stage Exit 已
 Accepted。S02 的真实 Provider、Java Runtime/stdio、React/Ink、连续 Session、
 取消边界和隐私安全 Telemetry 已在实现 Commit `700251e` 上通过 G0-G6，
-Stage Exit 为 Accepted。S03-S12 也已按各自 Evidence 完成 Commit-scoped Stage Exit；S12 固定
-实现 Commit 为 `cfbe0282b37a93e38256c3d2d6f22ed2207975a5`。S13 当前已有 G3-G5 candidate 与真实 Linux A/Container B/Windows B-U 证据，但无 implementation Commit，G6/Stage Exit Open。
+Stage Exit 为 Accepted。S03-S13 也已按各自 Evidence 完成 Commit-scoped Stage Exit；S12 固定
+实现 Commit 为 `cfbe0282b37a93e38256c3d2d6f22ed2207975a5`，S13 固定实现 Commit 为
+`8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3`。S13 的真实证据为 Linux A、Container B、native Windows process/env B（file/network U）与 macOS C/U；S14 为 NOT_STARTED。
 
 ### 27.2 分 Stage 实现
 

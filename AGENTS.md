@@ -107,19 +107,20 @@ Checkpoint/Diff/显式 Undo、Behavior Replay 与 Java CLI/Print/stdio/TUI 生�
 - S06 的 JSONL、恢复选择、Checkpoint phase、Recovery Gate 与 Undo 安全回归必须继续通过；
   任何后续修改不得自动重放有副作用操作、解析商业产品内部 JSONL、绕过 Writer/fence/active-run/
   显式确认 Gate，或把 Checkpoint 描述成 Git/OS Sandbox；
-- 当前没有 OS Sandbox；不得把应用层 Permission、FileLock、Checkpoint 或进程清理描述成 S13
-  隔离能力；
+- S13 已提供经验证的 Windows-hosted WSL2+bwrap Linux 与可选 Docker 进程执行隔离；不得把
+  应用层 Permission、FileLock、Checkpoint、Worktree、进程清理或 UNSANDBOXED Local 描述成
+  OS Sandbox，也不得把 Linux A 扩张为 native Windows/macOS 同等级隔离；
 - S07 已在实现基线 `f12fe259b6fb623f1a9add19a55c45d254f329ec` 上完成 Commit-scoped G0-G6，
   Stage Exit 为 Accepted：Canonical Transcript/Projection、条件式 C1-C4、typed overflow 至多一次恢复、
   内部 Usage View、文件记忆 M1-M5 与 ready-only 零等待预取均已验证；LOOP-11、CTX-06/07/08/09/10/11/17/18
   达到 L2，CTX-12/13 与 OBS-04 为 L1；
 - S08 Instructions + Settings 与 S09 Hooks 已 Accepted；S10 MCP Tool 主链也已完成 STDIO/
   Streamable HTTP、多 Server、filter/prefix、统一 Permission/Approval/Pipeline、Trust 与单次恢复并
-  通过真实 E2E。MCP Lazy Tool、Resource/Prompt 完整投影、OAuth、S13 OS Sandbox 与 S14 稳定
-  Export/Retention/Migration 继续保持未实现状态。
+  通过真实 E2E。MCP Lazy Tool、Resource/Prompt 完整投影、OAuth、JVM 内 HTTP 强制网络边界与
+  S14 稳定 Export/Retention/Migration 继续保持未实现状态。
 
-S09/S10 Accepted 不表示远程 Hook、MCP OAuth/Lazy Tool/Resource 自动投影、S13 OS Sandbox 或
-S14 稳定持久化能力已经可用。S11 Skills + Plugins 已在实现 Commit
+S09/S10 Accepted 不表示远程 Hook、MCP OAuth/Lazy Tool/Resource 自动投影、JVM 内 HTTP 强制
+网络边界或 S14 稳定持久化能力已经可用。S11 Skills + Plugins 已在实现 Commit
 `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6：量化、安全矩阵、
 67/67 Demo、813 tests/21 skips、TUI 129/129 与 launcher 59/59 均通过，Stage Exit Accepted；
 `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1。S12 已在实现 Commit
@@ -127,7 +128,7 @@ S14 稳定持久化能力已经可用。S11 Skills + Plugins 已在实现 Commit
 838 tests/21 skips、TUI 133/133、launcher 59 assertions 与 Dashboard 均通过，Stage Exit Accepted；
 `SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1。
 Worktree reparse、Git fault/timeout、Windows remove/branch-lock cancellation recovery 仍是明确 gap；
-S13 已在当前工作树完成 Batch A-C 的 G3-G5 candidate：ExecutionBackend/五维 policy、run_command Local refactor、WSL2 Ubuntu+bwrap Linux A、Docker pinned-image B、native Windows process/env B（file/network U）与攻击回归已有真实证据；JVM 内 HTTP 仍不受进程 backend 强制、HOOK-10 保持 L1。Command Hook/MCP stdio/Sub-Agent composition 的部分旧进程入口尚未全部收敛，且无 implementation Commit，故 G6 与 Stage Exit 仍 Open，不得描述为 Accepted。
+S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit，状态为 Accepted：ExecutionBackend/五维 policy、run_command Local refactor、WSL2 Ubuntu+bwrap Linux A、Docker pinned-image B、native Windows process/env B（file/network U）、攻击回归、Command Hook/MCP stdio managed seam 与 root/child execution composition 均已有固定证据。标准 clean verify 为 851 tests/29 skips，真实 selector 5/5 + attack 8/8 共 13/13；首次因 Docker daemon 未运行导致 5 个 Docker 用例失败，启动 daemon 26.1.4 后完整通过，测试后 label residue 为 0。JVM 内 HTTP 仍不受进程 backend 强制，PERM-05/CFG-07 保持 L0、HOOK-10 保持 L1、SEC-11 保持 L0。S14 为 NOT_STARTED，不得描述为已开始。
 
 ## 3. 项目定位
 

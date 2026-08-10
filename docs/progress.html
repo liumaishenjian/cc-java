@@ -223,15 +223,15 @@
     }
   </style>
 </head>
-<body data-matrix-digest="e9a04611737e" data-state-digest="fcc71bdf82df" data-code-digest="a1b6008ec3fb">
+<body data-matrix-digest="6f99f66a60c3" data-state-digest="24ee628e3e57" data-code-digest="a1b6008ec3fb">
   <main class="shell">
     <section class="hero">
       <p class="eyebrow">Reference-driven Java Agent Runtime</p>
       <h1>cc-java 项目进度看板</h1>
-      <p class="hero-copy">S13 Batch A-C Review 修正 candidate：policy fail-closed、最小 bwrap mounts、Docker 清理、probe/selector identity、显式 root/child composition、managed fixed-argv seam 与 disposable 攻击回归已验证；G6/Stage Exit 等待 implementation Commit。</p>
+      <p class="hero-copy">S13 已在 implementation Commit 8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3 上完成 Commit-scoped G0-G6 与 Stage Exit；Linux A、Container B、native Windows process/env B（file/network U）及攻击回归均已固定。</p>
       <div class="hero-meta">
         <span class="chip"><span class="dot"></span>当前 S13 · Sandbox + Security</span>
-        <span class="chip">Stage Exit · OPEN</span>
+        <span class="chip">Stage Exit · ACCEPTED</span>
         <span class="chip">更新 · 2026-08-10</span>
         <a class="chip" href="feature-parity-matrix.md">打开权威功能矩阵 ↗</a>
       </div>
@@ -247,7 +247,7 @@
       <article class="metric">
         <p class="metric-label">Current Stage</p>
         <p class="metric-value">S13</p>
-        <p class="metric-note">Sandbox + Security · 进行中</p>
+        <p class="metric-note">Sandbox + Security · 已通过</p>
       </article>
       <article class="metric">
         <p class="metric-label">Capabilities Above L0</p>
@@ -256,14 +256,14 @@
       </article>
       <article class="metric">
         <p class="metric-label">Open Gates</p>
-        <p class="metric-value">1</p>
+        <p class="metric-value">0</p>
         <p class="metric-note">S13 只有 G0-G6 全部 PASSED 才能退出。</p>
       </article>
     </section>
 
     <section class="panel callout">
       <strong>Next allowed action</strong>
-      <p>在 implementation Commit 上重跑 G6；Managed/Auto、MCP HTTP 强制与原生 Windows file/network 隔离保持后续 gap。</p>
+      <p>S14 Production Harness 为 NOT_STARTED；在独立完成 S14 G0-G2 前不声称已开始。Managed/Auto、JVM 内 HTTP 强制、native Windows file/network 与供应链安全保持明确 gap。</p>
     </section>
 
     <section class="panel" id="gates">
@@ -273,7 +273,7 @@
           <p class="panel-desc">Capability 可以先达到阶段等级，但 Stage 只有 G0-G6 全部通过才退出。</p>
         </div>
       </div>
-      <ol class="gate-grid"><li class="gate passed"><div class="gate-id"><span>G0</span><span class="badge passed">已通过</span></div><p>AUTH-SRC-2026-07-29-A 仓库外只读边界与 Codex rust-v0.147.0 annotated tag 3ed6f04→be6e8eac 已核验；采纳/偏离/Unknown 见 ADR-063。</p></li><li class="gate passed"><div class="gate-id"><span>G1</span><span class="badge passed">已通过</span></div><p>Feature 目标已按可得证据冻结：SEC-02..07/12/EVAL-04 Linux主路径到L2，SEC-08/PERM-05/CFG-07到L1，HOOK-10保持L1，PERM-08/09/12与SEC-09保持L2，SEC-11保持L0；当前等级不变。</p></li><li class="gate passed"><div class="gate-id"><span>G2</span><span class="badge passed">已通过</span></div><p>ADR-064 已冻结 WSL2+bwrap/Docker truthful probe、显式 LINUX_SH/path identity、JVM HTTP 排除、fail-closed/fallback、唯一 Pipeline与Linux A/Container B/Windows B-C-U/macOS C-U门槛。</p></li><li class="gate passed"><div class="gate-id"><span>G3</span><span class="badge passed">已通过</span></div><p>G3 candidate 已实现 Domain/Core 契约、Local refactor、truthful probe、WSL2+bwrap、Docker、CLI 显式选择与攻击测试；Command Hook/MCP stdio managed seam 及 root/child execution composition 已收敛。</p></li><li class="gate passed"><div class="gate-id"><span>G4</span><span class="badge passed">已通过</span></div><p>Windows-hosted WSL2 Ubuntu+bwrap 0.4.0 Linux A、Docker Desktop daemon+pinned nginx digest B、native Windows process/env B且file/network U；标准离线 clean Maven 851 tests/10 skips，focused real 13/13、0 skip（attack 8/8 + selector 5/5）。</p></li><li class="gate passed"><div class="gate-id"><span>G5</span><span class="badge passed">已通过</span></div><p>S13 Demo 已记录真实命令、正负例、A/B/C/U 边界；TUI 133/133、launcher 59/59。</p></li><li class="gate open"><div class="gate-id"><span>G6</span><span class="badge open">待关闭</span></div><p>S13 尚无 implementation Commit 或 commit-scoped 验收，Stage Exit Open。</p></li></ol>
+      <ol class="gate-grid"><li class="gate passed"><div class="gate-id"><span>G0</span><span class="badge passed">已通过</span></div><p>AUTH-SRC-2026-07-29-A 仓库外只读边界与 Codex rust-v0.147.0 annotated tag 3ed6f04→be6e8eac 已核验；采纳/偏离/Unknown 见 ADR-063。</p></li><li class="gate passed"><div class="gate-id"><span>G1</span><span class="badge passed">已通过</span></div><p>Feature 按实际证据对账：SEC-02/03/04/05/06/07/12与EVAL-04为L2，SEC-08为L1，PERM-08/09/12与SEC-09保持L2；PERM-05/CFG-07保持L0、HOOK-10保持L1、SEC-11保持L0。</p></li><li class="gate passed"><div class="gate-id"><span>G2</span><span class="badge passed">已通过</span></div><p>ADR-064 已冻结 WSL2+bwrap/Docker truthful probe、显式 LINUX_SH/path identity、JVM HTTP 排除、fail-closed/fallback、唯一 Pipeline与Linux A/Container B/Windows B-U/macOS C-U门槛。</p></li><li class="gate passed"><div class="gate-id"><span>G3</span><span class="badge passed">已通过</span></div><p>实现 Commit 8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3 已完成 Domain/Core 契约、Local refactor、truthful probe、WSL2+bwrap、Docker、CLI 显式选择、Command Hook/MCP stdio managed seam、root/child execution composition与中文Javadoc。</p></li><li class="gate passed"><div class="gate-id"><span>G4</span><span class="badge passed">已通过</span></div><p>标准 clean Maven 851 tests/29 skips、0 failure/error；真实 selector 5/5 + attack 8/8 共13/13。首次Docker daemon未运行导致5例失败，启动daemon 26.1.4后完整通过；Linux A、Container B、native Windows process/env B且file/network U，residue为0。</p></li><li class="gate passed"><div class="gate-id"><span>G5</span><span class="badge passed">已通过</span></div><p>S13 Demo 已记录真实命令、Docker环境失败/恢复、正负例、A/B/C/U边界；TUI 133/133、launcher 59 assertions。</p></li><li class="gate passed"><div class="gate-id"><span>G6</span><span class="badge passed">已通过</span></div><p>实现 Commit 8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3 上的矩阵、README、AGENTS、PRD、技术设计、ADR、Evidence、Demo、Gap、Dashboard与安全扫描已对账，S13 Stage Exit Accepted；S14 NOT_STARTED。</p></li></ol>
     </section>
 
     <section class="panel" id="roadmap">
@@ -286,7 +286,7 @@
       <div class="table-wrap">
         <table>
           <thead><tr><th>Stage</th><th>状态</th><th>主题</th><th>核心交付</th><th>关联能力</th></tr></thead>
-          <tbody><tr><td class="stage-id">S00</td><td><span class="badge accepted">已通过</span></td><td>Harness 地图</td><td>参考架构、公开行为基线、授权研究登记、矩阵、术语和边界</td><td>0</td></tr><tr><td class="stage-id">S01</td><td><span class="badge accepted">已通过</span></td><td>Runtime Kernel（Agent Loop）</td><td>Fake Model 驱动的显式循环</td><td>19</td></tr><tr><td class="stage-id">S02</td><td><span class="badge accepted">已通过</span></td><td>Model + Streaming CLI</td><td>一个真实 Provider、Java Headless、实验性 stdio、React/Ink TUI 与事件流</td><td>24</td></tr><tr><td class="stage-id">S03</td><td><span class="badge accepted">已通过</span></td><td>Read Tools</td><td>在真实仓库自主搜索和解释代码</td><td>16</td></tr><tr><td class="stage-id">S04</td><td><span class="badge accepted">已通过</span></td><td>Write + Command</td><td>经审批修改代码、执行测试、根据结果继续</td><td>19</td></tr><tr><td class="stage-id">S05</td><td><span class="badge accepted">已通过</span></td><td>Permission Pipeline</td><td>模式、规则、审批、生命周期和拒绝恢复</td><td>18</td></tr><tr><td class="stage-id">S06</td><td><span class="badge accepted">已通过</span></td><td>Session + Checkpoint</td><td>JSONL、resume/fork、崩溃检测和 undo</td><td>11</td></tr><tr><td class="stage-id">S07</td><td><span class="badge accepted">已通过</span></td><td>Context Engineering</td><td>Token 预算、Turn 淘汰、摘要、压缩和防抖</td><td>15</td></tr><tr><td class="stage-id">S08</td><td><span class="badge accepted">已通过</span></td><td>Instructions + Settings</td><td>用户/项目/目录指令、配置层级和 Context CLI</td><td>21</td></tr><tr><td class="stage-id">S09</td><td><span class="badge accepted">已通过</span></td><td>Hooks</td><td>可配置生命周期扩展与阻断</td><td>11</td></tr><tr><td class="stage-id">S10</td><td><span class="badge accepted">已通过</span></td><td>MCP</td><td>外部 Server、Tool 过滤、权限统一</td><td>13</td></tr><tr><td class="stage-id">S11</td><td><span class="badge accepted">已通过</span></td><td>Skills + Plugins</td><td>懒加载工作流、扩展打包和信任</td><td>16</td></tr><tr><td class="stage-id">S12</td><td><span class="badge accepted">已通过</span></td><td>Sub-Agent + Worktree</td><td>RuntimeScope、单 Agent、并发/后台和 Worktree 检查点</td><td>14</td></tr><tr class="current-row"><td class="stage-id">S13</td><td><span class="badge in-progress">进行中</span></td><td>Sandbox + Security</td><td>Process/File/Network 隔离和攻击测试</td><td>20</td></tr><tr><td class="stage-id">S14</td><td><span class="badge planned">未开始</span></td><td>Production Harness</td><td>Eval/Observability、SDK/Headless、Distribution/Compatibility</td><td>40</td></tr><tr><td class="stage-id">S15</td><td><span class="badge planned">未开始</span></td><td>Independent Innovation</td><td>基于对照结果实现 Java 差异化</td><td>5</td></tr></tbody>
+          <tbody><tr><td class="stage-id">S00</td><td><span class="badge accepted">已通过</span></td><td>Harness 地图</td><td>参考架构、公开行为基线、授权研究登记、矩阵、术语和边界</td><td>0</td></tr><tr><td class="stage-id">S01</td><td><span class="badge accepted">已通过</span></td><td>Runtime Kernel（Agent Loop）</td><td>Fake Model 驱动的显式循环</td><td>19</td></tr><tr><td class="stage-id">S02</td><td><span class="badge accepted">已通过</span></td><td>Model + Streaming CLI</td><td>一个真实 Provider、Java Headless、实验性 stdio、React/Ink TUI 与事件流</td><td>24</td></tr><tr><td class="stage-id">S03</td><td><span class="badge accepted">已通过</span></td><td>Read Tools</td><td>在真实仓库自主搜索和解释代码</td><td>16</td></tr><tr><td class="stage-id">S04</td><td><span class="badge accepted">已通过</span></td><td>Write + Command</td><td>经审批修改代码、执行测试、根据结果继续</td><td>19</td></tr><tr><td class="stage-id">S05</td><td><span class="badge accepted">已通过</span></td><td>Permission Pipeline</td><td>模式、规则、审批、生命周期和拒绝恢复</td><td>18</td></tr><tr><td class="stage-id">S06</td><td><span class="badge accepted">已通过</span></td><td>Session + Checkpoint</td><td>JSONL、resume/fork、崩溃检测和 undo</td><td>11</td></tr><tr><td class="stage-id">S07</td><td><span class="badge accepted">已通过</span></td><td>Context Engineering</td><td>Token 预算、Turn 淘汰、摘要、压缩和防抖</td><td>15</td></tr><tr><td class="stage-id">S08</td><td><span class="badge accepted">已通过</span></td><td>Instructions + Settings</td><td>用户/项目/目录指令、配置层级和 Context CLI</td><td>21</td></tr><tr><td class="stage-id">S09</td><td><span class="badge accepted">已通过</span></td><td>Hooks</td><td>可配置生命周期扩展与阻断</td><td>11</td></tr><tr><td class="stage-id">S10</td><td><span class="badge accepted">已通过</span></td><td>MCP</td><td>外部 Server、Tool 过滤、权限统一</td><td>13</td></tr><tr><td class="stage-id">S11</td><td><span class="badge accepted">已通过</span></td><td>Skills + Plugins</td><td>懒加载工作流、扩展打包和信任</td><td>16</td></tr><tr><td class="stage-id">S12</td><td><span class="badge accepted">已通过</span></td><td>Sub-Agent + Worktree</td><td>RuntimeScope、单 Agent、并发/后台和 Worktree 检查点</td><td>14</td></tr><tr class="current-row"><td class="stage-id">S13</td><td><span class="badge accepted">已通过</span></td><td>Sandbox + Security</td><td>Process/File/Network 隔离和攻击测试</td><td>20</td></tr><tr><td class="stage-id">S14</td><td><span class="badge planned">未开始</span></td><td>Production Harness</td><td>Eval/Observability、SDK/Headless、Distribution/Compatibility</td><td>40</td></tr><tr><td class="stage-id">S15</td><td><span class="badge planned">未开始</span></td><td>Independent Innovation</td><td>基于对照结果实现 Java 差异化</td><td>5</td></tr></tbody>
         </table>
       </div>
     </section>
@@ -316,10 +316,10 @@
       <div class="panel-head">
         <div>
           <h2>Stage Exit Blockers</h2>
-          <p class="panel-desc">登记的 2 项全部关闭前，当前 S13 不能退出。</p>
+          <p class="panel-desc">当前 S13 未登记 Stage Exit 阻塞项。</p>
         </div>
       </div>
-      <ol class="blockers"><li>Managed/Auto 尚未生产接入，MCP HTTP 与 native Windows file/network 不受当前进程 backend 强制；PERM-05/CFG-07 保持 L0。</li><li>没有 implementation Commit，G6 commit-scoped 复验与 Stage Exit 必须保持 Open。</li></ol>
+      <ol class="blockers"></ol>
     </section>
 
     <section class="panel" id="evidence">
@@ -330,13 +330,13 @@
         </div>
       </div>
       <dl class="evidence-grid">
-        <div class="evidence-item"><dt>Last change</dt><dd>S13 纯可读性整改：整理新增 Domain/Core execution 契约、run_command/Workspace composition 与相关 Java 的格式、显式 import 和中文 Javadoc；无行为或 Capability Level 变化，PERM-05/CFG-07 保持 L0，无 implementation Commit，G6/Stage Exit 仍 Open。</dd></div>
-        <div class="evidence-item"><dt>Evidence stage</dt><dd><code>S12</code></dd></div>
+        <div class="evidence-item"><dt>Last change</dt><dd>S13 commit-scoped 验收材料收尾：绑定 implementation Commit 8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3，统一 clean verify 851 tests/29 skips、真实 13/13、TUI 133/133、launcher 59 assertions与 Docker daemon 失败恢复证据；G6/Stage Exit 改为 PASSED/Accepted。SEC-02/03/04/05/06/07/12与EVAL-04为L2、SEC-08为L1；PERM-05/CFG-07保持L0、HOOK-10保持L1、SEC-11保持L0；S14 NOT_STARTED。</dd></div>
+        <div class="evidence-item"><dt>Evidence stage</dt><dd><code>S13</code></dd></div>
         <div class="evidence-item"><dt>Evidence class</dt><dd><code>COMMIT_VERIFIED</code></dd></div>
-        <div class="evidence-item"><dt>Code commit</dt><dd><code>cfbe0282b37a93e38256c3d2d6f22ed2207975a5</code></dd></div>
-        <div class="evidence-item"><dt>Standard command</dt><dd><code>.\mvnw.cmd clean verify；npm --prefix cc-java-tui run check；pwsh -NoLogo -NoProfile -File .\scripts\TestCodejDevLauncher.ps1；java scripts/ProgressDashboard.java --check；java scripts/ProgressDashboard.java --self-test；git status --short；git diff --check</code></dd></div>
-        <div class="evidence-item"><dt>Result</dt><dd>ADR-061/062、实现 Commit cfbe0282、Evidence/Demo/Gap 已完成 Commit-scoped 对账；标准 clean verify 精确汇总 838 tests/21 skips（Domain 53/0、Core 238/0、Spring 45/2、Tools 162/8、MCP 13/0、CLI 327/11），TUI 133/133、launcher 59 assertions、Dashboard 通过，均无 failure/error。首轮 Settings Git CreateProcess error=5 已由 focused 1/1 后同 Commit 连续完整 clean verify 全绿取代，不计为通过证据。</dd></div>
-        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix e9a04611737e</code><br><code>state fcc71bdf82df</code><br><code>code/build a1b6008ec3fb</code></dd></div>
+        <div class="evidence-item"><dt>Code commit</dt><dd><code>8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3</code></dd></div>
+        <div class="evidence-item"><dt>Standard command</dt><dd><code>.mvnw.cmd clean verify；$env:CC_JAVA_S13_REAL_BACKENDS=&#39;true&#39; + focused selector/attack test；npm --prefix cc-java-tui test；pwsh -NoProfile -File scripts/TestCodejDevLauncher.ps1；java scripts/ProgressDashboard.java --check；java scripts/ProgressDashboard.java --self-test；git diff --check；secret scan</code></dd></div>
+        <div class="evidence-item"><dt>Result</dt><dd>ADR-063/064、实现 Commit 8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3、Evidence/Demo/Gap 已完成 Commit-scoped G0-G6 对账；标准 clean verify 精确汇总 851 tests/29 skips（Domain 53/0、Core 238/0、Spring 45/2、Tools 175/16、MCP 13/0、CLI 327/11），TUI 133/133、launcher 59 assertions、真实 selector 5/5 + attack 8/8 共 13/13，均无最终 failure/error。首次真实测试因 Docker daemon 未运行导致5个Docker用例失败；启动 Docker Desktop、确认 daemon 26.1.4 后完整通过，测试后 label=cc-java.s13=true residue为0。</dd></div>
+        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix 6f99f66a60c3</code><br><code>state 24ee628e3e57</code><br><code>code/build a1b6008ec3fb</code></dd></div>
       </dl>
     </section>
 

@@ -9,7 +9,7 @@
 > Commit `5910a8f` 上完成 Commit-scoped G0-G6；`CLI-13`、`CTX-19` 达到 L2。S09 已完成
 > Settings/Trust、Command/loopback HTTP、生命周期、Compact 与生产装配并 Accepted；S10 MCP Tool
 > 主链已完成 STDIO/Streamable HTTP、多 Server、统一 Permission、Trust 与恢复并通过真实 E2E，Accepted。
-> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、安全矩阵、Demo 与能力对账均通过，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted；相关 Feature 达到冻结的 L2/L1 目标。S13 已在当前工作树完成 Batch A-C G3-G5 candidate：ExecutionBackend/五维 policy、WSL2+bwrap Linux A、Docker pinned-image B、Windows B/U 与攻击回归已实现；Command Hook/MCP stdio managed seam 与 root/child execution composition 已收敛；无 implementation Commit 和 commit-scoped G6 复验，故 G6/Stage Exit Open。
+> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、安全矩阵、Demo 与能力对账均通过，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted；相关 Feature 达到冻结的 L2/L1 目标。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted：ExecutionBackend/五维 policy、WSL2+bwrap Linux A、Docker pinned-image B、Windows process/env B（file/network U）、攻击回归、Command Hook/MCP stdio managed seam 与 root/child execution composition 均已验证。`PERM-05/CFG-07` 保持 L0、`HOOK-10` 保持 L1、`SEC-11` 保持 L0；S14 为 NOT_STARTED。
 >
 > 产品负责人：项目维护者
 
@@ -544,10 +544,10 @@ ADR-061/062 完成双源研究与契约冻结，下列产品行为已在实现 C
 
 ### S13：Sandbox
 
-ADR-063/064 已完成 G0-G2，冻结产品范围但不表示已实现：
+ADR-063/064 冻结的产品范围已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted：
 
 - `SEC-02/03/04/05` L1→L2，`SEC-06/07/12` 与 `EVAL-04` L0→L2；
-- `SEC-08`、`PERM-05`、`CFG-07` L0→L1，`HOOK-10` 保持 L1；
+- `SEC-08` L0→L1；`PERM-05`、`CFG-07` 因未生产接入保持 L0，`HOOK-10` 保持 L1；
 - `PERM-08`、`PERM-09`、`PERM-12`、`SEC-09` 各自保持 L2 做组合回归，`SEC-11` 保持 L0；
 - 区分 Permission/Approval 与 OS 级隔离，提供 `ExecutionBackend`、Local、Windows-hosted WSL2 Linux bwrap 与可选 Docker Container；
 - capability probe 必须实际证明 WSL2/bwrap、Docker daemon/image 及每个 file/process/network/environment/secret 强制维度；
@@ -556,11 +556,13 @@ ADR-063/064 已完成 G0-G2，冻结产品范围但不表示已实现：
 - Windows PowerShell/cmd 不得隐式改写为 Linux shell；只有 fixed-drive path identity 双向核验且审批明确显示 `LINUX_SH` 的调用可进入 WSL/container；
 - 最低证据为 WSL2+bwrap Linux A、Docker Container B、native Windows B（file/network C/U）、macOS C/U；Linux A 不冒充 native Windows A。
 
-第二阶段最多三个完整实现 Batch：Contracts/Local/truthful probe → WSL2+bwrap Linux A/path identity/LINUX_SH → Docker B/Attack Eval/native Windows与macOS分级/G4-G6。所有新增或修改的核心公共契约必须有准确中文 Javadoc。Permission、Checkpoint、Worktree、Job cleanup、最小环境与 Local backend 均不等于 Sandbox。
+三个完整实现 Batch 已完成：Contracts/Local/truthful probe → WSL2+bwrap Linux A/path identity/LINUX_SH → Docker B/Attack Eval/native Windows 与 macOS 分级/G4-G6。标准 clean verify 为 851 tests/29 skips，真实 selector 5/5 + attack 8/8 共 13/13，TUI 133/133、launcher 59 assertions；首次真实测试因 Docker daemon 未运行导致 5 个 Docker 用例失败，启动 Docker Desktop、确认 daemon 26.1.4 后完整通过，测试后 label residue 为 0。所有新增或修改的核心公共契约具有准确中文 Javadoc。Permission、Checkpoint、Worktree、Job cleanup、最小环境与 Local backend 均不等于 Sandbox。
 
 ## 16. S14-S15：生产化与独立创新
 
 ### S14：Production Harness
+
+状态：`NOT_STARTED`。S13 Accepted 不表示 S14 已开始。
 
 - 稳定 JSON/JSONL 机器协议；
 - 可嵌入的 Java SDK、Daemon 或本地 API；
