@@ -100,6 +100,7 @@ public final class RunCommandTool implements AgentTool {
                 LocalToolLimits.DEFAULT_COMMAND_TIMEOUT_SECONDS);
         try {
             CommandExecutionResult result = executor.execute(
+                    invocation.call().id(),
                     command,
                     Duration.ofSeconds(timeoutSeconds),
                     invocation.cancellationToken(),
@@ -129,6 +130,9 @@ public final class RunCommandTool implements AgentTool {
     private static String render(CommandExecutionResult result) {
         StringBuilder output = new StringBuilder()
                 .append("shell: ").append(result.shell()).append('\n')
+                .append("backend: ").append(result.enforcement().backend()).append('\n')
+                .append("enforcement: ").append(result.enforcement().reasonCode()).append('\n')
+                .append("fallback: ").append(result.enforcement().fallback()).append('\n')
                 .append("workingDirectory: .\n")
                 .append("exitCode: ").append(result.exitCode()).append('\n')
                 .append("timedOut: ").append(result.timedOut()).append('\n')

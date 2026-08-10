@@ -456,7 +456,11 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         this.runtimeScopeFactory = runtimeScopeFactory == null ? this::createRuntimeScope : runtimeScopeFactory;
         this.agentDefinitionUserRoot = checkedInstructionLayout.userHome().resolve(".cc-java").resolve("agents");
         try {
-            workspaceBootstrap = LocalWorkspaceBootstrap.open(this.options.workspace());
+            workspaceBootstrap = LocalWorkspaceBootstrap.open(
+                    this.options.workspace(),
+                    io.github.liumaishenjian.ccjava.tools.local.execution.ExecutionBackendFactory.create(
+                            this.options.workspace(), this.options.executionBackend()),
+                    this.options.executionShell());
             fileMentions = new io.github.liumaishenjian.ccjava.cli.mentions.FileMentionService(
                     workspaceBootstrap.workspaceGuard());
             instructionContext = new InstructionProjectionState(InstructionFoundationFactory.open(
@@ -1295,7 +1299,13 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         var recoveredChildTasks = childTaskJournal.interruptedUnknown();
         var scopeFactory = new io.github.liumaishenjian.ccjava.cli.subagent.HeadlessChildRuntimeScopeFactory(
                 workspaceBootstrap.workspaceGuard().workspace(), options.sessionStoreRoot(), configuredGateway,
-                approvalHandler, ids, lifecycle, extensions.hooks(), () -> agentSupervisor);
+                approvalHandler,
+                ids,
+                lifecycle,
+                extensions.hooks(),
+                () -> agentSupervisor,
+                options.executionBackend(),
+                options.executionShell());
         var total = new io.github.liumaishenjian.ccjava.domain.subagent.ChildBudget(
                 Math.max(AgentLimits.DEFAULT.maxModelTurns() * 4, 1),
                 Math.max(AgentLimits.DEFAULT.maxToolCalls() * 4, 0), 1_000_000L, 262_144,

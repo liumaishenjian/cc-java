@@ -1,5 +1,7 @@
 package io.github.liumaishenjian.ccjava.tools.local.command;
 
+import io.github.liumaishenjian.ccjava.domain.execution.EnforcementReport;
+
 /**
  * 一次受控命令执行的稳定结果。
  *
@@ -11,6 +13,7 @@ package io.github.liumaishenjian.ccjava.tools.local.command;
  * @param stderr 有界 stderr
  * @param truncated 是否丢弃了超出预算的输出
  * @param originalCharacters 已观察到的原始输出字符数
+ * @param enforcement 实际执行后端与五维强制报告
  * @since 0.4.0
  */
 public record CommandExecutionResult(
@@ -21,5 +24,6 @@ public record CommandExecutionResult(
         String stdout,
         String stderr,
         boolean truncated,
-        long originalCharacters) {
+        long originalCharacters,
+        EnforcementReport enforcement) {
 }

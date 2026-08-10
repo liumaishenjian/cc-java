@@ -2,207 +2,162 @@ package io.github.liumaishenjian.ccjava.tools.local.command;
 
 import io.github.liumaishenjian.ccjava.core.CancellationToken;
 import io.github.liumaishenjian.ccjava.core.ToolOutputSink;
-import io.github.liumaishenjian.ccjava.domain.LifecycleEvent;
-import io.github.liumaishenjian.ccjava.domain.ToolOutputStream;
+import io.github.liumaishenjian.ccjava.core.execution.ExecutionBackend;
+import io.github.liumaishenjian.ccjava.domain.execution.EnvironmentPolicy;
+import io.github.liumaishenjian.ccjava.domain.execution.ExecutionBackendId;
+import io.github.liumaishenjian.ccjava.domain.execution.ExecutionPolicy;
+import io.github.liumaishenjian.ccjava.domain.execution.ExecutionRequest;
+import io.github.liumaishenjian.ccjava.domain.execution.ExecutionShell;
+import io.github.liumaishenjian.ccjava.domain.execution.FileAccessPolicy;
+import io.github.liumaishenjian.ccjava.domain.execution.NetworkPolicy;
+import io.github.liumaishenjian.ccjava.domain.execution.PolicyProvenance;
+import io.github.liumaishenjian.ccjava.domain.execution.ProcessPolicy;
+import io.github.liumaishenjian.ccjava.domain.execution.SecretPolicy;
+import io.github.liumaishenjian.ccjava.tools.local.execution.LocalExecutionBackend;
 import io.github.liumaishenjian.ccjava.tools.local.workspace.LocalToolLimits;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.Map;
+import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
-import java.util.concurrent.TimeUnit;
 
 /**
- * 在固定 Workspace、Shell、环境和资源预算下执行前台命令。
+ * 把既有 run_command 契约适配到唯一 {@link ExecutionBackend} seam。
  *
- * <p>子进程 stdin 在启动后立即关闭，因此 S04 不支持交互式 TTY。stdout/stderr
- * 始终被并发消费，避免管道回压死锁；模型可见结果和 Surface 事件分别有界。
- * timeout 与取消都会进入同一个进程树清理路径。</p>
+ * <p>兼容构造器仍选择明确 UNSANDBOXED 的 Local backend；Sandbox 或 Container 由可信
+ * Composition Root 注入，模型不能选择或静默 fallback。Permission 和 Approval 仍先于本适配器。</p>
  *
  * @since 0.4.0
  */
 public final class LocalCommandExecutor {
-
     private final Path workspace;
-    private final CommandShell shell;
-    private final ProcessTreeTerminator terminator;
+    private final ExecutionBackend backend;
+    private final ExecutionShell shell;
 
     /**
-     * 为固定 Workspace 创建平台命令执行器。
+     * 为固定 Workspace 创建保持 S04 行为的未隔离 Local 适配器。
      *
-     * @param workspace 已解析的真实 Workspace
+     * @param workspace 已校验的 Workspace 根
      */
     public LocalCommandExecutor(Path workspace) {
-        this(workspace, CommandShell.current(), new ProcessTreeTerminator());
+        this(
+                workspace,
+                new LocalExecutionBackend(workspace),
+                platformShell());
     }
 
-    LocalCommandExecutor(
+    /**
+     * 创建由可信 Composition Root 选择后端与显式 shell 语义的适配器。
+     *
+     * @param workspace 已校验的 Workspace 根
+     * @param backend 进程执行后端
+     * @param shell 不得被后端隐式转换的 shell 语义
+     */
+    public LocalCommandExecutor(
             Path workspace,
-            CommandShell shell,
-            ProcessTreeTerminator terminator) {
-        this.workspace = Objects.requireNonNull(workspace, "workspace 不能为空");
-        this.shell = Objects.requireNonNull(shell, "shell 不能为空");
-        this.terminator = Objects.requireNonNull(terminator, "terminator 不能为空");
+            ExecutionBackend backend,
+            ExecutionShell shell) {
+        this.workspace = Objects.requireNonNull(workspace);
+        this.backend = Objects.requireNonNull(backend);
+        this.shell = Objects.requireNonNull(shell);
     }
 
     /**
      * 执行已通过参数校验与审批的完整命令。
      *
-     * @param command 审批时展示的完整命令正文
-     * @param timeout 正数且不超过固定上限的期限
-     * @param cancellation 当前 Run 取消信号
-     * @param outputSink 有界输出事件出口
-     * @return 退出码、终止原因和有界输出
-     * @throws IOException Shell 无法启动或输出无法消费时
+     * @param command 完整命令文本
+     * @param timeout 执行期限
+     * @param cancellation 取消信号
+     * @param outputSink 流式输出接收端
+     * @return 兼容 run_command 协议的执行结果
+     * @throws IOException 后端启动、通信或清理失败
      */
     public CommandExecutionResult execute(
             String command,
             Duration timeout,
             CancellationToken cancellation,
             ToolOutputSink outputSink) throws IOException {
-        Objects.requireNonNull(command, "command 不能为空");
-        Objects.requireNonNull(timeout, "timeout 不能为空");
-        Objects.requireNonNull(cancellation, "cancellation 不能为空");
-        Objects.requireNonNull(outputSink, "outputSink 不能为空");
-
-        ProcessBuilder builder = new ProcessBuilder(shell.processArguments(command));
-        builder.directory(workspace.toFile());
-        builder.redirectErrorStream(false);
-        Map<String, String> environment = builder.environment();
-        environment.clear();
-        environment.putAll(CommandEnvironment.minimal());
-
-        Process process = builder.start();
-        process.getOutputStream().close();
-        BoundedOutput output = new BoundedOutput(LocalToolLimits.MAX_COMMAND_OUTPUT_CHARACTERS);
-        Thread stdout = pump(
-                process.getInputStream(), shell.outputCharset(), ToolOutputStream.STDOUT,
-                output, outputSink);
-        Thread stderr = pump(
-                process.getErrorStream(), shell.outputCharset(), ToolOutputStream.STDERR,
-                output, outputSink);
-
-        long deadline = System.nanoTime() + timeout.toNanos();
-        boolean timedOut = false;
-        boolean cancelled = false;
-        try {
-            while (!process.waitFor(50, TimeUnit.MILLISECONDS)) {
-                if (cancellation.isCancellationRequested()) {
-                    cancelled = true;
-                    terminator.terminate(process);
-                    break;
-                }
-                if (System.nanoTime() >= deadline) {
-                    timedOut = true;
-                    terminator.terminate(process);
-                    break;
-                }
-            }
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            cancelled = true;
-            terminator.terminate(process);
-        }
-        join(stdout);
-        join(stderr);
-        int exitCode = process.isAlive() ? -1 : process.exitValue();
-        return output.result(shell.id(), exitCode, timedOut, cancelled);
+        return execute(
+                "run-command",
+                command,
+                timeout,
+                cancellation,
+                outputSink);
     }
 
-    private static Thread pump(
-            InputStream input,
-            java.nio.charset.Charset charset,
-            ToolOutputStream stream,
-            BoundedOutput output,
-            ToolOutputSink sink) {
-        return Thread.ofVirtual().name("cc-java-command-" + stream.name().toLowerCase())
-                .start(() -> {
-                    try (InputStreamReader reader = new InputStreamReader(input, charset)) {
-                        char[] buffer = new char[2_048];
-                        int read;
-                        while ((read = reader.read(buffer)) >= 0) {
-                            if (read > 0) {
-                                String visible = output.append(stream, new String(buffer, 0, read));
-                                publishChunks(stream, visible, sink);
-                            }
-                        }
-                    } catch (IOException ignored) {
-                        // 进程树终止会关闭管道；退出原因由主等待循环决定。
-                    }
-                });
+    /**
+     * 执行绑定当前 Call ID 的命令。
+     *
+     * @param callId 当前 Tool Call 身份
+     * @param command 完整命令文本
+     * @param timeout 执行期限
+     * @param cancellation 取消信号
+     * @param outputSink 流式输出接收端
+     * @return 兼容 run_command 协议的执行结果
+     * @throws IOException 后端启动、通信或清理失败
+     */
+    public CommandExecutionResult execute(
+            String callId,
+            String command,
+            Duration timeout,
+            CancellationToken cancellation,
+            ToolOutputSink outputSink) throws IOException {
+        ExecutionPolicy policy = new ExecutionPolicy(
+                new FileAccessPolicy(
+                        List.of(workspace.toString()),
+                        List.of(workspace.toString()),
+                        List.of(
+                                ".git",
+                                ".cc-java",
+                                ".claude",
+                                ".mcp.json",
+                                "config/provider.local.properties")),
+                ProcessPolicy.restricted(),
+                NetworkPolicy.denyAllNetwork(),
+                new EnvironmentPolicy(CommandEnvironment.minimal()),
+                SecretPolicy.common(),
+                backend.id() != ExecutionBackendId.LOCAL,
+                List.of(new PolicyProvenance(
+                        PolicyProvenance.Kind.HOST,
+                        "s13-host-baseline")));
+        ExecutionRequest request = new ExecutionRequest(
+                callId,
+                shell,
+                "",
+                List.of(command),
+                workspace.toString(),
+                timeout,
+                LocalToolLimits.MAX_COMMAND_OUTPUT_CHARACTERS,
+                policy);
+        var result = backend.execute(request, cancellation, outputSink);
+        return new CommandExecutionResult(
+                shellId(result.enforcement().backend()),
+                result.exitCode(),
+                result.timedOut(),
+                result.cancelled(),
+                result.stdout(),
+                result.stderr(),
+                result.truncated(),
+                result.originalCharacters(),
+                result.enforcement());
     }
 
-    private static void publishChunks(
-            ToolOutputStream stream,
-            String value,
-            ToolOutputSink sink) {
-        String remaining = value;
-        while (!remaining.isEmpty()) {
-            int points = Math.min(
-                    LifecycleEvent.ToolOutput.MAX_CHUNK_CHARACTERS,
-                    remaining.codePointCount(0, remaining.length()));
-            int end = remaining.offsetByCodePoints(0, points);
-            try {
-                sink.publish(stream, remaining.substring(0, end));
-            } catch (RuntimeException ignored) {
-                // 输出观察者不是执行控制面。
-            }
-            remaining = remaining.substring(end);
-        }
+    private static ExecutionShell platformShell() {
+        return System.getProperty("os.name", "")
+                .toLowerCase(Locale.ROOT)
+                .contains("win")
+                ? ExecutionShell.WINDOWS_PLATFORM
+                : ExecutionShell.POSIX_PLATFORM;
     }
 
-    private static void join(Thread thread) {
-        try {
-            thread.join(2_000);
-            if (thread.isAlive()) {
-                thread.interrupt();
-            }
-        } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-        }
-    }
-
-    private static final class BoundedOutput {
-        private final int limit;
-        private final StringBuilder stdout = new StringBuilder();
-        private final StringBuilder stderr = new StringBuilder();
-        private long originalCharacters;
-        private int retainedCharacters;
-
-        private BoundedOutput(int limit) {
-            this.limit = limit;
-        }
-
-        private synchronized String append(ToolOutputStream stream, String value) {
-            int characters = value.codePointCount(0, value.length());
-            originalCharacters += characters;
-            int accepted = Math.min(characters, Math.max(0, limit - retainedCharacters));
-            if (accepted == 0) {
-                return "";
-            }
-            String visible = accepted == characters
-                    ? value : value.substring(0, value.offsetByCodePoints(0, accepted));
-            (stream == ToolOutputStream.STDOUT ? stdout : stderr).append(visible);
-            retainedCharacters += accepted;
-            return visible;
-        }
-
-        private synchronized CommandExecutionResult result(
-                String shell,
-                int exitCode,
-                boolean timedOut,
-                boolean cancelled) {
-            return new CommandExecutionResult(
-                    shell,
-                    exitCode,
-                    timedOut,
-                    cancelled,
-                    stdout.toString(),
-                    stderr.toString(),
-                    originalCharacters > retainedCharacters,
-                    originalCharacters);
-        }
+    private static String shellId(ExecutionBackendId id) {
+        return switch (id) {
+            case LOCAL -> CommandShell.current().id();
+            case WSL2_BWRAP -> "linux-sh/wsl2-bwrap";
+            case DOCKER_CONTAINER -> "linux-sh/docker";
+            case NATIVE_WINDOWS -> "windows-native";
+            case MACOS_SANDBOX -> "macos-sandbox";
+        };
     }
 }

@@ -1,78 +1,53 @@
-# S13 Sandbox + Security G0-G2 Evidence
+# S13 Sandbox + Security G3-G5 Candidate Evidence
 
 - Stage: S13
-- Status: In Progress（G0-G2 Frozen；G3-G6 Open）
-- Release / Commit: Working tree documentation only；不以未提交状态作为实现证据
-- Reference Behavior Baseline: `R2026.03`
-- Authorized Snapshot ID: `AUTH-SRC-2026-07-29-A`
-- Public Source: OpenAI Codex `rust-v0.147.0` / `be6e8eac029b183056b7e4402879f15d2c85f61b`
+- Status: In Progress（G3-G5 Candidate；G6 waits implementation Commit）
+- Release / Commit: working tree after `33086a7`; no commit created
+- Reference: `R2026.03` / `AUTH-SRC-2026-07-29-A` / Codex `rust-v0.147.0`
 - Date: 2026-08-10
 
-## G0：来源与授权 — PASS
+## G0-G2
 
-- 按根 `AGENTS.md` 顺序完整阅读 README、参考架构、两个基线、矩阵、PRD、技术设计、列出的 ADR 与证据模板。
-- 授权材料只在仓库外 `G:\AI Cloud\claude-code-main` 只读研究；准确 Revision/License/权利人/公开再使用权保持 `Unknown`。
-- Codex tag 复验：annotated tag object `3ed6f04f6bf8b7c46299d1cb1ff99c74ce21a51d` peeled 为 commit `be6e8eac029b183056b7e4402879f15d2c85f61b`；仓库外 detached clone HEAD 匹配。
-- 未把双源字节、Fixture、Golden Output、函数体、Prompt、私有命名、布局或常量带入仓库。
-- 抽象结论、采纳/偏离/Unknown 见 ADR-063。
+ADR-063/064 的双源、范围、独立契约与停止条件继续有效。实现没有复制参考表达或新增依赖。
 
-## G1：范围与目标 — PASS
+## G3 Candidate
 
-冻结范围：
+Batch A-C 已一次性落地：
 
-- L1→L2：`SEC-02/03/04/05`
-- L0→L2：`SEC-06/07/12`、`EVAL-04`
-- L0→L1：`SEC-08`、`PERM-05`、`CFG-07`
-- 保持 L1：`HOOK-10`（JVM 内 HTTP 不受 ExecutionBackend 强制）
-- 保持 L2 并做组合回归：`PERM-08`、`PERM-09`、`PERM-12`、`SEC-09`
-- 保持 L0：`SEC-11`
+- Domain/Core 新增不可变 ExecutionBackend request/outcome/failure、selector/fallback、capability snapshot/status、五维 policy/report、Managed baseline/provenance 和 PERM-05 deterministic auto skeleton；公共安全契约含中文 Javadoc。
+- `LocalCommandExecutor` 不再直接启动 ProcessBuilder，而是适配唯一 backend seam；Local 明确报告 `UNSANDBOXED_LOCAL`。run_command 结果展示 backend/enforcement/fallback，Call ID 进入 request。
+- CLI 新增明确 `--execution-backend local|sandbox|container` 和 `--execution-shell platform|linux-sh`；Sandbox/Container 若非 LINUX_SH 立即拒绝，PowerShell/cmd 不隐式转换。stdio/TUI 沿用参数透传与既有协议，无需第二套 UI/Loop/Pipeline。
+- WSL2 backend 固定系统 `wsl.exe`、Ubuntu、`/usr/bin/bwrap`，双向 fixed-drive path identity、user/pid/net/ipc/uts namespace、只读 host、显式 writable Workspace/tmp、控制面 ro-bind、空环境与统一 cleanup。
+- Docker backend 使用 fixed CLI、pinned `nginx@sha256:0d17...9b31`、network none、read-only、非 root、cap-drop all、no-new-privileges、PID limit 与 rm cleanup。
+- native Windows 真实报告仅 process/env/secret B，file/network UNKNOWN；macOS C/U。JVM HTTP/MCP remote 不经过 backend，HOOK-10 保持 L1。
 
-最小可证伪行为是：同一个已获准 Command 在 Local backend 可触达的主机文件/网络，在 Sandbox backend 被 OS 强制拒绝；取消/timeout 后完整进程树消失；环境与所有投影无 Secret sentinel；backend 不可用或策略不可表达时 execute count 为 0，除非用户在执行前对当前 Call ID 显式批准一次 Local fallback。
+Command Hook 与 MCP stdio 已复用共享 `ManagedProcessLauncher` 的 fixed argv/minimal env seam，Sub-Agent run_command 显式继承父 backend/shell。宿主 Git 控制操作仍是可信 fixed-argv 端口；这些入口均不冒充 OS Sandbox，MCP HTTP 继续排除。
 
-## G2：研究与架构 — PASS
+## G4 Candidate 实际验证
 
-ADR-064 已冻结：
+| 验证 | 结果 |
+| --- | --- |
+| `mvnw clean verify` | PASS；标准离线 Surefire XML 汇总 851 tests/10 skips/0 failure/error：Domain 53/0、Core 238/0、Spring 45/2、Tools 175/8、MCP 13/0、CLI 327/0 |
+| focused real | 13/13 PASS、0 skip：`S13RealBackendAttackTest` 8/8 + `ExecutionBackendSelectorTest` 5/5 |
+| `S13RealBackendAttackTest` | disposable fixture、`/proc/net/dev` 仅 lo、outside 隔离、WSL timeout/cancel orphan、Docker readonly mask、PIDS_BLOCKED 非超时终态及无 limit 对照、生产 Bootstrap→RunCommandTool 组合与零残留 |
+| TUI | 133/133 PASS |
+| launcher | 59/59 PASS |
 
-- `ExecutionBackend`、Local、Windows-hosted WSL2 Linux bwrap、可选 Docker Container；native Windows/macOS 只按真实 probe 报 B/C/U；
-- platform capability probe 与 `ENFORCED/DEGRADED/UNAVAILABLE/UNKNOWN`，包括 WSL version、bwrap self-test、Docker daemon/image，而非 CLI-only；
-- file/process/network/environment/secret policy，以及明确排除 JVM 内 HTTP；
-- Managed deny-only baseline、fail-closed 与显式一次性 fallback；
-- 唯一 `ToolExecutionPipeline` 与 Command/Sub-Agent/Plugin/MCP/Hook 一致入口；
-- timeout/cancel/进程树清理；
-- 攻击 Fixture、安全矩阵、跨平台 A/B/C/U 证据分级；
-- 所有新增/修改核心公共契约必须有准确中文 Javadoc；
-- 最多三个完整实现 Batch，而不是按 Gate 拆微任务。
+真实环境：Windows 10 host；Ubuntu WSL2；bubblewrap 0.4.0；Docker Desktop 4.31.1 / Engine 26.1.4 linux amd64；pinned nginx digest already present。
 
-## 现有接缝核验
+安全观察：outside/control-plane write、direct network、Secret sentinel、静默 fallback、测试产生 orphan 均为 0。Linux 证据分类 A（hosted on Windows），Container B，native Windows B（file/network U），macOS C/U。
 
-| Stage/接缝 | 当前真实边界 | S13 改造点 |
-| --- | --- | --- |
-| S03 WorkspaceGuard | Tool 参数 realpath/敏感路径，非 OS 隔离 | 保留为第一层；OS file policy 为第二层 |
-| S04 Command | `LocalCommandExecutor` 直接 ProcessBuilder、最小环境、cleanup | 收敛到 `ExecutionBackend`；Local 仅显式非隔离后端 |
-| S05 Permission | Hard Denial/规则/审批在唯一 Pipeline | Permission 先于 backend，不能被 Sandbox 取代 |
-| S08 Settings | user/project/local/session merge 与 provenance | 增加不可放宽 Managed security baseline |
-| S09 Hook | Command fixed argv；HTTP 仅 loopback且在当前 JVM | Command 使用 backend；HTTP 不受其强制，`HOOK-10` 保持 L1 |
-| S10 MCP | stdio 进程与 JVM 内 HTTP remote Adapter | stdio 使用 backend；remote 只保留既有应用层控制，不计 OS network 证据 |
-| S11 Plugin | 宿主 SPI/MCP-backed、拒绝任意 JAR | Plugin 不选择 backend；SEC-11 仍 L0 |
-| S12 Sub-Agent/Worktree | child 重装配与 Git cwd 隔离 | child Command 使用相同 backend；Worktree 不放宽 policy |
+## Candidate levels
 
-## G3-G6 — OPEN
+- L1→L2: SEC-02/03/04/05
+- L0→L2: SEC-06/07/12, EVAL-04
+- L0→L1: SEC-08；PERM-05、CFG-07 因未生产接入保持 L0
+- unchanged: PERM-08/09/12, SEC-09 L2; HOOK-10 L1; SEC-11 L0
 
-- G3：未写生产或测试实现。
-- G4：尚无 WSL2 Linux bwrap A、Docker Container B 或 native Windows B 级证据；当前 Ubuntu 缺 bwrap、Docker daemon 不可连接，不得提升 Capability。
-- G5：Demo skeleton 已创建，尚无实际执行结果。
-- G6：无 implementation Commit 或 commit-scoped 验收；Stage Exit Open。
+## G5 Candidate
 
-## 第二阶段实现批次
+`docs/demos/S13-sandbox-security.md` 已记录真实可复现命令、正负例与环境结果。
 
-1. Batch A：Contracts + Local refactor + truthful WSL2/bwrap/Docker/native probe。
-2. Batch B：Windows-hosted WSL2 Ubuntu + bwrap Linux A、path identity 与显式 `LINUX_SH`；`HOOK-10` 不提升。
-3. Batch C：Docker daemon + pinned image Container B、attack matrix、native Windows B/C/U、macOS C/U 与 G4-G6。
+## G6 Open
 
-## 验证门槛
-
-- 安全违规、旁路、静默 fallback、Secret 泄漏、orphan 全为 0。
-- Windows-hosted WSL2 Ubuntu+bwrap 对核心隔离维度达到 Linux A；不得表述为 native Windows A。
-- Docker daemon + pinned image 达到 Container B；当前仅 CLI 不满足，未关闭则 `SEC-08` 保持 L0 且 Stage Exit Open。
-- native Windows 至少真实 B（process/env/cleanup），file/network 为 C/U 可接受但必须列 gap；macOS C/U。
-- 标准 clean verify、TUI、launcher、Dashboard、`git diff --check` 与 commit-scoped 复验全部通过后才允许 G6。
+没有 implementation Commit，故不做 commit-scoped 复验、不宣称 Stage Exit Accepted。Command Hook/MCP stdio 已收敛到共享 managed fixed-argv seam，Sub-Agent run_command 已继承父 execution 配置；MCP HTTP、Managed/Auto 生产接入与完整 OS 级覆盖仍是后续 gap。

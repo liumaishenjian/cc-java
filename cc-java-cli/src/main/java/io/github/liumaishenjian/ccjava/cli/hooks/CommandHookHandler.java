@@ -6,7 +6,7 @@ import io.github.liumaishenjian.ccjava.domain.hook.HookDisposition;
 import io.github.liumaishenjian.ccjava.domain.hook.HookExecutionResult;
 import io.github.liumaishenjian.ccjava.domain.hook.HookExecutionStatus;
 import io.github.liumaishenjian.ccjava.domain.hook.HookInvocation;
-import io.github.liumaishenjian.ccjava.tools.local.command.ProcessTreeTerminator;
+import io.github.liumaishenjian.ccjava.tools.local.process.ManagedProcessLauncher;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -394,32 +394,35 @@ public final class CommandHookHandler implements HookHandler {
     private enum JdkProcessLauncher implements ProcessLauncher {
         INSTANCE;
 
+        private final ManagedProcessLauncher launcher = new ManagedProcessLauncher();
+
         @Override
         public CommandProcess start(List<String> command, Path workspace) throws IOException {
-            ProcessBuilder builder = new ProcessBuilder(command);
-            builder.directory(workspace.toFile());
-            builder.environment().clear();
-            builder.environment().put("CC_JAVA_HOOK_PROTOCOL", "1");
-            return new JdkCommandProcess(builder.start());
+            ManagedProcessLauncher.ManagedProcess process = launcher.start(
+                    new ManagedProcessLauncher.LaunchRequest(
+                            Path.of(command.getFirst()),
+                            command.subList(1, command.size()),
+                            workspace,
+                            java.util.Map.of("CC_JAVA_HOOK_PROTOCOL", "1")));
+            return new JdkCommandProcess(process);
         }
     }
 
-    private record JdkCommandProcess(Process process) implements CommandProcess {
-
-        private static final ProcessTreeTerminator TERMINATOR = new ProcessTreeTerminator();
+    private record JdkCommandProcess(
+            ManagedProcessLauncher.ManagedProcess process) implements CommandProcess {
         @Override
         public OutputStream stdin() {
-            return process.getOutputStream();
+            return process.stdin();
         }
 
         @Override
         public InputStream stdout() {
-            return process.getInputStream();
+            return process.stdout();
         }
 
         @Override
         public InputStream stderr() {
-            return process.getErrorStream();
+            return process.stderr();
         }
 
         @Override
@@ -429,7 +432,7 @@ public final class CommandHookHandler implements HookHandler {
 
         @Override
         public int exitCode() {
-            return process.exitValue();
+            return process.exitCode();
         }
 
         @Override
@@ -439,7 +442,7 @@ public final class CommandHookHandler implements HookHandler {
 
         @Override
         public void destroyTree() {
-            TERMINATOR.terminate(process);
+            process.destroyTree();
         }
     }
 

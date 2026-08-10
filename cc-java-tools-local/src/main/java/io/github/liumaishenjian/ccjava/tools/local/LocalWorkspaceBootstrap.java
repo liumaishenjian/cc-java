@@ -1,18 +1,23 @@
 package io.github.liumaishenjian.ccjava.tools.local;
 
 import io.github.liumaishenjian.ccjava.core.AgentTool;
-import io.github.liumaishenjian.ccjava.tools.local.git.GitReadClient;
-import io.github.liumaishenjian.ccjava.tools.local.tool.ApplyPatchTool;
-import io.github.liumaishenjian.ccjava.tools.local.tool.WriteFileTool;
-import io.github.liumaishenjian.ccjava.tools.local.tool.RunCommandTool;
+import io.github.liumaishenjian.ccjava.core.execution.ExecutionBackend;
+import io.github.liumaishenjian.ccjava.domain.execution.ExecutionBackendPreference;
+import io.github.liumaishenjian.ccjava.domain.execution.ExecutionShell;
 import io.github.liumaishenjian.ccjava.tools.local.command.LocalCommandExecutor;
+import io.github.liumaishenjian.ccjava.tools.local.execution.ExecutionBackendFactory;
+import io.github.liumaishenjian.ccjava.tools.local.git.GitReadClient;
 import io.github.liumaishenjian.ccjava.tools.local.text.WorkspaceReadRegistry;
+import io.github.liumaishenjian.ccjava.tools.local.tool.ApplyPatchTool;
+import io.github.liumaishenjian.ccjava.tools.local.tool.RunCommandTool;
+import io.github.liumaishenjian.ccjava.tools.local.tool.WriteFileTool;
 import io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceAccessException;
 import io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceGuard;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -50,15 +55,53 @@ public record LocalWorkspaceBootstrap(
     public static LocalWorkspaceBootstrap open(Path workspace)
             throws IOException, WorkspaceAccessException {
         WorkspaceGuard guard = new WorkspaceGuard(workspace);
+        return open(
+                guard,
+                ExecutionBackendFactory.create(
+                        guard.workspace(),
+                        ExecutionBackendPreference.LOCAL),
+                platformShell());
+    }
+
+    /**
+     * 使用可信 Composition Root 已选择的 backend 创建 Workspace Tool。
+     *
+     * @param workspace Workspace 目录
+     * @param backend 不可由模型选择的进程后端
+     * @param shell 明确审批的命令语义
+     * @return 一次性 Bootstrap 快照
+     * @throws IOException Workspace 或后端无法初始化时
+     * @throws WorkspaceAccessException Workspace 违反安全契约时
+     */
+    public static LocalWorkspaceBootstrap open(
+            Path workspace,
+            ExecutionBackend backend,
+            ExecutionShell shell) throws IOException, WorkspaceAccessException {
+        return open(new WorkspaceGuard(workspace), backend, shell);
+    }
+
+    private static ExecutionShell platformShell() {
+        return System.getProperty("os.name", "")
+                .toLowerCase(Locale.ROOT)
+                .contains("win")
+                ? ExecutionShell.WINDOWS_PLATFORM
+                : ExecutionShell.POSIX_PLATFORM;
+    }
+
+    private static LocalWorkspaceBootstrap open(
+            WorkspaceGuard guard,
+            ExecutionBackend backend,
+            ExecutionShell shell) throws IOException, WorkspaceAccessException {
         GitReadClient git = new GitReadClient(guard.workspace());
         // 一个 Workspace 只有一份 Read 证据登记表：read_file 记录的行范围因此成为
         // apply_patch 的写入前置条件，而 Tool 之间仍然互不依赖。
         WorkspaceReadRegistry readRegistry = new WorkspaceReadRegistry();
-        ArrayList<AgentTool> tools =
-                new ArrayList<>(LocalReadTools.create(guard, readRegistry));
+        ArrayList<AgentTool> tools = new ArrayList<>(
+                LocalReadTools.create(guard, readRegistry));
         tools.add(new ApplyPatchTool(guard, readRegistry));
         tools.add(new WriteFileTool(guard, readRegistry));
-        tools.add(new RunCommandTool(new LocalCommandExecutor(guard.workspace())));
+        tools.add(new RunCommandTool(
+                new LocalCommandExecutor(guard.workspace(), backend, shell)));
         return new LocalWorkspaceBootstrap(
                 tools,
                 WorkspaceSnapshot.capture(git),

@@ -1,45 +1,39 @@
-# S13 Sandbox + Security Demo（Skeleton）
-
-> 当前状态：G0-G2 已冻结，G3-G5 尚未执行。本文件不是实现或通过证据。
+# S13 Sandbox + Security Demo（G3-G5 Candidate）
 
 ## 前置条件
 
-- 实现 Commit 固定；Workspace 使用独立公开攻击 Fixture；无真实 Secret。
-- 目标主机 capability probe 报告 backend 与每个 enforcement dimension。
-- Windows-hosted WSL2 Ubuntu 中显式安装并通过 probe 的 bwrap；Docker daemon + pinned image 显式启用。仅 WSL2/Docker CLI 存在不算可用。
+- Windows host，Ubuntu WSL2，`/usr/bin/bwrap` 0.4.0。
+- Docker daemon 可用，已存在 pinned `nginx@sha256:0d17b565c37bcbd895e9d92315a05c1c3c9a29f762b011a10c54a66cd53c9b31`。
+- 本 Demo 不下载、安装、提权、commit 或 push。
 
-## 预定场景
-
-1. 相同命令在 Local 对照可观察到目标，而 Sandbox 对 Workspace 外写、deny-read、保护路径修改均拒绝。
-2. symlink/junction/reparse/hard-link/rename 竞态不能越过文件 policy。
-3. 直接 TCP/UDP、代理绕过、redirect、DNS/private/loopback/Unix socket 按 NetworkPolicy 拒绝或允许。
-4. child/fork/detach 后 timeout/cancel/shutdown 无 orphan。
-5. 环境、文件、argv、stdout/stderr、Event/Journal/Report 中 Secret sentinel 为 0。
-6. Command、Sub-Agent、Plugin/MCP stdio、Command Hook 使用相同进程 backend；JVM 内 Hook/MCP HTTP 明确不在其中且不计网络隔离证据。
-7. Windows PowerShell request 不能隐式换成 Linux shell；只有审批明确显示 WSL2/container、Linux cwd 和 `LINUX_SH` 的调用才可执行。
-8. Windows fixed-drive path 双向映射失败、UNC/网络盘/reparse 不确定、bwrap 缺失、Docker daemon/image 不可用时 execute count 为 0；当前 Call ID 的显式 Local fallback 正负例。
-9. Managed baseline 不能被 user/project/session/Plugin/Agent 文本放宽。
-
-## 预定命令
+## 命令
 
 ```powershell
+$env:CC_JAVA_S13_REAL_BACKENDS='true'
+$env:CC_JAVA_S13_DOCKER_IMAGE='nginx@sha256:0d17b565c37bcbd895e9d92315a05c1c3c9a29f762b011a10c54a66cd53c9b31'
+.\mvnw.cmd -pl cc-java-tools-local -am `
+  '-Dtest=ExecutionBackendSelectorTest,S13RealBackendAttackTest' `
+  '-Dsurefire.failIfNoSpecifiedTests=false' test
+
 .\mvnw.cmd clean verify
-# 后续由实现固定跨平台安全矩阵 runner；当前不存在，不得伪造命令。
-java scripts/ProgressDashboard.java --check
-java scripts/ProgressDashboard.java --self-test
-git diff --check
+npm --prefix cc-java-tui test
+pwsh -NoProfile -File scripts/TestCodejDevLauncher.ps1
 ```
 
-## 预期观察点
+## 实际结果（2026-08-10）
 
-- WSL2 Ubuntu+bwrap 为 Linux A；Docker daemon+pinned image 为 Container B；native Windows 为 B（file/network C/U 如实列出），macOS C/U。Linux A 不冒充 native Windows A。
-- 越权、旁路、静默 fallback、Secret 泄漏和 orphan 全为 0。
-- 每次调用有唯一 backend terminal/cleanup，Tool Call ID 与 durable started/completed 保持配对。
+- WSL2+bwrap truthful probe 与攻击：通过；只读 `/etc`、显式 Workspace、network namespace、空环境。
+- Docker daemon + pinned image：通过；非 root、read-only root、network none、cap-drop、no-new-privileges。
+- 标准离线 clean Maven 851 tests/10 skips；focused real 13/13、0 skip（real backend 8/8 + selector 5/5）；TUI 133/133；launcher 59/59。
+- 越权、静默 fallback、Secret sentinel、orphan：0。
 
-## 实际结果
+## 负例
 
-`OPEN — 等待 Batch A-C 实现与 commit-scoped G4/G5。`
+- Windows platform shell + Sandbox/Container selector 被 `SHELL_SEMANTICS_MISMATCH` 拒绝；只有明确 `LINUX_SH` 可进入。
+- require-isolation 时 capability 不完整即拒绝；不允许 Local fallback。
+- fallback approval 的 Call ID 不匹配即拒绝。
+- native Windows file/network 只报告 UNKNOWN，不借 WSL2 Linux A 冒充 Windows A。
 
 ## 事实边界
 
-Permission、Checkpoint、Worktree、Job cleanup、最小环境和 Local backend 均不等于 Sandbox。没有真实 OS 攻击证据时不得提升 `SEC-06/07/12/EVAL-04`。
+Linux A 是 Windows-hosted WSL2 Ubuntu 证据；Container 是 B；native Windows 是 process/env/cleanup B 且 file/network U；macOS C/U。JVM 内 HTTP/MCP remote 不受进程 backend 强制，HOOK-10 保持 L1。Command Hook/MCP stdio 已复用 managed fixed-argv seam，Sub-Agent run_command 继承父配置；没有 implementation Commit，因此 Stage Exit/G6 仍 Open。

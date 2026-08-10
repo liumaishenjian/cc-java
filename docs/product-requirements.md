@@ -9,7 +9,7 @@
 > Commit `5910a8f` 上完成 Commit-scoped G0-G6；`CLI-13`、`CTX-19` 达到 L2。S09 已完成
 > Settings/Trust、Command/loopback HTTP、生命周期、Compact 与生产装配并 Accepted；S10 MCP Tool
 > 主链已完成 STDIO/Streamable HTTP、多 Server、统一 Permission、Trust 与恢复并通过真实 E2E，Accepted。
-> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、安全矩阵、Demo 与能力对账均通过，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted；相关 Feature 达到冻结的 L2/L1 目标。S13 已由 ADR-063/064 完成双源研究、范围与架构 G0-G2 冻结；尚无生产/测试实现，Capability Level 不变，G3-G6 与 Stage Exit Open。
+> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、安全矩阵、Demo 与能力对账均通过，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted；相关 Feature 达到冻结的 L2/L1 目标。S13 已在当前工作树完成 Batch A-C G3-G5 candidate：ExecutionBackend/五维 policy、WSL2+bwrap Linux A、Docker pinned-image B、Windows B/U 与攻击回归已实现；Command Hook/MCP stdio managed seam 与 root/child execution composition 已收敛；无 implementation Commit 和 commit-scoped G6 复验，故 G6/Stage Exit Open。
 >
 > 产品负责人：项目维护者
 

@@ -11,7 +11,7 @@
 > `CLI-13`/`CTX-19` 补充切片已在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6；S09 已完成
 > Settings/Trust、Command/loopback HTTP、Compact、Context Projection 与生产装配并 Accepted；S10 MCP
 > Tool 主链已完成两个 Transport、多 Server、统一 Permission、Trust 与恢复并通过真实 E2E，Accepted；
-> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6；`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6；冻结的 L2/L1 目标与 Stage Exit Accepted。S13 已由 ADR-063/064 完成 G0-G2；ExecutionBackend/安全架构已冻结但尚无实现，G3-G6 Open。
+> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6；`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6；冻结的 L2/L1 目标与 Stage Exit Accepted。S13 已在当前工作树完成 Batch A-C G3-G5 candidate：ExecutionBackend/五维 policy、WSL2+bwrap Linux A、Docker B、Windows B/U 与攻击验证已落地；Command Hook/MCP stdio managed seam 与 root/child execution composition 已收敛；无 implementation Commit 和 commit-scoped G6 复验，故 G6/Stage Exit Open。
 >
 > 当前实现状态：ADR-042/043/044 已固定并验证 Context Projection、条件式 Reduction、文件记忆和零等待
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
@@ -1183,7 +1183,7 @@ Domain/Core 新增 definition/task/status/report/budget/worktree 值对象与 Su
 
 ### 18.7 S13 ExecutionBackend + Security（G0-G2 FROZEN）
 
-ADR-063/064 冻结以下独立控制链；当前没有生产实现：
+ADR-063/064 冻结的独立控制链已在当前工作树形成 G3-G5 candidate；G6/Stage Exit 仍 Open：
 
 ```text
 ToolExecutionPipeline allow
@@ -1782,7 +1782,7 @@ S01 未使用任何授权或未核验参考源码；设计和代码由 ADR-017�
 Accepted。S02 的真实 Provider、Java Runtime/stdio、React/Ink、连续 Session、
 取消边界和隐私安全 Telemetry 已在实现 Commit `700251e` 上通过 G0-G6，
 Stage Exit 为 Accepted。S03-S12 也已按各自 Evidence 完成 Commit-scoped Stage Exit；S12 固定
-实现 Commit 为 `cfbe0282b37a93e38256c3d2d6f22ed2207975a5`。S13 已由 ADR-063/064 完成 G0-G2，但尚无实现或 OS 隔离可用证据。
+实现 Commit 为 `cfbe0282b37a93e38256c3d2d6f22ed2207975a5`。S13 当前已有 G3-G5 candidate 与真实 Linux A/Container B/Windows B-U 证据，但无 implementation Commit，G6/Stage Exit Open。
 
 ### 27.2 分 Stage 实现
 

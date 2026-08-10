@@ -189,6 +189,29 @@ public final class RuntimeStdioCommandHandler
                 contextPreparation, ModelDiagnosticMode.OFF, Optional.empty());
     }
 
+    /** 使用默认 Local/platform execution 配置的兼容构造器。 */
+    public RuntimeStdioCommandHandler(
+            OpenAiCompatibleSettings settings,
+            Path workspace,
+            Duration timeout,
+            PermissionMode permissionMode,
+            SessionOpenRequest sessionOpenRequest,
+            Optional<ContextPreparationConfig> contextPreparation,
+            ModelDiagnosticMode diagnosticMode,
+            Optional<Path> diagnosticDirectory) {
+        this(
+                settings,
+                workspace,
+                timeout,
+                permissionMode,
+                sessionOpenRequest,
+                contextPreparation,
+                diagnosticMode,
+                diagnosticDirectory,
+                io.github.liumaishenjian.ccjava.domain.execution.ExecutionBackendPreference.LOCAL,
+                platformShell());
+    }
+
     /**
      * 使用显式本机诊断配置装配 Headless Runtime；目录不会进入 stdio 事件。
      *
@@ -209,7 +232,9 @@ public final class RuntimeStdioCommandHandler
             SessionOpenRequest sessionOpenRequest,
             Optional<ContextPreparationConfig> contextPreparation,
             ModelDiagnosticMode diagnosticMode,
-            Optional<Path> diagnosticDirectory) {
+            Optional<Path> diagnosticDirectory,
+            io.github.liumaishenjian.ccjava.domain.execution.ExecutionBackendPreference executionBackend,
+            io.github.liumaishenjian.ccjava.domain.execution.ExecutionShell executionShell) {
         clock = Clock.systemUTC();
         assemblyScheduler = InputAssemblyScheduler.production();
         approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
@@ -226,7 +251,9 @@ public final class RuntimeStdioCommandHandler
                         SessionStorage.defaultRoot(),
                         Objects.requireNonNull(contextPreparation, "contextPreparation 不能为空"),
                         Objects.requireNonNull(diagnosticMode, "diagnosticMode 不能为空"),
-                        Objects.requireNonNull(diagnosticDirectory, "diagnosticDirectory 不能为空")),
+                        Objects.requireNonNull(diagnosticDirectory, "diagnosticDirectory 不能为空"),
+                        Objects.requireNonNull(executionBackend, "executionBackend 不能为空"),
+                        Objects.requireNonNull(executionShell, "executionShell 不能为空")),
                 approvals);
     }
 
@@ -539,12 +566,16 @@ public final class RuntimeStdioCommandHandler
 
     private ObjectNode taskPayload(io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskReport report) {
         ObjectNode payload = codec.objectNode();
-        payload.put("taskId", report.taskId().value()); payload.put("definitionId", report.definitionId().value());
+        payload.put("taskId", report.taskId().value());
+        payload.put("definitionId", report.definitionId().value());
         payload.put("status", report.status().name().toLowerCase(Locale.ROOT));
         payload.put("failure", report.failureCode().name().toLowerCase(Locale.ROOT));
-        payload.put("modelTurns", report.modelTurns()); payload.put("toolCalls", report.toolCalls());
-        payload.put("estimatedTokens", report.estimatedTokens()); payload.put("elapsedMillis", report.elapsed().toMillis());
-        payload.put("summary", report.summary()); payload.put("verified", report.verified());
+        payload.put("modelTurns", report.modelTurns());
+        payload.put("toolCalls", report.toolCalls());
+        payload.put("estimatedTokens", report.estimatedTokens());
+        payload.put("elapsedMillis", report.elapsed().toMillis());
+        payload.put("summary", report.summary());
+        payload.put("verified", report.verified());
         if (report.worktreeDisposition().isPresent()) {
             payload.put("worktreeDisposition",
                     report.worktreeDisposition().orElseThrow().toLowerCase(Locale.ROOT));
@@ -798,6 +829,14 @@ public final class RuntimeStdioCommandHandler
             throw protocolError("INVALID_PAYLOAD", command, field + " 超过边界");
         }
         return value.intValue();
+    }
+
+    private static io.github.liumaishenjian.ccjava.domain.execution.ExecutionShell platformShell() {
+        return System.getProperty("os.name", "")
+                .toLowerCase(java.util.Locale.ROOT)
+                .contains("win")
+                ? io.github.liumaishenjian.ccjava.domain.execution.ExecutionShell.WINDOWS_PLATFORM
+                : io.github.liumaishenjian.ccjava.domain.execution.ExecutionShell.POSIX_PLATFORM;
     }
 
     private static String sha256(byte[] bytes) {

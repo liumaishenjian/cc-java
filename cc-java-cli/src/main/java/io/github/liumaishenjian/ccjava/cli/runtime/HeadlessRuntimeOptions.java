@@ -9,6 +9,8 @@ import io.github.liumaishenjian.ccjava.domain.ContextCapacity;
 import io.github.liumaishenjian.ccjava.domain.PermissionMode;
 import io.github.liumaishenjian.ccjava.domain.PermissionRule;
 import io.github.liumaishenjian.ccjava.domain.ModelDiagnosticMode;
+import io.github.liumaishenjian.ccjava.domain.execution.ExecutionBackendPreference;
+import io.github.liumaishenjian.ccjava.domain.execution.ExecutionShell;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -29,6 +31,8 @@ import java.util.Optional;
  * @param contextPreparation S07 显式启动容量配置；空表示保持 Canonical no-op 路径
  * @param diagnosticMode 本机模型诊断模式
  * @param diagnosticDirectory 可选可信诊断目录
+ * @param executionBackend 可信 Composition Root 显式选择的执行后端
+ * @param executionShell 不得被后端隐式转换的 shell 语义
  * @since 0.1.0
  */
 public record HeadlessRuntimeOptions(
@@ -41,7 +45,9 @@ public record HeadlessRuntimeOptions(
         Path sessionStoreRoot,
         Optional<ContextPreparationConfig> contextPreparation,
         ModelDiagnosticMode diagnosticMode,
-        Optional<Path> diagnosticDirectory) {
+        Optional<Path> diagnosticDirectory,
+        ExecutionBackendPreference executionBackend,
+        ExecutionShell executionShell) {
 
     /**
      * 使用 DEFAULT 且无 Startup Rule 创建兼容 S04 调用方的配置。
@@ -61,7 +67,9 @@ public record HeadlessRuntimeOptions(
                 SessionStorage.defaultRoot(),
                 Optional.empty(),
                 ModelDiagnosticMode.OFF,
-                Optional.empty());
+                Optional.empty(),
+                ExecutionBackendPreference.LOCAL,
+                platformShell());
     }
 
     /**
@@ -89,7 +97,9 @@ public record HeadlessRuntimeOptions(
                 SessionStorage.defaultRoot(),
                 Optional.empty(),
                 ModelDiagnosticMode.OFF,
-                Optional.empty());
+                Optional.empty(),
+                ExecutionBackendPreference.LOCAL,
+                platformShell());
     }
 
     /**
@@ -121,7 +131,9 @@ public record HeadlessRuntimeOptions(
                 sessionStoreRoot,
                 Optional.empty(),
                 ModelDiagnosticMode.OFF,
-                Optional.empty());
+                Optional.empty(),
+                ExecutionBackendPreference.LOCAL,
+                platformShell());
     }
 
     /**
@@ -147,7 +159,37 @@ public record HeadlessRuntimeOptions(
             Optional<ContextPreparationConfig> contextPreparation) {
         this(workspace, model, timeout, permissionMode, startupPermissionRules,
                 sessionOpenRequest, sessionStoreRoot, contextPreparation,
-                ModelDiagnosticMode.OFF, Optional.empty());
+                ModelDiagnosticMode.OFF, Optional.empty(),
+                ExecutionBackendPreference.LOCAL, platformShell());
+    }
+
+    /**
+     * 使用默认 Local/platform execution 配置的兼容构造器。
+     */
+    public HeadlessRuntimeOptions(
+            Path workspace,
+            String model,
+            Duration timeout,
+            PermissionMode permissionMode,
+            List<PermissionRule> startupPermissionRules,
+            SessionOpenRequest sessionOpenRequest,
+            Path sessionStoreRoot,
+            Optional<ContextPreparationConfig> contextPreparation,
+            ModelDiagnosticMode diagnosticMode,
+            Optional<Path> diagnosticDirectory) {
+        this(
+                workspace,
+                model,
+                timeout,
+                permissionMode,
+                startupPermissionRules,
+                sessionOpenRequest,
+                sessionStoreRoot,
+                contextPreparation,
+                diagnosticMode,
+                diagnosticDirectory,
+                ExecutionBackendPreference.LOCAL,
+                platformShell());
     }
 
     /**
@@ -182,6 +224,14 @@ public record HeadlessRuntimeOptions(
         diagnosticDirectory = Objects.requireNonNull(
                 diagnosticDirectory, "diagnosticDirectory 不能为空")
                 .map(path -> path.toAbsolutePath().normalize());
+        executionBackend = Objects.requireNonNull(
+                executionBackend, "executionBackend 不能为空");
+        executionShell = Objects.requireNonNull(executionShell, "executionShell 不能为空");
+        if (executionBackend != ExecutionBackendPreference.LOCAL
+                && executionShell != ExecutionShell.LINUX_SH) {
+            throw new IllegalArgumentException(
+                    "Sandbox/Container 必须显式选择 LINUX_SH");
+        }
         if (diagnosticMode == ModelDiagnosticMode.OFF && diagnosticDirectory.isPresent()) {
             throw new IllegalArgumentException("OFF 模式不能指定诊断目录");
         }
@@ -193,6 +243,14 @@ public record HeadlessRuntimeOptions(
         if (timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("timeout 必须大于 0");
         }
+    }
+
+    private static ExecutionShell platformShell() {
+        return System.getProperty("os.name", "")
+                .toLowerCase(java.util.Locale.ROOT)
+                .contains("win")
+                ? ExecutionShell.WINDOWS_PLATFORM
+                : ExecutionShell.POSIX_PLATFORM;
     }
 
     private static ContextPreparationConfig bindModel(

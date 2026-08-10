@@ -4,14 +4,16 @@ import io.github.liumaishenjian.ccjava.cli.session.SessionOpenMode;
 import io.github.liumaishenjian.ccjava.cli.session.SessionOpenRequest;
 import io.github.liumaishenjian.ccjava.core.ContextPreparationConfig;
 import io.github.liumaishenjian.ccjava.domain.ContextCapacity;
-import io.github.liumaishenjian.ccjava.domain.SessionId;
 import io.github.liumaishenjian.ccjava.domain.ModelDiagnosticMode;
+import io.github.liumaishenjian.ccjava.domain.PermissionMode;
+import io.github.liumaishenjian.ccjava.domain.SessionId;
+import io.github.liumaishenjian.ccjava.domain.execution.ExecutionBackendPreference;
+import io.github.liumaishenjian.ccjava.domain.execution.ExecutionShell;
 import picocli.CommandLine.ArgGroup;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParameterException;
 import picocli.CommandLine.Spec;
-import io.github.liumaishenjian.ccjava.domain.PermissionMode;
 import picocli.CommandLine.Model.CommandSpec;
 
 import java.nio.file.Path;
@@ -87,6 +89,15 @@ final class CcJavaCommand implements Callable<Integer> {
             description = "可信本机诊断目录；仅在 safe/verbose 模式使用")
     private Path diagnosticDirectory;
 
+    @Option(names = "--execution-backend", paramLabel = "<local|sandbox|container>",
+            description = "进程后端；sandbox/container 必须同时显式 --execution-shell linux-sh")
+    private ExecutionBackendPreference executionBackend =
+            ExecutionBackendPreference.LOCAL;
+
+    @Option(names = "--execution-shell", paramLabel = "<platform|linux-sh>",
+            description = "命令语义；默认 platform，绝不隐式转换 PowerShell/cmd")
+    private String executionShell = "platform";
+
     @ArgGroup(exclusive = true)
     private SessionSelection sessionSelection;
 
@@ -112,7 +123,9 @@ final class CcJavaCommand implements Callable<Integer> {
                     sessionOpenRequest(),
                     contextPreparation(),
                     diagnosticMode,
-                    Optional.ofNullable(diagnosticDirectory));
+                    Optional.ofNullable(diagnosticDirectory),
+                    executionBackend,
+                    parseExecutionShell());
         } catch (IllegalArgumentException exception) {
             throw new ParameterException(
                     commandSpec.commandLine(),
@@ -125,6 +138,18 @@ final class CcJavaCommand implements Callable<Integer> {
             return runner.runExtensions(mode.trustProjectExtensions, overrides);
         }
         return runner.runStdio(overrides);
+    }
+
+    private ExecutionShell parseExecutionShell() {
+        if ("linux-sh".equalsIgnoreCase(executionShell)) {
+            return ExecutionShell.LINUX_SH;
+        }
+        if (!"platform".equalsIgnoreCase(executionShell)) {
+            throw new IllegalArgumentException("execution-shell 只接受 platform 或 linux-sh");
+        }
+        return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win")
+                ? ExecutionShell.WINDOWS_PLATFORM
+                : ExecutionShell.POSIX_PLATFORM;
     }
 
     private Optional<ContextPreparationConfig> contextPreparation() {

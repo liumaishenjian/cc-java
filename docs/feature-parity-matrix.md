@@ -164,9 +164,9 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 纳入追踪的 Capability ID | 197 |
 | 当前阶段 | S13 Sandbox + Security；G0-G2 已冻结，G3-G6 Open |
 | Stage Exit | S09/S10/S11/S12 Accepted；S13 Stage Exit Open |
-| 当前等级 | 122 项为 L2，38 项为 L1，37 项为 L0（G0-G2 不提升等级） |
+| 当前等级 | 130 项为 L2，35 项为 L1，32 项为 L0（S13 G3-G5 candidate；G6 Open） |
 | 默认最终目标 | 197 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 47.72%（197 项等权、目标 L3） |
+| 当前能力覆盖 | 49.92%（197 项等权、目标 L3） |
 | 下一步 | 按 ADR-064 Batch A-C 实现；取得 WSL2+bwrap Linux A、Docker B、native Windows B 的诚实证据前不得提升对应能力 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
@@ -333,7 +333,7 @@ Stage 完成项。
 | PERM-02 | Manual / Default | 副作用默认询问 | L1 | S04 | REF-04/AUTH-01 |
 | PERM-03 | Plan Mode | S04 固定安全模式 → S05 可配置策略 | L2 | S04/S05 | REF-04/AUTH-01 |
 | PERM-04 | Accept Edits | Workspace Write 自动批准 | L2 | S05 | REF-04 |
-| PERM-05 | Auto Mode | 独立安全决策器 | L0 | S13/S15 | REF-04 |
+| PERM-05 | Auto Mode | 尚未生产接入；确定性 gate 仅为未接线设计骨架 | L0 | S13/S15 | REF-04 |
 | PERM-06 | Allow / Ask / Deny | 声明性规则 | L2 | S05/S08 | REF-04 |
 | PERM-07 | Allow Once / Session | 范围化审批缓存 | L2 | S04/S05 | REF-04/AUTH-01 |
 | PERM-08 | Protected Paths | 不可写路径 | L2 | S05/S13 | REF-04 |
@@ -366,17 +366,17 @@ Stage 完成项。
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
 | SEC-01 | Workspace Realpath | 路径与新文件父目录校验 | L1 | S03/S04 | REF-02 |
-| SEC-02 | Symlink / Junction | 跨平台逃逸测试 | L1 | S03/S13 | REF-02 |
-| SEC-03 | Sensitive Files | 默认拒绝和配置 | L1 | S03/S13 | REF-04 |
-| SEC-04 | Process Tree Control | timeout/cancel、Windows taskkill 与 ProcessHandle 清理 | L1 | S04/S13 | REF-02/AUTH-01 |
-| SEC-05 | Environment Filtering | 固定 allowlist，不继承 Provider Key/未知 Secret | L1 | S04/S13 | REF-01/AUTH-01 |
-| SEC-06 | File Sandbox | Workspace 级 OS 隔离 | L0 | S13 | REF-01 |
-| SEC-07 | Network Sandbox | Domain/Port Policy | L0 | S13 | REF-01 |
-| SEC-08 | Container Backend | 隔离执行环境 | L0 | S13 | REF-01 |
+| SEC-02 | Symlink / Junction | native Guard + WSL2/bwrap 链接/路径身份攻击回归 | L2 | S03/S13 | REF-02 |
+| SEC-03 | Sensitive Files | native Guard + bwrap 只读控制面保护 | L2 | S03/S13 | REF-04 |
+| SEC-04 | Process Tree Control | Local Windows cleanup + bwrap namespace/die-with-parent | L2 | S04/S13 | REF-02/AUTH-01 |
+| SEC-05 | Environment Filtering | 所有 backend 空环境构造与 Secret sentinel 零泄漏 | L2 | S04/S13 | REF-01/AUTH-01 |
+| SEC-06 | File Sandbox | Windows-hosted WSL2 Ubuntu+bwrap 只读主机/显式 writable Workspace | L2 | S13 | REF-01 |
+| SEC-07 | Network Sandbox | bwrap unshare-net 与 Docker network none；JVM HTTP 明确排除 | L2 | S13 | REF-01 |
+| SEC-08 | Container Backend | Docker daemon + pinned nginx digest 的非 root/read-only/network-none smoke | L1 | S13 | REF-01 |
 | SEC-09 | Prompt Injection Defense | 不可信仓库测试 | L2 | S05/S13 | REF-02 |
 | SEC-10 | Secret Redaction | Event/Log/Tool Result | L1 | S03/S14 | REF-01 |
 | SEC-11 | Plugin Supply Chain | 签名、信任和隔离 | L0 | S11/S13 | REF-03 |
-| SEC-12 | Security Regression Suite | 攻击性 Fixture | L0 | S13 | REF-01 |
+| SEC-12 | Security Regression Suite | 确定性 Fake + WSL2/bwrap Linux A + Docker B 攻击 Fixture | L2 | S13 | REF-01 |
 
 ## 14. Context Engineering 对照
 
@@ -412,7 +412,7 @@ Stage 完成项。
 | CFG-04 | Project Settings | Workspace 固定版本控制来源 | L2 | S08 | REF-01 |
 | CFG-05 | Local Settings | 仅 Gitignore 可证明时加载的本地覆盖 | L2 | S08 | REF-01 |
 | CFG-06 | Session Overrides | 有界 Slash/stdio Session patch：仅 model 或 PermissionMode，保留其余 overlay 和 CLI precedence；rules 编辑延期 | L2 | S08 | REF-01 |
-| CFG-07 | Managed Policy | 不可覆盖组织策略 | L0 | S13/S14 | REF-01 |
+| CFG-07 | Managed Policy | 尚未生产接入；baseline/provenance 仅为未接线设计骨架 | L0 | S13/S14 | REF-01 |
 | CFG-08 | Merge Semantics | Scalar/Object/List/delete/rule 的确定性逐字段合并 | L2 | S08 | REF-01 |
 | CFG-09 | Config Diagnostics | 来源、provenance、LKG 状态与隐私安全 doctor | L2 | S08 | REF-01 |
 | CFG-10 | Migration | Schema Version 与升级 | L0 | S14 | REF-01 |
@@ -500,7 +500,7 @@ Stage 完成项。
 | EVAL-01 | Seed Tasks | S04 单个公开 Scripted Java Fixture L1 → S14 任务集与指标 L3 | L1 | S04/S14 | REF-01 |
 | EVAL-02 | Behavior Replay | Fake Model 确定性回放 | L2 | S01/S06 | REF-01/AUTH-01 |
 | EVAL-03 | Agent Success Metrics | 完成率、成本、工具轨迹 | L0 | S14 | REF-01 |
-| EVAL-04 | Security Eval | 越权与 Prompt Injection | L0 | S13 | REF-01 |
+| EVAL-04 | Security Eval | WSL2/bwrap 与 Docker 的 file/network/env/secret 攻击回归 | L2 | S13 | REF-01 |
 | DIST-01 | Runnable Jar | 基础发行 | L0 | S04 | REF-02 |
 | DIST-02 | Windows/Linux Launcher | 跨平台脚本/安装 | L0 | S14 | REF-02 |
 | DIST-03 | Java SDK | Embeddable Runtime | L0 | S14 | REF-03 |
@@ -758,7 +758,7 @@ ADR-061/062 在双源边界内冻结范围与架构；实现 Commit `cfbe0282b37
 ADR-063/064 已完成双源 G0-G2，并冻结以下 Current→Exit Target；当前未写生产/测试实现，全部 Capability Level 保持原值，G3-G6 与 Stage Exit Open：
 
 - `SEC-02/03/04/05`：L1→L2；`SEC-06/07/12`、`EVAL-04`：L0→L2；
-- `SEC-08`、`PERM-05`、`CFG-07`：L0→L1；`HOOK-10` 保持 L1；
+- `SEC-08`：L0→L1；`PERM-05`、`CFG-07` 因未生产接入保持 L0；`HOOK-10` 保持 L1；
 - `PERM-08`、`PERM-09`、`PERM-12`、`SEC-09` 各自保持 L2 并做组合回归；`SEC-11` 保持 L0。
 
 完成条件：

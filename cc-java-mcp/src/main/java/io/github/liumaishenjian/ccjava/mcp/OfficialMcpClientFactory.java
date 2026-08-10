@@ -10,8 +10,11 @@ import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapperSupplier;
 import io.modelcontextprotocol.spec.McpClientTransport;
 import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpTransportSessionNotFoundException;
+import io.github.liumaishenjian.ccjava.tools.local.process.ManagedProcessLauncher;
+import java.io.IOException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -72,7 +75,12 @@ public final class OfficialMcpClientFactory implements McpClientFactory {
                 .args(config.arguments())
                 .env(inherited)
                 .build();
-        return new MinimalEnvironmentStdioTransport(parameters, mapper);
+        return new MinimalEnvironmentStdioTransport(
+                parameters,
+                mapper,
+                config.executable(),
+                config.arguments(),
+                inherited);
     }
 
     /**
@@ -80,15 +88,34 @@ public final class OfficialMcpClientFactory implements McpClientFactory {
      * 从而兑现 {@link McpTransportConfig.Stdio} 的显式 allowlist 契约。
      */
     private static final class MinimalEnvironmentStdioTransport extends StdioClientTransport {
-        private MinimalEnvironmentStdioTransport(ServerParameters parameters, McpJsonMapper mapper) {
+        private final Path executable;
+        private final List<String> arguments;
+        private final Map<String, String> environment;
+        private final ManagedProcessLauncher launcher = new ManagedProcessLauncher();
+
+        private MinimalEnvironmentStdioTransport(
+                ServerParameters parameters,
+                McpJsonMapper mapper,
+                Path executable,
+                List<String> arguments,
+                Map<String, String> environment) {
             super(parameters, mapper);
+            this.executable = executable;
+            this.arguments = List.copyOf(arguments);
+            this.environment = Map.copyOf(environment);
         }
 
         @Override
         protected ProcessBuilder getProcessBuilder() {
-            ProcessBuilder builder = super.getProcessBuilder();
-            builder.environment().clear();
-            return builder;
+            try {
+                return launcher.processBuilder(new ManagedProcessLauncher.LaunchRequest(
+                        executable,
+                        arguments,
+                        executable.toRealPath().getParent(),
+                        environment));
+            } catch (IOException failure) {
+                throw new IllegalStateException("MCP stdio managed launch plan 无效", failure);
+            }
         }
     }
 
@@ -168,7 +195,7 @@ public final class OfficialMcpClientFactory implements McpClientFactory {
             if (result.structuredContent() != null) {
                 try {
                     appendBounded(output, mapper.writeValueAsString(result.structuredContent()));
-                } catch (java.io.IOException ignored) {
+                } catch (IOException ignored) {
                     appendBounded(output, "[structured MCP content unavailable]");
                 }
             }
