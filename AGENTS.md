@@ -127,7 +127,7 @@ S14 稳定持久化能力已经可用。S11 Skills + Plugins 已在实现 Commit
 838 tests/21 skips、TUI 133/133、launcher 59 assertions 与 Dashboard 均通过，Stage Exit Accepted；
 `SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1。
 Worktree reparse、Git fault/timeout、Windows remove/branch-lock cancellation recovery 仍是明确 gap；
-S13 只是下一阶段，G0 尚未开始，不得描述为已研究或已实现。
+S13 已由 ADR-063/064 完成双源 G0-G2、范围与 ExecutionBackend 架构冻结，但尚无生产/测试实现；Linux 主路径冻结为 Windows-hosted WSL2+bwrap、Container 需 Docker daemon、native Windows 只按 B/C/U 证据，且 JVM 内 HTTP 不受进程 backend 强制、HOOK-10 保持 L1。G3-G6 与 Stage Exit Open，不得描述为已实现或可用。
 
 ## 3. 项目定位
 

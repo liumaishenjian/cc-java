@@ -18,7 +18,7 @@
 > G0-G6 Accepted；`MCP-01`～`07` 为 L2，`MCP-09`～`11` 为 L1，`MCP-08` 仍为 L0；
 > rules 编辑、Provider discovery/多模型注册、S13 OS Sandbox 与 S14 稳定协议/Export/Retention/Migration
 > 仍未实现。S11 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、Demo 与能力对账均通过，Stage Exit Accepted；
-> `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2、`PLUGIN-04` 为 L1。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit；`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1。当前路线移至 S13，但 S13 G0 尚未开始。
+> `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2、`PLUGIN-04` 为 L1。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit；`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1。S13 已由 ADR-063/064 完成双源 G0-G2、Feature 目标与 ExecutionBackend 架构冻结；未写实现、Capability Level 无变化，G3-G6 与 Stage Exit 仍 Open。
 
 ## 1. 文档目的
 
@@ -162,12 +162,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 197 |
-| 当前阶段 | S13 Sandbox + Security；仅表示下一阶段，G0 尚未开始 |
-| Stage Exit | S09/S10/S11/S12 Accepted；S13 G0-G6 与 Stage Exit 均 Open |
-| 当前等级 | 122 项为 L2，38 项为 L1，37 项为 L0 |
+| 当前阶段 | S13 Sandbox + Security；G0-G2 已冻结，G3-G6 Open |
+| Stage Exit | S09/S10/S11/S12 Accepted；S13 Stage Exit Open |
+| 当前等级 | 122 项为 L2，38 项为 L1，37 项为 L0（G0-G2 不提升等级） |
 | 默认最终目标 | 197 项达到 L3，或存在明确 `Accepted Deviation` |
 | 当前能力覆盖 | 47.72%（197 项等权、目标 L3） |
-| 下一步 | 启动 S13 G0 来源/权利边界研究；不得提前声称 OS Sandbox 已研究或实现 |
+| 下一步 | 按 ADR-064 Batch A-C 实现；取得 WSL2+bwrap Linux A、Docker B、native Windows B 的诚实证据前不得提升对应能力 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -755,16 +755,23 @@ ADR-061/062 在双源边界内冻结范围与架构；实现 Commit `cfbe0282b37
 
 ### S13：Sandbox + Security
 
-当前仅作为下一阶段，G0 来源/权利边界研究尚未开始；以下是退出目标，不表示已研究或已实现。
+ADR-063/064 已完成双源 G0-G2，并冻结以下 Current→Exit Target；当前未写生产/测试实现，全部 Capability Level 保持原值，G3-G6 与 Stage Exit Open：
+
+- `SEC-02/03/04/05`：L1→L2；`SEC-06/07/12`、`EVAL-04`：L0→L2；
+- `SEC-08`、`PERM-05`、`CFG-07`：L0→L1；`HOOK-10` 保持 L1；
+- `PERM-08`、`PERM-09`、`PERM-12`、`SEC-09` 各自保持 L2 并做组合回归；`SEC-11` 保持 L0。
 
 完成条件：
 
-- ExecutionBackend；
-- Local 与 Sandbox；
-- file/process/network policy；
-- secret handling；
-- attack fixture；
-- security regression。
+- `ExecutionBackend`、Local、Windows-hosted WSL2 Linux bwrap 与可选 Docker Container；
+- 实际 capability probe：WSL version+bwrap self-test、Docker daemon+pinned image、native platform 维度；CLI/OS 名不算强制成功；
+- file/process/network/environment/secret policy 与 Managed deny-only baseline；进程 backend 明确不能约束 JVM 内 HTTP，`HOOK-10` 因此保持 L1；
+- fail-closed 选择和执行前、当前 Call ID 的显式单次 Local fallback；
+- Command、Sub-Agent、Plugin/MCP stdio、Command Hook 进入一致 backend seam，同时保留唯一 Pipeline；
+- Windows fixed-drive 到 Linux path 双向 identity 与显式 `LINUX_SH`，禁止隐式转换 PowerShell/cmd；
+- attack fixture、安全矩阵与 A/B/C/U 证据；最低为 WSL2+bwrap Linux A、Docker Container B、native Windows B（file/network C/U）、macOS C/U。
+
+实施最多三个完整 Batch：A `Contracts + Local refactor + truthful probe` → B `WSL2 Ubuntu + bwrap Linux A/path identity/LINUX_SH` → C `Docker B + attack matrix + native Windows/macOS诚实分级 + G4-G6`。所有新增/修改核心公共契约必须提供准确中文 Javadoc。Permission、Checkpoint、Worktree、Job cleanup、最小环境和 Local backend 均不等于 Sandbox。
 
 ### S14：Production Harness
 

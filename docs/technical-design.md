@@ -11,7 +11,7 @@
 > `CLI-13`/`CTX-19` 补充切片已在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6；S09 已完成
 > Settings/Trust、Command/loopback HTTP、Compact、Context Projection 与生产装配并 Accepted；S10 MCP
 > Tool 主链已完成两个 Transport、多 Server、统一 Permission、Trust 与恢复并通过真实 E2E，Accepted；
-> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6；`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6；冻结的 L2/L1 目标与 Stage Exit Accepted。S13 仅为下一阶段，G0 尚未开始。
+> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6；`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6；冻结的 L2/L1 目标与 Stage Exit Accepted。S13 已由 ADR-063/064 完成 G0-G2；ExecutionBackend/安全架构已冻结但尚无实现，G3-G6 Open。
 >
 > 当前实现状态：ADR-042/043/044 已固定并验证 Context Projection、条件式 Reduction、文件记忆和零等待
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
@@ -1181,6 +1181,37 @@ Domain/Core 新增 definition/task/status/report/budget/worktree 值对象与 Su
 
 实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 已完成 Batch A Scope/单委托、Batch B 并发/后台/TOOL-15、Batch C Worktree/集成 Eval，并通过 commit-scoped G0-G6。`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1；Worktree reparse、Git fault/timeout、Windows remove/branch-lock cancellation recovery 仍是明确 gap。
 
+### 18.7 S13 ExecutionBackend + Security（G0-G2 FROZEN）
+
+ADR-063/064 冻结以下独立控制链；当前没有生产实现：
+
+```text
+ToolExecutionPipeline allow
+  → Tool adapter creates ExecutionRequest + EffectiveExecutionPolicy
+  → PlatformCapabilityProbe
+  → ExecutionBackendSelector
+  → Local | PlatformSandbox | optional Container
+  → ExecutionOutcome + EnforcementReport
+  → normalized/durable Tool Result
+```
+
+Domain/Core 计划持有框架无关的 `ExecutionBackend`、request/outcome/failure、file/process/network/environment/secret policy、managed provenance、capability snapshot、enforcement report 和 fallback decision；平台 Path、Process、Job Object、namespace、系统 sandbox、代理与容器 SDK 只位于基础设施 Adapter。所有新增或修改的核心公共契约必须使用准确中文 Javadoc解释职责、非职责、策略所有权、取消、失败、fallback 和证据等级。
+
+关键不变量：
+
+- Permission/Approval 先判断“能否尝试”，OS backend 再限制“进程实际能做什么”；两者互不替代且都不能绕过唯一 Pipeline；
+- capability probe 必须实际报告 `ENFORCED/DEGRADED/UNAVAILABLE/UNKNOWN`，OS 名称、配置或 helper 存在不构成强制证据；
+- 文件默认只读并显式开放可写根，保护 `.git`、Settings、Provider、Session/Checkpoint/Memory/Plugin 控制面；网络默认 deny，代理必须与 OS egress 限制组合；环境从空集合构造，Secret 通过通用 Command 的泄漏数为零；
+- backend/策略不可用默认 fail-closed；Local fallback 仅在执行前对当前 Call ID 独立显式审批，Managed require-sandbox、PLAN、Hard Denial、Print 均不能 fallback；启动后失败绝不 Local 重放；
+- `run_command`、Sub-Agent、Plugin/MCP stdio、Command Hook 共享进程后端 seam；当前 JVM 内 HTTP 不受 `ExecutionBackend` 强制，`HOOK-10` 保持 L1，MCP/Plugin remote 不计 `SEC-07`；
+- Linux 主路径明确为 fixed `wsl.exe → WSL2 Ubuntu → bwrap`，需要显式安装 bwrap并通过 namespace/file/network 自测；Docker optional 需要 daemon+pinned image，CLI-only 不可用；
+- Windows fixed-drive Workspace 必须双向映射 identity；UNC/网络盘/reparse/Unicode不确定时拒绝。PowerShell/cmd 绝不隐式换成 Linux shell，只有审批明确标示 WSL/container、Linux cwd 与 `LINUX_SH` 的 request 可进入；
+- Worktree 只改变 cwd，不放宽 policy；宿主 fixed-argv Git 保持 native control operation，不隐式送入 WSL/container，仍受最小环境、timeout/cancel/cleanup 和外部写授权；
+- timeout/cancel/shutdown 进入同一幂等进程树清理；若后代约束不可证明，Process dimension 不得报告 ENFORCED；
+- Permission、Checkpoint、Worktree、Job cleanup、最小环境与 Local backend 均不等于 Sandbox。
+
+实施最多三个 Batch：A Contracts/Local refactor/truthful probe；B WSL2 Ubuntu+bwrap Linux A、path identity 与显式 `LINUX_SH`；C Docker daemon+pinned image B、attack matrix、native Windows/macOS 诚实分级与 G4-G6。证据使用 A（真实攻击矩阵）/B（真实 smoke/部分矩阵）/C（编译契约）/U（未验证）；Stage Exit 要求 Linux A、Container B、native Windows 至少 B（file/network C/U 可接受并列 gap）、macOS C/U。WSL2 Linux A 不得写成 native Windows A；Fake 不得冒充隔离。新非测试依赖必须先有兼容/许可证/Spike ADR，优先 JDK 21 与显式外部工具。
+
 ## 19. CLI、内部协议与终端
 
 ### 19.1 Java Headless
@@ -1708,6 +1739,8 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | [ADR-060](./adr/ADR-060-s11-plugin-host-contract.md) | Accepted | S11 冻结 strict manifest/namespace、immutable snapshot、宿主 SPI、MCP-backed Adapter 与 staged/quiescing 生命周期；拒绝任意 JAR |
 | [ADR-061](./adr/ADR-061-s12-dual-source-subagent-worktree-study.md) | Accepted | S12 双源冻结 Agent/任务/后台/取消/并发/Worktree 机制采纳、偏离与 Unknown |
 | [ADR-062](./adr/ADR-062-s12-subagent-runtime-worktree-contract.md) | Accepted | S12 独立 Scope/Supervisor/预算/Hook/TOOL-15/Worktree 契约、Batch A-C 与 Eval 门槛；实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 已完成 G0-G6 与 Stage Exit |
+| [ADR-063](./adr/ADR-063-s13-dual-source-sandbox-security-study.md) | Accepted | S13 双源冻结 Sandbox 平台、策略、fallback、统一入口的采纳/偏离/Unknown |
+| [ADR-064](./adr/ADR-064-s13-execution-backend-security-contract.md) | Accepted | S13 ExecutionBackend、capability probe、五类 policy、三 Batch 与跨平台攻击证据门槛；G3-G6 Open |
 
 ## 26. 需求追踪
 
@@ -1749,7 +1782,7 @@ S01 未使用任何授权或未核验参考源码；设计和代码由 ADR-017�
 Accepted。S02 的真实 Provider、Java Runtime/stdio、React/Ink、连续 Session、
 取消边界和隐私安全 Telemetry 已在实现 Commit `700251e` 上通过 G0-G6，
 Stage Exit 为 Accepted。S03-S12 也已按各自 Evidence 完成 Commit-scoped Stage Exit；S12 固定
-实现 Commit 为 `cfbe0282b37a93e38256c3d2d6f22ed2207975a5`。当前路线移至 S13，但 G0 尚未开始，OS Sandbox 仍未研究或实现。
+实现 Commit 为 `cfbe0282b37a93e38256c3d2d6f22ed2207975a5`。S13 已由 ADR-063/064 完成 G0-G2，但尚无实现或 OS 隔离可用证据。
 
 ### 27.2 分 Stage 实现
 

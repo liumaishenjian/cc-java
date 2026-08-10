@@ -9,7 +9,7 @@
 > Commit `5910a8f` 上完成 Commit-scoped G0-G6；`CLI-13`、`CTX-19` 达到 L2。S09 已完成
 > Settings/Trust、Command/loopback HTTP、生命周期、Compact 与生产装配并 Accepted；S10 MCP Tool
 > 主链已完成 STDIO/Streamable HTTP、多 Server、统一 Permission、Trust 与恢复并通过真实 E2E，Accepted。
-> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、安全矩阵、Demo 与能力对账均通过，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted；相关 Feature 达到冻结的 L2/L1 目标。当前路线移至 S13，但 G0 尚未开始，不得声称 OS Sandbox 已研究或实现。
+> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、安全矩阵、Demo 与能力对账均通过，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted；相关 Feature 达到冻结的 L2/L1 目标。S13 已由 ADR-063/064 完成双源研究、范围与架构 G0-G2 冻结；尚无生产/测试实现，Capability Level 不变，G3-G6 与 Stage Exit Open。
 >
 > 产品负责人：项目维护者
 
@@ -544,12 +544,19 @@ ADR-061/062 完成双源研究与契约冻结，下列产品行为已在实现 C
 
 ### S13：Sandbox
 
-当前仅为下一阶段，G0 来源/权利边界研究尚未开始；以下是目标，不表示已研究或已实现。
+ADR-063/064 已完成 G0-G2，冻结产品范围但不表示已实现：
 
-- 区分应用层 Permission 与 OS 级隔离；
-- 提供可替换的 OS Sandbox 或 Container Backend；
-- 定义文件系统、网络、进程和环境变量边界；
-- 用逃逸测试验证边界，而不是只依赖 Prompt 和命令黑名单。
+- `SEC-02/03/04/05` L1→L2，`SEC-06/07/12` 与 `EVAL-04` L0→L2；
+- `SEC-08`、`PERM-05`、`CFG-07` L0→L1，`HOOK-10` 保持 L1；
+- `PERM-08`、`PERM-09`、`PERM-12`、`SEC-09` 各自保持 L2 做组合回归，`SEC-11` 保持 L0；
+- 区分 Permission/Approval 与 OS 级隔离，提供 `ExecutionBackend`、Local、Windows-hosted WSL2 Linux bwrap 与可选 Docker Container；
+- capability probe 必须实际证明 WSL2/bwrap、Docker daemon/image 及每个 file/process/network/environment/secret 强制维度；
+- 默认 fail-closed，Local fallback 只能在执行前对当前 Call ID 独立显式批准一次；
+- Command、Sub-Agent、Plugin/MCP stdio、Command Hook 共用进程后端且仍经过唯一 Tool Pipeline；JVM 内 HTTP 不受该后端约束，远程 Hook 保持 L1；
+- Windows PowerShell/cmd 不得隐式改写为 Linux shell；只有 fixed-drive path identity 双向核验且审批明确显示 `LINUX_SH` 的调用可进入 WSL/container；
+- 最低证据为 WSL2+bwrap Linux A、Docker Container B、native Windows B（file/network C/U）、macOS C/U；Linux A 不冒充 native Windows A。
+
+第二阶段最多三个完整实现 Batch：Contracts/Local/truthful probe → WSL2+bwrap Linux A/path identity/LINUX_SH → Docker B/Attack Eval/native Windows与macOS分级/G4-G6。所有新增或修改的核心公共契约必须有准确中文 Javadoc。Permission、Checkpoint、Worktree、Job cleanup、最小环境与 Local backend 均不等于 Sandbox。
 
 ## 16. S14-S15：生产化与独立创新
 
