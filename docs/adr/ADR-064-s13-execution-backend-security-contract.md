@@ -227,4 +227,4 @@ Stage Exit 最低要求：Windows-hosted WSL2 Ubuntu 中的真实 bwrap Linux ba
 
 S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Batch A-C 与 Commit-scoped G0-G6，Stage Exit Accepted。标准 clean verify 为 851 tests/29 skips（0 failure/error），TUI 133/133、launcher 59 assertions，真实 selector 5/5 + attack 8/8 共 13/13。首次真实测试因 Docker daemon 未运行导致 5 个 Docker 用例失败；启动 Docker Desktop、确认 daemon 26.1.4 后完整通过，测试后 label residue 为 0。
 
-等级只按实际证据更新：`SEC-02/03/04/05/06/07/12`、`EVAL-04` 为 L2，`SEC-08` 为 L1；`PERM-08/09/12`、`SEC-09` 保持 L2，`PERM-05/CFG-07` 保持 L0，`HOOK-10` 保持 L1，`SEC-11` 保持 L0。JVM 内 HTTP、native Windows file/network、macOS 真实隔离、Managed/Auto 生产接入与供应链安全继续是明确 gap。在本 ADR 的 S13 验收时点 S14 为 NOT_STARTED；S14 当前已单独进入 IN_PROGRESS、Stage Exit OPEN。
+等级只按 S13 当时的实际证据更新：`SEC-02/03/04/05/06/07/12`、`EVAL-04` 为 L2，`SEC-08` 为 L1；`PERM-08/09/12`、`SEC-09` 保持 L2，`PERM-05/CFG-07` 保持 L0，`HOOK-10` 保持 L1，`SEC-11` 保持 L0。JVM 内 HTTP、native Windows file/network、macOS 真实隔离、Managed/Auto 生产接入与供应链安全在 S13 退出时继续是明确 gap。在本 ADR 的 S13 验收时点 S14 为 NOT_STARTED；S14 后续已在实现 Commit `dff814c1bb5a659979e007061e6d10a0a9ff6e82` 上 Accepted with documented deviations，当前等级以矩阵为准。

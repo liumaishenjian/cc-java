@@ -59,4 +59,4 @@ git diff --check
 
 Linux A 是 Windows-hosted WSL2 Ubuntu 证据；Container 是 B；native Windows 是 process/env/cleanup B 且 file/network U；macOS C/U。JVM 内 HTTP/MCP remote 不受进程 backend 强制，`HOOK-10` 保持 L1。Command Hook/MCP stdio 已复用 managed fixed-argv seam，root/child `run_command` 继承执行配置。
 
-在 S13 验收时，`PERM-05`、`CFG-07` 因未生产接入保持 L0，`SEC-11` 保持 L0，S14 尚未开始；这是历史证据边界。S14 当前已是 IN_PROGRESS、Stage Exit OPEN，本 Demo 仍不证明稳定 Managed Policy、Auto Mode、全平台同等级 OS Sandbox、供应链签名或稳定外部协议。
+在 S13 验收时，`PERM-05`、`CFG-07` 因未生产接入保持 L0，`SEC-11` 保持 L0，S14 尚未开始；这是历史证据边界。S14 后续已在实现 Commit `dff814c1bb5a659979e007061e6d10a0a9ff6e82` 上 Accepted with documented deviations，但本 Demo 仍不证明 S14 Managed Policy、Auto Mode、全平台同等级 OS Sandbox、供应链签名或稳定外部协议。

@@ -23,7 +23,7 @@ ADR-063 固定授权快照、Codex 公开固定版本、采纳/偏离/Unknown �
 | `HOOK-10` | L1 | L1 | JVM 内 HTTP 不受进程 backend 强制 |
 | `SEC-11` | L0 | L0 | 签名、SBOM、撤销与供应链隔离延期 |
 
-在本证据记录的 S13 验收时点，S14 为 `NOT_STARTED`，且不因 S13 Accepted 自动开始；S14 当前已单独进入 IN_PROGRESS、Stage Exit OPEN。
+在本证据记录的 S13 验收时点，S14 为 `NOT_STARTED`，且不因 S13 Accepted 自动开始；S14 后续已在实现 Commit `dff814c1bb5a659979e007061e6d10a0a9ff6e82` 上 Accepted with documented deviations。
 
 ## G2：研究与 ADR — PASSED
 
@@ -104,7 +104,7 @@ $env:CC_JAVA_S13_DOCKER_IMAGE='nginx@sha256:0d17b565c37bcbd895e9d92315a05c1c3c9a
 - Dashboard generate/check/self-test、`git diff --check` 与 secret scan 通过；
 - secret scan 唯一命中是 `FileMemoryRepositoryTest` 中故意使用的私钥哨兵，不是真实凭证；
 - S13 G0-G6 全部 PASSED，Stage Exit Accepted；
-- 本次 S13 验收时 S14 为 NOT_STARTED；S14 当前已单独进入 IN_PROGRESS、Stage Exit OPEN。
+- 本次 S13 验收时 S14 为 NOT_STARTED；S14 后续已在实现 Commit `dff814c1bb5a659979e007061e6d10a0a9ff6e82` 上 Accepted with documented deviations。
 
 ## 剩余边界
 

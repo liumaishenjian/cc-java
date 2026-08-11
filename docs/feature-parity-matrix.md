@@ -16,9 +16,8 @@
 > `HOOK-10` 为 L1 外，本 Stage 条目达到 L2。S10 已完成 STDIO/Streamable HTTP、多 Server、Tool
 > filter/prefix、Permission、Trust 与单次断线恢复的 Tool 主链并通过真实 Transport/Headless E2E，
 > G0-G6 Accepted；`MCP-01`～`07` 为 L2，`MCP-09`～`11` 为 L1，`MCP-08` 仍为 L0；
-> rules 编辑、Provider discovery/多模型注册、S13 尚未覆盖的 JVM 内 HTTP 强制网络边界、native Windows file/network、Managed/Auto 与供应链安全，以及 S14 稳定协议/Export/Retention/Migration
-> 仍未实现。S11 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、Demo 与能力对账均通过，Stage Exit Accepted；
-> `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2、`PLUGIN-04` 为 L1。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit；`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit，状态为 Accepted；`SEC-02/03/04/05/06/07/12`、`EVAL-04` 为 L2，`SEC-08/CFG-07/HOOK-10` 为 L1，`PERM-05/SEC-11` 保持 L0。S14 当前为 IN_PROGRESS、Stage Exit OPEN；本轮修复不提升 Capability 等级。
+> rules 编辑、Provider discovery/多模型注册、S13 尚未覆盖的 JVM 内 HTTP 强制网络边界、native Windows file/network、Auto 与供应链安全仍有差距。S11 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、Demo 与能力对账均通过，Stage Exit Accepted；
+> `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2、`PLUGIN-04` 为 L1。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit；`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit，状态为 Accepted；S14 已在实现 Commit `dff814c1bb5a659979e007061e6d10a0a9ff6e82` 上完成 Commit-scoped G0-G6，Stage Exit 为 Accepted with documented deviations。当前 `SEC-02/03/04/05/06/07/12`、`EVAL-04` 为 L2，`SEC-08/CFG-07/HOOK-10` 为 L1，`PERM-05/SEC-11` 保持 L0；S14 退出不整体提升 Capability 等级。
 
 ## 1. 文档目的
 
@@ -162,12 +161,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 197 |
-| 当前阶段 | S14 Production Harness IN_PROGRESS（working-tree candidate） |
-| Stage Exit | S01-S13 Accepted；S14 OPEN |
+| 当前阶段 | S14 Production Harness ACCEPTED（with documented deviations） |
+| Stage Exit | S01-S14 Accepted；S14 implementation Commit `dff814c1bb5a659979e007061e6d10a0a9ff6e82` 已完成 Commit-scoped G0-G6 |
 | 当前等级 | 150 项为 L2，37 项为 L1，10 项为 L0 |
 | 默认最终目标 | 197 项达到 L3，或存在明确 `Accepted Deviation` |
 | 当前能力覆盖 | 57.02%（197 项加权、按各 Feature 目标等级计算） |
-| 下一步 | 完成 S14 尚缺的生产 composition、真实/崩溃恢复证据与 Commit-scoped G4-G6；当前不得退出 Stage |
+| 下一步 | 进入 S15 规划：冻结创新假设、A/B Eval、收益/成本/安全阈值与 L4 证据计划；S14 documented deviations 继续保留 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -775,9 +774,9 @@ ADR-063/064 冻结的范围已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776
 
 ### S14：Production Harness
 
-状态：`IN_PROGRESS`，Stage Exit `OPEN`。P0 已修正三个事实边界：12 个注册 seed×5 的 60 个实际 Headless/SDK/stable-v1 场景不再合成 provider/cache/usage；Session control 只信服务端 canonical 与实际 writer/migration fence；Plugin global writer 覆盖 recovery/install/uninstall 且 FAILED_PRESERVED 保留。
+状态：`ACCEPTED`（with documented deviations），Stage Exit `ACCEPTED`。实现 Commit `dff814c1bb5a659979e007061e6d10a0a9ff6e82` 已完成 Commit-scoped G0-G6：12 个注册 seed×5 的 60 个真实 production-harness 场景不合成 provider/cache/usage；Session control 只信服务端 canonical 与实际 writer/migration fence；Plugin global writer 覆盖 recovery/install/uninstall/registry migration 且 FAILED_PRESERVED 保留。
 
-working-tree candidate 已完成 production OTel、stable protocol/daemon、Provider composition、Plugin registry migration 与本地发行/rollback 验证；implementation commit 后的 commit-scoped G6/Stage Exit 尚未验收。无真实 Anthropic、已发布 N-1、WSL JDK21、macOS/Native Image/公共更新服务继续作为 gap，不得宣称 Accepted 或 L3。
+固定实现已完成 production OTel、stable protocol/SDK/daemon、Provider composition、Plugin registry migration 与本地发行/rollback 验证。第二次完整 clean verify 为 911 tests/10 skips；第一次完整验证仅历史 AgentRuntime cancellation 2 秒窗口偶发 timeout，同一用例立即隔离重跑 1/1 通过，随后完整重跑通过。无真实 Anthropic、已发布 N-1、WSL JDK21、macOS/Native Image/公共更新服务继续作为 documented deviation；`CFG-07`、`SESSION-14` 等保持表内 L0/L1，不宣称 L3。
 
 ### S15：Independent Innovation
 

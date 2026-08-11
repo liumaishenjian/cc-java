@@ -1,5 +1,8 @@
 # S14 Production Harness Demo
 
+- Verified Commit: `dff814c1bb5a659979e007061e6d10a0a9ff6e82`
+- Stage Exit: Accepted with documented deviations
+
 ## 前置条件
 
 JDK 21、PowerShell 7。普通 Demo 不需要 Provider 密钥或外网。真实 Anthropic/OpenAI 重复 Eval 仅在显式提供仓库外凭证时运行。
@@ -38,6 +41,17 @@ pwsh -NoProfile -File .\scripts\TestBuildRelease.ps1
 ```
 
 观察：生成 app-dir、Windows/Linux launcher、release manifest、SHA256SUMS、SBOM；SBOM component 从每个 JAR 唯一 Maven `pom.properties` 或 Maven resolver 的确定性 artifact metadata 提取 group/artifact/version 并生成 purl，resolver 坐标以 JAR SHA-256 绑定，缺失或歧义 Fail Closed，绝不猜文件名。自测明确断言 picocli 4.7.7、Spring AI Anthropic 2.0.0、Anthropic Java 2.40.1 与 cc-java 0.1.0-SNAPSHOT，并复验 component 非空、全部 checksum 与输出路径越界负例；manifest 明确 `publicReleaseAllowed=false`。升级使用 staging/rollback；本 Demo 不 commit、push 或公开发布。
+
+## 5. Commit-scoped 退出复验
+
+```powershell
+.\mvnw.cmd clean verify
+.\mvnw.cmd -DskipTests javadoc:aggregate
+java scripts/ProgressDashboard.java --check
+java scripts/ProgressDashboard.java --self-test
+```
+
+实际结果：首次 clean verify 的历史 `AgentRuntime` cancellation 2 秒窗口偶发 timeout；同一用例立即隔离重跑 1/1 PASS，第二次完整 clean verify BUILD SUCCESS（911 tests/10 skips，0 failure/error）。严格 aggregate Javadoc BUILD SUCCESS、0 warning，Dashboard check/self-test PASS。该历史失败未从证据中删除，也未因此修改生产行为。
 
 ## 边界
 
