@@ -10,7 +10,11 @@ package io.github.liumaishenjian.ccjava.core.plugin;
  */
 public interface PluginToolProviderFactory {
 
-    /** @return 宿主固定 provider type；S11 首个实现只能是 {@code mcp-backed} */
+    /**
+     * 返回宿主固定的 provider type。
+     *
+     * @return manifest 可引用的稳定 provider type；S11 首个实现只能是 {@code mcp-backed}
+     */
     String providerType();
 
     /**

@@ -27,6 +27,12 @@ interface CliModeRunner {
      */
     int runStdio(CliOverrides overrides);
 
+    /** 启动 stable v1 NDJSON stdio；与内部 v0 双栈并存。 */
+    int runStableStdio(CliOverrides overrides);
+
+    /** 启动 stable v1 loopback daemon；ownership/token 由进程持有。 */
+    int runDaemon(CliOverrides overrides);
+
     /** 查询或显式批准固定 Project Extension 配置，不加载模型 Provider。 */
     int runExtensions(boolean approve, CliOverrides overrides);
 }

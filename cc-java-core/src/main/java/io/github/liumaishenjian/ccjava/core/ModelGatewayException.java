@@ -2,6 +2,7 @@ package io.github.liumaishenjian.ccjava.core;
 
 import io.github.liumaishenjian.ccjava.domain.ModelFailureSummary;
 
+import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -20,6 +21,8 @@ public final class ModelGatewayException extends Exception {
     private final FailureKind kind;
     /** 仅由固定枚举和受限数值组成的可选 Surface 摘要。 */
     private final Optional<ModelFailureSummary> summary;
+    /** Provider 明确给出的有界 Retry-After；自由文本/Header 不保留。 */
+    private final Optional<Duration> retryAfter;
 
     /**
      * 使用错误说明创建异常。
@@ -47,7 +50,7 @@ public final class ModelGatewayException extends Exception {
      * @param message 不包含敏感内容的固定诊断
      */
     public ModelGatewayException(FailureKind kind, String message) {
-        this(kind, message, Optional.empty(), null);
+        this(kind, message, Optional.empty(), Optional.empty(), null);
     }
 
     /**
@@ -61,7 +64,7 @@ public final class ModelGatewayException extends Exception {
             FailureKind kind,
             String message,
             ModelFailureSummary summary) {
-        this(kind, message, Optional.of(Objects.requireNonNull(summary, "summary 不能为空")), null);
+        this(kind, message, Optional.of(Objects.requireNonNull(summary, "summary 不能为空")), Optional.empty(), null);
     }
 
     /**
@@ -72,7 +75,7 @@ public final class ModelGatewayException extends Exception {
      * @param cause Adapter 底层异常；不得依赖其消息对外展示
      */
     public ModelGatewayException(FailureKind kind, String message, Throwable cause) {
-        this(kind, message, Optional.empty(), cause);
+        this(kind, message, Optional.empty(), Optional.empty(), cause);
     }
 
     /**
@@ -92,17 +95,45 @@ public final class ModelGatewayException extends Exception {
                 kind,
                 message,
                 Optional.of(Objects.requireNonNull(summary, "summary 不能为空")),
+                Optional.empty(),
                 cause);
+    }
+
+    /**
+     * 创建带 Provider typed Retry-After 的瞬时失败。
+     *
+     * @param kind 稳定失败分类
+     * @param message 供本地诊断使用的有界消息
+     * @param summary 可安全投影到 Run 终态的结构化摘要
+     * @param retryAfter 非负且不超过五分钟的服务端等待建议
+     * @param cause 原始 Adapter 异常
+     */
+    public ModelGatewayException(
+            FailureKind kind,
+            String message,
+            ModelFailureSummary summary,
+            Duration retryAfter,
+            Throwable cause) {
+        this(kind, message,
+                Optional.of(Objects.requireNonNull(summary, "summary 不能为空")),
+                Optional.of(Objects.requireNonNull(retryAfter, "retryAfter 不能为空")), cause);
     }
 
     private ModelGatewayException(
             FailureKind kind,
             String message,
             Optional<ModelFailureSummary> summary,
+            Optional<Duration> retryAfter,
             Throwable cause) {
         super(message, cause);
         this.kind = Objects.requireNonNull(kind, "kind 不能为空");
         this.summary = Objects.requireNonNull(summary, "summary 不能为空");
+        this.retryAfter = Objects.requireNonNull(retryAfter, "retryAfter 不能为空");
+        retryAfter.ifPresent(value -> {
+            if (value.isNegative() || value.compareTo(Duration.ofMinutes(5)) > 0) {
+                throw new IllegalArgumentException("retryAfter 必须在 0 到 5 分钟之间");
+            }
+        });
     }
 
     /**
@@ -121,6 +152,15 @@ public final class ModelGatewayException extends Exception {
      */
     public Optional<ModelFailureSummary> summary() {
         return summary;
+    }
+
+    /**
+     * 返回 Adapter 已解析的有界 Retry-After；不存在时由 Runtime policy 决定。
+     *
+     * @return Provider 明确给出的可选等待建议
+     */
+    public Optional<Duration> retryAfter() {
+        return retryAfter;
     }
 
     /**

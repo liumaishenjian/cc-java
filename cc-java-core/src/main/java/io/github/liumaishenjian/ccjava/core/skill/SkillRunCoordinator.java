@@ -49,6 +49,7 @@ import java.util.concurrent.ConcurrentMap;
  * @since 0.11.0
  */
 public final class SkillRunCoordinator {
+    /** 模型入口注册到统一 Tool Pipeline 的稳定名称。 */
     public static final String ACTIVATE_TOOL_NAME = "activate_skill";
     private static final SkillRunCoordinator DISABLED = new SkillRunCoordinator();
 
@@ -61,7 +62,13 @@ public final class SkillRunCoordinator {
     private final SkillRecoveryIdentityCatalog recoveryIdentities;
     private final boolean enabled;
 
-    /** 创建启用但不持久化安全事件的 Run 协调器。 */
+    /**
+     * 创建启用但不持久化安全事件的 Run 协调器。
+     *
+     * @param catalog Session 固定 Skill catalog
+     * @param invoker 唯一 Skill 激活准备服务
+     * @param runtimeToolNames 当前 Runtime Tool 名快照
+     */
     public SkillRunCoordinator(SkillCatalog catalog, SkillInvoker invoker, List<String> runtimeToolNames) {
         this(catalog, invoker, runtimeToolNames, SessionJournal.noop(), SkillHookBinder.none(), SkillRecoveryIdentityCatalog.none());
     }
@@ -69,6 +76,9 @@ public final class SkillRunCoordinator {
     /**
      * 创建启用且把 Skill started/completed 身份写入 Session journal 的 Run 协调器。
      *
+     * @param catalog Session 固定 Skill catalog
+     * @param invoker 唯一 Skill 激活准备服务
+     * @param runtimeToolNames 当前 Runtime Tool 名快照
      * @param journal 与 Runtime 共用的 durable journal
      */
     public SkillRunCoordinator(SkillCatalog catalog, SkillInvoker invoker, List<String> runtimeToolNames,
@@ -76,13 +86,30 @@ public final class SkillRunCoordinator {
         this(catalog, invoker, runtimeToolNames, journal, SkillHookBinder.none(), SkillRecoveryIdentityCatalog.none());
     }
 
-    /** 创建同时在 activation commit 后绑定可信 Skill Hook templates 的协调器。 */
+    /**
+     * 创建同时在 activation commit 后绑定可信 Skill Hook templates 的协调器。
+     *
+     * @param catalog Session 固定 Skill catalog
+     * @param invoker 唯一 Skill 激活准备服务
+     * @param runtimeToolNames 当前 Runtime Tool 名快照
+     * @param journal 与 Runtime 共用的 durable journal
+     * @param hookBinder 受信 Hook template binder
+     */
     public SkillRunCoordinator(SkillCatalog catalog, SkillInvoker invoker, List<String> runtimeToolNames,
             SessionJournal journal, SkillHookBinder hookBinder) {
         this(catalog, invoker, runtimeToolNames, journal, hookBinder, SkillRecoveryIdentityCatalog.none());
     }
 
-    /** 创建同时持有精确 privacy-safe 恢复身份的协调器。 */
+    /**
+     * 创建同时持有精确 privacy-safe 恢复身份的协调器。
+     *
+     * @param catalog Session 固定 Skill catalog
+     * @param invoker 唯一 Skill 激活准备服务
+     * @param runtimeToolNames 当前 Runtime Tool 名快照
+     * @param journal 与 Runtime 共用的 durable journal
+     * @param hookBinder 受信 Hook template binder
+     * @param recoveryIdentities 当前 catalog 的恢复身份目录
+     */
     public SkillRunCoordinator(SkillCatalog catalog, SkillInvoker invoker, List<String> runtimeToolNames,
             SessionJournal journal, SkillHookBinder hookBinder,
             SkillRecoveryIdentityCatalog recoveryIdentities) {
@@ -106,7 +133,11 @@ public final class SkillRunCoordinator {
         enabled = false;
     }
 
-    /** @return 不注入 Skill 或 Tool 的共享兼容实现 */
+    /**
+     * 返回不注入 Skill 或 Tool 的共享兼容实现。
+     *
+     * @return 禁用 Skill Runtime 的协调器
+     */
     public static SkillRunCoordinator disabled() { return DISABLED; }
 
     /**
@@ -136,6 +167,9 @@ public final class SkillRunCoordinator {
      * 执行显式调用并在有 Session 身份时写入 durable Skill 事件。
      *
      * @param sessionId 当前 Session；兼容测试可为空并使用 no-op 事件路径
+     * @param request 类型化显式意图
+     * @param cancellationToken 当前 Run 取消边界
+     * @return 与模型入口相同的激活结果
      */
     public SkillInvocationResult invokeExplicit(SessionId sessionId, SkillInvocationRequest request,
             CancellationToken cancellationToken) {
@@ -188,10 +222,19 @@ public final class SkillRunCoordinator {
         return state == null || ACTIVATE_TOOL_NAME.equals(toolName) || state.visibleTools().contains(toolName);
     }
 
-    /** @return 当前 Session Skill activation 使用的真实 Runtime Tool 名快照 */
+    /**
+     * 返回当前 Session Skill activation 使用的真实 Runtime Tool 名快照。
+     *
+     * @return 不可变 Tool 名列表
+     */
     public List<String> runtimeToolNames() { return runtimeToolNames; }
 
-    /** @return 当前 Run 已激活 Skill 的稳定顺序，仅供安全事件/测试观察 */
+    /**
+     * 返回当前 Run 已激活 Skill 的稳定顺序，仅供安全事件/测试观察。
+     *
+     * @param runId 当前 Run identity
+     * @return 激活提交顺序的 Skill ID
+     */
     public List<SkillId> activated(RunId runId) {
         RunState state = runs.get(Objects.requireNonNull(runId, "runId 不能为空"));
         return state == null ? List.of() : state.scope.activatedInOrder();

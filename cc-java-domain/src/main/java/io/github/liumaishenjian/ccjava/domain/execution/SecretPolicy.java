@@ -10,6 +10,7 @@ import java.util.Set;
  * @since 0.13.0
  */
 public record SecretPolicy(Set<String> deniedNames) {
+    /** 冻结被拒绝的 Secret 名称集合。 */
     public SecretPolicy {
         deniedNames = Set.copyOf(Objects.requireNonNull(deniedNames));
     }

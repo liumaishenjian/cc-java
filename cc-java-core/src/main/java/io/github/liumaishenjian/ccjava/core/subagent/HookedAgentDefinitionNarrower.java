@@ -25,6 +25,12 @@ public final class HookedAgentDefinitionNarrower implements AgentDefinitionNarro
     private final HookCoordinator hooks;
     private final SessionId parentSessionId;
 
+    /**
+     * 创建绑定父 Session 与既有 Hook Coordinator 的收窄器。
+     *
+     * @param hooks 已通过宿主 trust Gate 的 Hook 协调器
+     * @param parentSessionId 子任务所属父 Session
+     */
     public HookedAgentDefinitionNarrower(HookCoordinator hooks, SessionId parentSessionId) {
         this.hooks = Objects.requireNonNull(hooks);
         this.parentSessionId = Objects.requireNonNull(parentSessionId);

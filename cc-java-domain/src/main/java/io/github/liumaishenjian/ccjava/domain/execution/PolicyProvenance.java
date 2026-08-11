@@ -10,6 +10,7 @@ import java.util.Objects;
  * @since 0.13.0
  */
 public record PolicyProvenance(Kind kind, String identity) {
+    /** 校验来源层级与非敏感内容身份。 */
     public PolicyProvenance {
         kind = Objects.requireNonNull(kind, "kind 不能为空");
         identity = Objects.requireNonNull(identity, "identity 不能为空");
@@ -20,11 +21,17 @@ public record PolicyProvenance(Kind kind, String identity) {
 
     /** 从高到低的策略所有者种类。 */
     public enum Kind {
+        /** 由机器管理员固定且低优先级来源不可放宽。 */
         MANAGED,
+        /** 由宿主 Composition Root 固定。 */
         HOST,
+        /** 来自用户级可信设置。 */
         USER,
+        /** 来自已通过项目 trust Gate 的设置。 */
         PROJECT,
+        /** 当前 Session 临时收窄。 */
         SESSION,
+        /** 单次 Tool 请求提出的进一步限制。 */
         TOOL_REQUEST
     }
 }

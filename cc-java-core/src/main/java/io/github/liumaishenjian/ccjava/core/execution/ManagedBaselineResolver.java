@@ -23,6 +23,9 @@ import java.util.Objects;
  * @since 0.13.0
  */
 public final class ManagedBaselineResolver {
+    /** 创建无状态的受管安全底线合并器。 */
+    public ManagedBaselineResolver() { }
+
     /**
      * 将宿主策略收紧到受管底线，不允许扩大任何许可集合。
      *

@@ -22,6 +22,13 @@ public final class PluginToolContribution implements AutoCloseable {
     private final PluginLease snapshotLease;
     private final AtomicBoolean closed = new AtomicBoolean();
 
+    /**
+     * 接管 Tool、底层资源与 snapshot lease 的独占所有权。
+     *
+     * @param tools 要注册到唯一 Pipeline 的 Tool
+     * @param resources 按创建顺序排列的底层资源
+     * @param snapshotLease contribution 固定的 generation lease
+     */
     public PluginToolContribution(
             List<? extends AgentTool> tools,
             List<? extends AutoCloseable> resources,
@@ -35,12 +42,20 @@ public final class PluginToolContribution implements AutoCloseable {
         }
     }
 
-    /** @return 按稳定注册顺序排列的不可变 Tool 列表 */
+    /**
+     * 返回按稳定注册顺序排列的不可变 Tool 列表。
+     *
+     * @return contribution 独占的 Tool
+     */
     public List<AgentTool> tools() {
         return tools;
     }
 
-    /** @return contribution 固定的 Plugin snapshot */
+    /**
+     * 返回 contribution 固定的 Plugin snapshot。
+     *
+     * @return snapshot lease 绑定的精确 generation
+     */
     public io.github.liumaishenjian.ccjava.domain.plugin.PluginSnapshot snapshot() {
         return snapshotLease.snapshot();
     }

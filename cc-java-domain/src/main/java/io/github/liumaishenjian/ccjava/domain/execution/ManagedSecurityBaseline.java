@@ -12,6 +12,7 @@ import java.util.Objects;
 public record ManagedSecurityBaseline(
         ExecutionPolicy requiredPolicy,
         PolicyProvenance provenance) {
+    /** 校验策略与来源存在，并拒绝非 MANAGED provenance。 */
     public ManagedSecurityBaseline {
         requiredPolicy = Objects.requireNonNull(requiredPolicy);
         provenance = Objects.requireNonNull(provenance);

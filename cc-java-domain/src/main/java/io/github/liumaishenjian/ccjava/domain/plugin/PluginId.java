@@ -2,7 +2,12 @@ package io.github.liumaishenjian.ccjava.domain.plugin;
 
 import java.util.Objects;
 
-/** Plugin 的规范 ASCII kebab-case 身份，不包含路径语义。 @param value 身份值 @since 0.11.0 */
+/**
+ * Plugin 的规范 ASCII kebab-case 身份，不包含路径语义。
+ *
+ * @param value 1～64 字符的稳定 Plugin identity
+ * @since 0.11.0
+ */
 public record PluginId(String value) implements Comparable<PluginId> {
     /** 校验 1～64 字符的规范身份。 */
     public PluginId {

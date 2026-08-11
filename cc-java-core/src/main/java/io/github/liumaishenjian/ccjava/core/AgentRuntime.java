@@ -319,6 +319,18 @@ public final class AgentRuntime {
     /**
      * 创建同时接入 S11 Run scoped Skill Projection 的 Runtime。
      *
+     * @param sessionStore 当前进程的 Session Store
+     * @param idGenerator Run ID 来源
+     * @param modelGateway 单回合模型端口
+     * @param contextAssembler 追加式 Context 组装器
+     * @param toolRegistry 当前可见 Tool Registry
+     * @param toolPipeline 统一 Tool 执行管线
+     * @param lifecycle 可失败的观察生命周期分发器
+     * @param sessionJournal 必须成功的规范 Session journal
+     * @param contextPreparation 每回合 Projection 准备与清理服务
+     * @param memoryContext ready-only Memory Projection 服务
+     * @param instructionContext Instructions Projection 服务
+     * @param hooks S09 Hook 协调器
      * @param skills Skill 双入口、投影与 Tool visibility 协调器
      */
     public AgentRuntime(
@@ -343,6 +355,19 @@ public final class AgentRuntime {
     /**
      * 创建同时捕获 S11 Plugin snapshot Run lease 的 Runtime。
      *
+     * @param sessionStore 当前进程的 Session Store
+     * @param idGenerator Run ID 来源
+     * @param modelGateway 单回合模型端口
+     * @param contextAssembler 追加式 Context 组装器
+     * @param toolRegistry 当前可见 Tool Registry
+     * @param toolPipeline 统一 Tool 执行管线
+     * @param lifecycle 可失败的观察生命周期分发器
+     * @param sessionJournal 必须成功的规范 Session journal
+     * @param contextPreparation 每回合 Projection 准备与清理服务
+     * @param memoryContext ready-only Memory Projection 服务
+     * @param instructionContext Instructions Projection 服务
+     * @param hooks S09 Hook 协调器
+     * @param skills Skill Run 协调器
      * @param plugins Plugin generation Run 生命周期协调器
      */
     public AgentRuntime(
@@ -365,7 +390,25 @@ public final class AgentRuntime {
                 PluginRunHooks.none());
     }
 
-    /** 创建同时接入受信 Plugin Run-scoped Hook templates 的 Runtime。 */
+    /**
+     * 创建同时接入受信 Plugin Run-scoped Hook templates 的完整 Runtime。
+     *
+     * @param sessionStore 当前进程的 Session Store
+     * @param idGenerator Run ID 来源
+     * @param modelGateway 单回合模型端口
+     * @param contextAssembler 追加式 Context 组装器
+     * @param toolRegistry 当前可见 Tool Registry
+     * @param toolPipeline 统一 Tool 执行管线
+     * @param lifecycle 可失败的观察生命周期分发器
+     * @param sessionJournal 必须成功的规范 Session journal
+     * @param contextPreparation 每回合 Projection 准备与清理服务
+     * @param memoryContext ready-only Memory Projection 服务
+     * @param instructionContext Instructions Projection 服务
+     * @param hooks S09 Hook 协调器
+     * @param skills Skill Run 协调器
+     * @param plugins Plugin generation Run 生命周期协调器
+     * @param pluginHooks Plugin Run-scoped Hook templates
+     */
     public AgentRuntime(
             SessionStore sessionStore,
             AgentIdGenerator idGenerator,

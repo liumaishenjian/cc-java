@@ -21,7 +21,9 @@ import java.util.*;
  * @since 0.12.0
  */
 public final class FileAgentDefinitionCatalog implements AgentDefinitionCatalog {
+    /** 每个来源目录允许扫描的最大定义文件数。 */
     public static final int MAX_FILES_PER_ROOT=64;
+    /** 单个 Agent definition 文件允许的最大字节数。 */
     public static final int MAX_FILE_BYTES=64*1024;
     private static final Set<String> FIELDS=Set.of("id","description","instructions","tools","permission","model",
             "max-model-turns","max-tool-calls","max-input-tokens","max-output-characters","timeout-seconds","background");
@@ -32,13 +34,32 @@ public final class FileAgentDefinitionCatalog implements AgentDefinitionCatalog 
         this.snapshots=Map.copyOf(snapshots); this.diagnostics=List.copyOf(diagnostics);
     }
 
-    /** 读取并冻结两个来源；不存在 root 视为空。 */
+    /**
+     * 读取并冻结用户与项目两个来源；不存在的 root 视为空。
+     *
+     * @param userRoot 用户级定义目录
+     * @param projectRoot 项目级定义目录
+     * @param registeredTools 宿主已注册的 Tool 名称
+     * @param configuredModels 宿主已配置的 Model 名称
+     * @param cancellation 扫描取消令牌
+     * @return 完成冲突隔离和稳定排序的定义目录
+     */
     public static FileAgentDefinitionCatalog load(Path userRoot,Path projectRoot,Set<String> registeredTools,
             Set<String> configuredModels,CancellationToken cancellation) {
         return load(userRoot, projectRoot, registeredTools, configuredModels, cancellation, true);
     }
 
-    /** 读取并冻结两个来源；Project definitions 只有通过 S08/Extension 精确 trust 后才参与。 */
+    /**
+     * 读取并冻结两个来源，项目定义仅在通过精确 trust Gate 后参与。
+     *
+     * @param userRoot 用户级定义目录
+     * @param projectRoot 项目级定义目录
+     * @param registeredTools 宿主已注册的 Tool 名称
+     * @param configuredModels 宿主已配置的 Model 名称
+     * @param cancellation 扫描取消令牌
+     * @param projectTrusted 项目级来源是否已通过 S08/Extension trust Gate
+     * @return 完成冲突隔离和稳定排序的定义目录
+     */
     public static FileAgentDefinitionCatalog load(Path userRoot,Path projectRoot,Set<String> registeredTools,
             Set<String> configuredModels,CancellationToken cancellation, boolean projectTrusted) {
         Objects.requireNonNull(registeredTools); Objects.requireNonNull(configuredModels); Objects.requireNonNull(cancellation);
@@ -55,7 +76,12 @@ public final class FileAgentDefinitionCatalog implements AgentDefinitionCatalog 
 
     @Override public Optional<AgentDefinitionSnapshot> find(AgentDefinitionId id){return Optional.ofNullable(snapshots.get(id));}
     @Override public List<AgentDefinitionSnapshot> snapshots(){return snapshots.values().stream().sorted(Comparator.comparing(v->v.id().value())).toList();}
-    /** @return 不含路径或正文的固定诊断 */ public List<String> diagnostics(){return diagnostics;}
+    /**
+     * 返回不含路径或正文的固定诊断。
+     *
+     * @return 稳定排序的安全诊断
+     */
+    public List<String> diagnostics(){return diagnostics;}
 
     private static void scan(Path root,String source,Set<String> tools,Set<String> models,CancellationToken cancellation,
             List<Candidate> out,List<String> diagnostics) {

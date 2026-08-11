@@ -27,6 +27,7 @@ public record ChildTaskReport(ChildTaskId taskId, AgentDefinitionId definitionId
         Duration elapsed, String summary, boolean verified, Optional<String> worktreeDisposition) {
     public static final int MAX_SUMMARY_CHARACTERS = 4096;
 
+    /** 校验计数、摘要与 Worktree disposition 后冻结投影。 */
     public ChildTaskReport {
         taskId = Objects.requireNonNull(taskId, "taskId 不能为空");
         definitionId = Objects.requireNonNull(definitionId, "definitionId 不能为空");

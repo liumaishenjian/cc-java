@@ -29,7 +29,13 @@ public final class ExecutionBackendSelector {
     private final PlatformCapabilityProbe probe;
     private final ExecutionFallbackApprover fallback;
 
-    /** 创建固定后端集合的选择器。 */
+    /**
+     * 创建绑定实际后端集合、capability probe 与 fallback approval 的 selector。
+     *
+     * @param backends 宿主预注册后端
+     * @param probe 实际平台能力探测端口
+     * @param fallback 当前 Call 的显式 Local fallback 审批端口
+     */
     public ExecutionBackendSelector(
             Collection<ExecutionBackend> backends,
             PlatformCapabilityProbe probe,
@@ -96,13 +102,27 @@ public final class ExecutionBackendSelector {
         return new IdentityGuardedBackend(delegate, probe, selectedSnapshot);
     }
 
-    /** 选择终态。 */
+    /**
+     * 后端选择的封闭终态。
+     *
+     * @param backend 通过策略与 capability 校验的后端；拒绝时为空
+     * @param fallback 是否消费了当前 Call 的显式 Local fallback
+     * @param capability 与选择绑定的实际平台能力快照
+     * @param reasonCode 固定选择或拒绝原因
+     */
     public record Selection(
             Optional<ExecutionBackend> backend,
             boolean fallback,
             Optional<PlatformCapabilitySnapshot> capability,
             String reasonCode) {
-        /** 构造选中终态。 */
+        /**
+         * 构造选中终态。
+         *
+         * @param backend identity-guarded 实际后端
+         * @param fallback 是否消费显式 Local fallback
+         * @param snapshot 与选择绑定的 capability snapshot
+         * @return SELECTED 终态
+         */
         public static Selection selected(
                 ExecutionBackend backend,
                 boolean fallback,
@@ -114,7 +134,12 @@ public final class ExecutionBackendSelector {
                     "SELECTED");
         }
 
-        /** 构造拒绝终态。 */
+        /**
+         * 构造未启动任何后端的拒绝终态。
+         *
+         * @param reasonCode 固定拒绝原因
+         * @return backend/capability 为空的终态
+         */
         public static Selection rejected(String reasonCode) {
             return new Selection(
                     Optional.empty(),

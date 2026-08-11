@@ -14,10 +14,20 @@ import java.util.Objects;
  */
 @FunctionalInterface
 public interface SkillHookBinder {
-    /** 绑定当前 Skill 的 Hook 引用；没有引用时返回 no-op lease。 */
+    /**
+     * 绑定当前 Skill 的 Hook 引用；没有引用时返回 no-op lease。
+     *
+     * @param runId 当前 Run identity
+     * @param descriptor 已通过正文与资源验证的 Skill descriptor
+     * @return 必须在 Run 唯一终态关闭的 binding lease
+     */
     AutoCloseable bind(RunId runId, SkillDescriptor descriptor);
 
-    /** @return 不绑定 Hook 的共享实现 */
+    /**
+     * 返回不绑定 Hook 的共享实现。
+     *
+     * @return 始终返回 no-op lease 的 binder
+     */
     static SkillHookBinder none() {
         return (runId, descriptor) -> {
             Objects.requireNonNull(runId, "runId 不能为空");

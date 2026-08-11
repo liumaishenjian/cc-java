@@ -9,7 +9,7 @@
 > Commit `5910a8f` 上完成 Commit-scoped G0-G6；`CLI-13`、`CTX-19` 达到 L2。S09 已完成
 > Settings/Trust、Command/loopback HTTP、生命周期、Compact 与生产装配并 Accepted；S10 MCP Tool
 > 主链已完成 STDIO/Streamable HTTP、多 Server、统一 Permission、Trust 与恢复并通过真实 E2E，Accepted。
-> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、安全矩阵、Demo 与能力对账均通过，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted；相关 Feature 达到冻结的 L2/L1 目标。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted：ExecutionBackend/五维 policy、WSL2+bwrap Linux A、Docker pinned-image B、Windows process/env B（file/network U）、攻击回归、Command Hook/MCP stdio managed seam 与 root/child execution composition 均已验证。`PERM-05/CFG-07` 保持 L0、`HOOK-10` 保持 L1、`SEC-11` 保持 L0；S14 为 NOT_STARTED。
+> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、安全矩阵、Demo 与能力对账均通过，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted；相关 Feature 达到冻结的 L2/L1 目标。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted：ExecutionBackend/五维 policy、WSL2+bwrap Linux A、Docker pinned-image B、Windows process/env B（file/network U）、攻击回归、Command Hook/MCP stdio managed seam 与 root/child execution composition 均已验证。`PERM-05` 保持 L0，`CFG-07/HOOK-10` 保持 L1，`SEC-11` 保持 L0；S14 当前为 IN_PROGRESS、Stage Exit OPEN。
 >
 > 产品负责人：项目维护者
 
@@ -562,19 +562,13 @@ ADR-063/064 冻结的产品范围已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb
 
 ### S14：Production Harness
 
-状态：`NOT_STARTED`。S13 Accepted 不表示 S14 已开始。
+状态：`IN_PROGRESS`，Stage Exit `OPEN`。ADR-065/066 已冻结范围；P0 corrective slice 已完成实际分 seed Eval、服务端 canonical Session control 与 Plugin 全事务 writer fence，但 G4-G6 尚未统一完成：
 
-- 稳定 JSON/JSONL 机器协议；
-- 可嵌入的 Java SDK、Daemon 或本地 API；
-- Headless/CI 安全配置；
-- OpenTelemetry、Token、费用和延迟统计；
-- 第二个 Provider Adapter，用于验证 Provider-neutral Port；
-- 多模型路由、Fallback、限流/重试、Capability Detection、Eval/Benchmark 和跨平台安装；
-- Provider Cache Hint 与原生 Context Editing 只作为 Adapter 优化，并与通用 S07 路径对照；
-- 桌面端或 IDE 作为独立 Client，共享同一 Runtime。
+- Provider/Eval/Observability：configured/observed/effective capability、无可见/无 durable intent 前的保守 Fallback、可信 Usage/价格 Cost、Anthropic Spring AI Factory、NetworkAccessPort、typed Eval 与 direct OTel Adapter；
+- Protocol/SDK/Daemon/Session：项目自有 stable v1 codec/state、v0 保持原义、Java SDK、`--stdio-v1` 与 token/ownership 保护的 `--daemon` 共用 Application Service；Export/Retention/Migration/Index/Governance 已接入 SDK/v1 control API；
+- Governance/Plugin/Distribution：本机管理员 provenance/LKG/fail-closed、stable/experimental gates、Plugin transaction recovery/signature port、app-dir/Windows/Linux launcher/manifest/checksum/SBOM/rollback。
 
-S14 按 `Eval/Observability → SDK/Headless → Distribution/Compatibility` 三个内部检查点
-推进。Eval 从 S01 起持续积累，S14 负责产品化、兼容和统一报告，而不是第一次引入评测。
+当前只按矩阵逐项记录已有 L1/L2，不以 Batch 名义整体提升。P0/P1 证明 SESSION-12/13 的服务端 canonical/fence、60 个真实 production-harness Eval（含 Tool loop/ID/拒绝与失败恢复/cancel/limit/context/session/SDK/stable event+terminal+idempotency）、真实 OTel lifecycle 与 Plugin recovery/install/uninstall/registry migration；CFG-10/PLUGIN-04/OBS-06/EVAL-03 达 L2，SESSION-14 普通文件 Index 按冻结例外保持 L1。真实 Anthropic、已发布 N-1 与缺失平台条件不得伪造 L3；最终 G6/Stage Exit 仍等待 implementation commit 后的 commit-scoped 验收。
 
 ### S15：Independent Innovation
 

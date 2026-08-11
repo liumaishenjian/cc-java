@@ -28,6 +28,11 @@ public final class InMemoryPluginRegistry implements PluginRegistry {
     private long nextGeneration = 1;
     private long revision;
 
+    /**
+     * 创建使用给定信任 Gate 的进程内 Registry。
+     *
+     * @param trustGate 激活每个 generation 前必须通过的信任判定
+     */
     public InMemoryPluginRegistry(PluginTrustGate trustGate) {
         this.trustGate = Objects.requireNonNull(trustGate, "trustGate 不能为空");
     }

@@ -9,10 +9,16 @@ package io.github.liumaishenjian.ccjava.domain.worktree;
  * @since 0.12.0
  */
 public enum WorktreeDisposition {
+    /** Worktree 已创建但当前没有 active owner。 */
     READY,
+    /** 当前进程持有 active owner。 */
     IN_USE,
+    /** 调用方明确选择保留目录与分支。 */
     KEPT,
+    /** Worktree registration、目录与临时分支均已删除。 */
     REMOVED,
+    /** Worktree registration/目录已删除，但分支因安全失败保留。 */
     REMOVED_BRANCH_PRESERVED,
+    /** 无法证明安全清理，保留所有可恢复现场。 */
     FAILED_PRESERVED
 }

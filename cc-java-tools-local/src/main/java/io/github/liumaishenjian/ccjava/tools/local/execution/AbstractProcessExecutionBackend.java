@@ -31,13 +31,28 @@ import java.util.concurrent.TimeUnit;
 abstract class AbstractProcessExecutionBackend implements ExecutionBackend {
     private final ProcessTreeTerminator terminator = new ProcessTreeTerminator();
 
-    /** 将已验证请求编译为不可变平台启动计划。 */
+    /**
+     * 将已验证请求编译为不可变平台启动计划。
+     *
+     * @param request 已通过 selector 与 policy Gate 的请求
+     * @return 启动前完整构造的计划
+     * @throws IOException 平台身份或参数无法安全转换时
+     */
     protected abstract Plan plan(ExecutionRequest request) throws IOException;
 
-    /** 返回本后端实际能够证明的 enforcement 状态。 */
+    /**
+     * 返回本后端实际能够证明的 enforcement 状态。
+     *
+     * @param fallback 是否以显式 Local fallback 执行
+     * @return 与本次实际路径绑定的报告
+     */
     protected abstract EnforcementReport report(boolean fallback);
 
-    /** timeout 或取消后的后端专属清理；默认无额外资源。 */
+    /**
+     * timeout、取消或普通终态后的后端专属清理；默认无额外资源。
+     *
+     * @param plan 包含可选清理 identity 的启动计划
+     */
     protected void cleanup(Plan plan) {
     }
 

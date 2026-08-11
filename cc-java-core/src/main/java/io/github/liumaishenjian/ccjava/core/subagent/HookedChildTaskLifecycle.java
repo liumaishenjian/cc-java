@@ -23,6 +23,12 @@ public final class HookedChildTaskLifecycle implements ChildTaskLifecycle {
     private final HookCoordinator hooks;
     private final SessionId parentSessionId;
 
+    /**
+     * 创建绑定父 Session 的子任务 Hook 生命周期适配器。
+     *
+     * @param hooks 已通过宿主 trust Gate 的 Hook 协调器
+     * @param parentSessionId 子任务所属父 Session
+     */
     public HookedChildTaskLifecycle(HookCoordinator hooks, SessionId parentSessionId) {
         this.hooks = Objects.requireNonNull(hooks);
         this.parentSessionId = Objects.requireNonNull(parentSessionId);

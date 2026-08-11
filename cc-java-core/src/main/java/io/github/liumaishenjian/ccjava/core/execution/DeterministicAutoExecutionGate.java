@@ -12,6 +12,10 @@ import io.github.liumaishenjian.ccjava.domain.execution.PlatformCapabilitySnapsh
  * @since 0.13.0
  */
 public final class DeterministicAutoExecutionGate {
+    /** 创建无状态且尚未接入 production 的确定性 Gate。 */
+    public DeterministicAutoExecutionGate() {
+    }
+
     /**
      * 判断策略和平台证据是否满足跳过交互审批的必要条件。
      *

@@ -27,6 +27,7 @@ public record ExecutionOutcome(
         long originalCharacters,
         EnforcementReport enforcement,
         Optional<ExecutionFailure> failure) {
+    /** 校验输出、计数、enforcement 与失败事实后冻结终态。 */
     public ExecutionOutcome {
         stdout = Objects.requireNonNull(stdout);
         stderr = Objects.requireNonNull(stderr);

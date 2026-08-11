@@ -25,6 +25,11 @@ public final class FileChildTaskJournal implements ChildTaskJournal, AutoCloseab
     private final Path failureDirectory;
     private final FileChannel channel;
 
+    /**
+     * 在固定目录打开或创建子任务日志及终态失败标记目录。
+     *
+     * @param directory 日志根目录
+     */
     public FileChildTaskJournal(Path directory) {
         try {
             Path root = Objects.requireNonNull(directory).toAbsolutePath().normalize();
@@ -54,7 +59,11 @@ public final class FileChildTaskJournal implements ChildTaskJournal, AutoCloseab
     @Override public synchronized void started(ChildTaskId id) { append(id, "started", null); }
     @Override public synchronized void terminal(ChildTaskReport report) { append(report.taskId(), "terminal", report); }
 
-    /** 返回恢复时的固定 terminal 投影；不会修改 journal 或重放任务。 */
+    /**
+     * 返回恢复时的固定 terminal 投影；不会修改 journal 或重放任务。
+     *
+     * @return 缺少可靠 terminal 记录的中断任务投影
+     */
     public synchronized List<ChildTaskReport> interruptedUnknown() {
         try {
             channel.force(true);

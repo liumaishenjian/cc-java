@@ -27,7 +27,11 @@ public final class LocalExecutionBackend extends AbstractProcessExecutionBackend
     private final Path workspace;
     private final CommandShell shell;
 
-    /** 为固定 Workspace 创建平台 Local 后端。 */
+    /**
+     * 为固定 Workspace 创建平台 Local 后端。
+     *
+     * @param workspace 所有命令固定使用的工作目录
+     */
     public LocalExecutionBackend(Path workspace) {
         this.workspace = Objects.requireNonNull(workspace, "workspace 不能为空");
         this.shell = CommandShell.current();

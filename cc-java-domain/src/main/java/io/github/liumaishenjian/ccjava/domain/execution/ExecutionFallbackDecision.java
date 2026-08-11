@@ -11,6 +11,7 @@ import java.util.Objects;
  * @since 0.13.0
  */
 public record ExecutionFallbackDecision(String callId, boolean allowed, String reasonCode) {
+    /** 校验 fallback 决策与固定原因码。 */
     public ExecutionFallbackDecision {
         callId = Objects.requireNonNull(callId);
         reasonCode = Objects.requireNonNull(reasonCode);

@@ -12,6 +12,18 @@ import java.util.Optional;
  * @since 0.12.0
  */
 public interface AgentDefinitionCatalog {
+    /**
+     * 从已冻结 catalog 查询定义，不重新读取磁盘。
+     *
+     * @param id 稳定 Agent definition identity
+     * @return 匹配的 immutable snapshot
+     */
     Optional<AgentDefinitionSnapshot> find(AgentDefinitionId id);
+
+    /**
+     * 列出当前 Session 冻结的 catalog。
+     *
+     * @return 按稳定来源/identity 顺序排列的全部快照
+     */
     List<AgentDefinitionSnapshot> snapshots();
 }

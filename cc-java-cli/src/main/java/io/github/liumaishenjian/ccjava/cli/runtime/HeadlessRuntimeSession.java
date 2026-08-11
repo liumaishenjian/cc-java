@@ -25,6 +25,9 @@ import io.github.liumaishenjian.ccjava.core.ModelRetryPolicy;
 import io.github.liumaishenjian.ccjava.core.RetryingModelGateway;
 import io.github.liumaishenjian.ccjava.core.RunTelemetry;
 import io.github.liumaishenjian.ccjava.core.RunTelemetryCollector;
+import io.github.liumaishenjian.ccjava.core.telemetry.TelemetryExporter;
+import io.github.liumaishenjian.ccjava.core.telemetry.TelemetrySignal;
+import io.github.liumaishenjian.ccjava.core.telemetry.TelemetrySignalKind;
 import io.github.liumaishenjian.ccjava.core.UuidAgentIdGenerator;
 import io.github.liumaishenjian.ccjava.domain.AgentEventEnvelope;
 import io.github.liumaishenjian.ccjava.domain.AgentLimits;
@@ -98,10 +101,12 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private final FileCheckpointCoordinator checkpoints;
     private final HeadlessRuntimeOptions options;
     private final RunTelemetryCollector telemetry;
+    private final TelemetryExporter telemetryExporter;
     private final LatestContextUsageCollector contextUsage;
     private final AutoCloseable memoryResource;
     private final Object lifecycleMonitor = new Object();
     private volatile ActiveRun activeRun;
+    private volatile AgentEventSink runEventSink;
     private volatile boolean closed;
     private final io.github.liumaishenjian.ccjava.core.InMemorySessionPermissionState permissionState;
     private final LocalWorkspaceBootstrap workspaceBootstrap;
@@ -126,6 +131,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private SettingsApplicationService settingsApplication;
     private long compactRevision;
     private final io.github.liumaishenjian.ccjava.cli.mentions.FileMentionService fileMentions;
+    private final io.github.liumaishenjian.ccjava.cli.governance.ManagedGovernance governance;
     private ExtensionRuntime extensions = ExtensionRuntime.disabled();
     private io.github.liumaishenjian.ccjava.cli.skills.SkillRuntimeResources skills;
     private io.github.liumaishenjian.ccjava.cli.plugins.PluginRuntimeResources plugins =
@@ -238,9 +244,21 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 new OpenAiCompatibleModelFactory().create(settings);
         ModelDiagnostics diagnostics = ModelDiagnostics.open(
                 options.diagnosticMode(), options.diagnosticDirectory());
-        ModelGateway gateway = new RetryingModelGateway(
+        ModelGateway provider = new RetryingModelGateway(
                 new SpringAiModelGateway(chatModel, settings.model(), diagnostics.recorder()),
                 ModelRetryPolicy.S02_DEFAULT);
+        java.util.EnumMap<io.github.liumaishenjian.ccjava.domain.model.ModelCapability,
+                io.github.liumaishenjian.ccjava.domain.model.CapabilitySupport> supported =
+                new java.util.EnumMap<>(io.github.liumaishenjian.ccjava.domain.model.ModelCapability.class);
+        supported.put(io.github.liumaishenjian.ccjava.domain.model.ModelCapability.TEXT,
+                io.github.liumaishenjian.ccjava.domain.model.CapabilitySupport.SUPPORTED);
+        supported.put(io.github.liumaishenjian.ccjava.domain.model.ModelCapability.TOOL_CALLING,
+                io.github.liumaishenjian.ccjava.domain.model.CapabilitySupport.SUPPORTED);
+        var capabilities = io.github.liumaishenjian.ccjava.domain.model.ModelProviderCapabilitySnapshot
+                .resolve("openai-compatible", settings.model(), supported, supported);
+        ModelGateway gateway = new io.github.liumaishenjian.ccjava.core.model.ProviderRouter(
+                java.util.List.of(new io.github.liumaishenjian.ccjava.core.model.ModelProviderRoute(
+                        "openai-compatible", provider, capabilities)));
         LatestContextUsageCollector usage = options.contextPreparation()
                 .map(ignored -> new LatestContextUsageCollector())
                 .orElse(null);
@@ -452,9 +470,29 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             throw failure;
         }
         telemetry = new RunTelemetryCollector();
+        telemetryExporter = TelemetryExporters.production();
         this.contextUsage = contextUsage;
         this.runtimeScopeFactory = runtimeScopeFactory == null ? this::createRuntimeScope : runtimeScopeFactory;
         this.agentDefinitionUserRoot = checkedInstructionLayout.userHome().resolve(".cc-java").resolve("agents");
+        this.governance = io.github.liumaishenjian.ccjava.cli.governance.ManagedGovernance
+                .production(checkedInstructionLayout.userHome());
+        if (governance.policy().status()
+                == io.github.liumaishenjian.ccjava.core.governance.ManagedPolicyStatus.FAIL_CLOSED) {
+            checkedMemoryLayout.closeUnused();
+            throw new IllegalStateException("Managed Policy 安全项无法可信解析");
+        }
+        governance.policy().value().ifPresent(policy -> {
+            if (policy.requiredSandbox()
+                    && options.executionBackend()
+                    == io.github.liumaishenjian.ccjava.domain.execution.ExecutionBackendPreference.LOCAL) {
+                checkedMemoryLayout.closeUnused();
+                throw new IllegalStateException("Managed Policy 要求强制 Sandbox");
+            }
+            if (policy.networkDenied()) {
+                checkedMemoryLayout.closeUnused();
+                throw new IllegalStateException("Managed Policy 禁止当前 Provider 网络路径");
+            }
+        });
         try {
             workspaceBootstrap = LocalWorkspaceBootstrap.open(
                     this.options.workspace(),
@@ -626,15 +664,28 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
      * @return 唯一 Run 终态
      */
     public AgentRunResult run(UserMessage userMessage) {
-        return run(userMessage, Optional.empty());
+        return run(new AgentRunRequest(
+                userMessage,
+                new AgentLimits(
+                        AgentLimits.DEFAULT.maxModelTurns(),
+                        AgentLimits.DEFAULT.maxToolCalls(),
+                        options.timeout()),
+                Optional.empty()), null);
     }
 
-    private AgentRunResult run(UserMessage userMessage,
-            Optional<io.github.liumaishenjian.ccjava.domain.skill.ExplicitSkillInvocation> explicitSkill) {
-        Objects.requireNonNull(userMessage, "userMessage 不能为空");
-        explicitSkill = Objects.requireNonNull(explicitSkill, "explicitSkill 不能为空");
-        String prompt = userMessage.content();
-        validatePrompt(prompt);
+    /**
+     * 使用调用方完整请求语义和可选事件出口执行一次 Run。
+     *
+     * <p>Application Service 使用本入口保留 limits、显式 Skill 与事件流；事件出口只在本次
+     * Run 活动期间可见，不会建立第二套 Runtime 或改变 Session 级权威 sink。</p>
+     *
+     * @param request 完整 Run 请求
+     * @param events 可选的本次 Run 事件观察者
+     * @return Runtime 唯一终态
+     */
+    public AgentRunResult run(AgentRunRequest request, AgentEventSink events) {
+        Objects.requireNonNull(request, "request 不能为空");
+        validatePrompt(request.userMessage().content());
         ActiveRun captured;
         synchronized (lifecycleMonitor) {
             requireOpenLocked();
@@ -643,24 +694,30 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             }
             captured = new ActiveRun(scope.get(), session.id());
             activeRun = captured;
+            runEventSink = events;
         }
         try {
-            return captured.scope().runtime().run(
-                    captured.sessionId(),
-                    new AgentRunRequest(
-                            userMessage,
-                            new AgentLimits(
-                                    AgentLimits.DEFAULT.maxModelTurns(),
-                                    AgentLimits.DEFAULT.maxToolCalls(),
-                                    options.timeout()),
-                            explicitSkill));
+            return captured.scope().runtime().run(captured.sessionId(), request);
         } finally {
             synchronized (lifecycleMonitor) {
                 if (activeRun == captured) {
                     activeRun = null;
+                    runEventSink = null;
+                    lifecycleMonitor.notifyAll();
                 }
             }
         }
+    }
+
+    private AgentRunResult run(UserMessage userMessage,
+            Optional<io.github.liumaishenjian.ccjava.domain.skill.ExplicitSkillInvocation> explicitSkill) {
+        return run(new AgentRunRequest(
+                Objects.requireNonNull(userMessage, "userMessage 不能为空"),
+                new AgentLimits(
+                        AgentLimits.DEFAULT.maxModelTurns(),
+                        AgentLimits.DEFAULT.maxToolCalls(),
+                        options.timeout()),
+                Objects.requireNonNull(explicitSkill, "explicitSkill 不能为空")), null);
     }
 
     /**
@@ -724,14 +781,26 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         }
     }
 
-    /** 查询本 Session 拥有的子任务，不暴露子 transcript。 */
+    /**
+     * 查询本 Session 拥有的子任务，不暴露子 transcript。
+     *
+     * @param id 子任务 identity
+     * @return 当前有界状态；不存在时为空
+     */
     public Optional<io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskReport> inspectChildTask(
             io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskId id) {
         requireOpen();
         return agentSupervisor == null ? Optional.empty() : agentSupervisor.find(id).map(handle -> handle.inspect());
     }
 
-    /** 有界等待子任务终态；超时返回当时的状态。 */
+    /**
+     * 有界等待子任务终态；超时返回当时的状态。
+     *
+     * @param id 子任务 identity
+     * @param timeout 最大等待时间
+     * @return 等待后的状态；任务不存在时为空
+     * @throws InterruptedException 调用线程被中断时
+     */
     public Optional<io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskReport> waitForChildTask(
             io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskId id, Duration timeout)
             throws InterruptedException {
@@ -741,13 +810,23 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         return handle.isEmpty() ? Optional.empty() : Optional.of(handle.orElseThrow().await(timeout));
     }
 
-    /** 请求取消本 Session 拥有的子任务。 */
+    /**
+     * 请求取消本 Session 拥有的子任务。
+     *
+     * @param id 子任务 identity
+     * @return 是否找到并接受取消
+     */
     public boolean cancelChildTask(io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskId id) {
         requireOpen();
         return agentSupervisor != null && agentSupervisor.find(id).map(handle -> handle.cancel()).orElse(false);
     }
 
-    /** 显式保留任务绑定 worktree；任务不存在、未终态或无 worktree 时为空。 */
+    /**
+     * 显式保留任务绑定 worktree。
+     *
+     * @param id 子任务 identity
+     * @return 固定 disposition；任务不存在、未终态或无 worktree 时为空
+     */
     public Optional<String> keepChildTaskWorktree(
             io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskId id) {
         requireOpen();
@@ -755,7 +834,12 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 : agentSupervisor.find(id).flatMap(handle -> handle.keepWorktree());
     }
 
-    /** 显式删除可证明 clean 的任务绑定 worktree；不确定时返回 preserved disposition。 */
+    /**
+     * 显式删除可证明 clean 的任务绑定 worktree。
+     *
+     * @param id 子任务 identity
+     * @return 固定 disposition；不确定时返回 preserved
+     */
     public Optional<String> removeChildTaskWorktree(
             io.github.liumaishenjian.ccjava.domain.subagent.ChildTaskId id) {
         requireOpen();
@@ -1252,13 +1336,15 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         Optional<InstructionDoctorSnapshot> instructions = instructionContext instanceof InstructionProjectionState state
                 ? state.doctorSnapshot()
                 : Optional.empty();
-        return new DoctorSnapshot(settings, instructions, latestContextUsage(), activeRun != null, session != null && !closed);
+        return new DoctorSnapshot(settings, instructions, latestContextUsage(),
+                governance.snapshot(), activeRun != null, session != null && !closed);
     }
 
     /** Headless 已发布状态的只读、安全 doctor 输入。 */
     record DoctorSnapshot(Optional<EffectiveSettingsSnapshot> settings,
                           Optional<InstructionDoctorSnapshot> instructions,
                           Optional<ContextUsageView> contextUsage,
+                          io.github.liumaishenjian.ccjava.cli.governance.ManagedGovernance.GovernanceSnapshot governance,
                           boolean activeRun,
                           boolean sessionOpen) {
         DoctorSnapshot {
@@ -1353,7 +1439,11 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         return extensions.mcpSnapshots();
     }
 
-    /** @return 当前 Session metadata-only Skill catalog，供 Slash UX 使用 */
+    /**
+     * 查询当前 Session metadata-only Skill catalog。
+     *
+     * @return 供 Slash UX 使用的稳定 descriptors
+     */
     public List<io.github.liumaishenjian.ccjava.domain.skill.SkillDescriptor> skillCatalog() {
         return skills == null ? List.of() : skills.catalog().entries();
     }
@@ -1563,15 +1653,92 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     }
 
     private void publish(AgentEventEnvelope envelope, AgentEventSink downstream) {
+        exportTelemetry(envelope);
+        AgentEventSink perRun;
         synchronized (lifecycleMonitor) {
             if (envelope.event() instanceof LifecycleEvent.RunStarted) {
                 ActiveRun current = activeRun;
                 if (current != null && current.runId() == null) {
                     current.setRunId(envelope.runId().orElseThrow());
+                    lifecycleMonitor.notifyAll();
                 }
             }
+            perRun = envelope.runId().isPresent() ? runEventSink : null;
         }
         downstream.publish(envelope);
+        if (perRun != null && perRun != downstream) {
+            perRun.publish(envelope);
+        }
+    }
+
+    private void exportTelemetry(AgentEventEnvelope envelope) {
+        TelemetrySignal signal = null;
+        if (envelope.event() instanceof LifecycleEvent.RunStarted) {
+            signal = new TelemetrySignal(TelemetrySignalKind.RUN, Optional.empty(),
+                    Map.of("status", "started"));
+        } else if (envelope.event() instanceof LifecycleEvent.RunFinished finished) {
+            String status = switch (finished.result().status()) {
+                case COMPLETED -> "completed";
+                case CANCELLED -> "cancelled";
+                case FAILED -> "failed";
+                case STOPPED -> "stopped";
+            };
+            Optional<RunTelemetry> measured = envelope.runId().flatMap(telemetry::find);
+            signal = new TelemetrySignal(TelemetrySignalKind.STOP,
+                    measured.map(RunTelemetry::elapsed),
+                    Map.of("status", status, "stop_reason", telemetryStopReason(finished.result())));
+            measured.ifPresent(this::exportMeasuredTelemetry);
+        }
+        // Turn/Tool 完成信号由 RunTelemetry 的真实边界耗时统一投影；start 事件不伪造 duration。
+        if (signal != null) safeExport(signal);
+    }
+
+    private void exportMeasuredTelemetry(RunTelemetry measured) {
+        measured.modelTurns().forEach(turn -> safeExport(new TelemetrySignal(
+                TelemetrySignalKind.MODEL_TURN, Optional.of(turn.elapsed()),
+                Map.of("status", turn.completed() ? "completed" : "stopped",
+                        "finish_reason", turn.finishReason().map(value -> value.name().toLowerCase(java.util.Locale.ROOT))
+                                .filter(value -> Set.of("stop", "tool_calls", "length", "content_filter", "unknown").contains(value))
+                                .orElse("unknown"),
+                        "usage_known", Boolean.toString(turn.usage().isPresent())))));
+        measured.toolCalls().forEach(tool -> safeExport(new TelemetrySignal(
+                TelemetrySignalKind.TOOL_CALL, Optional.of(tool.elapsed()),
+                Map.of("status", tool.completed() ? "completed" : "stopped"))));
+        safeExport(new TelemetrySignal(TelemetrySignalKind.TOKEN_USAGE, Optional.empty(),
+                Map.of("usage_known", Boolean.toString(measured.totalUsage().isPresent()))));
+        // 当前 composition 没有可信版本化价格源，因此绝不导出 KNOWN_COST。
+    }
+
+    private void safeExport(TelemetrySignal signal) {
+        try {
+            telemetryExporter.export(signal);
+        } catch (RuntimeException ignored) {
+            // 观察面失败不改变权威 Run。
+        }
+    }
+
+    private static String telemetryStopReason(AgentRunResult result) {
+        return switch (result.stopReason()) {
+            case COMPLETED -> "completed";
+            case USER_CANCELLED -> "cancelled";
+            case TURN_LIMIT_REACHED, TOOL_LIMIT_REACHED, TIME_LIMIT_REACHED,
+                    CONTEXT_LIMIT_REACHED, OUTPUT_LIMIT_REACHED -> "limit";
+            case MODEL_ERROR, MODEL_RETRY_EXHAUSTED, INCOMPLETE_MODEL_STREAM,
+                    INVALID_MODEL_RESPONSE -> "model_error";
+            case TOOL_ERROR, PERMISSION_DENIED, HOOK_BLOCKED -> "tool_error";
+            case INTERNAL_ERROR -> "internal_error";
+        };
+    }
+
+    /**
+     * 返回当前活动 Run；Runtime 发布 RunStarted 前可能暂时为空。
+     *
+     * @return 活动 Run identity
+     */
+    public Optional<RunId> activeRunId() {
+        synchronized (lifecycleMonitor) {
+            return activeRun == null ? Optional.empty() : Optional.ofNullable(activeRun.runId());
+        }
     }
 
     private void requireOpen() {
@@ -1606,6 +1773,17 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             }
             if (diagnosticResource != null) {
                 diagnosticResource.close();
+            }
+            try {
+                telemetryExporter.flush(Duration.ofSeconds(2));
+            } catch (RuntimeException ignored) {
+                // Export/flush 失败只关闭观察面。
+            } finally {
+                try {
+                    telemetryExporter.close();
+                } catch (RuntimeException ignored) {
+                    // Exporter 关闭失败不改变 Session 关闭语义。
+                }
             }
             closeMemory(memoryResource);
             if (agentSupervisor != null) agentSupervisor.close();

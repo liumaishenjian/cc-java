@@ -26,6 +26,7 @@ public record ExecutionRequest(
         Duration timeout,
         int outputCharacterLimit,
         ExecutionPolicy policy) {
+    /** 校验 argv、cwd、deadline、输出上限和调用 identity。 */
     public ExecutionRequest {
         callId = requireText(callId);
         shell = Objects.requireNonNull(shell);

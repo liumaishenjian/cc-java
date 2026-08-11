@@ -29,21 +29,34 @@ import java.util.Set;
  * @since 0.11.0
  */
 public final class CanonicalPluginTree {
+    /** 单个 Plugin package 的普通文件数上限。 */
     public static final int MAX_FILES = 1_024;
+    /** 单个 Plugin package 的普通文件总字节上限。 */
     public static final long MAX_TOTAL_BYTES = 32L * 1_024 * 1_024;
     private static final String ZERO_DIGEST = "0".repeat(64);
     private final PathSafetyProbe pathSafetyProbe;
 
+    /** 创建使用平台 reparse/junction 探测的扫描器。 */
     public CanonicalPluginTree() {
         this(CanonicalPluginTree::platformReparsePoint);
     }
 
-    /** 注入确定性的 Windows junction/reparse 检测 seam。 */
+    /**
+     * 注入确定性的 Windows junction/reparse 检测 seam。
+     *
+     * @param pathSafetyProbe 每次目录项访问前执行的 reparse 检查
+     */
     public CanonicalPluginTree(PathSafetyProbe pathSafetyProbe) {
         this.pathSafetyProbe = Objects.requireNonNull(pathSafetyProbe, "pathSafetyProbe 不能为空");
     }
 
-    /** 扫描固定目录并与 strict manifest 组合成不可变 snapshot。 */
+    /**
+     * 扫描固定目录并与 strict manifest 组合成不可变 snapshot。
+     *
+     * @param root ordinary directory package root
+     * @param parsed 已校验 manifest 与输入摘要
+     * @return 绑定 canonical tree digest 的 immutable snapshot
+     */
     public PluginSnapshot scan(Path root, PluginManifestParser.ParsedPluginManifest parsed) {
         Objects.requireNonNull(root, "root 不能为空");
         Objects.requireNonNull(parsed, "parsed 不能为空");
@@ -191,6 +204,13 @@ public final class CanonicalPluginTree {
     /** Windows Adapter 或测试 seam 用于拒绝 junction/reparse point。 */
     @FunctionalInterface
     public interface PathSafetyProbe {
+        /**
+         * 检查目录项是否为 Windows reparse point 或 junction。
+         *
+         * @param path 待检查的 NOFOLLOW 路径
+         * @return 必须拒绝时为 true
+         * @throws IOException 无法证明路径类型时
+         */
         boolean isReparseOrJunction(Path path) throws IOException;
     }
 }

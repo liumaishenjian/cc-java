@@ -374,9 +374,9 @@ public final class SpringAiModelGateway implements StreamingModelGateway {
             return ModelFinishReason.UNKNOWN;
         }
         return switch (reason.toLowerCase(Locale.ROOT)) {
-            case "stop" -> ModelFinishReason.STOP;
-            case "tool_calls", "tool_call" -> ModelFinishReason.TOOL_CALLS;
-            case "length" -> ModelFinishReason.LENGTH;
+            case "stop", "end_turn", "stop_sequence" -> ModelFinishReason.STOP;
+            case "tool_calls", "tool_call", "tool_use" -> ModelFinishReason.TOOL_CALLS;
+            case "length", "max_tokens" -> ModelFinishReason.LENGTH;
             case "content_filter" -> ModelFinishReason.CONTENT_FILTER;
             default -> ModelFinishReason.OTHER;
         };
@@ -398,6 +398,9 @@ public final class SpringAiModelGateway implements StreamingModelGateway {
                 current = current.getCause()) {
             if (current instanceof OpenAIServiceException service) {
                 return classifyService(service);
+            }
+            if (current instanceof com.anthropic.errors.AnthropicServiceException service) {
+                return classifyAnthropicService(service);
             }
             if (current instanceof java.util.concurrent.TimeoutException) {
                 return retryable(
@@ -433,6 +436,11 @@ public final class SpringAiModelGateway implements StreamingModelGateway {
                     ModelFailureReason.UNKNOWN,
                     ModelDiagnosticStatusClass.CLIENT_ERROR);
         }
+        return classifyStatus(service.statusCode());
+    }
+
+    private static FailureClassification classifyAnthropicService(
+            com.anthropic.errors.AnthropicServiceException service) {
         return classifyStatus(service.statusCode());
     }
 

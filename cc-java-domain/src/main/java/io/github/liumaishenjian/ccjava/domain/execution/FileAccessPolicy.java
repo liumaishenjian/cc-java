@@ -15,6 +15,7 @@ public record FileAccessPolicy(
         List<String> readOnlyRoots,
         List<String> writableRoots,
         List<String> deniedRoots) {
+    /** 冻结只读/可写 roots 与控制面保护集合。 */
     public FileAccessPolicy {
         readOnlyRoots = copy(readOnlyRoots);
         writableRoots = copy(writableRoots);

@@ -4,7 +4,12 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 
-/** Session 启动时固定且不热切换的 Plugin 快照集合。 @param snapshots 稳定 Plugin ID 顺序 @since 0.11.0 */
+/**
+ * Session 启动时固定且不热切换的 Plugin 快照集合。
+ *
+ * @param snapshots 按稳定 Plugin ID 顺序冻结的快照
+ * @since 0.11.0
+ */
 public record PluginSnapshotSet(List<PluginSnapshot> snapshots) {
     /** 防御性复制并拒绝重复 Plugin ID。 */
     public PluginSnapshotSet {

@@ -24,6 +24,7 @@ import tools.jackson.databind.json.JsonMapper;
  * @since 0.11.0
  */
 public final class PluginManifestParser {
+    /** 单个 plugin.json 允许解析的最大字节数。 */
     public static final int MAX_BYTES = 64 * 1_024;
     private static final Set<String> ROOT = Set.of(
             "schemaVersion", "id", "version", "description", "requiresHost", "components");
@@ -38,7 +39,15 @@ public final class PluginManifestParser {
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
             .build();
 
-    /** 解析 manifest；所有失败只暴露结构化错误码。 */
+    /** 创建使用 strict JSON v1 契约的 Manifest parser。 */
+    public PluginManifestParser() { }
+
+    /**
+     * 解析 manifest；所有失败只暴露结构化错误码。
+     *
+     * @param bytes plugin.json 的精确 UTF-8 字节
+     * @return 已校验 Domain manifest 及原始字节摘要
+     */
     public ParsedPluginManifest parse(byte[] bytes) {
         if (bytes == null || bytes.length > MAX_BYTES) {
             throw failure(bytes == null ? PluginErrorCode.MANIFEST_INVALID : PluginErrorCode.MANIFEST_TOO_LARGE);
@@ -143,8 +152,14 @@ public final class PluginManifestParser {
         return new PluginBoundaryException(code);
     }
 
-    /** @param manifest strict Domain manifest @param manifestDigest exact input SHA-256 */
+    /**
+     * 严格解析后的 Domain manifest 与原始输入身份。
+     *
+     * @param manifest 已通过 schema/边界校验的 manifest
+     * @param manifestDigest 精确输入字节的 SHA-256
+     */
     public record ParsedPluginManifest(PluginManifest manifest, String manifestDigest) {
+        /** 校验 manifest 存在且摘要为规范 SHA-256。 */
         public ParsedPluginManifest {
             if (manifest == null || manifestDigest == null || !manifestDigest.matches("[0-9a-f]{64}")) {
                 throw new IllegalArgumentException("Parsed manifest 非法");

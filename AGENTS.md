@@ -128,7 +128,7 @@ S09/S10 Accepted 不表示远程 Hook、MCP OAuth/Lazy Tool/Resource 自动投�
 838 tests/21 skips、TUI 133/133、launcher 59 assertions 与 Dashboard 均通过，Stage Exit Accepted；
 `SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1。
 Worktree reparse、Git fault/timeout、Windows remove/branch-lock cancellation recovery 仍是明确 gap；
-S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit，状态为 Accepted：ExecutionBackend/五维 policy、run_command Local refactor、WSL2 Ubuntu+bwrap Linux A、Docker pinned-image B、native Windows process/env B（file/network U）、攻击回归、Command Hook/MCP stdio managed seam 与 root/child execution composition 均已有固定证据。标准 clean verify 为 851 tests/29 skips，真实 selector 5/5 + attack 8/8 共 13/13；首次因 Docker daemon 未运行导致 5 个 Docker 用例失败，启动 daemon 26.1.4 后完整通过，测试后 label residue 为 0。JVM 内 HTTP 仍不受进程 backend 强制，PERM-05/CFG-07 保持 L0、HOOK-10 保持 L1、SEC-11 保持 L0。S14 为 NOT_STARTED，不得描述为已开始。
+S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit，状态为 Accepted：ExecutionBackend/五维 policy、run_command Local refactor、WSL2 Ubuntu+bwrap Linux A、Docker pinned-image B、native Windows process/env B（file/network U）、攻击回归、Command Hook/MCP stdio managed seam 与 root/child execution composition 均已有固定证据。标准 clean verify 为 851 tests/29 skips，真实 selector 5/5 + attack 8/8 共 13/13；首次因 Docker daemon 未运行导致 5 个 Docker 用例失败，启动 daemon 26.1.4 后完整通过，测试后 label residue 为 0。JVM 内 HTTP 仍不受进程 backend 强制，PERM-05 保持 L0、CFG-07/HOOK-10 保持 L1、SEC-11 保持 L0。S14 当前为 IN_PROGRESS、Stage Exit OPEN；不得把 working-tree primitives 或 loopback application prototype 描述为已完成的 stable v1 Daemon。
 
 ## 3. 项目定位
 

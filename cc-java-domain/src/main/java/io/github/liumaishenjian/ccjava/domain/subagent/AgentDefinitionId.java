@@ -7,6 +7,7 @@ package io.github.liumaishenjian.ccjava.domain.subagent;
  * @since 0.12.0
  */
 public record AgentDefinitionId(String value) {
+    /** 校验并冻结协议 identity。 */
     public AgentDefinitionId {
         if (value == null || !value.matches("[a-z][a-z0-9_-]{0,63}")) {
             throw new IllegalArgumentException("Agent definition ID 格式无效");

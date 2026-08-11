@@ -16,6 +16,8 @@ import java.util.List;
 @FunctionalInterface
 public interface SkillResourceReader {
     /**
+     * 从固定 catalog 按声明逻辑名加载有界资源。
+     *
      * @param snapshot 当前 Session 固定 catalog
      * @param descriptor snapshot 内原始 descriptor
      * @param cancellationToken 取消令牌

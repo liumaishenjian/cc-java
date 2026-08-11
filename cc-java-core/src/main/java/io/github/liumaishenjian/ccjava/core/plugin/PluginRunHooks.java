@@ -17,10 +17,20 @@ import java.util.Objects;
  */
 @FunctionalInterface
 public interface PluginRunHooks {
-    /** 根据当前固定 generation 构造 Run-scoped bindings。 */
+    /**
+     * 根据当前固定 generation 构造 Run-scoped bindings。
+     *
+     * @param runId bindings 所属 Run
+     * @param fingerprints 当前 Run 捕获的 Plugin identity 与 tree digest
+     * @return 已通过宿主 trust Gate 的 Run-scoped bindings
+     */
     List<HookBinding> bindings(RunId runId, Map<PluginId, String> fingerprints);
 
-    /** @return 不贡献 Hook 的共享实现 */
+    /**
+     * 返回不贡献 Hook 的共享实现。
+     *
+     * @return 始终返回空 bindings 的实现
+     */
     static PluginRunHooks none() {
         return (runId, fingerprints) -> {
             Objects.requireNonNull(runId, "runId 不能为空");

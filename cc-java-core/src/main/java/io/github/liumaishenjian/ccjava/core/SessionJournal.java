@@ -108,6 +108,8 @@ public interface SessionJournal {
     /**
      * 持久记录一次 Skill 激活尝试的唯一安全终态。
      *
+     * @param sessionId 当前 Session ID
+     * @param runId 当前 Run ID
      * @param skillId 规范 Skill ID
      * @param kind 激活入口
      * @param errorCode 失败时的固定分类；成功为空

@@ -14,6 +14,7 @@ import java.util.Objects;
  */
 public record WorktreeLease(WorktreeLeaseId id, String repositoryIdentity, String baseCommit,
         String branch, String opaqueRoot, WorktreeDisposition disposition) {
+    /** 校验 lease、仓库、commit、分支、相对 root 与终态均为规范值。 */
     public WorktreeLease {
         Objects.requireNonNull(id); Objects.requireNonNull(disposition);
         if (repositoryIdentity == null || !repositoryIdentity.matches("[0-9a-f]{64}")

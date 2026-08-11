@@ -25,6 +25,7 @@ import java.util.Set;
 public record AgentDefinitionSnapshot(AgentDefinitionId id, String description, String instructions,
         Set<String> visibleTools, PermissionMode permissionCeiling, String modelName, ChildBudget budget,
         boolean backgroundDefault, String contentDigest, String sourceKind) {
+    /** 校验全部 ceiling 与内容身份后冻结 Session snapshot。 */
     public AgentDefinitionSnapshot {
         id = Objects.requireNonNull(id, "id 不能为空");
         description = bounded(description, 512, "description");

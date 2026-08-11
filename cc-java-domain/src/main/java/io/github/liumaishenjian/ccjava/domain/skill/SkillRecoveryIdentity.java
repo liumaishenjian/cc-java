@@ -32,6 +32,7 @@ public record SkillRecoveryIdentity(
         String pluginManifestDigest,
         String mcpConfigDigest) {
 
+    /** 校验 Skill identity 与全部恢复摘要均为规范 SHA-256。 */
     public SkillRecoveryIdentity {
         skillId = Objects.requireNonNull(skillId, "skillId 不能为空");
         manifestDigest = digest(manifestDigest, "manifestDigest");

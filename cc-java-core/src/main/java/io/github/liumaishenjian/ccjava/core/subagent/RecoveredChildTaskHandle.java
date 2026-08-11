@@ -16,6 +16,11 @@ import java.util.Objects;
 public final class RecoveredChildTaskHandle implements ChildTaskHandle {
     private final ChildTaskReport report;
 
+    /**
+     * 创建只暴露 durable terminal report 的恢复 Handle。
+     *
+     * @param report 已恢复且必须为终态的子任务报告
+     */
     public RecoveredChildTaskHandle(ChildTaskReport report) {
         this.report = Objects.requireNonNull(report, "report 不能为空");
         if (!report.status().terminal()) throw new IllegalArgumentException("恢复 Handle 必须是终态");

@@ -15,6 +15,8 @@ import io.github.liumaishenjian.ccjava.domain.skill.SkillDescriptor;
 @FunctionalInterface
 public interface SkillContentLoader {
     /**
+     * 从固定 catalog 按 descriptor identity 加载正文。
+     *
      * @param snapshot 当前 Session 固定 catalog
      * @param descriptor snapshot 内原始 descriptor
      * @param cancellationToken 取消令牌

@@ -60,6 +60,11 @@ final class PluginRegistryIndex {
         return encode(entries.values());
     }
 
+    /** 读取 legacy 同语义快照并以当前严格排序/UTF-8 编码规范化。 */
+    static byte[] canonicalize(Path source) throws IOException {
+        return encode(read(source));
+    }
+
     static byte[] removing(List<Entry> current, PluginId pluginId) throws IOException {
         Map<String, Entry> entries = map(current);
         if (entries.remove(pluginId.value()) == null) throw new IOException("registry entry missing");

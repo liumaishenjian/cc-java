@@ -17,6 +17,7 @@ public record EnforcementReport(
         Map<EnforcementDimension, CapabilityStatus> dimensions,
         boolean fallback,
         String reasonCode) {
+    /** 校验五维状态与后端 identity 后冻结报告。 */
     public EnforcementReport {
         backend = Objects.requireNonNull(backend);
         dimensions = Map.copyOf(Objects.requireNonNull(dimensions));

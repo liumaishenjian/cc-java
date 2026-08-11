@@ -38,6 +38,16 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <groupId>io.github.liumaishenjian</groupId>
+            <artifactId>cc-java-protocol</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.github.liumaishenjian</groupId>
+            <artifactId>cc-java-sdk</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>tools.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
@@ -52,4 +62,16 @@
             <scope>runtime</scope>
         </dependency>
     </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <archive><manifest><mainClass>io.github.liumaishenjian.ccjava.cli.CcJavaCliMain</mainClass></manifest></archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

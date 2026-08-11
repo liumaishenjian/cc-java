@@ -13,9 +13,18 @@ import java.util.Optional;
  */
 @FunctionalInterface
 public interface SkillRecoveryIdentityCatalog {
-    /** @return 当前 Skill 的冻结身份；不可验证时为空 */
+    /**
+     * 查询当前 Session 中 Skill 的冻结恢复身份。
+     *
+     * @param skillId 规范 Skill identity
+     * @return 冻结身份；不可验证时为空
+     */
     Optional<SkillRecoveryIdentity> find(SkillId skillId);
 
-    /** @return 不发布任何可恢复身份的空实现 */
+    /**
+     * 创建不发布任何恢复身份的安全默认实现。
+     *
+     * @return 空 catalog
+     */
     static SkillRecoveryIdentityCatalog none() { return ignored -> Optional.empty(); }
 }

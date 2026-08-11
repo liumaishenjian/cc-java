@@ -40,7 +40,13 @@ public final class WslBwrapExecutionBackend extends AbstractProcessExecutionBack
     private final String distribution;
     private final WindowsWslPathMapper mapper;
 
-    /** 创建绑定固定 WSL distribution 与 Workspace 的后端。 */
+    /**
+     * 创建绑定固定 WSL distribution 与 Workspace 的后端。
+     *
+     * @param workspace Windows fixed-drive Workspace
+     * @param wsl 固定 WSL executable 路径
+     * @param distribution 已通过 probe 的 WSL distribution
+     */
     public WslBwrapExecutionBackend(Path workspace, Path wsl, String distribution) {
         this.workspace = Objects.requireNonNull(workspace, "workspace 不能为空");
         this.wsl = Objects.requireNonNull(wsl, "wsl 不能为空");

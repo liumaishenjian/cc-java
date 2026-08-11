@@ -37,10 +37,19 @@ import java.util.Set;
  * @since 0.11.0
  */
 public final class PluginSkillScanner {
+    /** 创建使用固定 Skill/Resource 上限的 Plugin Skill scanner。 */
+    public PluginSkillScanner() { }
+
     private static final Set<String> FIELDS = Set.of(
             "name", "description", "invocation", "allowed-tools", "resources", "hooks");
 
-    /** 扫描 Plugin manifest 中 SKILLS 组件。任一 identity 失败使整个 composition fail closed。 */
+    /**
+     * 扫描 Plugin manifest 中 SKILLS 组件；任一 identity 失败使整个 composition fail closed。
+     *
+     * @param storeRoot 固定 Plugin store root
+     * @param snapshots 已通过 Registry trust Gate 的 snapshots
+     * @return 绑定 immutable 正文、资源与恢复摘要的 Skill 集合
+     */
     public PluginSkillSet scan(Path storeRoot, List<PluginSnapshot> snapshots) {
         Objects.requireNonNull(storeRoot, "storeRoot 不能为空");
         List<PluginSkillSet.Entry> entries = new ArrayList<>();

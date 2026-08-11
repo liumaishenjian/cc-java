@@ -17,6 +17,7 @@ public record PlatformCapabilitySnapshot(
         Map<EnforcementDimension, CapabilityStatus> dimensions,
         String hostIdentity,
         String reasonCode) {
+    /** 校验五个强制维度与探测身份、原因码均完整。 */
     public PlatformCapabilitySnapshot {
         backend = Objects.requireNonNull(backend);
         dimensions = Map.copyOf(Objects.requireNonNull(dimensions));

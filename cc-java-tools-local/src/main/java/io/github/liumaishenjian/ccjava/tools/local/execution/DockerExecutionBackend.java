@@ -38,7 +38,13 @@ public final class DockerExecutionBackend extends AbstractProcessExecutionBacken
     private final Path docker;
     private final String image;
 
-    /** 创建绑定固定 Docker executable、Workspace 与 image digest 的后端。 */
+    /**
+     * 创建绑定固定 Docker executable、Workspace 与 image digest 的后端。
+     *
+     * @param workspace 唯一允许 bind 的宿主 Workspace
+     * @param docker 已验证绝对 Docker CLI 路径
+     * @param pinnedImageDigest 含 sha256 digest 的固定 image identity
+     */
     public DockerExecutionBackend(Path workspace, Path docker, String pinnedImageDigest) {
         this.workspace = Objects.requireNonNull(workspace, "workspace 不能为空");
         this.docker = Objects.requireNonNull(docker, "docker 不能为空");

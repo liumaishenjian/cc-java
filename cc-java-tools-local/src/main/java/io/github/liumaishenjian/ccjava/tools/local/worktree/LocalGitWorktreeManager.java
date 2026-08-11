@@ -26,6 +26,11 @@ public final class LocalGitWorktreeManager implements WorktreeManager {
     private final Map<WorktreeLeaseId, Path> paths=new java.util.concurrent.ConcurrentHashMap<>();
     private final Set<WorktreeLeaseId> active=java.util.concurrent.ConcurrentHashMap.newKeySet();
 
+    /**
+     * 为 canonical Git 仓库创建项目私有 Worktree 管理器。
+     *
+     * @param repository 必须等于 Git 报告的仓库顶层真实路径
+     */
     public LocalGitWorktreeManager(Path repository) {
         try {
             this.repository=Objects.requireNonNull(repository).toRealPath();

@@ -39,6 +39,14 @@ public final class ParallelToolBatchExecutor implements AutoCloseable {
     private final Set<String> allowlist;
     private final ExecutorService executor;
 
+    /**
+     * 创建只并发执行宿主 allowlist 中只读 Tool 的有界执行器。
+     *
+     * @param registry 用于确认 Tool effect 的唯一 Registry
+     * @param pipeline 每个调用必须经过的统一执行管线
+     * @param allowlist 宿主明确允许并发的 Tool 名称
+     * @param maximumParallelism 最大并发度，范围 1 到 4
+     */
     public ParallelToolBatchExecutor(ToolRegistry registry, ToolExecutionPipeline pipeline,
             Set<String> allowlist, int maximumParallelism) {
         this.registry = Objects.requireNonNull(registry, "registry 不能为空");
@@ -54,6 +62,11 @@ public final class ParallelToolBatchExecutor implements AutoCloseable {
     /**
      * 执行批次；{@code ordinals} 必须与 {@code calls} 一一对应。
      *
+     * @param session Tool 执行所属 Session
+     * @param runId Tool 执行所属 Run
+     * @param ordinals 每个调用在 Run 中的原始序号
+     * @param calls 同一 Assistant Message 提出的调用
+     * @param cancellation 批次共享取消令牌
      * @return 与模型原始调用顺序一致的 Tool Result
      */
     public List<ToolResult> executeSafeBatch(AgentSession session, RunId runId,

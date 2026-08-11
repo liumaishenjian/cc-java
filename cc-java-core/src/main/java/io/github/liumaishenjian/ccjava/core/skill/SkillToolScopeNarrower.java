@@ -12,6 +12,9 @@ import java.util.Set;
  * @since 0.11.0
  */
 public final class SkillToolScopeNarrower {
+    /** 创建无状态的 Tool visibility 交集器。 */
+    public SkillToolScopeNarrower() { }
+
     /**
      * 计算稳定顺序的两集合交集。
      *

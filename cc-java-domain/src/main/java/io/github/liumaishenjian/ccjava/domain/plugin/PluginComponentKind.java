@@ -9,6 +9,10 @@ public enum PluginComponentKind {
 
     private final String namespaceSegment;
     PluginComponentKind(String namespaceSegment) { this.namespaceSegment = namespaceSegment; }
-    /** @return 全局 namespace 使用的稳定 kind 片段 */
+    /**
+     * 返回全局 namespace 使用的稳定 kind 片段。
+     *
+     * @return 小写且版本稳定的组件类别片段
+     */
     public String namespaceSegment() { return namespaceSegment; }
 }

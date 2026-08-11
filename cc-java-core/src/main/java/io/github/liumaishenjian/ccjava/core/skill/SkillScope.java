@@ -23,8 +23,19 @@ public final class SkillScope implements AutoCloseable {
     private SkillId preparing;
     private boolean closed;
 
+    /**
+     * 创建绑定单个 Run 的空激活 Scope。
+     *
+     * @param runId Scope 所属 Run
+     */
     public SkillScope(RunId runId) { this.runId = Objects.requireNonNull(runId, "runId 不能为空"); }
 
+    /**
+     * 开始准备一个尚未激活的 Skill，并设置嵌套调用 guard。
+     *
+     * @param id 待激活 Skill ID
+     * @return 允许准备时为空，否则为固定拒绝码
+     */
     public synchronized SkillErrorCode begin(SkillId id) {
         if (closed) return SkillErrorCode.CANCELLED;
         if (preparing != null) return SkillErrorCode.NESTED_INVOCATION;
@@ -33,15 +44,29 @@ public final class SkillScope implements AutoCloseable {
         return null;
     }
 
+    /**
+     * 提交已经通过内容、资源和 Hook Gate 的 Skill。
+     *
+     * @param id 当前 preparing Skill ID
+     */
     public synchronized void commit(SkillId id) {
         if (!Objects.equals(preparing, id) || closed) throw new IllegalStateException("Skill 未处于准备状态");
         active.add(id);
         preparing = null;
     }
 
+    /**
+     * 放弃当前 Skill 准备，不改变已激活顺序。
+     *
+     * @param id 当前 preparing Skill ID
+     */
     public synchronized void abort(SkillId id) { if (Objects.equals(preparing, id)) preparing = null; }
 
-    /** 回滚刚提交但 durable activation 未完成的最后一个 Skill。 */
+    /**
+     * 回滚刚提交但 durable activation 未完成的最后一个 Skill。
+     *
+     * @param id 必须是最后提交的 Skill ID
+     */
     public synchronized void rollbackLast(SkillId id) {
         List<SkillId> ordered = new ArrayList<>(active);
         if (ordered.isEmpty() || !ordered.getLast().equals(id)) {
@@ -50,7 +75,18 @@ public final class SkillScope implements AutoCloseable {
         active.remove(id);
     }
 
+    /**
+     * 返回已激活 Skill 的稳定提交顺序。
+     *
+     * @return 不可变 Skill ID 列表
+     */
     public synchronized List<SkillId> activatedInOrder() { return List.copyOf(new ArrayList<>(active)); }
+    /**
+     * 返回 Scope 所属 Run identity。
+     *
+     * @return Run identity
+     */
     public RunId runId() { return runId; }
+    /** 清除准备 guard 与激活投影，后续调用均视为取消。 */
     @Override public synchronized void close() { closed = true; preparing = null; active.clear(); }
 }

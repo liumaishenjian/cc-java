@@ -12,7 +12,11 @@ import io.github.liumaishenjian.ccjava.domain.plugin.PluginSnapshot;
  */
 public interface PluginLease extends AutoCloseable {
 
-    /** @return 此 lease 固定的不可变 snapshot */
+    /**
+     * 返回此 lease 固定的不可变 snapshot。
+     *
+     * @return 签发时的精确 Plugin generation
+     */
     PluginSnapshot snapshot();
 
     /** 幂等释放引用。 */

@@ -11,6 +11,7 @@ import java.util.Objects;
  * @since 0.13.0
  */
 public record NetworkPolicy(boolean denyAll, List<String> allowedEndpoints) {
+    /** 冻结允许端点，防止执行期间由调用方扩大网络范围。 */
     public NetworkPolicy {
         allowedEndpoints = List.copyOf(Objects.requireNonNull(allowedEndpoints));
     }

@@ -11,7 +11,7 @@
 > `CLI-13`/`CTX-19` 补充切片已在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6；S09 已完成
 > Settings/Trust、Command/loopback HTTP、Compact、Context Projection 与生产装配并 Accepted；S10 MCP
 > Tool 主链已完成两个 Transport、多 Server、统一 Permission、Trust 与恢复并通过真实 E2E，Accepted；
-> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6；`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6；冻结的 L2/L1 目标与 Stage Exit Accepted。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted：ExecutionBackend/五维 policy、WSL2+bwrap Linux A、Docker B、Windows process/env B（file/network U）、攻击验证、Command Hook/MCP stdio managed seam 与 root/child execution composition 均已固定。`PERM-05/CFG-07` 保持 L0、`HOOK-10` 保持 L1、`SEC-11` 保持 L0；S14 为 NOT_STARTED。
+> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6；`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6；冻结的 L2/L1 目标与 Stage Exit Accepted。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted：ExecutionBackend/五维 policy、WSL2+bwrap Linux A、Docker B、Windows process/env B（file/network U）、攻击验证、Command Hook/MCP stdio managed seam 与 root/child execution composition 均已固定。`PERM-05` 保持 L0，`CFG-07/HOOK-10` 保持 L1，`SEC-11` 保持 L0；S14 working-tree candidate 仍为 IN_PROGRESS、Stage Exit OPEN。G6 与 Stage Exit 必须等待 implementation commit 后的 commit-scoped 验收；外部条件不足项不计 L3。
 >
 > 当前实现状态：ADR-042/043/044 已固定并验证 Context Projection、条件式 Reduction、文件记忆和零等待
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
@@ -1212,6 +1212,16 @@ Domain/Core 持有框架无关的 `ExecutionBackend`、request/outcome/failure�
 
 三个 Batch 已完成：A Contracts/Local refactor/truthful probe；B WSL2 Ubuntu+bwrap Linux A、path identity 与显式 `LINUX_SH`；C Docker daemon+pinned image B、attack matrix、native Windows/macOS 诚实分级与 G4-G6。证据使用 A（真实攻击矩阵）/B（真实 smoke/部分矩阵）/C（编译契约）/U（未验证）；实际结论为 Linux A、Container B、native Windows process/env B（file/network U）、macOS C/U。WSL2 Linux A 不得写成 native Windows A；Fake 不得冒充隔离。标准 clean verify 为 851 tests/29 skips，TUI 133/133、launcher 59 assertions，真实 selector 5/5 + attack 8/8 共 13/13。首次真实测试在 Docker daemon 未运行时有 5 个 Docker 用例失败；启动 Docker Desktop、确认 daemon 26.1.4 后完整通过，测试后 `cc-java.s13=true` residue 为 0。未新增非测试依赖。
 
+### 18.8 S14 Production Harness（WORKTREE CANDIDATE）
+
+S14 在架构边缘新增三个有实际用途的模块：`cc-java-protocol` 持有项目自有 stable v1 codec/connection state，`cc-java-sdk` 持有可嵌入 Application Service façade，`cc-java-observability-otel` 持有 direct OpenTelemetry SDK Adapter。Daemon 属于 CLI composition；working-tree candidate 已提供真实 `--daemon` 独立 OS process 入口和 loopback-only stable v1 transport，但尚未经过 implementation commit 后的 commit-scoped Stage Exit 验收。Domain/Core 只新增 Provider capability/router、NetworkAccess、typed telemetry/eval、SessionIndex/Retention、Managed governance 与 signature verification Port；不依赖 JSON、OTel、Spring、Path 或 HTTP SDK。
+
+控制链保持：Surface/SDK/Daemon → 同一 `AgentApplicationService` → 唯一 `AgentRuntime` → 唯一 `ToolExecutionPipeline`。Provider Fallback 只允许在无 visible delta 且无 durable Assistant/Tool intent 前；OTel queue/exporter 故障不改变 Run；`--stdio-v1` 与 `--daemon` 均使用 initialize-once、256-bit token、negotiation、correlation、sequence、semantic idempotency fingerprint、response identity、唯一 terminal 和 drain 的 stable handler。Session canonical JSONL 仍是事实源，Export/Index/Migration 只是稳定交换或可重建 projection。
+
+Managed Policy 仅来自本机管理员 fixed root 的可信 current/LKG，只能收窄，并已接入 Headless 启动、doctor、SDK/v1 Governance 与 negotiated capability。Plugin transaction journal 在真实 install/uninstall phase durable append，writer fence recovery 对账 staging/orphan/backup/tombstone/registry migration；signature envelope/Port 不冒充 publisher identity。Session lifecycle 通过 SDK/v1 control 提供 Export/Retention/Migration/Index，永久删除同时检查声明状态和实际 writer lock；10k benchmark 达 SLA 后接受普通文件 projection、不引 SQLite。发行 candidate 生成 app-dir、Windows/Linux launcher、manifest/checksum/SBOM 与 rollback。SBOM component 必须来自每个 JAR 内唯一 Maven `pom.properties`，或在 JAR 未携带该文件时来自 Maven resolver 的确定性 artifact 坐标并以 JAR digest 绑定；缺失/歧义 Fail Closed，不解析文件名猜坐标。License 未决不公开发布。
+
+P0 corrective slice 经集中生产审查后将 Eval 固定为 12 个注册 seed×5 的 60 个真实 production-harness 场景：direct final、built-in Tool 多回合、Call/Result ID、permission/tool failure 恢复、cancel、turn limit、context preparation、canonical Session create/continue/resume、SDK Tool loop 与 stable initialize/run/event/唯一 terminal/idempotency；Measurement 只能从 AgentRunResult、模型实际收到的 ToolResult、事件或 stable envelope 聚合。真实 OpenAI 与 Anthropic protocol mock 由独立 suite 计数，不复制为 route，也不声明未测 cache/usage/cost/非劣。Session control 从 canonical 读取并脱敏，Retention 使用实际 writer/migration/recovery fence；Plugin global writer 覆盖 recovery/install/uninstall/registry migration，create-only publish 与 phase/digest restart recovery 已验证。P1 又使 production ProviderRouter 消费 typed Retry-After 与 fresh shared budget，OTel 从 RunTelemetry 投影真实 run/turn/tool duration 与 usage-known（无权威 retry/recovery/cost-known 时不导出），stable v1 强制 negotiated feature 并使用版本化 event/terminal payload；Managed 仅从机器级 root 加载并在 Headless 强制 sandbox/network deny。S14 保持 IN_PROGRESS/OPEN，不得据此声称 Accepted 或 L3。
+
 ## 19. CLI、内部协议与终端
 
 ### 19.1 Java Headless
@@ -1741,6 +1751,8 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | [ADR-062](./adr/ADR-062-s12-subagent-runtime-worktree-contract.md) | Accepted | S12 独立 Scope/Supervisor/预算/Hook/TOOL-15/Worktree 契约、Batch A-C 与 Eval 门槛；实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 已完成 G0-G6 与 Stage Exit |
 | [ADR-063](./adr/ADR-063-s13-dual-source-sandbox-security-study.md) | Accepted | S13 双源冻结 Sandbox 平台、策略、fallback、统一入口的采纳/偏离/Unknown |
 | [ADR-064](./adr/ADR-064-s13-execution-backend-security-contract.md) | Accepted | S13 ExecutionBackend、capability probe、五类 policy、三 Batch 与跨平台攻击证据门槛；实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 已完成 G0-G6 与 Stage Exit |
+| [ADR-065](./adr/ADR-065-s14-dual-source-production-harness-study.md) | Accepted | S14 双源机制研究、等级纪律、三 Batch、L3 真实门槛与延期边界 |
+| [ADR-066](./adr/ADR-066-s14-production-harness-contract.md) | Accepted | Provider/OTel、stable v1/SDK/Daemon/Session、Governance/Plugin/Distribution 独立契约 |
 
 ## 26. 需求追踪
 
@@ -1783,7 +1795,7 @@ Accepted。S02 的真实 Provider、Java Runtime/stdio、React/Ink、连续 Sess
 取消边界和隐私安全 Telemetry 已在实现 Commit `700251e` 上通过 G0-G6，
 Stage Exit 为 Accepted。S03-S13 也已按各自 Evidence 完成 Commit-scoped Stage Exit；S12 固定
 实现 Commit 为 `cfbe0282b37a93e38256c3d2d6f22ed2207975a5`，S13 固定实现 Commit 为
-`8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3`。S13 的真实证据为 Linux A、Container B、native Windows process/env B（file/network U）与 macOS C/U；S14 为 NOT_STARTED。
+`8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3`。S13 的真实证据为 Linux A、Container B、native Windows process/env B（file/network U）与 macOS C/U；S14 working-tree candidate 仍为 IN_PROGRESS、Stage Exit OPEN，P0 corrective slice 不构成 G0-G6 或 commit-scoped 验收。
 
 ### 27.2 分 Stage 实现
 
@@ -1800,7 +1812,7 @@ Stage Exit 为 Accepted。S03-S13 也已按各自 Evidence 完成 Commit-scoped 
 11. **S11 Skills + Plugins**：实现 Skill metadata/markdown/lazy load、显式与模型调用、资源、Scoped Hook、Plugin Manifest、命名空间和 Tool Provider SPI。
 12. **S12 Sub-Agent + Worktree**：按 RuntimeScope、单 Subagent、有界并发/后台、Worktree 四个检查点复用 `AgentRuntime`，验证独立 Context/Tool/Permission/Budget、父子取消和摘要。
 13. **S13 Sandbox + Security**：实现可插拔 `ExecutionBackend`、文件/进程/网络策略、秘密处理、攻击性 Fixture 和安全回归。
-14. **S14 Production Harness**：补第二个 Provider Adapter，并对照 Cache Hint/原生 Context Editing 与 S07 通用路径；按 Eval/Observability、SDK/Headless、Distribution/Compatibility 三个检查点产品化已有专项 Eval，实现 OTel、稳定 JSON/JSONL、Java SDK、Headless/Daemon、多模型恢复、跨平台发行和兼容策略。
+14. **S14 Production Harness**：ADR-065/066 工作树候选已实现 Provider capability/router/Anthropic Factory/typed Eval/direct OTel，项目自有 stable v1 codec/state、Java SDK contract、独立 loopback HTTP application prototype、Export/Retention/Migration/SessionIndex，以及 Managed/LKG、Plugin recovery/signature port、app-dir/launcher/manifest/checksum/SBOM/rollback。Domain/Core 不含 JSON/OTel/Spring/Path，唯一 Runtime/Pipeline 不变；真实 Anthropic、双 Provider重复、Win+Linux和N/N-1发布 artifact缺失时严格保持较低等级。
 15. **S15 Independent Innovation**：只在矩阵前置条件满足且已有可重复 Eval 基线后，选择 Java/Spring 差异化能力并用数据验证。
 
 ### 27.3 每个 Stage 的完成动作

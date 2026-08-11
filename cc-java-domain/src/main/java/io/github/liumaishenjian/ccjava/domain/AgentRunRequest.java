@@ -15,7 +15,12 @@ import java.util.Optional;
 public record AgentRunRequest(UserMessage userMessage, AgentLimits limits,
                               Optional<ExplicitSkillInvocation> explicitSkill) {
 
-    /** 使用无显式 Skill 的兼容构造器。 */
+    /**
+     * 使用无显式 Skill 的兼容构造器。
+     *
+     * @param userMessage 本次 Run 新增的用户消息
+     * @param limits 本次 Run 的确定性预算
+     */
     public AgentRunRequest(UserMessage userMessage, AgentLimits limits) {
         this(userMessage, limits, Optional.empty());
     }

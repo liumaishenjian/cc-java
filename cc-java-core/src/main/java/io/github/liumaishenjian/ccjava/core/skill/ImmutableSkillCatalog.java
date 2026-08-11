@@ -15,6 +15,8 @@ public final class ImmutableSkillCatalog implements SkillCatalog {
     private final SkillCatalogSnapshot snapshot;
 
     /**
+     * 固定一个已发布快照，后续磁盘扫描不会改变该目录视图。
+     *
      * @param snapshot 已完成冲突隔离和稳定排序的快照
      */
     public ImmutableSkillCatalog(SkillCatalogSnapshot snapshot) {

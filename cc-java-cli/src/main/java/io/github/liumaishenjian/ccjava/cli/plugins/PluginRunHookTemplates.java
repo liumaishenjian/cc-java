@@ -49,7 +49,12 @@ public final class PluginRunHookTemplates implements PluginRunHooks {
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
     private final List<Template> templates;
 
-    /** 加载 snapshots 中 manifest 明确声明的 Hook 文件；任一无效 template 使 composition fail closed。 */
+    /**
+     * 加载 snapshots 中 manifest 明确声明的 Hook 文件；任一无效 template 使 composition fail closed。
+     *
+     * @param storeRoot 固定 Plugin store root
+     * @param snapshots 已通过 Registry trust Gate 的 immutable snapshots
+     */
     public PluginRunHookTemplates(Path storeRoot, List<PluginSnapshot> snapshots) {
         Objects.requireNonNull(storeRoot, "storeRoot 不能为空");
         List<Template> loaded = new ArrayList<>();
@@ -77,6 +82,9 @@ public final class PluginRunHookTemplates implements PluginRunHooks {
      * <p>引用是同一 Plugin manifest 中 HOOKS component 的名称，不能跨 Plugin 指向或按任意
      * binding ID 猜测。非 Plugin Skill 声明 Hook 时因当前 Session 没有对应可信模板 catalog 而
      * Fail Closed。</p>
+     *
+     * @param coordinator 接收动态 Run-scoped binding 的 Hook 协调器
+     * @return 仅绑定同一 Plugin 内可信模板的 Skill Hook binder
      */
     public SkillHookBinder skillBinder(HookCoordinator coordinator) {
         Objects.requireNonNull(coordinator, "coordinator 不能为空");

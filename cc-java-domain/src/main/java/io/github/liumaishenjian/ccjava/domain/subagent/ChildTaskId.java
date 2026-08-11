@@ -7,6 +7,7 @@ package io.github.liumaishenjian.ccjava.domain.subagent;
  * @since 0.12.0
  */
 public record ChildTaskId(String value) {
+    /** 校验并冻结进程内任务 identity。 */
     public ChildTaskId {
         if (value == null || !value.matches("task-[a-zA-Z0-9_-]{1,96}")) {
             throw new IllegalArgumentException("Child task ID 格式无效");

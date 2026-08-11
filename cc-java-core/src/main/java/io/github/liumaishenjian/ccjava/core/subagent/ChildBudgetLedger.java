@@ -22,6 +22,11 @@ public final class ChildBudgetLedger {
     private long output;
     private long millis;
 
+    /**
+     * 创建绑定父级总预算的 ledger。
+     *
+     * @param total 所有子任务共享的总 ceiling
+     */
     public ChildBudgetLedger(ChildBudget total) {
         capacity = Objects.requireNonNull(total, "total 不能为空");
         turns = total.modelTurns();
@@ -53,13 +58,21 @@ public final class ChildBudgetLedger {
         return java.util.Optional.of(new Reservation(this, requested));
     }
 
-    /** 返回当前可分配预算快照，供测试和父级 remaining 绑定。 */
+    /**
+     * 返回当前可分配预算快照，供测试和父级 remaining 绑定。
+     *
+     * @return 原子读取的剩余预算
+     */
     public synchronized ChildBudget remaining() {
         return new ChildBudget(Math.toIntExact(turns), Math.toIntExact(tools), tokens,
                 Math.toIntExact(output), Duration.ofMillis(millis));
     }
 
-    /** 返回初始容量；该值不可随 reservation 改变。 */
+    /**
+     * 返回初始容量；该值不可随 reservation 改变。
+     *
+     * @return 构造时冻结的总 ceiling
+     */
     public ChildBudget capacity() {
         return capacity;
     }
@@ -89,6 +102,11 @@ public final class ChildBudgetLedger {
             this.reserved = reserved;
         }
 
+        /**
+         * 查询本 reservation 的 ceiling。
+         *
+         * @return 不可变预算上界
+         */
         public ChildBudget budget() {
             return reserved;
         }

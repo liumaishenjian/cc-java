@@ -21,6 +21,9 @@ import java.util.concurrent.TimeUnit;
  * @since 0.13.0
  */
 public final class ManagedProcessLauncher {
+    /** 创建无状态的可信 fixed-argv 进程启动器。 */
+    public ManagedProcessLauncher() { }
+
     /**
      * 启动已经由可信 Settings 或 Trust Gate 固定的进程。
      *
@@ -62,12 +65,20 @@ public final class ManagedProcessLauncher {
         return builder;
     }
 
-    /** fixed-argv 启动计划。 */
+    /**
+     * 不经 Shell 二次解释的 fixed-argv 启动计划。
+     *
+     * @param executable 已验证的绝对可执行文件
+     * @param arguments 原样传入 ProcessBuilder 的参数
+     * @param workspace 固定工作目录
+     * @param environment 从空集合构造的最小环境
+     */
     public record LaunchRequest(
             Path executable,
             List<String> arguments,
             Path workspace,
             Map<String, String> environment) {
+        /** 冻结 argv/环境并拒绝相对 executable、NUL 与超量参数。 */
         public LaunchRequest {
             executable = Objects.requireNonNull(executable, "executable 不能为空");
             if (!executable.isAbsolute()) {
@@ -96,30 +107,65 @@ public final class ManagedProcessLauncher {
             this.process = process;
         }
 
+        /**
+         * 返回子进程标准输入。
+         *
+         * @return 可向子进程写入的标准输入流
+         */
         public OutputStream stdin() {
             return process.getOutputStream();
         }
 
+        /**
+         * 返回子进程标准输出。
+         *
+         * @return 可读取子进程输出的流
+         */
         public InputStream stdout() {
             return process.getInputStream();
         }
 
+        /**
+         * 返回子进程标准错误。
+         *
+         * @return 可读取子进程错误输出的流
+         */
         public InputStream stderr() {
             return process.getErrorStream();
         }
 
+        /**
+         * 有界等待子进程退出。
+         *
+         * @param timeout 最大等待时长
+         * @param unit 等待时长单位
+         * @return 在期限内退出时为 {@code true}
+         * @throws InterruptedException 当前线程被中断时
+         */
         public boolean waitFor(long timeout, TimeUnit unit) throws InterruptedException {
             return process.waitFor(timeout, unit);
         }
 
+        /**
+         * 返回已退出进程的退出码。
+         *
+         * @return 子进程退出码
+         * @throws IllegalThreadStateException 进程仍在运行时
+         */
         public int exitCode() {
             return process.exitValue();
         }
 
+        /**
+         * 检查子进程是否仍存活。
+         *
+         * @return 子进程尚未终止时为 {@code true}
+         */
         public boolean isAlive() {
             return process.isAlive();
         }
 
+        /** 终止受管进程及其完整后代树。 */
         public void destroyTree() {
             TERMINATOR.terminate(process);
         }

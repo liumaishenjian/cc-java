@@ -156,6 +156,76 @@ final class DefaultCliModeRunner implements CliModeRunner {
     }
 
     @Override
+    public int runStableStdio(CliOverrides overrides) {
+        Objects.requireNonNull(overrides, "overrides 不能为空");
+        try {
+            PreparedRun prepared = prepare(overrides);
+            io.github.liumaishenjian.ccjava.protocol.CapabilityToken token =
+                    io.github.liumaishenjian.ccjava.protocol.CapabilityToken.generate();
+            errorOutput.println("cc-java: stable v1 capability token=" + token.reveal());
+            errorOutput.flush();
+            try (var handler = io.github.liumaishenjian.ccjava.cli.runtime.ProductionHarnessFactory
+                    .openStableHandler(
+                            prepared.settings(), runtimeOptions(prepared, overrides), token,
+                            io.github.liumaishenjian.ccjava.cli.runtime.ProductionHarnessFactory.stableFeatures())) {
+                var reason = new io.github.liumaishenjian.ccjava.cli.daemon.StableProtocolStdioServer(
+                        input, output, handler).run();
+                return reason == io.github.liumaishenjian.ccjava.cli.daemon.StableProtocolStdioServer.ExitReason.IO_ERROR
+                        ? CliExitCode.RUNTIME_FAILURE : CliExitCode.SUCCESS;
+            }
+        } catch (ProviderConfigurationException | WorkspaceConfigurationException failure) {
+            errorOutput.println("cc-java: stable v1 configuration invalid");
+            return CliExitCode.USAGE_OR_CONFIGURATION;
+        } catch (RuntimeException failure) {
+            errorOutput.println("cc-java: stable v1 runtime failed");
+            return CliExitCode.RUNTIME_FAILURE;
+        }
+    }
+
+    @Override
+    public int runDaemon(CliOverrides overrides) {
+        Objects.requireNonNull(overrides, "overrides 不能为空");
+        try {
+            PreparedRun prepared = prepare(overrides);
+            Path root = SessionStorage.defaultRoot().resolve("daemon");
+            try (var ownership = io.github.liumaishenjian.ccjava.cli.daemon.DaemonOwnership.acquire(root);
+                    var handler = io.github.liumaishenjian.ccjava.cli.runtime.ProductionHarnessFactory
+                            .openStableHandler(prepared.settings(), runtimeOptions(prepared, overrides),
+                                    ownership.token(), io.github.liumaishenjian.ccjava.cli.runtime
+                                            .ProductionHarnessFactory.stableFeatures());
+                    var daemon = new io.github.liumaishenjian.ccjava.cli.daemon.StableLoopbackDaemon(
+                            0, ownership.token(), handler)) {
+                daemon.start();
+                errorOutput.println("cc-java: stable daemon port=" + daemon.port());
+                errorOutput.println("cc-java: stable daemon token=" + ownership.token().reveal());
+                errorOutput.flush();
+                Thread hook = Thread.ofPlatform().name("cc-java-daemon-stop").unstarted(daemon::close);
+                Runtime.getRuntime().addShutdownHook(hook);
+                try {
+                    daemon.awaitClosed();
+                } finally {
+                    removeShutdownHook(hook);
+                }
+                return CliExitCode.SUCCESS;
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return CliExitCode.USER_CANCELLED;
+        } catch (Exception failure) {
+            errorOutput.println("cc-java: stable daemon failed");
+            return CliExitCode.RUNTIME_FAILURE;
+        }
+    }
+
+    private HeadlessRuntimeOptions runtimeOptions(PreparedRun prepared, CliOverrides overrides) {
+        return new HeadlessRuntimeOptions(
+                prepared.workspace(), prepared.settings().model(), overrides.timeout(),
+                overrides.permissionMode(), java.util.List.of(), overrides.sessionOpenRequest(),
+                SessionStorage.defaultRoot(), overrides.contextPreparation(), overrides.diagnosticMode(),
+                overrides.diagnosticDirectory(), overrides.executionBackend(), overrides.executionShell());
+    }
+
+    @Override
     public int runExtensions(boolean approve, CliOverrides overrides) {
         Objects.requireNonNull(overrides, "overrides 不能为空");
         try {

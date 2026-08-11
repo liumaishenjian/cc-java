@@ -15,6 +15,7 @@ public record PluginToolProviderDescriptor(
         PluginSnapshot snapshot,
         PluginComponentDescriptor component) {
 
+    /** 校验 provider 属于固定 manifest 且类型为宿主支持的 mcp-backed。 */
     public PluginToolProviderDescriptor {
         snapshot = Objects.requireNonNull(snapshot, "snapshot 不能为空");
         component = Objects.requireNonNull(component, "component 不能为空");

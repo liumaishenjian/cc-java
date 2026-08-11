@@ -62,7 +62,11 @@ public final class ExtensionRuntime implements AutoCloseable {
      * @return MCP Tool 快照
      */
     public List<AgentTool> mcpTools() { return mcpTools; }
-    /** @return 已通过来源 trust Gate 的固定 MCP configs，供宿主 Plugin factory 精确 digest 匹配 */
+    /**
+     * 返回已通过来源 trust Gate 的固定 MCP 配置。
+     *
+     * @return 供宿主 Plugin factory 精确匹配摘要的 MCP 配置
+     */
     public List<io.github.liumaishenjian.ccjava.mcp.McpServerConfig> mcpConfigs() { return mcpConfigs; }
     /**
      * 返回不含外部正文的扩展加载状态。

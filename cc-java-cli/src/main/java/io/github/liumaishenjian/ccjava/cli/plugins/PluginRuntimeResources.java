@@ -45,7 +45,14 @@ public final class PluginRuntimeResources implements AutoCloseable {
     private final PluginRunHookTemplates hookTemplates;
     private final io.github.liumaishenjian.ccjava.cli.skills.PluginSkillSet skills;
 
-    /** 从用户私有固定 store 安全装载受信 snapshots 和 MCP-backed contributions。 */
+    /**
+     * 从用户私有固定 store 安全装载受信 snapshots 和 MCP-backed contributions。
+     *
+     * @param storeRoot 固定 Plugin store root
+     * @param servers 已通过宿主 trust Gate 的 MCP 配置
+     * @param clientFactory 创建每个 contribution 独占 Client 的工厂
+     * @return 全部验证成功的资源；任一边界失败时返回禁用快照
+     */
     public static PluginRuntimeResources load(Path storeRoot, List<McpServerConfig> servers,
             McpClientFactory clientFactory) {
         Objects.requireNonNull(storeRoot, "storeRoot 不能为空");
@@ -58,7 +65,27 @@ public final class PluginRuntimeResources implements AutoCloseable {
         }
     }
 
-    /** @return 不含 Plugin 的共享安全退化实现 */
+    /**
+     * 在 production Plugin global writer 内迁移调用方已经确认来源的 legacy registry。
+     *
+     * <p>调用方负责确认 {@code legacyRegistry} 是预期的只读旧格式来源；本入口只做严格解析、
+     * create-only 发布和 journal 恢复，既有 {@code registry.v1} 即使 digest 相同也不会覆盖。
+     * 失败返回固定状态且保留冲突现场，不抛出路径或正文。</p>
+     *
+     * @param storeRoot 固定 Plugin store root
+     * @param legacyRegistry 调用方确认身份的 legacy registry 普通文件
+     * @return 不暴露路径或正文的迁移终态
+     */
+    public static PluginRegistryMigrator.MigrationResult migrateLegacyRegistry(
+            Path storeRoot, Path legacyRegistry) {
+        return new PluginRegistryMigrator(storeRoot).migrate(legacyRegistry);
+    }
+
+    /**
+     * 返回不含 Plugin 的共享安全退化实现。
+     *
+     * @return 不贡献 Tool、Skill 或 Hook 的资源快照
+     */
     public static PluginRuntimeResources disabled() {
         return DISABLED;
     }
@@ -66,6 +93,8 @@ public final class PluginRuntimeResources implements AutoCloseable {
     private static PluginRuntimeResources loadChecked(Path root, List<McpServerConfig> servers,
             McpClientFactory clientFactory) throws IOException {
         if (!safeDirectory(root)) return disabled();
+        PluginTransactionRecovery.RecoveryResult recovery = new PluginTransactionRecovery(root).recover();
+        if (!recovery.clean()) throw new IOException("plugin recovery uncertain");
         Path index = root.resolve("registry.v1");
         Path trust = root.resolve("plugin-trust.v1");
         if (!safeFile(root, index) || !safeFile(root, trust)
@@ -124,25 +153,46 @@ public final class PluginRuntimeResources implements AutoCloseable {
         skills = io.github.liumaishenjian.ccjava.cli.skills.PluginSkillSet.empty();
     }
 
-    /** @return 必须与 builtin/MCP Tool 一起注册进唯一 Pipeline 的 Plugin Tools */
+    /**
+     * 返回必须与 builtin/MCP Tool 一起注册进唯一 Pipeline 的 Plugin Tool。
+     *
+     * @return 稳定注册顺序的不可变 Tool 列表
+     */
     public List<AgentTool> tools() { return tools; }
 
-    /** @return 与当前 immutable Plugin snapshots 绑定的 Skill metadata/content 集合 */
+    /**
+     * 返回与当前 immutable Plugin snapshots 绑定的 Skill metadata/content 集合。
+     *
+     * @return Session composition 可直接冻结的 Plugin Skill 集合
+     */
     public io.github.liumaishenjian.ccjava.cli.skills.PluginSkillSet skills() { return skills; }
 
-    /** @return 当前 Session contribution 持有的 snapshot lease 数，仅供安全 E2E/诊断 */
+    /**
+     * 返回当前 Session contribution 持有的 snapshot lease 数，仅供安全 E2E/诊断。
+     *
+     * @return 所有 active generation 的 contribution lease 总数
+     */
     public int contributionLeaseCount() {
         if (registry == null) return 0;
         return registry.activeSnapshot().snapshots().stream()
                 .mapToInt(snapshot -> registry.leaseCount(snapshot.manifest().id())).sum();
     }
 
-    /** @return 当前 Session immutable snapshots 的 Run lease 协调器 */
+    /**
+     * 返回当前 Session immutable snapshots 的 Run lease 协调器。
+     *
+     * @return 可在 Run 边界签发 generation lease 的协调器
+     */
     public PluginRunCoordinator runCoordinator() {
         return registry == null ? PluginRunCoordinator.disabled() : new PluginRunCoordinator(registry);
     }
 
-    /** @return activation 成功后仅按 Skill 引用绑定当前可信模板的端口 */
+    /**
+     * 返回 activation 成功后仅按 Skill 引用绑定当前可信模板的端口。
+     *
+     * @param coordinator 接收 Run-scoped binding 的 Hook 协调器
+     * @return Plugin 禁用时为空实现，否则为可信模板 binder
+     */
     public io.github.liumaishenjian.ccjava.core.skill.SkillHookBinder skillHookBinder(
             io.github.liumaishenjian.ccjava.core.hook.HookCoordinator coordinator) {
         Objects.requireNonNull(coordinator, "coordinator 不能为空");
@@ -151,7 +201,11 @@ public final class PluginRuntimeResources implements AutoCloseable {
                 : hookTemplates.skillBinder(coordinator);
     }
 
-    /** @return Plugin generation Run lease 端口；HOOKS components 本身不会在 Run start 自动启用 */
+    /**
+     * 返回 Plugin generation Run Hook 端口；HOOKS components 本身不会在 Run start 自动启用。
+     *
+     * @return Plugin 禁用时为空实现，否则为当前可信模板目录
+     */
     public io.github.liumaishenjian.ccjava.core.plugin.PluginRunHooks runHooks() {
         return hookTemplates == null
                 ? io.github.liumaishenjian.ccjava.core.plugin.PluginRunHooks.none() : hookTemplates;

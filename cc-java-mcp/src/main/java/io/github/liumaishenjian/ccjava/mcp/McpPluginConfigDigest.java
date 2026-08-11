@@ -21,7 +21,12 @@ import java.util.Objects;
 public final class McpPluginConfigDigest {
     private McpPluginConfigDigest() { }
 
-    /** @return 64 字符 lowercase SHA-256；输入顺序不影响结果 */
+    /**
+     * 计算与输入顺序无关的 MCP Plugin 配置摘要。
+     *
+     * @param configs manifest 实际引用的宿主 MCP 配置
+     * @return 64 字符 lowercase SHA-256
+     */
     public static String compute(List<McpServerConfig> configs) {
         try {
             List<McpServerConfig> ordered = List.copyOf(Objects.requireNonNull(configs, "configs 不能为空"))

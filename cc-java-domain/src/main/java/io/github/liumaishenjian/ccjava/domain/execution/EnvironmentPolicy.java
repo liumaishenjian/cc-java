@@ -10,6 +10,7 @@ import java.util.Objects;
  * @since 0.13.0
  */
 public record EnvironmentPolicy(Map<String, String> variables) {
+    /** 冻结环境 allowlist 与继承策略。 */
     public EnvironmentPolicy {
         variables = Map.copyOf(Objects.requireNonNull(variables));
     }

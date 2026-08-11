@@ -25,6 +25,7 @@ public record ExecutionPolicy(
         SecretPolicy secret,
         boolean requireIsolation,
         List<PolicyProvenance> provenance) {
+    /** 校验五维策略及其 provenance 后冻结有效 policy。 */
     public ExecutionPolicy {
         file = Objects.requireNonNull(file);
         process = Objects.requireNonNull(process);

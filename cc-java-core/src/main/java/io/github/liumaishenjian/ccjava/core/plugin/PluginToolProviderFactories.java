@@ -17,6 +17,11 @@ public final class PluginToolProviderFactories {
 
     private final Map<String, PluginToolProviderFactory> factories;
 
+    /**
+     * 冻结宿主预注册 factory，并拒绝非法或重复 provider type。
+     *
+     * @param factories 宿主代码提供的受控 factories
+     */
     public PluginToolProviderFactories(Collection<? extends PluginToolProviderFactory> factories) {
         Objects.requireNonNull(factories, "factories 不能为空");
         var registered = new LinkedHashMap<String, PluginToolProviderFactory>();
@@ -33,7 +38,12 @@ public final class PluginToolProviderFactories {
         this.factories = Map.copyOf(registered);
     }
 
-    /** @return 宿主未注册该类型时为空 */
+    /**
+     * 按 manifest provider type 查找宿主实现。
+     *
+     * @param providerType manifest 声明的稳定类型
+     * @return 宿主未注册该类型时为空
+     */
     public Optional<PluginToolProviderFactory> find(String providerType) {
         return Optional.ofNullable(factories.get(Objects.requireNonNull(providerType, "providerType 不能为空")));
     }

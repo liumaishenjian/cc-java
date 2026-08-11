@@ -18,6 +18,7 @@ import java.util.Set;
  */
 public record ChildTaskRequest(DelegationId delegationId, AgentDefinitionId definitionId, String prompt,
         Set<String> requestedTools, ChildBudget requestedBudget, boolean background, int depth, boolean worktree) {
+    /** 校验正文、Tool 收窄集、预算与宿主深度 provenance。 */
     public ChildTaskRequest {
         delegationId = Objects.requireNonNull(delegationId, "delegationId 不能为空");
         definitionId = Objects.requireNonNull(definitionId, "definitionId 不能为空");

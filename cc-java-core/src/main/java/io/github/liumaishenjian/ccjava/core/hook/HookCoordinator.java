@@ -177,7 +177,12 @@ public final class HookCoordinator {
         };
     }
 
-    /** @return 当前 Run 的 scoped Hook 数量，仅供安全生命周期测试与诊断 */
+    /**
+     * 返回当前 Run 的 scoped Hook 数量，仅供安全生命周期测试与诊断。
+     *
+     * @param runId 要检查的 Run identity
+     * @return 当前仍绑定到该 Run 的 Hook 数量
+     */
     public int runBindingCount(io.github.liumaishenjian.ccjava.domain.RunId runId) {
         ConcurrentMap<Long, List<HookBinding>> scoped = runBindings.get(
                 Objects.requireNonNull(runId, "runId 不能为空"));

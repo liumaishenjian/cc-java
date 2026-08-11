@@ -25,7 +25,12 @@ public final class WindowsWslPathMapper {
     private final Path wsl;
     private final String distribution;
 
-    /** 创建绑定可信 WSL executable 与 distribution 的映射器。 */
+    /**
+     * 创建绑定可信 WSL executable 与 distribution 的映射器。
+     *
+     * @param wsl 固定 WSL executable 路径
+     * @param distribution 固定 WSL distribution 名称
+     */
     public WindowsWslPathMapper(Path wsl, String distribution) {
         this.wsl = Objects.requireNonNull(wsl, "wsl 不能为空");
         this.distribution = Objects.requireNonNull(distribution, "distribution 不能为空");
@@ -107,6 +112,7 @@ public final class WindowsWslPathMapper {
      * @param linuxCanonical WSL canonical path
      */
     public record Mapping(Path windowsCanonical, String linuxCanonical) {
+        /** 校验 Windows 与 Linux canonical identity 均已提供。 */
         public Mapping {
             windowsCanonical = Objects.requireNonNull(windowsCanonical, "windowsCanonical 不能为空");
             linuxCanonical = Objects.requireNonNull(linuxCanonical, "linuxCanonical 不能为空");

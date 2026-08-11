@@ -396,6 +396,9 @@ public final class ContextPreparationService {
      *
      * <p>用于把 durable 子任务 Stop Hook 的 additional context 投影回父级；该内容不写入
      * Canonical transcript，且最多保留一个固定上限的 pending 值。</p>
+     *
+     * @param sessionId 接收下一回合投影的父 Session
+     * @param context durable Stop Hook 返回的有界不可信文本
      */
     public void recordExternalContext(io.github.liumaishenjian.ccjava.domain.SessionId sessionId, String context) {
         Objects.requireNonNull(sessionId, "sessionId 不能为空");

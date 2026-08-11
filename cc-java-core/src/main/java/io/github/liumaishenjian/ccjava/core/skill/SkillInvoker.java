@@ -24,6 +24,14 @@ public final class SkillInvoker {
     private final SkillResourceReader resourceReader;
     private final SkillToolScopeNarrower narrower;
 
+    /**
+     * 创建共享固定 catalog 与受控 lazy loader 的 Skill 准备服务。
+     *
+     * @param catalog Session 启动时冻结的 metadata catalog
+     * @param contentLoader 正文身份复验与 lazy loader
+     * @param resourceReader 声明资源身份复验与 loader
+     * @param narrower Runtime Tool 与 Skill allowlist 交集器
+     */
     public SkillInvoker(SkillCatalog catalog, SkillContentLoader contentLoader,
             SkillResourceReader resourceReader, SkillToolScopeNarrower narrower) {
         this.catalog = Objects.requireNonNull(catalog, "catalog 不能为空");

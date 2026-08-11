@@ -32,6 +32,13 @@ public final class DirectoryPluginInstaller {
     private final DirectoryDurability durability;
     private final SafePluginTreeOperator trees;
 
+    /**
+     * 创建绑定 store、strict loader 与运行 registry 的 installer。
+     *
+     * @param storeRoot Plugin store root
+     * @param loader strict package loader
+     * @param registry trust 与 activation registry
+     */
     public DirectoryPluginInstaller(Path storeRoot, PluginPackageLoader loader, PluginRegistry registry) {
         this(storeRoot, loader, registry, point -> { }, DirectoryPluginInstaller::forceDirectory,
                 new SafePluginTreeOperator());
@@ -58,8 +65,23 @@ public final class DirectoryPluginInstaller {
         this.trees = Objects.requireNonNull(trees, "trees 不能为空");
     }
 
-    /** 安装并激活；失败不返回物理路径或异常正文。 */
+    /**
+     * 安装并激活；全程持有 global writer，失败不返回物理路径或异常正文。
+     *
+     * @param sourceDirectory 调用方选择的 ordinary directory package
+     * @return 发布并激活的 immutable snapshot
+     */
     public PluginSnapshot install(Path sourceDirectory) {
+        try (PluginGlobalWriterLease lease = PluginGlobalWriterLease.acquire(storeRoot)) {
+            PluginTransactionRecovery.RecoveryResult recovery = new PluginTransactionRecovery(storeRoot).recover(lease);
+            if (!recovery.clean()) throw failure(PluginErrorCode.INSTALL_FAILED);
+            return installLocked(sourceDirectory);
+        } catch (IOException failure) {
+            throw failure(PluginErrorCode.INSTALL_FAILED);
+        }
+    }
+
+    private PluginSnapshot installLocked(Path sourceDirectory) {
         PluginSnapshot source = loader.load(sourceDirectory);
         if (!registry.isTrusted(source)) throw failure(PluginErrorCode.FINGERPRINT_UNTRUSTED);
         String id = source.manifest().id().value();
@@ -70,24 +92,38 @@ public final class DirectoryPluginInstaller {
         Path registryFile = child("registry.v1");
         Path registryStage = child(".registry-" + nonce + ".tmp");
         Path registryBackup = child(".registry-" + nonce + ".bak");
+        String transactionId = "install-" + id + "-" + nonce;
+        PluginTransactionJournal journal = new PluginTransactionJournal(storeRoot);
         boolean packagePublished = false;
         boolean oldIndexBackedUp = false;
         boolean newIndexPublished = false;
         PluginActivation activation = null;
         try {
             Files.createDirectories(storeRoot);
+            journal.append(new PluginTransactionRecord(transactionId, id,
+                    PluginTransactionOperation.INSTALL, PluginTransactionPhase.PREPARED,
+                    source.fingerprint().treeDigest()));
             activation = registry.prepareActivation(source);
             faults.at(FaultPoint.AFTER_ACTIVATION_PREPARE);
             faults.at(FaultPoint.BEFORE_STAGING_CREATE);
             Files.createDirectory(staging);
             copyTree(sourceDirectory.toAbsolutePath().normalize(), staging);
             durability.force(staging);
+            journal.append(new PluginTransactionRecord(transactionId, id,
+                    PluginTransactionOperation.INSTALL, PluginTransactionPhase.STAGED,
+                    source.fingerprint().treeDigest()));
             PluginSnapshot staged = loader.load(staging);
             if (!staged.fingerprint().equals(source.fingerprint())) throw failure(PluginErrorCode.CONTENT_CHANGED);
+            journal.append(new PluginTransactionRecord(transactionId, id,
+                    PluginTransactionOperation.INSTALL, PluginTransactionPhase.VERIFIED,
+                    source.fingerprint().treeDigest()));
             faults.at(FaultPoint.BEFORE_PACKAGE_RENAME);
             Files.move(staging, activeDirectory, StandardCopyOption.ATOMIC_MOVE);
             packagePublished = true;
             durability.force(storeRoot);
+            journal.append(new PluginTransactionRecord(transactionId, id,
+                    PluginTransactionOperation.INSTALL, PluginTransactionPhase.PUBLISHED,
+                    source.fingerprint().treeDigest()));
 
             faults.at(FaultPoint.BEFORE_REGISTRY_STAGE);
             writeRegistryStage(registryStage,
@@ -104,6 +140,9 @@ public final class DirectoryPluginInstaller {
             durability.force(storeRoot);
             faults.at(FaultPoint.AFTER_REGISTRY_REPLACE);
 
+            journal.append(new PluginTransactionRecord(transactionId, id,
+                    PluginTransactionOperation.INSTALL, PluginTransactionPhase.REGISTRY_COMMITTED,
+                    source.fingerprint().treeDigest()));
             activation.commit();
             faults.at(FaultPoint.AFTER_ACTIVATION_COMMIT);
             if (oldIndexBackedUp) {
@@ -111,6 +150,9 @@ public final class DirectoryPluginInstaller {
                 durability.force(storeRoot);
             }
             cleanupRetiredPackages();
+            journal.append(new PluginTransactionRecord(transactionId, id,
+                    PluginTransactionOperation.INSTALL, PluginTransactionPhase.COMPLETED,
+                    source.fingerprint().treeDigest()));
             return loader.load(activeDirectory);
         } catch (Exception failure) {
             boolean durableRolledBack = rollbackIndex(
@@ -120,6 +162,11 @@ public final class DirectoryPluginInstaller {
             }
             safeCleanup(staging, registryStage);
             if (packagePublished && durableRolledBack) safeCleanup(activeDirectory);
+            try {
+                journal.append(new PluginTransactionRecord(transactionId, id,
+                        PluginTransactionOperation.INSTALL, PluginTransactionPhase.FAILED_PRESERVED,
+                        source.fingerprint().treeDigest()));
+            } catch (RuntimeException ignored) { /* 原失败优先，恢复器下次保守对账。 */ }
             throw failure instanceof PluginBoundaryException boundary && durableRolledBack
                     ? boundary : failure(PluginErrorCode.INSTALL_FAILED);
         } finally {

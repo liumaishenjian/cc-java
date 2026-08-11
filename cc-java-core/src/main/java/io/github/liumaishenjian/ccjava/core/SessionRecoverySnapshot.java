@@ -46,7 +46,16 @@ public record SessionRecoverySnapshot(
         skillRecords = List.copyOf(Objects.requireNonNull(skillRecords, "skillRecords 不能为空"));
     }
 
-    /** 兼容不含 S11 Skill 记录的既有构造路径。 */
+    /**
+     * 兼容不含 S11 Skill 记录的既有构造路径。
+     *
+     * @param sessionId 被恢复的 Session ID
+     * @param spec Session 创建配置
+     * @param messages 已验证的完整规范消息链
+     * @param runIds 历史 Run ID
+     * @param parentSessionId Fork 来源
+     * @param issues 安全恢复问题
+     */
     public SessionRecoverySnapshot(SessionId sessionId, SessionSpec spec, List<AgentMessage> messages,
             List<RunId> runIds, Optional<SessionId> parentSessionId, List<SessionRecoveryIssue> issues) {
         this(sessionId, spec, messages, runIds, parentSessionId, issues, List.of());

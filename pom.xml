@@ -18,6 +18,9 @@
         <module>cc-java-model-spring-ai</module>
         <module>cc-java-tools-local</module>
         <module>cc-java-mcp</module>
+        <module>cc-java-protocol</module>
+        <module>cc-java-sdk</module>
+        <module>cc-java-observability-otel</module>
         <module>cc-java-cli</module>
     </modules>
 
@@ -37,6 +40,7 @@
         <victools.version>5.0.0</victools.version>
         <picocli.version>4.7.7</picocli.version>
         <mcp.version>2.0.0</mcp.version>
+        <opentelemetry.version>1.54.1</opentelemetry.version>
 
         <maven.compiler.plugin.version>3.15.0</maven.compiler.plugin.version>
         <maven.surefire.plugin.version>3.5.5</maven.surefire.plugin.version>
@@ -108,6 +112,13 @@
                 <groupId>io.modelcontextprotocol.sdk</groupId>
                 <artifactId>mcp-json-jackson3</artifactId>
                 <version>${mcp.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.opentelemetry</groupId>
+                <artifactId>opentelemetry-bom</artifactId>
+                <version>${opentelemetry.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
         </dependencies>
     </dependencyManagement>

@@ -26,8 +26,11 @@ import java.util.concurrent.atomic.*;
  * @since 0.12.0
  */
 public final class AgentSupervisor implements AutoCloseable {
+    /** 同一父 Session 默认最大活动 child 数。 */
     public static final int DEFAULT_MAX_ACTIVE = 4;
+    /** 同一父 Session 默认最大等待 child 数。 */
     public static final int DEFAULT_MAX_QUEUE = 32;
+    /** 根任务以下默认最大委托深度。 */
     public static final int DEFAULT_MAX_DEPTH = 2;
 
     private final AgentDefinitionCatalog catalog;
@@ -47,6 +50,13 @@ public final class AgentSupervisor implements AutoCloseable {
     private final java.util.function.Consumer<String> parentContextSink;
     private final int maxDepth;
 
+    /**
+     * 使用默认 ceiling 和 no-op lifecycle 创建 Supervisor。
+     *
+     * @param catalog Session 冻结 definition catalog
+     * @param scopeFactory child Runtime 装配端口
+     * @param ledger 父预算 ledger
+     */
     public AgentSupervisor(AgentDefinitionCatalog catalog, ChildRuntimeScopeFactory scopeFactory,
             ChildBudgetLedger ledger) {
         this(catalog, scopeFactory, ledger, AgentDefinitionNarrower.identity(), ChildTaskJournal.noop(),
@@ -54,7 +64,21 @@ public final class AgentSupervisor implements AutoCloseable {
                 DEFAULT_MAX_QUEUE, DEFAULT_MAX_DEPTH);
     }
 
-    /** 创建带显式安全边界和测试时钟的 Supervisor。 */
+    /**
+     * 创建带显式安全边界和测试时钟的 Supervisor。
+     *
+     * @param catalog Session 冻结 definition catalog
+     * @param scopeFactory child Runtime 装配端口
+     * @param ledger 父预算 ledger
+     * @param narrower 宿主可信纯收窄 seam
+     * @param journal 必须成功的 task journal
+     * @param observer 可失败的终态观察端
+     * @param taskLifecycle start/stop Hook 协调器
+     * @param clock deadline 与报告时钟
+     * @param maxActive 活动 child ceiling
+     * @param maxQueue 等待队列 ceiling
+     * @param maxDepth 委托深度 ceiling
+     */
     public AgentSupervisor(AgentDefinitionCatalog catalog, ChildRuntimeScopeFactory scopeFactory,
             ChildBudgetLedger ledger, AgentDefinitionNarrower narrower, ChildTaskJournal journal,
             ChildTaskObserver observer, ChildTaskLifecycle taskLifecycle, Clock clock, int maxActive,
@@ -63,7 +87,22 @@ public final class AgentSupervisor implements AutoCloseable {
                 maxActive, maxQueue, maxDepth);
     }
 
-    /** 创建可将 Stop Hook 附加上下文投影给父级下一回合的 Supervisor。 */
+    /**
+     * 创建可将 Stop Hook 附加上下文投影给父级下一回合的 Supervisor。
+     *
+     * @param catalog Session 冻结 definition catalog
+     * @param scopeFactory child Runtime 装配端口
+     * @param ledger 父预算 ledger
+     * @param narrower 宿主可信纯收窄 seam
+     * @param journal 必须成功的 task journal
+     * @param observer 可失败的终态观察端
+     * @param taskLifecycle start/stop Hook 协调器
+     * @param parentContextSink 父下一回合一次性有界 Context sink
+     * @param clock deadline 与报告时钟
+     * @param maxActive 活动 child ceiling
+     * @param maxQueue 等待队列 ceiling
+     * @param maxDepth 委托深度 ceiling
+     */
     public AgentSupervisor(AgentDefinitionCatalog catalog, ChildRuntimeScopeFactory scopeFactory,
             ChildBudgetLedger ledger, AgentDefinitionNarrower narrower, ChildTaskJournal journal,
             ChildTaskObserver observer, ChildTaskLifecycle taskLifecycle,
@@ -89,6 +128,10 @@ public final class AgentSupervisor implements AutoCloseable {
 
     /**
      * 原子预留预算并提交一个前台或后台子任务。
+     *
+     * @param request 已受父级 scope ceiling 约束的委托请求
+     * @param parentCancellation 父 Run 取消身份
+     * @return 可 inspect/wait/cancel 的任务句柄
      * @throws RejectedExecutionException 队列、深度、定义、Hook 或预算拒绝时
      */
     public ChildTaskHandle submit(ChildTaskRequest request, CancellationToken parentCancellation) {
@@ -113,6 +156,12 @@ public final class AgentSupervisor implements AutoCloseable {
         }
     }
 
+    /**
+     * 查询活动或 no-replay 恢复任务。
+     *
+     * @param id child task identity
+     * @return 匹配句柄
+     */
     public java.util.Optional<ChildTaskHandle> find(ChildTaskId id) {
         Objects.requireNonNull(id);
         ChildTaskHandle active = tasks.get(id);
@@ -120,7 +169,11 @@ public final class AgentSupervisor implements AutoCloseable {
                 : java.util.Optional.of(active);
     }
 
-    /** 注册 no-replay 恢复终态；重复 identity 或非终态会 Fail Closed。 */
+    /**
+     * 注册 no-replay 恢复终态；重复 identity 或非终态会 Fail Closed。
+     *
+     * @param report durable recovery 推导的隐私安全终态
+     */
     public void registerRecovered(ChildTaskReport report) {
         Objects.requireNonNull(report, "report 不能为空");
         if (!report.status().terminal()) throw new IllegalArgumentException("恢复结果必须为终态");

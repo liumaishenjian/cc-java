@@ -195,6 +195,14 @@ public final class ToolExecutionPipeline {
      * <p>Gate 位于 Registry 解析前，确保模型即使提出已从 definitions 隐藏的 Tool，也只得到
      * durable execute=0 结果，不会触发 Hook、Permission、Approval 或 Adapter。</p>
      *
+     * @param registry 唯一 Tool Registry
+     * @param permissionGate 确定性权限 Gate
+     * @param approvalHandler 用户审批适配器
+     * @param permissionState Session 级授权状态
+     * @param lifecycle Tool 生命周期分发器
+     * @param sessionJournal 必须成功的 Session journal
+     * @param checkpoints 写 Tool 的 durable Checkpoint 协调器
+     * @param hooks S09 Hook 协调器
      * @param skills 当前 Runtime 的 Skill Run 协调器
      */
     public ToolExecutionPipeline(

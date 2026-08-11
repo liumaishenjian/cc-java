@@ -28,7 +28,11 @@ public final class PluginRunCoordinator {
     private final ConcurrentMap<RunId, RunLease> runs = new ConcurrentHashMap<>();
     private final boolean enabled;
 
-    /** 创建对当前 Registry 签发 Run lease 的协调器。 */
+    /**
+     * 创建对当前 Registry 签发 Run lease 的协调器。
+     *
+     * @param registry Plugin generation 与 lease 的唯一 Registry
+     */
     public PluginRunCoordinator(PluginRegistry registry) {
         this.registry = Objects.requireNonNull(registry, "registry 不能为空");
         enabled = true;
@@ -39,7 +43,11 @@ public final class PluginRunCoordinator {
         enabled = false;
     }
 
-    /** @return 不捕获任何 Plugin 的共享兼容实现 */
+    /**
+     * 返回不捕获任何 Plugin 的共享兼容实现。
+     *
+     * @return 禁用 Plugin Run contribution 的协调器
+     */
     public static PluginRunCoordinator disabled() {
         return DISABLED;
     }
@@ -78,13 +86,22 @@ public final class PluginRunCoordinator {
         }
     }
 
-    /** @return 当前 Run 固定的 Plugin ID 与 tree/config digest，不含路径或配置正文 */
+    /**
+     * 返回当前 Run 固定的 Plugin ID 与 tree digest，不含路径或配置正文。
+     *
+     * @param runId 已打开的 Run identity
+     * @return Plugin identity 到固定 tree digest 的不可变映射
+     */
     public Map<PluginId, String> fingerprints(RunId runId) {
         RunLease lease = runs.get(Objects.requireNonNull(runId, "runId 不能为空"));
         return lease == null ? Map.of() : lease.fingerprints();
     }
 
-    /** 在 Run 唯一终态逆序、幂等释放全部 snapshot lease。 */
+    /**
+     * 在 Run 唯一终态逆序、幂等释放全部 snapshot lease。
+     *
+     * @param runId 要终止并释放 Plugin contribution 的 Run
+     */
     public void closeRun(RunId runId) {
         RunLease lease = runs.remove(Objects.requireNonNull(runId, "runId 不能为空"));
         if (lease != null) lease.close();

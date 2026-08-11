@@ -189,7 +189,18 @@ public final class RuntimeStdioCommandHandler
                 contextPreparation, ModelDiagnosticMode.OFF, Optional.empty());
     }
 
-    /** 使用默认 Local/platform execution 配置的兼容构造器。 */
+    /**
+     * 使用默认 Local/platform execution 配置的兼容构造器。
+     *
+     * @param settings Provider 设置
+     * @param workspace 已解析 Workspace
+     * @param timeout Run 墙钟限制
+     * @param permissionMode 权限模式
+     * @param sessionOpenRequest Session 选择
+     * @param contextPreparation Context 配置
+     * @param diagnosticMode 模型诊断模式
+     * @param diagnosticDirectory 可选可信目录
+     */
     public RuntimeStdioCommandHandler(
             OpenAiCompatibleSettings settings,
             Path workspace,
@@ -223,6 +234,8 @@ public final class RuntimeStdioCommandHandler
      * @param contextPreparation Context 配置
      * @param diagnosticMode 模型诊断模式
      * @param diagnosticDirectory 可选可信目录
+     * @param executionBackend 显式后端偏好
+     * @param executionShell 后端必须执行的命令语义
      */
     public RuntimeStdioCommandHandler(
             OpenAiCompatibleSettings settings,

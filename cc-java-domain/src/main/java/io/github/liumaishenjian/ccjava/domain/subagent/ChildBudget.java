@@ -15,6 +15,7 @@ import java.util.Objects;
  */
 public record ChildBudget(int modelTurns, int toolCalls, long inputTokens,
                           int outputCharacters, Duration duration) {
+    /** 校验所有预算维度并冻结 duration。 */
     public ChildBudget {
         duration = Objects.requireNonNull(duration, "duration 不能为空");
         if (modelTurns < 1 || toolCalls < 0 || inputTokens < 1 || outputCharacters < 1

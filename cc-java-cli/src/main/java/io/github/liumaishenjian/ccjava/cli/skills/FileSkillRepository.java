@@ -61,11 +61,17 @@ import java.util.regex.Pattern;
  */
 public final class FileSkillRepository implements SkillCatalogLoader, SkillContentLoader, SkillResourceReader,
         io.github.liumaishenjian.ccjava.core.skill.SkillRecoveryIdentityCatalog {
+    /** 每个文件来源允许发现的最大 Skill 数。 */
     public static final int MAX_SKILLS_PER_ROOT = 128;
+    /** 合并所有来源后允许发布的最大 Skill 数。 */
     public static final int MAX_SKILLS_TOTAL = 256;
+    /** 单个 SKILL.md 允许读取的最大字节数。 */
     public static final int MAX_SKILL_BYTES = 128 * 1024;
+    /** 单个 SKILL.md 允许包含的最大行数。 */
     public static final int MAX_SKILL_LINES = 4_000;
+    /** 单个 Skill resource 允许读取的最大字节数。 */
     public static final int MAX_RESOURCE_BYTES = 256 * 1024;
+    /** 一次 Skill resource 加载允许读取的总字节数。 */
     public static final int MAX_RESOURCES_BYTES = 1024 * 1024;
     private static final int MAX_FRONTMATTER_BYTES = 32 * 1024;
     private static final Pattern WINDOWS_DRIVE = Pattern.compile("^[A-Za-z]:.*");
@@ -105,7 +111,13 @@ public final class FileSkillRepository implements SkillCatalogLoader, SkillConte
         this(userRoot, projectRoot, pluginCandidates, Map.of(), PathSafetyProbe.system());
     }
 
-    /** 建立带 immutable Plugin Skill 物理绑定的扫描器。 */
+    /**
+     * 建立带 immutable Plugin Skill 物理绑定的扫描器。
+     *
+     * @param userRoot 固定用户 Skill root
+     * @param projectRoot 固定项目 Skill root
+     * @param pluginSkills 已经宿主验证并冻结的 Plugin Skill 集合
+     */
     public FileSkillRepository(Path userRoot, Path projectRoot, PluginSkillSet pluginSkills) {
         this(userRoot, projectRoot, pluginSkills.entries().stream().map(PluginSkillSet.Entry::descriptor).toList(),
                 index(pluginSkills), PathSafetyProbe.system());
@@ -207,12 +219,20 @@ public final class FileSkillRepository implements SkillCatalogLoader, SkillConte
                 .findFirst().map(this::localRecoveryIdentity);
     }
 
-    /** @return 最近一次 metadata scan 的可观测读取指标 */
+    /**
+     * 返回最近一次 metadata scan 的可观测读取指标。
+     *
+     * @return 不含正文内容的扫描字节指标
+     */
     public synchronized ScanMetrics scanMetrics() {
         return scanMetrics.snapshot();
     }
 
-    /** @return metadata scan 解码或保留的正文 byte 数 */
+    /**
+     * 返回 metadata scan 解码或保留的正文 byte 数。
+     *
+     * @return 启动扫描中 materialize 的正文字节数，正常应为零
+     */
     public synchronized long metadataBodyMaterializedBytes() {
         return scanMetrics.bodyMaterializedBytes;
     }
@@ -788,9 +808,18 @@ public final class FileSkillRepository implements SkillCatalogLoader, SkillConte
         return new SkillLoadingException(code);
     }
 
-    /** metadata scan 的隐私安全可观测指标。 */
-    public record ScanMetrics(long digestBytes, long frontmatterMaterializedBytes,
-            long bodyMaterializedBytes) {}
+    /**
+     * metadata-first 扫描的隐私安全字节指标。
+     *
+     * @param digestBytes 为身份校验流式读取的字节数
+     * @param frontmatterMaterializedBytes 实际 materialize 的 metadata 字节数
+     * @param bodyMaterializedBytes 启动扫描中 materialize 的正文字节数，应保持为零
+     */
+    public record ScanMetrics(
+            long digestBytes,
+            long frontmatterMaterializedBytes,
+            long bodyMaterializedBytes) {
+    }
 
     @FunctionalInterface
     interface PathSafetyProbe {

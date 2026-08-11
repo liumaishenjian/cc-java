@@ -12,7 +12,11 @@ import io.github.liumaishenjian.ccjava.domain.plugin.PluginSnapshot;
  * @since 0.11.0
  */
 public interface PluginActivation extends AutoCloseable {
-    /** @return 准备激活的新 immutable snapshot */
+    /**
+     * 返回准备激活的新 immutable snapshot。
+     *
+     * @return 本事务绑定的候选 snapshot
+     */
     PluginSnapshot candidate();
     /** 原子发布 candidate；并发状态漂移时失败且不改变 active。 */
     void commit();

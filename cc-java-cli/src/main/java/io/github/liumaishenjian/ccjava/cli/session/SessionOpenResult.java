@@ -36,7 +36,15 @@ public record SessionOpenResult(
         skillRecords = List.copyOf(Objects.requireNonNull(skillRecords, "skillRecords 不能为空"));
     }
 
-    /** 兼容没有 S11 Skill 恢复身份的既有创建路径。 */
+    /**
+     * 兼容没有 S11 Skill 恢复身份的既有创建路径。
+     *
+     * @param session 已创建或恢复的 Core Session
+     * @param mode 实际打开模式
+     * @param parentSessionId Fork 来源
+     * @param readOnly 是否仅允许 Inspect
+     * @param issues 恢复问题
+     */
     public SessionOpenResult(AgentSession session, SessionOpenMode mode, Optional<SessionId> parentSessionId,
             boolean readOnly, List<SessionRecoveryIssue> issues) {
         this(session, mode, parentSessionId, readOnly, issues, List.of());

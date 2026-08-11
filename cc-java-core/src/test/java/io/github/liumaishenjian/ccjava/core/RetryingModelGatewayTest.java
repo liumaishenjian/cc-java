@@ -54,6 +54,32 @@ class RetryingModelGatewayTest {
     }
 
     @Test
+    void respectsTypedRetryAfterBeforeNextAttempt() throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+        StreamingModelGateway delegate = (request, observer, cancellation) -> {
+            if (attempts.incrementAndGet() == 1) {
+                throw new ModelGatewayException(
+                        RETRYABLE,
+                        "rate limited",
+                        ModelFailureSummary.firstAttempt(
+                                ModelFailureCategory.RATE_LIMITED,
+                                java.util.Optional.of(ModelHttpStatusClass.CLIENT_ERROR),
+                                false),
+                        Duration.ofMillis(30),
+                        null);
+            }
+            return ModelTurn.text("ok");
+        };
+        long started = System.nanoTime();
+        ModelTurn turn = new RetryingModelGateway(delegate, immediatePolicy(2)).complete(
+                request(), ignored -> { }, CancellationToken.none());
+        long elapsedMillis = Duration.ofNanos(System.nanoTime() - started).toMillis();
+        assertThat(turn.assistantMessage().text()).isEqualTo("ok");
+        assertThat(attempts).hasValue(2);
+        assertThat(elapsedMillis).isGreaterThanOrEqualTo(20);
+    }
+
+    @Test
     void marksFailureAfterVisibleDeltaAsIncompleteWithoutRetrying() {
         AtomicInteger attempts = new AtomicInteger();
         StreamingModelGateway delegate = (request, observer, cancellation) -> {

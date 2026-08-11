@@ -22,6 +22,18 @@ import java.util.Objects;
  * @since 0.11.0
  */
 public final class SkillRecoveryVerifier {
+    /** 创建无状态的 Skill 恢复身份比较器。 */
+    public SkillRecoveryVerifier() { }
+
+    /**
+     * 比较历史激活记录与当前 catalog、Plugin/MCP 摘要及有效 Tool scope。
+     *
+     * @param snapshot 当前 Session 的 Skill catalog snapshot
+     * @param records 历史 durable Skill 激活记录
+     * @param identities 当前受信内容身份目录
+     * @param runtimeToolNames 当前 Runtime Tool 名称
+     * @return 是否全部匹配及不匹配 Skill ID
+     */
     public SkillRecoveryResult verify(SkillCatalogSnapshot snapshot, List<SkillRecoveryRecord> records,
             SkillRecoveryIdentityCatalog identities, List<String> runtimeToolNames) {
         Objects.requireNonNull(snapshot, "snapshot 不能为空");

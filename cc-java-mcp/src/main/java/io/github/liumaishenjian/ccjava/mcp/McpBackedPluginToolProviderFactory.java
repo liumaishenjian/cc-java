@@ -28,6 +28,12 @@ public final class McpBackedPluginToolProviderFactory implements PluginToolProvi
     private final Map<String, McpServerConfig> hostConfigs;
     private final McpClientFactory clientFactory;
 
+    /**
+     * 创建只允许引用宿主既有 MCP 配置的 Plugin provider factory。
+     *
+     * @param hostConfigs 已通过设置与 trust Gate 的宿主 MCP 配置
+     * @param clientFactory 创建独占远端 Client 的工厂
+     */
     public McpBackedPluginToolProviderFactory(List<McpServerConfig> hostConfigs, McpClientFactory clientFactory) {
         Objects.requireNonNull(hostConfigs, "hostConfigs 不能为空");
         this.clientFactory = Objects.requireNonNull(clientFactory, "clientFactory 不能为空");

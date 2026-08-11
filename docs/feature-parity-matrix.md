@@ -18,7 +18,7 @@
 > G0-G6 Accepted；`MCP-01`～`07` 为 L2，`MCP-09`～`11` 为 L1，`MCP-08` 仍为 L0；
 > rules 编辑、Provider discovery/多模型注册、S13 尚未覆盖的 JVM 内 HTTP 强制网络边界、native Windows file/network、Managed/Auto 与供应链安全，以及 S14 稳定协议/Export/Retention/Migration
 > 仍未实现。S11 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、Demo 与能力对账均通过，Stage Exit Accepted；
-> `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2、`PLUGIN-04` 为 L1。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit；`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit，状态为 Accepted；`SEC-02/03/04/05/06/07/12`、`EVAL-04` 为 L2，`SEC-08` 为 L1，`PERM-05/CFG-07` 保持 L0、`HOOK-10` 保持 L1、`SEC-11` 保持 L0。S14 为 NOT_STARTED。
+> `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2、`PLUGIN-04` 为 L1。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit；`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit，状态为 Accepted；`SEC-02/03/04/05/06/07/12`、`EVAL-04` 为 L2，`SEC-08/CFG-07/HOOK-10` 为 L1，`PERM-05/SEC-11` 保持 L0。S14 当前为 IN_PROGRESS、Stage Exit OPEN；本轮修复不提升 Capability 等级。
 
 ## 1. 文档目的
 
@@ -162,12 +162,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 197 |
-| 当前阶段 | S13 Sandbox + Security 已 Accepted；S14 Production Harness NOT_STARTED |
-| Stage Exit | S01-S13 Accepted；S14 NOT_STARTED |
-| 当前等级 | 130 项为 L2，35 项为 L1，32 项为 L0 |
+| 当前阶段 | S14 Production Harness IN_PROGRESS（working-tree candidate） |
+| Stage Exit | S01-S13 Accepted；S14 OPEN |
+| 当前等级 | 150 项为 L2，37 项为 L1，10 项为 L0 |
 | 默认最终目标 | 197 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 49.92%（197 项等权、目标 L3） |
-| 下一步 | 停在 S13 Accepted 边界等待验收；S14 尚未启动，需另行完成 G0-G2 后方可开始 |
+| 当前能力覆盖 | 57.02%（197 项加权、按各 Feature 目标等级计算） |
+| 下一步 | 完成 S14 尚缺的生产 composition、真实/崩溃恢复证据与 Commit-scoped G4-G6；当前不得退出 Stage |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -262,8 +262,8 @@ Stage 完成项。
 | CLI-08 | Slash Commands | 封闭 Command Catalog、可见选择与类型化安全结果 Projection；ADR-048 Commit-scoped 协议、TTY 与 review 证据通过 | L2 | S08 | REF-02 |
 | CLI-09 | 多行、历史、补全 | `ComposerState` grapheme 光标、视觉多行/viewport、完整编辑键、History/Completion 优先级；8,192 仅限可见结构，约 1 MiB 无损大 Paste 经 stdio v0 原子分块提交后仍受 256K Token Context pipeline 权威治理；ADR-048 Commit-scoped 测试/TTY/review 通过 | L2 | S08 | REF-02 |
 | CLI-10 | TTY / Non-TTY 降级 | 无 ANSI 输出与管道模式 | L2 | S02/S14 | REF-02 |
-| CLI-11 | 机器输出协议 | S02 内部 stdio v0 L1 → S14 稳定 JSON/JSONL L3 | L1 | S02/S14 | REF-02 |
-| CLI-12 | 多 Surface 共用引擎 | CLI/SDK/API 共用 Runtime | L0 | S14 | REF-02 |
+| CLI-11 | 机器输出协议 | stdio v0 保持兼容；项目自有 stable v1 strict codec/state 由 `--stdio-v1` 与 `--daemon` 生产入口使用，覆盖 initialize/token/negotiation/correlation/sequence/semantic idempotency/terminal/drain | L2 | S02/S14 | REF-02/AUTH-01/CODEX-0.147 |
+| CLI-12 | 多 Surface 共用引擎 | `ProductionHarnessFactory` 为 Print/Headless、SDK、stdio v1 与 loopback daemon 装配同一 `AgentApplicationService`、Runtime 与 Pipeline | L2 | S14 | REF-02/AUTH-01/CODEX-0.147 |
 | CLI-13 | 显式文件引用 | Java 权威原始相对路径候选、严格 stdio 关联、TUI 引号格式化与 Composer token 精确替换；ADR-049 Commit-scoped G6 通过 | L2 | S08 | REF-02/AUTH-01 |
 
 ## 8. Agent Loop 对照
@@ -281,7 +281,7 @@ Stage 完成项。
 | LOOP-09 | 模型错误重试 | 有界 Retry Policy | L2 | S02/S14 | REF-01/AUTH-01 |
 | LOOP-10 | Model Output Length Recovery | S02 识别截断/不完整输出并有界停止或续接 → S14 L3 恢复策略 | L2 | S02/S14 | REF-01/AUTH-01 |
 | LOOP-11 | Context 溢出恢复 | typed overflow 后最多一次 C3/C4 恢复；失败或第二次 overflow 明确停止 | L2 | S07 | REF-01/02 |
-| LOOP-12 | Model Fallback | Provider-aware Fallback | L0 | S14 | REF-01 |
+| LOOP-12 | Model Fallback | capability-aware stable route；tool request 要求 TOOL_CALLING，所有 route 共享 attempt/deadline/cancel/保守 cost unit；仅在无 visible delta 的 retryable failure 前 fallback。Gateway 返回前的 Provider 内部 durable intent 不可直接观察，必须由 Adapter 分类为不可重试 | L2 | S14 | REF-01/AUTH-01/CODEX-0.147 |
 | LOOP-13 | 用户拒绝后继续推理 | Denied Tool Result 回传模型 | L2 | S05 | REF-04 |
 | LOOP-14 | 崩溃和未完成 Tool | Session Recovery Gate | L2 | S06 | REF-06/AUTH-01 |
 
@@ -295,12 +295,12 @@ Stage 完成项。
 | MODEL-04 | Text Streaming | Adapter 内消费 Flux | L2 | S02 | REF-08 |
 | MODEL-05 | Tool Call Streaming | Chunk 聚合 | L2 | S02 | REF-08/AUTH-01 |
 | MODEL-06 | Usage / Finish Reason | 规范化 Capability | L2 | S02 | REF-08 |
-| MODEL-07 | 第二 Provider | S14 验证 Provider-neutral Port | L0 | S14 | REF-02 |
+| MODEL-07 | 第二 Provider | Spring AI Anthropic Factory + protocol mock 覆盖 text/stream/tool/multi-tool/usage/cancel/429/5xx/context-limit；无真实凭证，保持 L1 Accepted Deviation | L1 | S14 | REF-02/AUTH-01 |
 | MODEL-08 | Model Switching | 有界 Session Command：仅接受启动时配置的当前单一模型名；Provider discovery/多模型注册延期 | L2 | S08 | REF-02 |
-| MODEL-09 | Prompt Cache | 稳定前缀和 Provider Hint | L0 | S07/S14 | REF-01 |
-| MODEL-10 | Rate Limit / Retry | Provider Error Policy | L0 | S14 | REF-01 |
-| MODEL-11 | Cost Budget | Token 与价格模型 | L0 | S14 | REF-01 |
-| MODEL-12 | Capability Detection | Tools/Streaming/Context/Reasoning | L0 | S14 | REF-02 |
+| MODEL-09 | Prompt Cache | capability snapshot 与 Adapter optimization Gate；正确性仍走 S07 通用 Projection，真实 cache A/B 未运行 | L1 | S07/S14 | REF-01/AUTH-01 |
+| MODEL-10 | Rate Limit / Retry | ModelGatewayException typed Retry-After 已由 Adapter 解析并由 production ProviderRouter 在每请求 fresh shared deadline/cancel/attempt/cost budget 内有界消费；第三方 SDK 完整控制仍是 gap | L2 | S14 | REF-01/AUTH-01 |
+| MODEL-11 | Cost Budget | Provider Usage + 可信版本化价格才计算 ModelCost；Router 支持保守 attempt cost unit 上限，未知价格不伪造，精确执行中 token/cost 结算仍缺 | L2 | S14 | REF-01/AUTH-01 |
+| MODEL-12 | Capability Detection | configured/observed/effective 三层保守 snapshot；Unknown 不视为支持 | L2 | S14 | REF-02/AUTH-01/CODEX-0.147 |
 
 ## 10. Tool System 对照
 
@@ -374,7 +374,7 @@ Stage 完成项。
 | SEC-07 | Network Sandbox | bwrap unshare-net 与 Docker network none；JVM HTTP 明确排除 | L2 | S13 | REF-01 |
 | SEC-08 | Container Backend | Docker daemon + pinned nginx digest 的非 root/read-only/network-none smoke | L1 | S13 | REF-01 |
 | SEC-09 | Prompt Injection Defense | 不可信仓库测试 | L2 | S05/S13 | REF-02 |
-| SEC-10 | Secret Redaction | Event/Log/Tool Result | L1 | S03/S14 | REF-01 |
+| SEC-10 | Secret Redaction | Event/Log/Tool Result + stable protocol/Export/OTel/Daemon/Provider config sentinel 白名单 | L2 | S03/S14 | REF-01/AUTH-01 |
 | SEC-11 | Plugin Supply Chain | 签名、信任和隔离 | L0 | S11/S13 | REF-03 |
 | SEC-12 | Security Regression Suite | 确定性 Fake + WSL2/bwrap Linux A + Docker B 攻击 Fixture | L2 | S13 | REF-01 |
 
@@ -397,7 +397,7 @@ Stage 完成项。
 | CTX-13 | `/context` | 最新 `ContextUsageView` 的数值/枚举白名单命令、stdio/封闭 Slash/TUI 协议投影 | L2 | S07/S08 | REF-02 |
 | CTX-14 | Skill Lazy Loading | Metadata-first catalog，正文/资源仅在调用时进入 transient Projection；S11 Commit-scoped 验收达到 L2 | L2 | S11 | REF-03 |
 | CTX-15 | Sub-Agent Isolation | 独立 child Session/Context/Permission/Tool scope 与 Workspace identity；完整 transcript/正文不注入父 Context，仅有界 report 与 Hook context | L2 | S12 | REF-02/03 |
-| CTX-16 | Prompt Cache | 稳定前缀和 Tool 顺序 | L0 | S14 | REF-01 |
+| CTX-16 | Prompt Cache | 通用 S07 Projection 保持正确性；Provider cache/native editing 仅受 capability/gate 控制，真实 A/B 未达 L2 | L1 | S14 | REF-01/AUTH-01 |
 | CTX-17 | Auto Memory Index | `MEMORY.md`、有界 topic Catalog、可重建索引与真实 Headless 文件装配 | L2 | S07 | REF-05/AUTH-01 |
 | CTX-18 | Relevant Memory Prefetch | M4/M5 ready-only、零等待相关记忆投影与迟到结果隔离 | L2 | S07 | REF-05/AUTH-01 |
 | CTX-19 | File Attachment Projection | WorkspaceGuard 后的不可变文件快照、Canonical/Session Resume/Fork 保存、Base64 不可信模型投影与保守 Usage 估算；ADR-049 Commit-scoped G6 通过 | L2 | S08 | REF-02/AUTH-01 |
@@ -412,11 +412,11 @@ Stage 完成项。
 | CFG-04 | Project Settings | Workspace 固定版本控制来源 | L2 | S08 | REF-01 |
 | CFG-05 | Local Settings | 仅 Gitignore 可证明时加载的本地覆盖 | L2 | S08 | REF-01 |
 | CFG-06 | Session Overrides | 有界 Slash/stdio Session patch：仅 model 或 PermissionMode，保留其余 overlay 和 CLI precedence；rules 编辑延期 | L2 | S08 | REF-01 |
-| CFG-07 | Managed Policy | 尚未生产接入；baseline/provenance 仅为未接线设计骨架 | L0 | S13/S14 | REF-01 |
+| CFG-07 | Managed Policy | 本机管理员 provenance/current/LKG/fail-closed resolver 已接入 Headless、doctor、SDK/v1 governance 与 protocol capability 收窄；生产 machine source 需证明 owner/mode/ACL，缺少多平台管理员部署证据保持 L1 | L1 | S13/S14 | REF-01/AUTH-01/CODEX-0.147 |
 | CFG-08 | Merge Semantics | Scalar/Object/List/delete/rule 的确定性逐字段合并 | L2 | S08 | REF-01 |
 | CFG-09 | Config Diagnostics | 来源、provenance、LKG 状态与隐私安全 doctor | L2 | S08 | REF-01 |
-| CFG-10 | Migration | Schema Version 与升级 | L0 | S14 | REF-01 |
-| CFG-11 | Feature Gates | 实验能力开关 | L0 | S14 | REF-01 |
+| CFG-10 | Migration | Session migration 与 Plugin registry migration 均使用 global writer/journal/digest/verify/create-only publish，拒绝无事务证明的既有 target，并覆盖 crash recovery/冲突事实源 | L2 | S14 | REF-01/AUTH-01 |
+| CFG-11 | Feature Gates | STABLE/EXPERIMENTAL typed gates 已接入 Managed composition、doctor 与 stable v1 capability negotiation；实验 gate 不改变 schema | L2 | S14 | REF-01/AUTH-01 |
 
 ## 16. Session / Checkpoint 对照
 
@@ -429,13 +429,13 @@ Stage 完成项。
 | SESSION-05 | Resume | 选择 Session | L2 | S06 | REF-06/AUTH-01 |
 | SESSION-06 | Fork | 新 ID 复制历史 | L2 | S06 | REF-06/AUTH-01 |
 | SESSION-07 | Session Metadata | Model/Workspace/Config/Usage | L2 | S06 | REF-06/AUTH-01 |
-| SESSION-08 | Concurrent Open Detection | 锁与只读恢复 | L1 | S06/S14 | REF-06/AUTH-01 |
+| SESSION-08 | Concurrent Open Detection | OS lock、Daemon single ownership、只读恢复与迁移 fence；多主机/NFS stale reclaim 仍延期 | L2 | S06/S14 | REF-06/AUTH-01 |
 | SESSION-09 | Incomplete Tool Recovery | 不自动重放副作用 | L2 | S06 | REF-06/AUTH-01 |
 | SESSION-10 | File Checkpoint | 写入前快照 | L2 | S06 | REF-02/AUTH-01 |
 | SESSION-11 | Rewind / Undo | 恢复 Agent 文件修改 | L2 | S06 | REF-02/AUTH-01 |
-| SESSION-12 | Export | 稳定外部格式 | L0 | S14 | REF-06 |
-| SESSION-13 | Retention / Clear | 生命周期管理 | L0 | S14 | REF-06 |
-| SESSION-14 | SQLite Adapter | 大量 Session 索引 | L0 | S14 | REF-06 |
+| SESSION-12 | Export | production control 只接收 sessionId/policy，由服务端读取 canonical metadata/records 并逐字段脱敏；格式与负例已验证，仍未达跨版本 L3 | L2 | S14 | REF-06/AUTH-01 |
+| SESSION-13 | Retention / Clear | status 从 canonical/recovery/migration 与实际 writer 推导，archive/delete 全窗口持 writer/control fence 并最终重检；多主机仍延期 | L2 | S14 | REF-06/AUTH-01 |
+| SESSION-14 | SQLite Adapter | 普通文件 projection 从 FileSessionStore canonical 启动/查询时重建并通过 10k SLA；未引 SQLite，能力按替代实现保持 L1 | L1 | S14 | REF-06/AUTH-01 |
 
 ## 17. MCP 对照
 
@@ -467,8 +467,8 @@ Stage 完成项。
 | PLUGIN-01 | Plugin Manifest | 严格 v1 manifest、namespace、tree fingerprint 与 immutable snapshot；S11 Commit-scoped 验收达到 L2 | L2 | S11 | REF-03/AUTH-01/CODEX-0.147 |
 | PLUGIN-02 | Bundle Skills/Hooks/MCP | 只打包已验证组件，不建立第二套 Runtime；S11 Commit-scoped 验收达到 L2 | L2 | S11 | REF-03/AUTH-01/CODEX-0.147 |
 | PLUGIN-03 | Tool Provider SPI | 宿主 factory 返回有 lease/close 所有权的 Contribution；MCP-backed 仅引用 named Server，可信 PLUGIN Tool 逐次 ASK/Pipeline；拒绝任意 JAR；S11 Commit-scoped 验收达到 L2 | L2 | S11 | REF-03/AUTH-01 |
-| PLUGIN-04 | Install / Uninstall | 本地 staged install 与 quiescing uninstall 经 S11 Commit-scoped 验收达到 L1；S14 再实现可恢复/迁移 L2 | L1 | S11/S14 | REF-03/AUTH-01 |
-| PLUGIN-05 | Trust / Signature | fingerprint 不等于签名；S11 保持 L0，供应链控制延期 | L0 | S13/S14 | REF-03 |
+| PLUGIN-04 | Install / Uninstall | staged/quiescing、journal 与可组合 global writer 覆盖 recovery/install/uninstall/registry migration；phase/digest/冲突对账与 FAILED_PRESERVED fail closed 已通过 crash/concurrency tests | L2 | S11/S14 | REF-03/AUTH-01/CODEX-0.147 |
+| PLUGIN-05 | Trust / Signature | signature envelope + verification port；不宣称 publisher identity/revocation/root rotation | L1 | S13/S14 | REF-03/AUTH-01 |
 | PLUGIN-06 | Marketplace | S11 保持 L0；发现、联网安装和分发延期 | L0 | S14/S15 | REF-03 |
 
 ## 19. Sub-Agent / Worktree 对照
@@ -494,19 +494,19 @@ Stage 完成项。
 | OBS-01 | Agent Event | 可重放控制流 | L1 | S01 | REF-01 |
 | OBS-02 | Turn/Tool Timing | S02 事件边界采集 L2 → S14 Metrics Backend L3 | L2 | S02/S14 | REF-01/AUTH-01 |
 | OBS-03 | Token / Cost | S02 可信 Provider Usage L2 → S14 Cost 治理 L3 | L2 | S02/S14 | REF-01/AUTH-01 |
-| OBS-04 | Stop / Recovery Analytics | Context latest-only 内部观察；ADR-048 冻结 OFF 默认的本地封闭 ModelDiagnostic 纠错契约，尚未实现；分布聚合、OTel 与导出延期 S14 | L1 | S07/S08/S14 | REF-01 |
+| OBS-04 | Stop / Recovery Analytics | production 从 RunTelemetry 投影真实 run/turn/tool/stop latency 与 usage-known；当前无独立 retry/recovery/cost-known 权威事件，因此不声明这些信号，保持 L1 | L1 | S07/S08/S14 | REF-01/AUTH-01 |
 | OBS-05 | Privacy Controls | S02 最小化 Telemetry L2 → S14 Export Policy L3 | L2 | S02/S14 | REF-01/AUTH-01 |
-| OBS-06 | OpenTelemetry | 可选 Trace Export | L0 | S14 | REF-01 |
-| EVAL-01 | Seed Tasks | S04 单个公开 Scripted Java Fixture L1 → S14 任务集与指标 L3 | L1 | S04/S14 | REF-01 |
+| OBS-06 | OpenTelemetry | direct SDK adapter 与真实 Headless production lifecycle wiring、真实非零 duration/usage-known、隐私白名单、故障隔离、有界 drop、flush/close 已验证；retry/recovery/cost-known 归 OBS-04/L3 gap | L2 | S14 | REF-01/AUTH-01/CODEX-0.147 |
+| EVAL-01 | Seed Tasks | 12 个注册 seed×5 共 60 次真实 production-harness 路径，覆盖 direct final、built-in Tool loop、Call/Result ID、permission/tool failure 恢复、cancel、limit、context preparation、canonical Session create/continue/resume、SDK 与 stable initialize/run/event/唯一 terminal/idempotency；真实 Provider suite 分开计数，保持 L1 | L1 | S04/S14 | REF-01 |
 | EVAL-02 | Behavior Replay | Fake Model 确定性回放 | L2 | S01/S06 | REF-01/AUTH-01 |
-| EVAL-03 | Agent Success Metrics | 完成率、成本、工具轨迹 | L0 | S14 | REF-01 |
+| EVAL-03 | Agent Success Metrics | 12 seed×5 production surface suite 从 AgentRunResult、模型收到的 ToolResult、事件和 stable envelope 聚合 completion/wall-clock/violations/modelTurns/toolCalls/stopReason；60/60 完成、0 violation，usage/cache/cost 仍如实 unknown，不升 L3 | L2 | S14 | REF-01/AUTH-01 |
 | EVAL-04 | Security Eval | WSL2/bwrap 与 Docker 的 file/network/env/secret 攻击回归 | L2 | S13 | REF-01 |
 | DIST-01 | Runnable Jar | 基础发行 | L0 | S04 | REF-02 |
-| DIST-02 | Windows/Linux Launcher | 跨平台脚本/安装 | L0 | S14 | REF-02 |
-| DIST-03 | Java SDK | Embeddable Runtime | L0 | S14 | REF-03 |
-| DIST-04 | Headless Protocol | CI/Automation | L0 | S14 | REF-02 |
-| DIST-05 | Daemon/API | 多 Surface 引擎 | L0 | S14 | REF-02 |
-| DIST-06 | Version/Update | 兼容和升级策略 | L0 | S14 | REF-02 |
+| DIST-02 | Windows/Linux Launcher | app-dir Windows cmd/Linux sh launcher + 本地 staging candidate | L2 | S14 | REF-02 |
+| DIST-03 | Java SDK | public `ProductionHarnessFactory.openSdk` 复用同一 Application；control API 覆盖 Export/Retention/Migration/Index/Governance | L2 | S14 | REF-03/AUTH-01 |
+| DIST-04 | Headless Protocol | `--stdio-v1` 使用 strict codec/state，覆盖 initialize、关联/序列/幂等、run/event/cancel/terminal/drain 与 Session control | L2 | S14 | REF-02/AUTH-01/CODEX-0.147 |
+| DIST-05 | Daemon/API | 独立 `--daemon` loopback entry、single ownership、高熵 token、stable v1 handler、bounded ingress/egress、disconnect fence 与 drain/stop | L2 | S14 | REF-02/AUTH-01 |
+| DIST-06 | Version/Update | manifest/checksum/SBOM/compatibility policy、staging install/upgrade rollback；License 未决不公开 Release | L2 | S14 | REF-02/AUTH-01/CODEX-0.147 |
 
 ## 21. 各 Stage 的完成定义
 
@@ -775,16 +775,9 @@ ADR-063/064 冻结的范围已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776
 
 ### S14：Production Harness
 
-状态：`NOT_STARTED`。S13 Accepted 不表示 S14 已启动；进入实现前仍须独立完成 S14 的 G0-G2。
+状态：`IN_PROGRESS`，Stage Exit `OPEN`。P0 已修正三个事实边界：12 个注册 seed×5 的 60 个实际 Headless/SDK/stable-v1 场景不再合成 provider/cache/usage；Session control 只信服务端 canonical 与实际 writer/migration fence；Plugin global writer 覆盖 recovery/install/uninstall 且 FAILED_PRESERVED 保留。
 
-完成条件：
-
-- `Model Runtime`：第二 Provider、Capability Detection、限流/重试、Fallback、
-  Cache Hint 与原生 Context Editing 对照；
-- `Eval/Observability`：统一早期 Stage 专项 Eval、OTel、隐私和恢复指标；
-- `SDK/Headless`：stable JSON/JSONL、Java SDK、Headless/Daemon 和 model fallback；
-- `Distribution/Compatibility`：Export/Retention、Schema migration、release/install/update
-  和 compatibility policy。
+working-tree candidate 已完成 production OTel、stable protocol/daemon、Provider composition、Plugin registry migration 与本地发行/rollback 验证；implementation commit 后的 commit-scoped G6/Stage Exit 尚未验收。无真实 Anthropic、已发布 N-1、WSL JDK21、macOS/Native Image/公共更新服务继续作为 gap，不得宣称 Accepted 或 L3。
 
 ### S15：Independent Innovation
 

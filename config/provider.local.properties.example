@@ -3,3 +3,8 @@
 openai.base-url=
 openai.api-key=
 openai.model=
+
+# Optional S14 second Provider; values remain empty in the tracked template.
+anthropic.base-url=
+anthropic.api-key=
+anthropic.model=

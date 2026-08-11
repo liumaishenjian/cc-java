@@ -14,10 +14,16 @@ import java.util.Optional;
  * @since 0.11.0
  */
 public interface SkillCatalog {
-    /** @return 当前 Session 固定快照 */
+    /**
+     * 查询当前 Session 固定 catalog。
+     *
+     * @return immutable snapshot
+     */
     SkillCatalogSnapshot snapshot();
 
     /**
+     * 按 identity 查询无冲突且已发布的 descriptor。
+     *
      * @param id 规范 Skill 身份
      * @return 无冲突且已发布的 descriptor
      */

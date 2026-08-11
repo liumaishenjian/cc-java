@@ -39,7 +39,15 @@ public final class LocalPlatformCapabilityProbe implements PlatformCapabilityPro
     private final String distribution;
     private final String image;
 
-    /** 创建绑定当前 Workspace 和可信 helper 路径的 probe。 */
+    /**
+     * 创建绑定当前 Workspace 与可信 helper 身份的能力探针。
+     *
+     * @param workspace 被探测后端将使用的工作目录
+     * @param wsl 固定的 WSL executable 路径
+     * @param distribution 固定的 WSL distribution 名称
+     * @param docker 固定的 Docker executable 路径
+     * @param pinnedImage 带 digest 的固定容器镜像；不可用时可为空
+     */
     public LocalPlatformCapabilityProbe(
             Path workspace,
             Path wsl,

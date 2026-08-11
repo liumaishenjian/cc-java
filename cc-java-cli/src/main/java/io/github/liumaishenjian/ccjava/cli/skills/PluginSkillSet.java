@@ -32,10 +32,16 @@ public record PluginSkillSet(List<Entry> entries) {
         }
     }
 
-    /** @return 空 Plugin Skill 集合 */
+    /**
+     * 返回空 Plugin Skill 集合。
+     *
+     * @return 不含任何绑定项的不可变集合
+     */
     public static PluginSkillSet empty() { return new PluginSkillSet(List.of()); }
 
     /**
+     * Plugin snapshot 中一个已冻结正文、资源与身份摘要的 Skill 绑定项。
+     *
      * @param descriptor metadata-only 全局 Skill 描述
      * @param skillFile immutable content directory 内的 SKILL.md，仅用于来源审计
      * @param contentRoot 已验证 Plugin content root
@@ -55,6 +61,7 @@ public record PluginSkillSet(List<Entry> entries) {
             String manifestDigest, String bodyDigest, String resourcesDigest,
             String toolDigest, String hookDigest,
             String pluginTreeDigest, String pluginManifestDigest, String configDigest) {
+        /** 校验路径与全部身份摘要，并冻结正文和资源。 */
         public Entry {
             descriptor = Objects.requireNonNull(descriptor, "descriptor 不能为空");
             skillFile = Objects.requireNonNull(skillFile, "skillFile 不能为空").toAbsolutePath().normalize();

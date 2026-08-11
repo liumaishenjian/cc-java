@@ -137,7 +137,8 @@ final class CcJavaCommand implements Callable<Integer> {
         if (mode.extensionStatus || mode.trustProjectExtensions) {
             return runner.runExtensions(mode.trustProjectExtensions, overrides);
         }
-        return runner.runStdio(overrides);
+        if (mode.daemon) return runner.runDaemon(overrides);
+        return mode.stdioV1 ? runner.runStableStdio(overrides) : runner.runStdio(overrides);
     }
 
     private ExecutionShell parseExecutionShell() {
@@ -276,6 +277,16 @@ final class CcJavaCommand implements Callable<Integer> {
                 names = "--stdio",
                 description = "启动供 React/Ink TUI 使用的内部 NDJSON stdio v0")
         private boolean stdio;
+
+        @Option(
+                names = "--stdio-v1",
+                description = "启动 stable v1 NDJSON stdio；首条 initialize 需 capability token")
+        private boolean stdioV1;
+
+        @Option(
+                names = "--daemon",
+                description = "启动仅绑定 loopback 的 stable v1 daemon；stderr 一次性输出端口/token")
+        private boolean daemon;
 
         @Option(
                 names = "--extension-status",

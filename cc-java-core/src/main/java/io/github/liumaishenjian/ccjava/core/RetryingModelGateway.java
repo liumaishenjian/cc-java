@@ -101,7 +101,9 @@ public final class RetryingModelGateway implements StreamingModelGateway {
                             summary,
                             lastFailure);
                 }
-                await(policy.delayAfter(attempt), cancellation);
+                Duration policyDelay = policy.delayAfter(attempt);
+                Duration providerDelay = failure.retryAfter().orElse(Duration.ZERO);
+                await(providerDelay.compareTo(policyDelay) > 0 ? providerDelay : policyDelay, cancellation);
             }
         }
         ModelFailureSummary summary = lastFailure == null

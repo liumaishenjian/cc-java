@@ -136,7 +136,10 @@ class PluginLocalAdapterTest {
             if (Files.exists(store)) {
                 try (var paths = Files.list(store)) {
                     assertThat(paths.map(path -> path.getFileName().toString()).toList())
-                            .allMatch(name -> name.equals("registry.v1"));
+                            .allMatch(name -> name.equals("registry.v1")
+                                    || name.equals("plugin-writer.lock")
+                                    || name.equals("transactions-v1.lock")
+                                    || name.equals("transactions-v1.log"));
                 }
             }
         }

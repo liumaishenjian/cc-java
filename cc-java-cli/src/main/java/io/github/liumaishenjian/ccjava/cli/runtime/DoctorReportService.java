@@ -38,6 +38,15 @@ public final class DoctorReportService {
         HeadlessRuntimeSession.DoctorSnapshot snapshot = runtime.doctorSnapshot();
         List<SessionCommandEvent.DoctorEntry> entries = new ArrayList<>();
         snapshot.settings().ifPresent(settings -> appendSettings(entries, settings.settings()));
+        entries.add(new SessionCommandEvent.DoctorEntry(
+                "GOVERNANCE", "MANAGED", "managed-policy",
+                snapshot.governance().status().name(),
+                snapshot.governance().status()
+                        == io.github.liumaishenjian.ccjava.core.governance.ManagedPolicyStatus.FAIL_CLOSED
+                        ? "ERROR" : "INFO"));
+        snapshot.governance().gates().forEach(gate -> entries.add(
+                new SessionCommandEvent.DoctorEntry("FEATURE_GATE", gate.stability().name(), gate.id(),
+                        gate.enabled() ? "ENABLED" : "DISABLED", "INFO")));
         snapshot.instructions().ifPresent(instructions -> {
             instructions.sources().forEach(source -> entries.add(new SessionCommandEvent.DoctorEntry(
                     "INSTRUCTIONS", source.sourceKind(), source.safeId(), "PUBLISHED", "INFO")));

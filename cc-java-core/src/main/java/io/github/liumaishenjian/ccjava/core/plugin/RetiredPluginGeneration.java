@@ -11,6 +11,7 @@ import java.util.Objects;
  * @since 0.11.0
  */
 public record RetiredPluginGeneration(PluginSnapshot snapshot, long generationId) {
+    /** 校验 snapshot 存在且 generation ID 为正数。 */
     public RetiredPluginGeneration {
         snapshot = Objects.requireNonNull(snapshot, "snapshot 不能为空");
         if (generationId < 1) throw new IllegalArgumentException("generationId 必须为正数");

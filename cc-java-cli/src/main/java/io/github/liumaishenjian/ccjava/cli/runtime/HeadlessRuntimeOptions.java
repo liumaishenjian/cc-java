@@ -165,6 +165,17 @@ public record HeadlessRuntimeOptions(
 
     /**
      * 使用默认 Local/platform execution 配置的兼容构造器。
+     *
+     * @param workspace 已解析 Workspace
+     * @param model 模型 identity
+     * @param timeout Run deadline
+     * @param permissionMode 权限模式
+     * @param startupPermissionRules 可信启动规则
+     * @param sessionOpenRequest Session 选择
+     * @param sessionStoreRoot Session Store root
+     * @param contextPreparation Context 容量配置
+     * @param diagnosticMode 模型诊断模式
+     * @param diagnosticDirectory 可选诊断目录
      */
     public HeadlessRuntimeOptions(
             Path workspace,

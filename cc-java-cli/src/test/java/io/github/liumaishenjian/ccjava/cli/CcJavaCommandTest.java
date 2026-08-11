@@ -301,6 +301,30 @@ class CcJavaCommandTest {
         assertThat(runner.stdioCalls).isZero();
     }
 
+    @Test
+    void routesExplicitStableStdioWithoutChangingV0() {
+        FakeCliModeRunner stable = new FakeCliModeRunner(0, 0);
+        assertThat(execute(stable, "--stdio-v1").exitCode()).isZero();
+        assertThat(stable.stableStdioCalls).isOne();
+        assertThat(stable.stdioCalls).isZero();
+
+        FakeCliModeRunner v0 = new FakeCliModeRunner(0, 0);
+        assertThat(execute(v0, "--stdio").exitCode()).isZero();
+        assertThat(v0.stdioCalls).isOne();
+        assertThat(v0.stableStdioCalls).isZero();
+    }
+
+    @Test
+    void routesExplicitDaemonToProductionModeRunner() {
+        FakeCliModeRunner daemon = new FakeCliModeRunner(0, 0);
+
+        assertThat(execute(daemon, "--daemon").exitCode()).isZero();
+
+        assertThat(daemon.daemonCalls).isOne();
+        assertThat(daemon.stdioCalls).isZero();
+        assertThat(daemon.stableStdioCalls).isZero();
+    }
+
     private Invocation execute(FakeCliModeRunner runner, String... args) {
         StringWriter stdout = new StringWriter();
         StringWriter stderr = new StringWriter();
@@ -322,6 +346,8 @@ class CcJavaCommandTest {
         private String printPrompt;
         private CliOverrides overrides;
         private int stdioCalls;
+        private int stableStdioCalls;
+        private int daemonCalls;
         private int extensionCalls;
         private boolean extensionApprove;
 
@@ -341,6 +367,20 @@ class CcJavaCommandTest {
         public int runStdio(CliOverrides overrides) {
             this.overrides = overrides;
             stdioCalls++;
+            return stdioExitCode;
+        }
+
+        @Override
+        public int runStableStdio(CliOverrides overrides) {
+            this.overrides = overrides;
+            stableStdioCalls++;
+            return stdioExitCode;
+        }
+
+        @Override
+        public int runDaemon(CliOverrides overrides) {
+            this.overrides = overrides;
+            daemonCalls++;
             return stdioExitCode;
         }
 

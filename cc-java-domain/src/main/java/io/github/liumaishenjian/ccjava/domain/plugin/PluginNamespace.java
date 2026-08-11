@@ -7,6 +7,8 @@ public final class PluginNamespace {
     private PluginNamespace() {}
 
     /**
+     * 为 Plugin 组件生成稳定且全局唯一的名称。
+     *
      * @param pluginId Plugin 身份
      * @param kind 组件类型
      * @param componentName 组件规范名称

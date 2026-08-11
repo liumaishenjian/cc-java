@@ -13,16 +13,28 @@ public final class PluginPackageLoader {
     private final PluginManifestParser manifestParser;
     private final CanonicalPluginTree tree;
 
+    /** 创建使用生产 Manifest parser 与 canonical tree scanner 的加载器。 */
     public PluginPackageLoader() {
         this(new PluginManifestParser(), new CanonicalPluginTree());
     }
 
+    /**
+     * 创建可注入严格解析器和 tree scanner 的加载器。
+     *
+     * @param manifestParser strict plugin.json parser
+     * @param tree canonical package tree scanner
+     */
     public PluginPackageLoader(PluginManifestParser manifestParser, CanonicalPluginTree tree) {
         this.manifestParser = Objects.requireNonNull(manifestParser, "manifestParser 不能为空");
         this.tree = Objects.requireNonNull(tree, "tree 不能为空");
     }
 
-    /** 加载目录；archive、link 和非目录一律拒绝。 */
+    /**
+     * 加载 ordinary directory；archive、link 和非目录一律拒绝。
+     *
+     * @param packageDirectory 待验证的 Plugin package 目录
+     * @return 绑定 manifest 与 canonical tree identity 的 snapshot
+     */
     public PluginSnapshot load(Path packageDirectory) {
         Objects.requireNonNull(packageDirectory, "packageDirectory 不能为空");
         try {
