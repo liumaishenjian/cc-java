@@ -145,9 +145,13 @@ public final class PermissionPolicy implements PermissionGate {
                         == io.github.liumaishenjian.ccjava.domain.ToolSource.MCP
                         || definition.source()
                         == io.github.liumaishenjian.ccjava.domain.ToolSource.PLUGIN;
+                boolean controlledBuiltinWebSearch = definition.source()
+                        == io.github.liumaishenjian.ccjava.domain.ToolSource.BUILT_IN
+                        && "web_search".equals(definition.name());
+                boolean ask = trustedExternal || controlledBuiltinWebSearch;
                 yield PermissionOutcome.of(
-                        trustedExternal ? PermissionDecision.ASK : PermissionDecision.DENY,
-                        trustedExternal ? PermissionReason.EFFECT_DEFAULT : PermissionReason.HARD_DENIAL,
+                        ask ? PermissionDecision.ASK : PermissionDecision.DENY,
+                        ask ? PermissionReason.EFFECT_DEFAULT : PermissionReason.HARD_DENIAL,
                         selector);
             }
             case SYSTEM_OR_DESTRUCTIVE -> PermissionOutcome.of(

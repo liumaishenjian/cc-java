@@ -179,7 +179,7 @@ class PermissionPolicyTest {
     }
 
     @Test
-    void defaultHardDenialAllowsOnlyMcpAndPluginNetworkToReachApproval() {
+    void defaultHardDenialAllowsTrustedExternalAndControlledBuiltinSearchToReachApproval() {
         PermissionPolicy policy = new PermissionPolicy(
                 PermissionMode.DEFAULT,
                 List.of(),
@@ -195,6 +195,10 @@ class PermissionPolicyTest {
                 invocation("plugin__alpha__tool-provider__remote__search", Map.of()),
                 definition("plugin__alpha__tool-provider__remote__search",
                         ToolEffect.NETWORK_OR_REMOTE, ToolSource.PLUGIN)).decision())
+                .isEqualTo(PermissionDecision.ASK);
+        assertThat(policy.evaluate(
+                invocation("web_search", Map.of("query", "bounded")),
+                definition("web_search", ToolEffect.NETWORK_OR_REMOTE, ToolSource.BUILT_IN)).decision())
                 .isEqualTo(PermissionDecision.ASK);
         assertThat(policy.evaluate(
                 invocation("fake_network", Map.of()),

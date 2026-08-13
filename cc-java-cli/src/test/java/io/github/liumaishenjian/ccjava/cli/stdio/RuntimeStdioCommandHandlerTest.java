@@ -1248,6 +1248,66 @@ class RuntimeStdioCommandHandlerTest {
     }
 
     @Test
+    void providerControlAddsRemovesModelsAndOnlyPersistsExplicitUseDefault() throws Exception {
+        Path home = Files.createDirectory(temporaryRoot.resolve("provider-home"));
+        Path repository = Files.createDirectory(temporaryRoot.resolve("provider-repository"));
+        var credentials = new io.github.liumaishenjian.ccjava.cli.auth.RestrictedFileCredentialStore(home);
+        var definitions = new io.github.liumaishenjian.ccjava.cli.provider.ProviderDefinitionStore(home);
+        var migration = new io.github.liumaishenjian.ccjava.cli.auth.LegacyCredentialMigrationService(
+                new io.github.liumaishenjian.ccjava.cli.auth.LegacyProviderConfigurationReader(repository),
+                definitions, credentials);
+        var service = new io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService(
+                definitions, credentials, migration, java.util.Map.of("CC_TEST", "value"));
+        service.login(new io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService.LoginRequest(
+                "anthropic", "personal", io.github.liumaishenjian.ccjava.cli.runtime
+                        .ProviderAuthApplicationService.RefKind.ENV, "CC_TEST", true), null,
+                io.github.liumaishenjian.ccjava.core.CancellationToken.none());
+        var application = new io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeSession(
+                ignored -> ModelTurn.text("unused"), io.github.liumaishenjian.ccjava.core.AgentEventSink.noop(),
+                testOptions());
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(application, service)) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\","
+                            + "\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(providerControl(sessionId, 2, "add-remove", "models.add",
+                    "{\"providerId\":\"openrouter\",\"modelId\":\"stdio-remove\"}")), emitter);
+            handler.handle(codec.decodeCommand(providerControl(sessionId, 3, "remove", "models.remove",
+                    "{\"providerId\":\"openrouter\",\"modelId\":\"stdio-remove\"}")), emitter);
+            handler.handle(codec.decodeCommand(providerControl(sessionId, 4, "add", "models.add",
+                    "{\"providerId\":\"anthropic\",\"modelId\":\"stdio-overlay\"}")), emitter);
+            handler.handle(codec.decodeCommand(providerControl(sessionId, 5, "use-session", "models.use",
+                    "{\"providerId\":\"anthropic\",\"modelId\":\"stdio-overlay\","
+                            + "\"profileId\":\"personal\"}")), emitter);
+            assertThat(definitions.snapshot(io.github.liumaishenjian.ccjava.core.CancellationToken.none())
+                    .defaultSelection()).isEmpty();
+            handler.handle(codec.decodeCommand(providerControl(sessionId, 6, "use-default", "models.use",
+                    "{\"providerId\":\"anthropic\",\"modelId\":\"stdio-overlay\","
+                            + "\"profileId\":\"personal\",\"setDefault\":true}")), emitter);
+            assertThat(definitions.snapshot(io.github.liumaishenjian.ccjava.core.CancellationToken.none())
+                    .defaultSelection()).get()
+                    .extracting(io.github.liumaishenjian.ccjava.cli.provider.ProviderDefinitionStore
+                            .DefaultSelection::modelId).isEqualTo("stdio-overlay");
+            assertThat(events.stream().filter(event -> event.type().equals("provider.control.result")))
+                    .hasSize(5).allSatisfy(event -> assertThat(event.payload().get("status").stringValue())
+                            .isEqualTo("succeeded"));
+        }
+    }
+
+    private static String providerControl(String sessionId, int sequence, String controlId,
+                                          String intent, String arguments) {
+        return ("{\"version\":0,\"type\":\"provider.control\",\"requestId\":\"request-%d\","
+                + "\"sessionId\":\"%s\",\"sequence\":%d,\"payload\":{\"controlId\":\"%s\","
+                + "\"intent\":\"%s\",\"arguments\":%s}}")
+                .formatted(sequence, sessionId, sequence, controlId, intent, arguments);
+    }
+
+    @Test
     void fileSuggestEmitsBoundedCandidatesWithoutRunOrModelWork() throws Exception {
         Path workspace = workspace();
         Files.createDirectories(workspace.resolve("src"));

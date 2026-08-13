@@ -33,12 +33,26 @@ public final class OpenAiCompatibleModelFactory {
      * @return Spring AI OpenAI ChatModel
      */
     public ChatModel create(OpenAiCompatibleSettings settings) {
+        return create(settings, java.util.Map.of(), Duration.ofMinutes(30));
+    }
+
+    /**
+     * 使用 definition 指定的非认证 Header 与请求 timeout 创建 ChatModel。
+     *
+     * @param settings 已校验且字符串表示脱敏的本地设置
+     * @param staticHeaders 随请求发送的非认证静态 Header
+     * @param requestTimeout 单次 Provider 请求的超时时间
+     * @return 仅执行单个模型回合的 Spring AI ChatModel
+     */
+    public ChatModel create(OpenAiCompatibleSettings settings, java.util.Map<String, String> staticHeaders,
+                            Duration requestTimeout) {
         Objects.requireNonNull(settings, "settings 不能为空");
         OpenAiChatOptions options = OpenAiChatOptions.builder()
                 .baseUrl(chatApiBaseUrl(settings.baseUrl()))
                 .apiKey(settings.apiKey())
                 .model(settings.model())
-                .timeout(Duration.ofMinutes(30))
+                .customHeaders(java.util.Map.copyOf(Objects.requireNonNull(staticHeaders, "staticHeaders 不能为空")))
+                .timeout(Objects.requireNonNull(requestTimeout, "requestTimeout 不能为空"))
                 .streamUsage(true)
                 .maxRetries(0)
                 .build();

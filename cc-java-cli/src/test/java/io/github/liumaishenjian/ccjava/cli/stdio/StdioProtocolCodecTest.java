@@ -154,6 +154,30 @@ class StdioProtocolCodecTest {
     }
 
     @Test
+    void providerControlModelOverlaySchemaIsStrictAndSecretFree() throws Exception {
+        assertThat(codec.decodeCommand("""
+                {"version":0,"type":"provider.control","requestId":"p-1","sessionId":"session-1",
+                 "sequence":2,"payload":{"controlId":"control-1","intent":"models.add",
+                 "arguments":{"providerId":"anthropic","modelId":"overlay","setDefault":true}}}
+                """).payload().get("intent").stringValue()).isEqualTo("models.add");
+        assertThat(codec.decodeCommand("""
+                {"version":0,"type":"provider.control","requestId":"p-2","sessionId":"session-1",
+                 "sequence":3,"payload":{"controlId":"control-2","intent":"models.remove",
+                 "arguments":{"providerId":"anthropic","modelId":"overlay"}}}
+                """).payload().get("intent").stringValue()).isEqualTo("models.remove");
+        assertProtocolError("""
+                {"version":0,"type":"provider.control","requestId":"p-3","sessionId":"session-1",
+                 "sequence":4,"payload":{"controlId":"control-3","intent":"models.add",
+                 "arguments":{"providerId":"anthropic","modelId":"overlay","apiKey":"secret"}}}
+                """, "UNKNOWN_FIELD");
+        assertProtocolError("""
+                {"version":0,"type":"provider.control","requestId":"p-4","sessionId":"session-1",
+                 "sequence":5,"payload":{"controlId":"control-4","intent":"models.use",
+                 "arguments":{"providerId":"anthropic","modelId":"overlay","setDefault":"yes"}}}
+                """, "INVALID_ARGUMENT");
+    }
+
+    @Test
     void encodesEventWithoutNullOptionalIds() throws Exception {
         ObjectNode payload = codec.objectNode();
         payload.put("protocolVersion", 0);

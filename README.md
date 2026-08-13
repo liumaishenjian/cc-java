@@ -49,7 +49,8 @@
 > Workspace-aware metadata、本机单 Writer、未完成 Tool Recovery Gate、写前 ordinary-file
 > Checkpoint、有界 Diff 与逐项显式 Undo；Java CLI/Print/stdio/TUI 共用同一 Runtime，Behavior Replay
 > 已验证 Resume/Fork canonical history。任何有副作用操作都绝不自动重放；`SESSION-08` 仍仅为 L1；
-> S07 Context Engineering 已在 Commit-scoped G0-G6 对账后 Accepted：生产路径提供短生命周期 Context Projection、条件式 C1-C4、typed overflow 至多一次恢复、内部 Usage View、M1-M5 文件记忆及 ready-only 零等待预取；离线长会话 Eval 保持 Canonical/Tool 协议、事实/硬约束与完成率，并取得 49% 的估算 Token 降幅中位数。S08 已在 corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 上完成 ADR-048 G0-G6；ADR-049 的 Workspace-safe `@file` 候选、提交时快照、Session Resume/Fork、模型附件投影与 TUI token 补全又在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6，`CLI-13`/`CTX-19` 达到 L2，S08 保持 Accepted。S09 现已完成严格 user/project Settings、精确指纹 Trust、Command/loopback HTTP、生命周期、Compact 与 transient Context Projection，G0-G6 Accepted。S10 新增隔离的 `cc-java-mcp` Adapter，STDIO/Streamable HTTP、多 Server、filter/prefix、统一 Permission/Approval/Pipeline、Trust 与单次断线恢复均通过真实 Transport 和 Headless E2E，Tool 主链 G0-G6 Accepted；S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，Stage Exit Accepted；`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1。Maven 813 tests/21 skips、Demo 67/67、TUI 129/129、launcher 59/59 与 Dashboard 均通过。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit；标准 clean verify 838 tests/21 skips、TUI 133/133、launcher 59 assertions 与 Dashboard 均通过。`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1；Worktree reparse、Git fault/timeout 与 Windows remove/branch-lock cancellation recovery 仍是明确 gap。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit，状态为 Accepted：框架无关 `ExecutionBackend`/五维 policy、明确 UNSANDBOXED Local、WSL2 Ubuntu+bwrap 0.4.0 Linux A、Docker daemon+pinned-image B、native Windows process/env B（file/network U）、显式 LINUX_SH/后端 CLI、真实攻击回归、Command Hook/MCP stdio managed seam 与 root/child execution composition 均已验证。标准 clean verify 为 851 tests/29 skips，TUI 133/133、launcher 59 assertions，真实 selector 5/5 + attack 8/8 共 13/13；首次真实测试因 Docker daemon 未运行导致 5 个 Docker 用例失败，启动 Docker Desktop（daemon 26.1.4）后完整通过，测试后 `cc-java.s13=true` residue 为 0。`SEC-02/03/04/05/06/07/12` 与 `EVAL-04` 为 L2，`SEC-08` 为 L1；S14 后 `CFG-07` 为 L1，`PERM-05/SEC-11` 保持 L0、`HOOK-10` 保持 L1。Permission、Checkpoint、Worktree、Job cleanup、最小环境和 Local backend 不得描述为 OS Sandbox；JVM 内 HTTP、Marketplace、完整签名身份、Lazy Tool、Resource/Prompt 自动投影与 OAuth 仍明确未实现。S14 已在实现 Commit `dff814c1bb5a659979e007061e6d10a0a9ff6e82` 上完成 Provider/Eval/OTel、stable v1/SDK/Daemon/Session Lifecycle、Managed/Plugin Recovery/Distribution 三个 Batch的 Commit-scoped G0-G6，Stage Exit Accepted with documented deviations。真实 Anthropic、双 Provider 重复、WSL JDK21、macOS/Native Image 与已发布 N-1 artifact 尚无证据，相关 L3 不宣称；License 未决只生成本地/CI artifact，不公开 Release。
+> S07 Context Engineering 已在 Commit-scoped G0-G6 对账后 Accepted：生产路径提供短生命周期 Context Projection、条件式 C1-C4、typed overflow 至多一次恢复、内部 Usage View、M1-M5 文件记忆及 ready-only 零等待预取；离线长会话 Eval 保持 Canonical/Tool 协议、事实/硬约束与完成率，并取得 49% 的估算 Token 降幅中位数。S08 已在 corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 上完成 ADR-048 G0-G6；ADR-049 的 Workspace-safe `@file` 候选、提交时快照、Session Resume/Fork、模型附件投影与 TUI token 补全又在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6，`CLI-13`/`CTX-19` 达到 L2，S08 保持 Accepted。S09 现已完成严格 user/project Settings、精确指纹 Trust、Command/loopback HTTP、生命周期、Compact 与 transient Context Projection，G0-G6 Accepted。S10 新增隔离的 `cc-java-mcp` Adapter，STDIO/Streamable HTTP、多 Server、filter/prefix、统一 Permission/Approval/Pipeline、Trust 与单次断线恢复均通过真实 Transport 和 Headless E2E，Tool 主链 G0-G6 Accepted；S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，Stage Exit Accepted；`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1。Maven 813 tests/21 skips、Demo 67/67、TUI 129/129、launcher 59/59 与 Dashboard 均通过。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit；标准 clean verify 838 tests/21 skips、TUI 133/133、launcher 59 assertions 与 Dashboard 均通过。`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1；Worktree reparse、Git fault/timeout 与 Windows remove/branch-lock cancellation recovery 仍是明确 gap。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit，状态为 Accepted：框架无关 `ExecutionBackend`/五维 policy、明确 UNSANDBOXED Local、WSL2 Ubuntu+bwrap 0.4.0 Linux A、Docker daemon+pinned-image B、native Windows process/env B（file/network U）、显式 LINUX_SH/后端 CLI、真实攻击回归、Command Hook/MCP stdio managed seam 与 root/child execution composition 均已验证。标准 clean verify 为 851 tests/29 skips，TUI 133/133、launcher 59 assertions，真实 selector 5/5 + attack 8/8 共 13/13；首次真实测试因 Docker daemon 未运行导致 5 个 Docker 用例失败，启动 Docker Desktop（daemon 26.1.4）后完整通过，测试后 `cc-java.s13=true` residue 为 0。`SEC-02/03/04/05/06/07/12` 与 `EVAL-04` 为 L2，`SEC-08` 为 L1；S14 后 `CFG-07` 为 L1，`PERM-05/SEC-11` 保持 L0、`HOOK-10` 保持 L1。Permission、Checkpoint、Worktree、Job cleanup、最小环境和 Local backend 不得描述为 OS Sandbox；JVM 内 HTTP、Marketplace、完整签名身份、Lazy Tool、Resource/Prompt 自动投影与 OAuth 仍明确未实现。S14 已在实现 Commit `dff814c1bb5a659979e007061e6d10a0a9ff6e82` 上完成 Provider/Eval/OTel、stable v1/SDK/Daemon/Session Lifecycle、Managed/Plugin Recovery/Distribution 三个 Batch的 Commit-scoped G0-G6，Stage Exit Accepted with documented deviations。真实 Anthropic、双 Provider 重复、WSL JDK21、macOS/Native Image 与已发布 N-1 artifact 尚无证据，相关 L3 不宣称；License 未决只生成本地/CI artifact，不公开 Release。S15 当前 `IN_PROGRESS/OPEN`：第一优先级 TOOL-18 已完成工作树 G0-G5，新增显式本地 Provider gate 的 BUILT_IN `web_search`；它通过固定 Exa/Parallel hosted MCP JSON-RPC `tools/call`（Exa no-key/编码 query-key、Parallel Bearer），逐次经过 Network Permission/Approval、Hook、唯一 Pipeline 与 NetworkAccessPort，只接受严格 JSON/SSE media type，返回有界 external/untrusted textual content 且不抓取页面。2026-08-12 真实 Exa smoke 与安装版 `codej --print` 杭州天气 E2E 已证明 Tool call、Call ID 和 durable lifecycle；查询会发送给所选第三方。该应用层控制不是 OS Sandbox，也不构成 S15 L4 或 Stage Accepted。
+> MODEL-13 已完成当前工作树的本地 BYOK L1 切片：提供 masked Console `/connect`，以及 CLI/TUI/stdio 共用的 `auth`、`providers`、`models` 控制面；凭证只引用 restricted 普通文件 STORE 或显式环境变量，OpenAI-compatible、Anthropic、OpenRouter 三类 factory、显式 probe、带 active-run fence/drain 的本地 logout 和严格 `modelOverrides` 已接入生产链路。尚无至少两个 distinct Provider 的真实 BYOK text stream、Tool call、cancel、auth-negative E2E，也未实现 remote model sync，因此 `MODEL-13` 仅为 L1，S15 Stage Exit 保持 `OPEN`。
 
 ## 项目目标
 
@@ -85,8 +86,8 @@ Stage 证据为准。
 | L3 | 关键行为和异常路径可与参考基线比较 |
 | L4 | 在评测数据支持下形成 Java 生态差异化 |
 
-R2026.03 基线目前追踪 197 个 Capability ID。S01-S14 已完成 Accepted Stage Exit；当前
-150 项为 L2、37 项为 L1、10 项为 L0。S13 只确认 Linux A、Container B、native Windows
+R2026.03 基线目前追踪 198 个 Capability ID。S01-S14 已完成 Accepted Stage Exit；当前
+151 项为 L2、38 项为 L1、9 项为 L0。S13 只确认 Linux A、Container B、native Windows
 process/env B（file/network U）及其对应 L2/L1 能力；这不表示已有全平台同等级 OS Sandbox。
 S14 已在实现 Commit `dff814c1bb5a659979e007061e6d10a0a9ff6e82` 上完成 Commit-scoped
 G0-G6 与 Stage Exit（Accepted with documented deviations）：12 seed×5 的 60 个真实
@@ -305,7 +306,19 @@ pwsh -NoProfile -File .\scripts\InstallCodejDevCommand.ps1 `
 
 ### 填写本机模型配置
 
-每台电脑在仓库内填写一次 Git 忽略文件：
+个人用户推荐直接通过本地命令入口连接并选择模型；交互 TUI 也可使用 masked `/connect`，输入的 API key 不回显。以下示例只展示命令结构，不包含真实凭证：
+
+```powershell
+codej auth login --provider anthropic --profile personal --set-default
+codej auth login --provider openrouter --profile personal --from-env OPENROUTER_API_KEY --set-default
+codej providers list
+codej models list --provider anthropic
+codej models use --provider anthropic --model claude-sonnet-4-6 --profile personal
+```
+
+不带 `--from-env` 时，`auth login` 从 masked Console 读取并保存到权限受限的本地普通文件 STORE；环境变量方式只保存变量名。可用 `codej auth probe` 显式探测连接，或用带 `--yes` 的 `codej auth logout` 删除本地凭证（不会吊销 Provider 侧凭证）。
+
+原有 legacy properties 入口继续保留为最低优先级兼容配置。每台电脑也可在仓库内填写一次 Git 忽略文件：
 
 ```text
 config/provider.local.properties

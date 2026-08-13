@@ -8,3 +8,9 @@ openai.model=
 anthropic.base-url=
 anthropic.api-key=
 anthropic.model=
+
+# Optional S15 controlled hosted MCP search; disabled by default and credentials stay empty.
+# Supported providers: exa (works without a key; optional key uses provider-fixed query auth) or parallel (Bearer).
+web-search.enabled=
+web-search.provider=
+web-search.api-key=

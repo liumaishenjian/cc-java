@@ -35,6 +35,8 @@ final class DefaultCliModeRunner implements CliModeRunner {
     private final PrintWriter printOutput;
     private final PrintWriter errorOutput;
     private final ProviderSettingsLoader settingsLoader = new ProviderSettingsLoader();
+    private final Path userHome;
+    private final java.util.Map<String, String> environment;
 
     DefaultCliModeRunner(
             Path repositoryRoot,
@@ -47,6 +49,17 @@ final class DefaultCliModeRunner implements CliModeRunner {
         this.output = Objects.requireNonNull(output, "output 不能为空");
         this.printOutput = Objects.requireNonNull(printOutput, "printOutput 不能为空");
         this.errorOutput = Objects.requireNonNull(errorOutput, "errorOutput 不能为空");
+        this.userHome = Path.of(Objects.requireNonNull(System.getProperty("user.home"), "user.home 不能为空"));
+        this.environment = java.util.Map.copyOf(System.getenv());
+    }
+
+    /** 包级测试 seam：固定 user home 与环境快照，避免访问宿主 credential。 */
+    DefaultCliModeRunner(Path repositoryRoot, InputStream input, OutputStream output, PrintWriter printOutput,
+                         PrintWriter errorOutput, Path userHome, java.util.Map<String, String> environment) {
+        this.repositoryRoot=Objects.requireNonNull(repositoryRoot); this.input=Objects.requireNonNull(input);
+        this.output=Objects.requireNonNull(output); this.printOutput=Objects.requireNonNull(printOutput);
+        this.errorOutput=Objects.requireNonNull(errorOutput); this.userHome=Objects.requireNonNull(userHome);
+        this.environment=java.util.Map.copyOf(Objects.requireNonNull(environment));
     }
 
     @Override
@@ -62,23 +75,12 @@ final class DefaultCliModeRunner implements CliModeRunner {
         try {
             PreparedRun prepared = prepare(overrides);
             PrintEventSink events = new PrintEventSink(printOutput);
-            try (HeadlessRuntimeSession application =
-                         new HeadlessRuntimeSession(
-                                 prepared.settings(),
-                                 events,
-                                 new HeadlessRuntimeOptions(
-                                         prepared.workspace(),
-                                         prepared.settings().model(),
-                                         overrides.timeout(),
-                                         overrides.permissionMode(),
-                                         java.util.List.of(),
-                                         overrides.sessionOpenRequest(),
-                                         SessionStorage.defaultRoot(),
-                                         overrides.contextPreparation(),
-                                         overrides.diagnosticMode(),
-                                         overrides.diagnosticDirectory(),
-                                         overrides.executionBackend(),
-                                         overrides.executionShell()))) {
+            try (var auth = io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthRuntimeResources.open(
+                    userHome, repositoryRoot, environment);
+                 HeadlessRuntimeSession application = selectedSession(
+                         auth, prepared, overrides, events,
+                         (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                                 io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny())) {
                 application.open();
                 Thread shutdownHook = Thread.ofPlatform()
                         .name("cc-java-print-cancel")
@@ -126,19 +128,17 @@ final class DefaultCliModeRunner implements CliModeRunner {
         Objects.requireNonNull(overrides, "overrides 不能为空");
         try {
             PreparedRun prepared = prepare(overrides);
-            RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(
-                    prepared.settings(),
-                    prepared.workspace(),
-                    overrides.timeout(),
-                    overrides.permissionMode(),
-                    overrides.sessionOpenRequest(),
-                    overrides.contextPreparation(),
-                    overrides.diagnosticMode(),
-                    overrides.diagnosticDirectory(),
-                    overrides.executionBackend(),
-                    overrides.executionShell());
-            StdioProtocolServer.ExitReason reason =
-                    new StdioProtocolServer(input, output, handler).run();
+            StdioProtocolServer.ExitReason reason;
+            try (var auth = io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthRuntimeResources.open(
+                    userHome, repositoryRoot, environment)) {
+                HeadlessRuntimeSession application = selectedSession(auth, prepared, overrides,
+                        io.github.liumaishenjian.ccjava.core.AgentEventSink.noop(),
+                        (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                                io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny());
+                try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(application, auth.service())) {
+                    reason = new StdioProtocolServer(input, output, handler).run();
+                }
+            }
             return reason == StdioProtocolServer.ExitReason.INTERNAL_ERROR
                     ? CliExitCode.RUNTIME_FAILURE
                     : CliExitCode.SUCCESS;
@@ -217,6 +217,27 @@ final class DefaultCliModeRunner implements CliModeRunner {
         }
     }
 
+    private HeadlessRuntimeSession selectedSession(
+            io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthRuntimeResources auth,
+            PreparedRun prepared, CliOverrides overrides, io.github.liumaishenjian.ccjava.core.AgentEventSink events,
+            io.github.liumaishenjian.ccjava.core.ApprovalHandler approvals) {
+        if (auth.service().effectiveSelection().isPresent()) {
+            var selected = auth.service().effectiveSelection().orElseThrow();
+            HeadlessRuntimeOptions options = new HeadlessRuntimeOptions(
+                    prepared.workspace(), selected.modelId(), overrides.timeout(), overrides.permissionMode(),
+                    java.util.List.of(), overrides.sessionOpenRequest(), SessionStorage.defaultRoot(),
+                    overrides.contextPreparation(), overrides.diagnosticMode(), overrides.diagnosticDirectory(),
+                    overrides.executionBackend(), overrides.executionShell());
+            return HeadlessRuntimeSession.production(auth.modelGateway(), events, options, approvals);
+        }
+        OpenAiCompatibleSettings legacy = prepared.settings();
+        if (legacy == null) {
+            legacy = settingsLoader.load(repositoryRoot);
+            if (overrides.model().isPresent()) legacy = legacy.withModel(overrides.model().orElseThrow());
+            prepared = new PreparedRun(prepared.workspace(), legacy);
+        }
+        return new HeadlessRuntimeSession(legacy, events, runtimeOptions(prepared, overrides), approvals);
+    }
     private HeadlessRuntimeOptions runtimeOptions(PreparedRun prepared, CliOverrides overrides) {
         return new HeadlessRuntimeOptions(
                 prepared.workspace(), prepared.settings().model(), overrides.timeout(),
@@ -268,9 +289,12 @@ final class DefaultCliModeRunner implements CliModeRunner {
 
     private PreparedRun prepare(CliOverrides overrides) {
         Path workspace = resolveWorkspace(overrides);
-        OpenAiCompatibleSettings settings = settingsLoader.load(repositoryRoot);
-        if (overrides.model().isPresent()) {
-            settings = settings.withModel(overrides.model().orElseThrow());
+        OpenAiCompatibleSettings settings = null;
+        try {
+            settings = settingsLoader.load(repositoryRoot);
+            if (overrides.model().isPresent()) settings = settings.withModel(overrides.model().orElseThrow());
+        } catch (ProviderConfigurationException absentOrInvalidLegacy) {
+            // BYOK selection 不依赖 legacy provider.local.properties；只有未选择时才重抛。
         }
         return new PreparedRun(workspace, settings);
     }

@@ -4,7 +4,7 @@
 >
 > 参考版本：R2026.03
 >
-> 最后更新：2026-08-10
+> 最后更新：2026-08-14
 >
 > 当前代码状态：S01-S07 已 Accepted；S07 的 Canonical Transcript/Projection、条件式 C1-C4、文件记忆
 > M1-M5、ready-only 零等待预取、内部 Usage View 与 latest-only Recovery Analytics 已在离线 Fake、Demo、
@@ -46,6 +46,10 @@
 | REF-07 | [Claude Code 官方 Hooks](https://code.claude.com/docs/en/hooks) | 官方产品文档，候选公开行为 |
 | REF-08 | [Spring AI Tool Calling](https://docs.spring.io/spring-ai/reference/api/tools.html) | 官方框架文档，只约束 Java Adapter |
 | AUTH-01 | [已授权参考源码 `AUTH-SRC-2026-07-29-A`](./reference-baselines/R2026.03-authorized-source.md) | 仓库外只读机制研究；禁止复制、翻译、依赖或再发布；Revision/License 仍为 `Unknown` |
+| OPENCODE-0d927ba | [OpenCode 官方公开仓库](https://github.com/anomalyco/opencode/tree/0d927ba03f36d7f87e3cdb2b6c1f34c44913a099) | 固定 commit/tree 的 hosted MCP Web Search 机制研究；MIT；只抽象行为与职责，不复制源码表达 |
+| OPENCODE-DOC-20260813 | [OpenCode Providers](https://opencode.ai/docs/providers)、[CLI](https://opencode.ai/docs/cli/) | 维护者已核验的官方 Documented 输入：connect/auth/models 与 config/credential 分离；本轮未联网归档 |
+| OPENCLAW-DOC-20260813 | [OpenClaw Gateway Authentication](https://docs.openclaw.ai/gateway/authentication) | 维护者已核验的官方 Documented 输入：profile/status/probe/SecretRef/logout；不照搬 Gateway/SQLite/rotation |
+| CODEX-0.147 | 本地公开 Codex `0.147.0`，commit `be6e8eac029b183056b7e4402879f15d2c85f61b` | Apache-2.0；只读抽象 auth store/manager、provider config 与 model selection，不复制表达 |
 | QUARANTINE-01 | [历史隔离记录 `UNVERIFIED-SRC-2026-03-31-A`](./reference-baselines/R2026.03-unverified-source.md) | 已被 AUTH-01 与 ADR-022 取代，仅用于审计此前为何暂停 |
 
 完整来源 Manifest 和可复现限制见
@@ -160,13 +164,13 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 
 | 指标 | R2026.03 当前值 |
 | --- | --- |
-| 纳入追踪的 Capability ID | 197 |
-| 当前阶段 | S14 Production Harness ACCEPTED（with documented deviations） |
-| Stage Exit | S01-S14 Accepted；S14 implementation Commit `dff814c1bb5a659979e007061e6d10a0a9ff6e82` 已完成 Commit-scoped G0-G6 |
-| 当前等级 | 150 项为 L2，37 项为 L1，10 项为 L0 |
-| 默认最终目标 | 197 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 57.02%（197 项加权、按各 Feature 目标等级计算） |
-| 下一步 | 进入 S15 规划：冻结创新假设、A/B Eval、收益/成本/安全阈值与 L4 证据计划；S14 documented deviations 继续保留 |
+| 纳入追踪的 Capability ID | 198 |
+| 当前阶段 | S15 Independent Innovation `IN_PROGRESS`（TOOL-18 保持 L2；MODEL-13 工作树实现达到 L1） |
+| Stage Exit | S01-S14 Accepted；S15 `OPEN`，不得由 TOOL-18 或 MODEL-13 单项进展推断 Stage Accepted |
+| 当前等级 | 151 项为 L2，38 项为 L1，9 项为 L0 |
+| 默认最终目标 | 198 项达到 L3，或存在明确 `Accepted Deviation` |
+| 当前能力覆盖 | 57.24%（198 项加权、按各 Feature 目标等级计算；MODEL-13 从 L0 提升至 L1，使总权重增加 1/594） |
+| 下一步 | MODEL-13 提交前保持 G6 OPEN；补齐至少两个 distinct Provider 的真实 BYOK text stream、Tool call、cancel 与 auth-negative 证据后，才评估 L2 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -300,6 +304,7 @@ Stage 完成项。
 | MODEL-10 | Rate Limit / Retry | ModelGatewayException typed Retry-After 已由 Adapter 解析并由 production ProviderRouter 在每请求 fresh shared deadline/cancel/attempt/cost budget 内有界消费；第三方 SDK 完整控制仍是 gap | L2 | S14 | REF-01/AUTH-01 |
 | MODEL-11 | Cost Budget | Provider Usage + 可信版本化价格才计算 ModelCost；Router 支持保守 attempt cost unit 上限，未知价格不伪造，精确执行中 token/cost 结算仍缺 | L2 | S14 | REF-01/AUTH-01 |
 | MODEL-12 | Capability Detection | configured/observed/effective 三层保守 snapshot；Unknown 不视为支持 | L2 | S14 | REF-02/AUTH-01/CODEX-0.147 |
+| MODEL-13 | Provider Auth / Credential Profiles | 已实现本地直连 BYOK：非秘密 ProviderDefinition 与 CredentialProfile/SecretRef 分离；OpenAI-compatible、Anthropic、OpenRouter；user-level restricted-file store、env/store、显式 profile>default>env>legacy、CLI/TUI 共用 service、local status/显式 probe、logout active-run fence、非破坏迁移；禁止 secret durable/argv/evidence 与 silent rotation/failover，OAuth 仅留官方扩展；工作树 G0-G4 已通过，G5 仅有离线 Demo，双 Provider 在线证据缺失，提交前 G6 OPEN | L1 | S15 | AUTH-01/CODEX-0.147/OPENCODE-DOC-20260813/OPENCLAW-DOC-20260813 |
 
 ## 10. Tool System 对照
 
@@ -322,7 +327,7 @@ Stage 完成项。
 | TOOL-15 | 并行安全工具 | 白名单 READ_WORKSPACE 同批并发已接入完整 AgentRuntime batch 与唯一 Pipeline，稳定按原 Call ID/顺序归并并覆盖取消收敛和真实墙钟门槛 | L2 | S12 | REF-01 |
 | TOOL-16 | Tool Search / Lazy Schema | 大工具集按需加载 | L0 | S10/S11 | REF-02/03 |
 | TOOL-17 | Code Intelligence | LSP / Symbol Tool | L0 | S14/S15 | REF-02/03 |
-| TOOL-18 | Web Tool | 可控网络检索 | L0 | S14 | REF-02 |
+| TOOL-18 | Web Tool | 显式 Exa/Parallel hosted MCP Provider gate、Exa no-key/编码 query-key、Parallel Bearer、JSON-RPC `tools/call`、严格 query/result schema 与 JSON/SSE media type、有界 external/untrusted content、逐次 NetworkAccessPort 与唯一 Permission/Approval/Hook/Pipeline；loopback 故障/secret 矩阵及真实 Exa/codej 天气 E2E；只搜索不抓取页面 | L2 | S15 | REF-02/AUTH-01/OPENCODE-0d927ba |
 
 ## 11. Permission 对照
 
@@ -779,6 +784,10 @@ ADR-063/064 冻结的范围已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776
 固定实现已完成 production OTel、stable protocol/SDK/daemon、Provider composition、Plugin registry migration 与本地发行/rollback 验证。第二次完整 clean verify 为 911 tests/10 skips；第一次完整验证仅历史 AgentRuntime cancellation 2 秒窗口偶发 timeout，同一用例立即隔离重跑 1/1 通过，随后完整重跑通过。无真实 Anthropic、已发布 N-1、WSL JDK21、macOS/Native Image/公共更新服务继续作为 documented deviation；`CFG-07`、`SESSION-14` 等保持表内 L0/L1，不宣称 L3。
 
 ### S15：Independent Innovation
+
+状态：`IN_PROGRESS`，Stage Exit `OPEN`。ADR-067/068 已完成 TOOL-18 OpenCode 固定公开 revision 研究与独立 Java 契约；`cc-java-tools-web`、Headless production composition、真实 JDK loopback、Permission/NetworkAccess/JSON-RPC/JSON/SSE/cancel/隐私矩阵与 Demo 形成工作树 G0-G5 verified，使 `TOOL-18 L0 → L2`。2026-08-12 真实 Exa hosted MCP smoke 和安装版 `codej --print` 杭州天气 E2E 均通过，Tool started/completed 各一次且 Call ID 匹配。该工具是参考差距补齐，不是 L4 创新收益证据；不支持 WebFetch/任意 URL，NetworkAccessPort 也不是 OS Sandbox。完整 S15 仍须完成创新 A/B Eval、收益/成本/安全阈值和 commit-scoped G6。
+
+ADR-069/070 冻结的 `MODEL-13` Provider/Auth 受控双源研究与契约已在工作树完成本地实现：本地直连 BYOK，不建设官方中转 Gateway；ProviderDefinition 与多 CredentialProfile/SecretRef 分离，覆盖 OpenAI-compatible、Anthropic、OpenRouter，提供 `/connect`、`/auth list/logout`、`/models` 及 headless 对等入口。list/status 零网络，probe 显式有界；profile 优先级为显式→default→env→legacy，logout 对同进程 active run 建 fence/cancel/drain 并明确不等于 Provider revoke。secret 不进入 Domain/Session/log/event/error/argv/evidence；普通文件只能称权限受限存储；不实现 silent rotation/failover、Gateway、SQLite 或通用 OAuth。工作树 G0-G4 已通过，`MODEL-13` 达到 L1；G5 仅有离线 Demo，双 Provider 在线证据仍缺失，不得虚报；提交前 G6 保持 OPEN，S15 Stage Exit 仍为 OPEN。
 
 前置条件：
 

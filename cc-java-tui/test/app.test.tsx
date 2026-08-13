@@ -14,10 +14,12 @@ import {
   decideInterrupt,
   editInput,
   MAX_INPUT_CHARS,
+  renderProviderControlResult,
   undoConfirmation,
 } from '../src/app.js';
 import type {AgentClient} from '../src/app.js';
 import type {ProtocolEvent} from '../src/protocol.js';
+import type {ProviderLoginRequest, ProviderLoginResult} from '../src/stdio-client.js';
 import type {TuiState} from '../src/state.js';
 
 const SHIFT_ENTER = String.fromCharCode(27) + '[13;2u';
@@ -789,6 +791,134 @@ function initialCheckpointState(): TuiState {
   };
 }
 
+  it('Provider 控制完整展示 list、probe、selection、logout 和结构化错误', () => {
+    expect(renderProviderControlResult('auth.list', 'succeeded', 'OK', {profiles: [{
+      providerId: 'anthropic', profileId: 'personal', authMethod: 'API_KEY', refKind: 'ENV',
+      localStatus: 'AVAILABLE_LOCAL', providerDefault: true, lastProbeCode: 'SUCCESS',
+    }]})).toContain('API_KEY/ENV · AVAILABLE_LOCAL · 默认 · 探测 SUCCESS');
+    expect(renderProviderControlResult('models.list', 'succeeded', 'OK', {models: [{
+      providerId: 'anthropic', modelId: 'claude-sonnet', providerDefault: true,
+    }]})).toContain('anthropic/claude-sonnet · 默认');
+    const selection = renderProviderControlResult('models.use', 'succeeded', 'OK', {
+      providerId: 'anthropic', modelId: 'claude-sonnet', profileId: 'personal',
+    });
+    expect(selection).toContain('下一 Run 模型'); expect(selection).toContain('profile personal');
+    const probe = renderProviderControlResult('auth.probe', 'succeeded', 'OK', {
+      providerId: 'anthropic', profileId: 'personal', modelId: 'claude-sonnet',
+      outcome: 'SUCCESS', probedAt: '2026-08-14T12:00:00Z',
+    });
+    expect(probe).toContain('认证探测'); expect(probe).toContain('SUCCESS');
+    expect(probe).toContain('2026-08-14T12:00:00Z');
+    const logout = renderProviderControlResult('auth.logout', 'succeeded', 'OK', {
+      providerId: 'anthropic', profileId: 'personal', remoteRevoked: false,
+    });
+    expect(logout).toContain('anthropic/personal'); expect(logout).toContain('Provider 侧 credential 未撤销');
+    const conflict = renderProviderControlResult('models.use', 'rejected', 'AUTH_TRANSACTION_CONFLICT', {});
+    expect(conflict).toContain('当前有活动 Run'); expect(conflict).toContain('AUTH_TRANSACTION_CONFLICT');
+    const rejected = renderProviderControlResult('auth.probe', 'rejected', 'AUTH_PROBE_REJECTED', {});
+    expect(rejected).toContain('Provider 拒绝该 credential'); expect(rejected).toContain('AUTH_PROBE_REJECTED');
+  });
+
+  it('/connect 列出 Provider 与 profile，并给出可直接执行的安全格式', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+
+    view.stdin.write('/connect'); view.stdin.write('\r');
+    await waitForFrame(() => client.providerControls.length === 2);
+
+    expect(client.providerControls).toEqual([
+      'tui-provider-1:models.list:{}',
+      'tui-provider-2:auth.list:{}',
+    ]);
+    expect(view.lastFrame()).toContain('/connect <provider> <profile>');
+    expect(view.lastFrame()).toContain('env <ENV_NAME>');
+    expect(client.prompts).toEqual([]);
+    view.unmount();
+  });
+
+  it('/connect profile 直接调用一次性 Java 登录并在成功后刷新 auth.list', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+
+    view.stdin.write('/connect anthropic personal'); view.stdin.write('\r');
+    await waitForFrame(() => client.providerControls.length === 1);
+
+    expect(client.providerLogins).toEqual([{
+      providerId: 'anthropic', profileId: 'personal', secretSource: 'store',
+    }]);
+    expect(client.providerControls).toEqual(['tui-provider-1:auth.list:{}']);
+    expect(client.prompts).toEqual([]);
+    expect(view.lastFrame()).toContain('正在刷新 credential 列表');
+    view.unmount();
+  });
+
+  it('/connect ENV 只传合法环境变量名称而不读取值', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+
+    view.stdin.write('/connect openrouter ci env OPENROUTER_API_KEY'); view.stdin.write('\r');
+    await waitForFrame(() => client.providerLogins.length === 1);
+
+    expect(client.providerLogins[0]).toEqual({
+      providerId: 'openrouter', profileId: 'ci', secretSource: 'env', environmentName: 'OPENROUTER_API_KEY',
+    });
+    expect(view.lastFrame()).toContain('TUI 不读取环境值');
+    view.unmount();
+  });
+
+  it('发送 models.add/remove，并在 add 成功后刷新 models.list', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+
+    view.stdin.write('/models add anthropic claude-opus default'); view.stdin.write('\r');
+    await waitForFrame(() => client.providerControls.length === 1);
+    expect(client.providerControls).toEqual([
+      'tui-provider-1:models.add:{"providerId":"anthropic","modelId":"claude-opus","providerDefault":true}',
+    ]);
+    client.emit({version: 0, type: 'provider.control.result', requestId: 'provider-result',
+      sessionId: 'session-1', sequence: 2, payload: {controlId: 'tui-provider-1', intent: 'models.add',
+        status: 'succeeded', code: 'OK', result: {providerId: 'anthropic', modelId: 'claude-opus'}}});
+    await waitForFrame(() => client.providerControls.length === 2);
+    expect(client.providerControls[1]).toBe('tui-provider-2:models.list:{}');
+
+    view.stdin.write('/models remove anthropic claude-sonnet'); view.stdin.write('\r');
+    await waitForFrame(() => client.providerControls.length === 3);
+    expect(client.providerControls[2]).toBe(
+      'tui-provider-3:models.remove:{"providerId":"anthropic","modelId":"claude-sonnet"}',
+    );
+    expect(client.prompts).toEqual([]);
+    view.unmount();
+  });
+
+  it('Provider Slash 通过真实 stdio 控制通道并渲染安全结果', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+    view.stdin.write('/auth list'); view.stdin.write('\r');
+    await waitForFrame(() => client.providerControls.length === 1);
+    expect(client.providerControls).toEqual(['tui-provider-1:auth.list:{}']);
+    expect(client.prompts).toEqual([]);
+    client.emit({version: 0, type: 'provider.control.result', requestId: 'provider-result',
+      sessionId: 'session-1', sequence: 2, payload: {controlId: 'tui-provider-1', intent: 'auth.list',
+        status: 'succeeded', code: 'OK', result: {profiles: [{providerId: 'anthropic', profileId: 'personal',
+          authMethod: 'API_KEY', refKind: 'ENV', localStatus: 'AVAILABLE_LOCAL', providerDefault: true}]}}});
+    await waitForFrame(() => view.lastFrame()?.includes('anthropic/personal') === true);
+    view.unmount();
+  });
 describe('approvalDecision', () => {
   it('把 Y/A/N 映射为单次允许、会话允许或拒绝', () => {
     expect(approvalDecision('Y')).toBe('allow_once');
@@ -802,6 +932,9 @@ class FakeAgentClient implements AgentClient {
   readonly prompts: string[] = [];
   readonly checkpointCommands: string[] = [];
   readonly sessionCommands: string[] = [];
+  readonly providerControls: string[] = [];
+  readonly providerLogins: ProviderLoginRequest[] = [];
+  providerLoginResult: ProviderLoginResult = {status: 'succeeded', exitCode: 0};
   readonly fileSuggestions: string[] = [];
   readonly taskCommands: string[] = [];
   initializeCalls = 0;
@@ -871,6 +1004,16 @@ class FakeAgentClient implements AgentClient {
     return 'tui-session-command';
   }
 
+  public providerControl(controlId: string, intent: 'auth.list' | 'auth.probe' | 'auth.logout' | 'models.list' | 'models.use' | 'models.add' | 'models.remove', arguments_: Readonly<Record<string, unknown>>): string {
+    this.providerControls.push(`${controlId}:${intent}:${JSON.stringify(arguments_)}`);
+    return 'tui-provider-control';
+  }
+  public async providerLogin(request: ProviderLoginRequest): Promise<ProviderLoginResult> {
+    this.providerLogins.push(request);
+    return await Promise.resolve(this.providerLoginResult);
+  }
+  public cancelProviderLogin(): void {
+  }
   public suggestFiles(query: string): string {
     this.fileSuggestions.push(query);
     return `file-${this.fileSuggestions.length}`;

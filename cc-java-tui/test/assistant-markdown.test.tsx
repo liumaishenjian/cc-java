@@ -10,7 +10,7 @@ describe('AssistantMarkdown', () => {
     const frame = view.lastFrame();
 
     expect(frame).toContain('◆ 结果');
-    expect(frame).toContain('• 第一项');
+    expect(frame?.replace(/\x1b\[[0-9;]*m/gu, '')).toContain('• 第一项');
     expect(frame).toContain('AgentRuntime');
     expect(frame).not.toContain('##');
   });

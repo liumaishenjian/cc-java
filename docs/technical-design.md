@@ -2,7 +2,7 @@
 
 > 文档状态：Proposed v0.10
 >
-> 最后更新：2026-08-10
+> 最后更新：2026-08-14
 >
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
@@ -609,6 +609,7 @@ Effect 是权限输入，不替代 Tool 自身的路径和参数校验。
 | S03 | `git_diff` | 展示修改证据 |
 | S04 | `apply_patch` / `write_file` | 受控创建、修改或删除文本文件 |
 | S04 | `run_command` | 经审批后通过平台 Shell 执行命令 |
+| S15 | `web_search` | 固定 Exa/Parallel hosted MCP 的受控搜索；JSON-RPC/SSE、逐次网络授权，不抓取结果页 |
 
 S03～S04 不需要 40 个工具。新 Tool 只有在当前 Stage 的对照行为和验收任务无法合理完成时才增加；MCP、Skill 和 Plugin 的工具发现分别遵循 S10～S11。
 
@@ -1385,6 +1386,26 @@ Desktop rg。解析成功后只把绝对目录补入本次进程树 PATH，不�
 机制来源与独立实现边界见
 [ADR-033](./adr/ADR-033-s03-ripgrep-search-backend.md)。
 
+### 19.7.1 S15 BUILT_IN 受控 Web 搜索
+
+`cc-java-tools-web` 是只依赖 Domain/Core、JDK 21 HTTP 与仓库既有 Jackson 3 的边缘模块。Headless production composition 仅在环境或 Git ignored provider local 配置显式 `enabled=true` 且选择 `exa|parallel` 时注册 `web_search`；默认关闭。Provider gate 固定 hosted MCP URI 与远端 Tool，模型 schema 只有 query 和 result limit，endpoint、Header、credential、remote Tool、method 与 fetch URL 均不进入 Tool 参数。
+
+可信 Definition 固定为 `ToolSource.BUILT_IN + NETWORK_OR_REMOTE`，先经过唯一 Pipeline 的 validate、Hook、Permission/Approval、durable started/completed 与结果裁剪；只有 allow 后，JDK Adapter 才以 `NetworkPurpose.WEB_SEARCH` 对不含 credential 的固定 scheme/host/effective port 逐次调用 `NetworkAccessPort` 并对账 request。Exa 无 key 使用固定 path，有 key 时仅由 Adapter 将 UTF-8 key 精确百分号编码为单一 `exaApiKey` query；Parallel 才使用 Bearer Header，模型不能控制两者。stdio 审批只展示 tool/effect 与 `Preview.unavailable`，不展示 query。HttpClient 使用 Redirect.NEVER，以 JSON-RPC 2.0 `tools/call` POST，只接受 `application/json` 与 `text/event-stream`（兼容 media type 参数）；未知或缺失 Content-Type 不回退 JSON。Client 从 `search` 入口以 monotonic clock 建立默认 10 秒、配置最大 30 秒的单一 wall deadline，下游仅消费 remaining duration；可关闭的虚拟线程 operation 覆盖 NetworkAccess、headers、完整有界 body 与 JSON/SSE 解析。timeout/cancel first-wins 地取消 HTTP future、关闭 active InputStream 并中断 operation，Client close `shutdownNow`，无永久 scheduler。3xx/429/4xx/5xx、unsupported media type、protocol error、malformed/duplicate/no-result/oversized、timeout/cancel 均映射为隐私安全 typed failure。
+
+Hosted MCP textual content 保持自由文本事实形状，不伪造逐条 URL；输出声明 external provenance、untrusted、contentFetched=false 与固定 provider host，Adapter 从不连接引用 URL。响应 512 KiB、SSE 2,048 行、content 32 项、external context 48K 与 ToolResult 64K 各有 ceiling；外部 control/ESC 清洗，query、credential、endpoint、Header、raw body 与底层异常不进入普通事件、日志或错误。生产 HTTPS；loopback HTTP 仅显式测试 seam。系统指令只要求实时事实在 Tool 可用时搜索，Session runtime metadata 提供本机当前日期，避免训练知识或旧日期 query；不硬编码天气地点。该 `NetworkAccessPort` 不是 OS Sandbox，也不能证明任意 JVM socket、DNS rebinding 或 native Windows egress 受内核强制。研究、契约和证据见 ADR-067/068 与 S15 Demo。
+
+### 19.7.2 S15 Provider/Auth 生产接入架构
+
+ADR-069/070 定义的 `MODEL-13` 已在当前工作树完成生产接入并达到 L1，但尚未满足 L2。本产品只做本地直连 BYOK：非秘密 `ProviderDefinition`（kind/base URI/API variant/models/timeouts/非认证 headers）与 `CredentialProfile`（provider/profile/auth method/STORE或ENV SecretRef）分离；不建设官方模型中转 Gateway，不照搬 per-agent SQLite、silent rotation/failover 或通用 OAuth。
+
+模块沿现有依赖完成生产装配：Domain 只放非秘密 selection/status；Core 保持 `ModelGateway`/`ProviderRouter` 唯一真实链路；Spring AI edge 的 OpenAI-compatible、Anthropic、OpenRouter 三类 factory 从短生命周期 secret lease 建立单 route，并固定 Run scope；CLI edge 通过严格用户级 definition/store、`CredentialLeaseRegistry` 与共享 `ProviderAuthApplicationService` 服务 CLI、TUI 和 stdio；TUI/Picocli只产生 Intent并消费白名单结果。每个 Run 固定 `(providerId,profileId,modelId,generation)`，`modelOverrides` 严格校验，任何 auth错误都不切换 profile/Provider。
+
+用户 store 固定在 `~/.cc-java/providers.v1.json` 与 `~/.cc-java/auth/{profiles.v1.json,secrets/*,.lock,.txn.v1.json}`；它只是 owner/ACL受限普通文件，不称 OS vault。严格 UTF-8/schema/duplicate/unknown/size ceiling、NOFOLLOW、Symlink/Junction/reparse/hardlink与 identity复核、Unix 0700/0600、Windows DACL证明、同目录 force+重读+atomic move、exclusive lock、generation/transaction crash recovery均 fail closed。secret仅进入可清零 edge holder和Gateway lease，不进 Domain/Session/log/event/error/argv/evidence。
+
+profile优先级固定显式→default→env→legacy，已配置层失效不回退。`/connect`、`/auth list/logout`、`/models` 与 headless `auth/providers/models` 已经由 CLI/TUI/stdio 共用 Application Service；masked Console `/connect` 不回显 secret，list/status/models零网络。probe由用户显式触发，逐次通过 `NetworkPurpose.PROVIDER_AUTH_PROBE`/`NetworkAccessPort`，single attempt、redirect NEVER、默认5秒/最大30秒总 deadline、64 KiB body且可取消。logout先把 profile fence为 REVOKING、拒绝新 lease、取消并 drain 同进程 active runs、清 cache/secret holder，再事务删除本地 secret；无法收敛不得假报成功，并始终提示不等于 Provider revoke。
+
+legacy properties继续最低优先级可读；`auth migrate-legacy`只显式 copy、验证新 store，旧文件 bytes永不自动修改。完整字段、CLI语法、TUI状态机、错误/事件、测试清单、E2E阈值和 Batch A-C见 ADR-070。当前工作树已完成 restricted store、共享 service、CLI/TUI/stdio、masked Console `/connect`、三类 Spring AI factory 与 Run scope、probe、logout lease fence/drain 和 strict `modelOverrides`；G0-G4 已通过，G5 已完成离线部分，G6 在提交前保持 OPEN。由于至少两个 distinct provider 的真实 BYOK E2E 与 remote model sync 仍缺失，`MODEL-13` 不得提升到 L2，S15 保持 OPEN。
+
 ### 19.8 `codej` 源码开发启动入口
 
 S04 Accepted 后的维护切片增加 Windows 用户级开发 shim，但不改变 Runtime 或发行等级。
@@ -1753,6 +1774,8 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | [ADR-064](./adr/ADR-064-s13-execution-backend-security-contract.md) | Accepted | S13 ExecutionBackend、capability probe、五类 policy、三 Batch 与跨平台攻击证据门槛；实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 已完成 G0-G6 与 Stage Exit |
 | [ADR-065](./adr/ADR-065-s14-dual-source-production-harness-study.md) | Accepted | S14 双源机制研究、等级纪律、三 Batch、L3 真实门槛与延期边界 |
 | [ADR-066](./adr/ADR-066-s14-production-harness-contract.md) | Accepted | Provider/OTel、stable v1/SDK/Daemon/Session、Governance/Plugin/Distribution 独立契约 |
+| [ADR-067](./adr/ADR-067-s15-dual-source-web-search-study.md) | Accepted | TOOL-18 双源研究、托管搜索偏离、来源/许可证/Unknown 与可证伪边界 |
+| [ADR-068](./adr/ADR-068-s15-controlled-web-search-contract.md) | Accepted | 固定 endpoint、BUILT_IN Network Tool、NetworkAccessPort、JDK HTTP、结果与隐私上限的独立契约 |
 
 ## 26. 需求追踪
 
@@ -1814,7 +1837,7 @@ Stage Exit 为 Accepted。S03-S14 也已按各自 Evidence 完成 Commit-scoped 
 12. **S12 Sub-Agent + Worktree**：按 RuntimeScope、单 Subagent、有界并发/后台、Worktree 四个检查点复用 `AgentRuntime`，验证独立 Context/Tool/Permission/Budget、父子取消和摘要。
 13. **S13 Sandbox + Security**：实现可插拔 `ExecutionBackend`、文件/进程/网络策略、秘密处理、攻击性 Fixture 和安全回归。
 14. **S14 Production Harness**：ADR-065/066 工作树候选已实现 Provider capability/router/Anthropic Factory/typed Eval/direct OTel，项目自有 stable v1 codec/state、Java SDK contract、独立 loopback HTTP application prototype、Export/Retention/Migration/SessionIndex，以及 Managed/LKG、Plugin recovery/signature port、app-dir/launcher/manifest/checksum/SBOM/rollback。Domain/Core 不含 JSON/OTel/Spring/Path，唯一 Runtime/Pipeline 不变；真实 Anthropic、双 Provider重复、Win+Linux和N/N-1发布 artifact缺失时严格保持较低等级。
-15. **S15 Independent Innovation**：只在矩阵前置条件满足且已有可重复 Eval 基线后，选择 Java/Spring 差异化能力并用数据验证。
+15. **S15 Independent Innovation**：只在矩阵前置条件满足且已有可重复 Eval 基线后，选择 Java/Spring 差异化能力并用数据验证。`MODEL-13` 已按 ADR-069/070 在当前工作树完成 restricted store、共享 service、CLI/TUI/stdio、masked Console `/connect`、三类 Spring AI factory/Run scope、probe、logout lease fence/drain 与 strict `modelOverrides` 的生产接入，达到 L1；G0-G4 已通过，G5 已完成离线部分，G6 提交前保持 OPEN。至少两个 distinct provider 的真实 BYOK E2E 与 remote model sync 仍缺失，因此不得提升到 L2，S15 保持 OPEN，且该参考能力补齐不构成 L4。
 
 ### 27.3 每个 Stage 的完成动作
 

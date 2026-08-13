@@ -1,4 +1,9 @@
-import {spawn, type ChildProcessWithoutNullStreams} from 'node:child_process';
+import {
+  spawn,
+  type ChildProcess,
+  type ChildProcessWithoutNullStreams,
+  type SpawnOptions,
+} from 'node:child_process';
 import {EventEmitter} from 'node:events';
 import {createHash} from 'node:crypto';
 import {TextDecoder} from 'node:util';
@@ -23,6 +28,145 @@ export interface StdioClientOptions {
   readonly maxLineBytes?: number;
   readonly shutdownTimeoutMs?: number;
   readonly cancelTimeoutMs?: number;
+  readonly providerLoginTimeoutMs?: number;
+}
+
+export interface ProviderLoginRequest {
+  readonly providerId: string;
+  readonly profileId: string;
+  readonly secretSource: 'store' | 'env';
+  readonly environmentName?: string;
+}
+
+export interface ProviderLoginResult {
+  readonly status: 'succeeded' | 'failed' | 'cancelled' | 'timed_out';
+  readonly exitCode: number | null;
+}
+
+interface LoginTerminal {
+  readonly isTTY?: boolean;
+  readonly isRaw?: boolean;
+  pause(): void;
+  resume(): void;
+  setRawMode?(mode: boolean): unknown;
+}
+
+type LoginSpawn = (
+  executable: string,
+  args: readonly string[],
+  options: SpawnOptions,
+) => ChildProcess;
+
+export interface ProviderLoginBridgeOptions {
+  readonly timeoutMs?: number;
+  readonly spawnProcess?: LoginSpawn;
+  readonly terminal?: LoginTerminal;
+}
+
+const JAVA_MAIN_CLASS = 'io.github.liumaishenjian.ccjava.cli.CcJavaCliMain';
+const PROVIDER_ID = /^[a-z0-9][a-z0-9-]{0,62}$/u;
+const ENVIRONMENT_NAME = /^[A-Z][A-Z0-9_]{0,127}$/u;
+
+/**
+ * 从启动时已验证的 Java ChildProcessSpec 派生一次性认证进程。
+ *
+ * 该桥只固定替换主类后的参数，使用 shell=false 且直接继承终端。STORE 模式下 API key
+ * 由 Java Console.readPassword 遮蔽读取，Node/Ink 不接收、不编码也不保存 secret。
+ */
+export class ProviderLoginBridge {
+  readonly #spec: ChildProcessSpec;
+  readonly #timeoutMs: number;
+  readonly #spawn: LoginSpawn;
+  readonly #terminal: LoginTerminal;
+  #active: ChildProcess | undefined;
+  #cancelled = false;
+  #loginClaimed = false;
+
+  public constructor(spec: ChildProcessSpec, options: ProviderLoginBridgeOptions | number = {}) {
+    this.#spec = validateJavaChildSpec(spec);
+    const normalized = typeof options === 'number' ? {timeoutMs: options} : options;
+    const timeoutMs = normalized.timeoutMs ?? 300_000;
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 900_000) {
+      throw new Error('Provider login timeout 必须在 1000..900000ms');
+    }
+    this.#timeoutMs = timeoutMs;
+    this.#spawn = normalized.spawnProcess ?? spawn;
+    this.#terminal = normalized.terminal ?? process.stdin;
+  }
+
+  public active(): boolean {
+    return this.#loginClaimed;
+  }
+
+  public cancel(): void {
+    if (!this.#loginClaimed) return;
+    this.#cancelled = true;
+    this.#active?.kill();
+  }
+
+  public async login(request: ProviderLoginRequest): Promise<ProviderLoginResult> {
+    if (this.#loginClaimed) throw new Error('已有 Provider login 正在执行');
+    const args = providerLoginArguments(this.#spec.args, request);
+    const terminal = this.#terminal;
+    if (request.secretSource === 'store' && terminal.isTTY !== true) {
+      throw new Error('STORE 登录需要可交互 TTY；可改用 /connect provider profile ENV_NAME');
+    }
+    this.#loginClaimed = true;
+    this.#cancelled = false;
+    const wasRaw = terminal.isRaw === true;
+    let paused = false;
+    let rawChanged = false;
+    try {
+      terminal.pause();
+      paused = true;
+      if (terminal.isTTY === true && typeof terminal.setRawMode === 'function') {
+        terminal.setRawMode(false);
+        rawChanged = true;
+      }
+      const child = this.#spawn(this.#spec.executable, args, {
+        cwd: this.#spec.cwd,
+        env: this.#spec.env ?? process.env,
+        shell: false,
+        stdio: 'inherit',
+        windowsHide: false,
+      });
+      this.#active = child;
+      return await new Promise<ProviderLoginResult>(resolve => {
+        let settled = false;
+        let timedOut = false;
+        const finish = (result: ProviderLoginResult) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          child.removeListener('error', onError);
+          child.removeListener('exit', onExit);
+          resolve(result);
+        };
+        const terminalStatus = () => timedOut ? 'timed_out' as const
+          : this.#cancelled ? 'cancelled' as const : 'failed' as const;
+        const onError = () => finish({status: terminalStatus(), exitCode: null});
+        const onExit = (code: number | null) => finish({
+          status: timedOut ? 'timed_out' : this.#cancelled ? 'cancelled'
+            : code === 0 ? 'succeeded' : 'failed',
+          exitCode: timedOut ? null : code,
+        });
+        const timer = setTimeout(() => {
+          timedOut = true;
+          child.kill();
+        }, this.#timeoutMs);
+        timer.unref();
+        child.once('error', onError);
+        child.once('exit', onExit);
+      });
+    } catch {
+      return {status: this.#cancelled ? 'cancelled' : 'failed', exitCode: null};
+    } finally {
+      this.#active = undefined;
+      this.#loginClaimed = false;
+      if (rawChanged && typeof terminal.setRawMode === 'function') terminal.setRawMode(wasRaw);
+      if (paused) terminal.resume();
+    }
+  }
 }
 
 /**
@@ -38,6 +182,9 @@ export class StdioClient {
   readonly #maxLineBytes: number;
   readonly #shutdownTimeoutMs: number;
   readonly #cancelTimeoutMs: number;
+  readonly #loginSpec: ChildProcessSpec;
+  readonly #providerLoginTimeoutMs: number;
+  #loginBridge: ProviderLoginBridge | undefined;
   #pending = Buffer.alloc(0);
   #nextCommandSequence = 1;
   #nextEventSequence = 1;
@@ -51,6 +198,7 @@ export class StdioClient {
   #stderrBytes = 0;
   #issuedSessionCommandIds = new Set<string>();
   #pendingSessionCommands = new Map<string, string>();
+  #pendingProviderControls = new Map<string, string>();
   #pendingRunStartRequestId: string | undefined;
   #pendingSteeringRequests = new Map<string, 'awaiting_queued' | 'queued'>();
   #pendingFileSuggestions = new Map<string, string>();
@@ -63,6 +211,8 @@ export class StdioClient {
     this.#maxLineBytes = options.maxLineBytes ?? MAX_LINE_BYTES;
     this.#shutdownTimeoutMs = options.shutdownTimeoutMs ?? 2_000;
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? 2_000;
+    this.#loginSpec = spec;
+    this.#providerLoginTimeoutMs = options.providerLoginTimeoutMs ?? 300_000;
     this.#child = spawn(spec.executable, [...spec.args], {
       cwd: spec.cwd,
       env: spec.env ?? process.env,
@@ -89,6 +239,7 @@ export class StdioClient {
       }
       this.#closed = true;
       this.#pendingSessionCommands.clear();
+      this.#pendingProviderControls.clear();
       this.#pendingRunStartRequestId = undefined;
       this.#pendingSteeringRequests.clear();
       this.#pendingFileSuggestions.clear();
@@ -196,6 +347,31 @@ export class StdioClient {
     this.#issuedSessionCommandIds.add(commandId);
     this.#pendingSessionCommands.set(commandId, requestId);
     return requestId;
+  }
+
+  /** 发送不含 secret 的 Provider/Auth 本地控制命令。 */
+  public providerControl(
+    controlId: string,
+    intent: 'auth.list' | 'auth.probe' | 'auth.logout' | 'models.list' | 'models.use' | 'models.add' | 'models.remove',
+    arguments_: Readonly<Record<string, unknown>>,
+  ): string {
+    if (this.#sessionId === undefined) throw new Error('Session 尚未初始化');
+    if (this.#pendingProviderControls.has(controlId)) throw new Error('provider.control controlId 重复');
+    const requestId = this.#send('provider.control', {controlId, intent, arguments: arguments_}, this.#sessionId);
+    this.#pendingProviderControls.set(controlId, requestId);
+    return requestId;
+  }
+  /** 通过继承终端的一次性 Java 进程执行登录；Agent stdio 连接不承载 secret。 */
+  public providerLogin(request: ProviderLoginRequest): Promise<ProviderLoginResult> {
+    const bridge = this.#loginBridge ??= new ProviderLoginBridge(this.#loginSpec, {
+      timeoutMs: this.#providerLoginTimeoutMs,
+    });
+    return bridge.login(request);
+  }
+
+  /** 取消当前一次性登录进程。 */
+  public cancelProviderLogin(): void {
+    this.#loginBridge?.cancel();
   }
 
   /** 请求 Java 权威 Workspace 返回显式文件 mention 候选。 */
@@ -325,6 +501,7 @@ export class StdioClient {
   }
 
   public terminate(): void {
+    this.#loginBridge?.cancel();
     if (!this.#closed) {
       this.#shutdownRequested = true;
       this.#child.kill();
@@ -463,6 +640,13 @@ export class StdioClient {
         throw new ProtocolViolation('steering.discarded 与已排队请求或当前 Session 不匹配');
       }
       this.#pendingSteeringRequests.delete(event.requestId);
+    } else if (event.type === 'provider.control.result') {
+      const controlId = event.payload.controlId;
+      if (typeof controlId !== 'string' || this.#pendingProviderControls.get(controlId) !== event.requestId
+        || event.sessionId !== this.#sessionId) {
+        throw new ProtocolViolation('provider.control.result 与待处理请求不匹配');
+      }
+      this.#pendingProviderControls.delete(controlId);
     } else if (event.type === 'session.command.result') {
       const commandId = event.payload.commandId;
       if (typeof commandId !== 'string') {
@@ -608,6 +792,40 @@ function jsonStringContentBytes(text: string): number {
 
 function commandBytes(command: ProtocolCommand): number {
   return Buffer.byteLength(encodeCommand(command), 'utf8');
+}
+
+function validateJavaChildSpec(spec: ChildProcessSpec): ChildProcessSpec {
+  if (spec.executable.length === 0 || /[\x00\r\n]/u.test(spec.executable)
+    || spec.cwd.length === 0 || /[\x00\r\n]/u.test(spec.cwd)
+    || spec.args.length < 1 || spec.args.length > 64
+    || spec.args.some(value => value.length === 0 || /[\x00\r\n]/u.test(value))) {
+    throw new Error('Java ChildProcessSpec 无效');
+  }
+  const mainIndex = spec.args.indexOf(JAVA_MAIN_CLASS);
+  if (mainIndex < 0 || spec.args.indexOf(JAVA_MAIN_CLASS, mainIndex + 1) >= 0
+    || spec.args.at(-1) !== '--stdio'
+    || spec.args.indexOf('--stdio') !== spec.args.length - 1) {
+    throw new Error('Java ChildProcessSpec 必须固定为唯一主类且以 --stdio 结尾');
+  }
+  return {executable: spec.executable, args: [...spec.args], cwd: spec.cwd, ...(spec.env === undefined ? {} : {env: spec.env})};
+}
+
+function providerLoginArguments(base: readonly string[], request: ProviderLoginRequest): string[] {
+  if (!PROVIDER_ID.test(request.providerId) || !PROVIDER_ID.test(request.profileId)) {
+    throw new Error('Provider/profile ID 无效');
+  }
+  const mainIndex = base.indexOf(JAVA_MAIN_CLASS);
+  const fixed = base.slice(0, mainIndex + 1);
+  const control = ['auth', 'login', '--provider', request.providerId, '--profile', request.profileId];
+  if (request.secretSource === 'store') {
+    if (request.environmentName !== undefined) throw new Error('STORE 不接受 ENV name');
+  } else {
+    if (request.environmentName === undefined || !ENVIRONMENT_NAME.test(request.environmentName)) {
+      throw new Error('ENV name 无效');
+    }
+    control.push('--from-env', request.environmentName);
+  }
+  return [...fixed, ...control];
 }
 
 function unexpectedExitMessage(

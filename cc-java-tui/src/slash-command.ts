@@ -5,11 +5,21 @@ export type SlashIntent =
   | 'context'
   | 'doctor'
   | 'model'
+  | 'connect'
+  | 'auth'
+  | 'models'
   | 'permissions'
   | 'resume';
 
+export type SessionSlashIntent = Exclude<SlashIntent, 'connect' | 'auth' | 'models'>;
+
 export interface ParsedSlashCommand {
-  readonly intent: SlashIntent;
+  readonly intent: SessionSlashIntent;
+  readonly arguments: Readonly<Record<string, unknown>>;
+}
+
+export interface ProviderControlSlashCommand {
+  readonly intent: 'connect' | 'auth' | 'models';
   readonly arguments: Readonly<Record<string, unknown>>;
 }
 
@@ -22,6 +32,7 @@ export interface ParsedTaskCommand {
 export type SlashParseResult =
   | {readonly kind: 'not-command'}
   | {readonly kind: 'command'; readonly command: ParsedSlashCommand}
+  | {readonly kind: 'provider-control'; readonly command: ProviderControlSlashCommand}
   | {readonly kind: 'task'; readonly command: ParsedTaskCommand}
   | {readonly kind: 'skill'; readonly name: string; readonly arguments: string}
   | {readonly kind: 'invalid'; readonly message: string};
@@ -31,7 +42,7 @@ const MAX_COMPACT_ANCHORS = 16;
 const MAX_COMPACT_ANCHOR_CODE_POINTS = 512;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/u;
 const COMMANDS = new Set<SlashIntent>([
-  'help', 'clear', 'compact', 'context', 'doctor', 'model', 'permissions', 'resume',
+  'help', 'clear', 'compact', 'context', 'doctor', 'model', 'connect', 'auth', 'models', 'permissions', 'resume',
 ]);
 
 const COMMAND_USAGE: Readonly<Record<SlashIntent, string>> = {
@@ -41,6 +52,9 @@ const COMMAND_USAGE: Readonly<Record<SlashIntent, string>> = {
   context: '/context — 查看上下文用量',
   doctor: '/doctor — 查看安全诊断',
   model: '/model <name> — 切换到已配置模型',
+  connect: '/connect [provider profile [env ENV_NAME]] — 在 TUI 内连接 Provider；STORE secret 由 Java 遮蔽读取',
+  auth: '/auth list | probe <provider> <profile> [model] | logout <provider> <profile> confirm — 管理本机 credential',
+  models: '/models [provider] | use <provider> <model> [profile] | add <provider> <model> [default] | remove <provider> <model> — 本地模型选择',
   permissions: '/permissions [query|mode MODE] — 查看或切换权限模式',
   resume: '/resume <session-id> — 安全恢复会话',
 };
@@ -52,6 +66,9 @@ export function parseSlashCommand(input: string): SlashParseResult {
   if (!input.startsWith('/')) return {kind: 'not-command'};
   const [rawName, ...values] = input.slice(1).trim().split(/\s+/u);
   if (rawName === 'task') return parseTaskCommand(values);
+  if (rawName === 'connect') return parseConnectCommand(values);
+  if (rawName === 'auth') return parseAuthCommand(values);
+  if (rawName === 'models') return parseModelsCommand(values);
   if (rawName === undefined || rawName.length === 0 || !COMMANDS.has(rawName as SlashIntent)) {
     if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(rawName ?? '') && (rawName?.length ?? 0) <= 64) {
       const arguments_ = values.join(' ');
@@ -61,7 +78,7 @@ export function parseSlashCommand(input: string): SlashParseResult {
     }
     return {kind: 'invalid', message: '未知 Slash 命令'};
   }
-  const intent = rawName as SlashIntent;
+  const intent = rawName as SessionSlashIntent;
   if (['help', 'clear', 'context', 'doctor'].includes(intent)) {
     return values.length === 0
       ? {kind: 'command', command: {intent, arguments: {}}}
@@ -208,6 +225,85 @@ function parseTaskCommand(values: readonly string[]): SlashParseResult {
   return values.length === 2
     ? {kind: 'task', command: {action: action as 'cancel' | 'keep' | 'remove', taskId}}
     : {kind: 'invalid', message: `/task ${action} 只接受 task ID`};
+}
+
+function parseConnectCommand(values: readonly string[]): SlashParseResult {
+  if (values.length === 0) {
+    return {kind: 'provider-control', command: {intent: 'connect', arguments: {action: 'providers'}}};
+  }
+  const [providerId, profileId, source, environmentName] = values;
+  if (!validId(providerId) || !validId(profileId)) {
+    return {kind: 'invalid', message: '/connect [provider profile [env ENV_NAME]]'};
+  }
+  if (values.length === 2) {
+    return {kind: 'provider-control', command: {intent: 'connect', arguments: {
+      action: 'login', providerId, profileId, secretSource: 'store',
+    }}};
+  }
+  if (values.length === 4 && source === 'env' && validEnvironmentName(environmentName)) {
+    return {kind: 'provider-control', command: {intent: 'connect', arguments: {
+      action: 'login', providerId, profileId, secretSource: 'env', environmentName,
+    }}};
+  }
+  return {kind: 'invalid', message: '/connect [provider profile [env ENV_NAME]]'};
+}
+
+function parseAuthCommand(values: readonly string[]): SlashParseResult {
+  if (values.length === 1 && values[0] === 'list') {
+    return {kind: 'provider-control', command: {intent: 'auth', arguments: {action: 'list'}}};
+  }
+  const [action, providerId, profileId, value] = values;
+  if (action === 'probe' && (values.length === 3 || values.length === 4)
+    && validId(providerId) && validId(profileId)
+    && (value === undefined || !invalidArgument(value))) {
+    return {kind: 'provider-control', command: {intent: 'auth', arguments: {
+      action, providerId, profileId, ...(value === undefined ? {} : {modelId: value}),
+    }}};
+  }
+  return action === 'logout' && values.length === 4 && value === 'confirm'
+    && validId(providerId) && validId(profileId)
+    ? {kind: 'provider-control', command: {intent: 'auth', arguments: {action, providerId, profileId, confirmed: true}}}
+    : {kind: 'invalid', message: '/auth 只接受 list、probe <provider> <profile> [model] 或 logout <provider> <profile> confirm'};
+}
+function parseModelsCommand(values: readonly string[]): SlashParseResult {
+  if (values.length <= 1 && (values.length === 0 || validId(values[0]))) {
+    return {kind: 'provider-control', command: {intent: 'models', arguments: values.length === 0
+      ? {action: 'list'} : {action: 'list', providerId: values[0]}}};
+  }
+  const [action, providerId, modelId, option] = values;
+  if (action === 'use' && (values.length === 3 || values.length === 4)
+    && validId(providerId) && validModelId(modelId)
+    && (option === undefined || validId(option))) {
+    return {kind: 'provider-control', command: {intent: 'models', arguments: {
+      action, providerId, modelId, ...(option === undefined ? {} : {profileId: option}),
+    }}};
+  }
+  if (action === 'add' && (values.length === 3 || values.length === 4)
+    && validId(providerId) && validModelId(modelId)
+    && (option === undefined || option === 'default')) {
+    return {kind: 'provider-control', command: {intent: 'models', arguments: {
+      action, providerId, modelId, providerDefault: option === 'default',
+    }}};
+  }
+  if (action === 'remove' && values.length === 3
+    && validId(providerId) && validModelId(modelId)) {
+    return {kind: 'provider-control', command: {intent: 'models', arguments: {
+      action, providerId, modelId,
+    }}};
+  }
+  return {kind: 'invalid', message: '/models [provider]、use <provider> <model> [profile]、add <provider> <model> [default] 或 remove <provider> <model>'};
+}
+
+function validId(value: string | undefined): value is string {
+  return value !== undefined && /^[a-z0-9][a-z0-9-]{0,62}$/u.test(value);
+}
+
+function validEnvironmentName(value: string | undefined): value is string {
+  return value !== undefined && /^[A-Z][A-Z0-9_]{0,127}$/u.test(value);
+}
+
+function validModelId(value: string | undefined): value is string {
+  return value !== undefined && !invalidArgument(value) && !/\s/u.test(value);
 }
 
 function invalidArgument(value: string): boolean {

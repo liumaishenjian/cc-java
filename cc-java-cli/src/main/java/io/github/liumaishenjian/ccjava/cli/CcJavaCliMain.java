@@ -1,6 +1,7 @@
 package io.github.liumaishenjian.ccjava.cli;
 
 import picocli.CommandLine;
+import io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService;
 
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
@@ -51,6 +52,14 @@ public final class CcJavaCliMain {
             CliModeRunner runner,
             PrintWriter out,
             PrintWriter err) {
+        if (args.length > 0 && java.util.Set.of("providers", "auth", "models").contains(args[0])) {
+            Path userHome = Path.of(java.util.Objects.requireNonNull(
+                    System.getProperty("user.home"), "user.home 不能为空"));
+            try (var resources = io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthRuntimeResources.open(
+                    userHome, repositoryRoot(System.getenv()), System.getenv())) {
+                return executeProviderControl(args, resources.service(), System.in, out, err);
+            }
+        }
         CommandLine commandLine = new CommandLine(new CcJavaCommand(runner));
         // Headless stdout/stderr 是可脚本化协议面；不能因父终端颜色环境变量改变字节内容。
         commandLine.setColorScheme(CommandLine.Help.defaultColorScheme(CommandLine.Help.Ansi.OFF));
@@ -59,6 +68,26 @@ public final class CcJavaCliMain {
         return commandLine.execute(args);
     }
 
+    static int executeProviderControl(
+            String[] args,
+            ProviderAuthApplicationService service,
+            java.io.InputStream input,
+            PrintWriter out,
+            PrintWriter err) {
+        CommandLine root = new CommandLine(new ProviderControlRoot());
+        root.addSubcommand(ProviderControlCommands.providers(service, out, err));
+        root.addSubcommand(ProviderControlCommands.auth(service, input, out, err));
+        root.addSubcommand(ProviderControlCommands.models(service, out, err));
+        root.setColorScheme(CommandLine.Help.defaultColorScheme(CommandLine.Help.Ansi.OFF));
+        root.setOut(out);
+        root.setErr(err);
+        return root.execute(args);
+    }
+
+    @picocli.CommandLine.Command(name = "cc-java")
+    private static final class ProviderControlRoot implements java.util.concurrent.Callable<Integer> {
+        @Override public Integer call() { return 2; }
+    }
     static Path repositoryRoot(Map<String, String> environment) {
         String configured = environment.get(REPOSITORY_ROOT_ENV);
         return (configured == null || configured.isBlank()

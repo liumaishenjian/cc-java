@@ -12,9 +12,10 @@ import java.util.function.Predicate;
 /**
  * S05 默认 Hard Denial 策略。
  *
- * <p>System Effect 与非 MCP/Plugin Network Effect 永久拒绝；只有已经由 Composition Root
- * 标记为 {@link ToolSource#MCP} 或 {@link ToolSource#PLUGIN} 的可信适配器可把 Network Effect
- * 交给后续 ASK/Rule 决策。
+ * <p>System Effect 永久拒绝；Network Effect 默认也永久拒绝，仅允许已经由 Composition Root
+ * 标记为 {@link ToolSource#MCP}、{@link ToolSource#PLUGIN} 的可信适配器，以及名称精确为
+ * {@code web_search}、Source 为 {@link ToolSource#BUILT_IN} 的宿主内置搜索 Tool，继续进入后续
+ * ASK/Rule 决策。该窄例外不适用于其他同名前缀、其他 Source 或其他 BUILT_IN Network Tool。
  * 文件写入 selector 必须具体且不得命中 Git 元数据、
  * Provider 本地配置或常见 Secret 文件。绝对路径、Traversal 与不可解释范围会被
  * selector resolver 收敛为 Tool-wide，并在写入/命令范围上拒绝。</p>
@@ -55,10 +56,14 @@ public final class DefaultHardDenialPolicy implements HardDenialPolicy {
         Objects.requireNonNull(definition, "definition 不能为空");
         Objects.requireNonNull(selector, "selector 不能为空");
         ToolEffect effect = definition.effect();
+        boolean controlledBuiltinWebSearch = effect == ToolEffect.NETWORK_OR_REMOTE
+                && definition.source() == ToolSource.BUILT_IN
+                && "web_search".equals(definition.name());
         if (effect == ToolEffect.SYSTEM_OR_DESTRUCTIVE
                 || (effect == ToolEffect.NETWORK_OR_REMOTE
                     && definition.source() != ToolSource.MCP
-                    && definition.source() != ToolSource.PLUGIN)) {
+                    && definition.source() != ToolSource.PLUGIN
+                    && !controlledBuiltinWebSearch)) {
             return true;
         }
         if (effect != ToolEffect.WRITE_WORKSPACE) {

@@ -84,6 +84,54 @@ class StdioProtocolProcessTest {
     }
 
     @Test
+    void realJavaProcessReturnsCompleteProviderControlResultsAndErrors() throws Exception {
+        Process process = startFixtureProcess("provider-control");
+        try (BufferedWriter input = new BufferedWriter(new OutputStreamWriter(
+                     process.getOutputStream(), StandardCharsets.UTF_8));
+             BufferedReader output = new BufferedReader(new InputStreamReader(
+                     process.getInputStream(), StandardCharsets.UTF_8))) {
+            JsonMapper mapper = JsonMapper.builder().build();
+            send(input, "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"provider-1\",\"sequence\":1,\"payload\":{}}");
+            String sessionId = readEvent(process, output, mapper).get("sessionId").stringValue();
+            send(input, providerControl("provider-2", sessionId, 2, "control-list", "auth.list", "{}"));
+            JsonNode profiles = readEvent(process, output, mapper);
+            assertThat(profiles.get("type").stringValue()).isEqualTo("provider.control.result");
+            assertThat(profiles.at("/payload/result/profiles/0/providerId").stringValue()).isEqualTo("anthropic");
+            assertThat(profiles.at("/payload/result/profiles/0/profileId").stringValue()).isEqualTo("fixture");
+            assertThat(profiles.toString()).doesNotContain("fixture-provider-sentinel", "CC_JAVA_FIXTURE_KEY");
+
+            send(input, providerControl("provider-3", sessionId, 3, "control-models", "models.list",
+                    "{\"providerId\":\"anthropic\"}"));
+            JsonNode models = readEvent(process, output, mapper);
+            assertThat(models.at("/payload/result/models").isArray()).isTrue();
+            assertThat(models.at("/payload/result/models").size()).isGreaterThan(0);
+
+            send(input, providerControl("provider-4", sessionId, 4, "control-add", "models.add",
+                    "{\"providerId\":\"anthropic\",\"modelId\":\"process-overlay\"}"));
+            JsonNode added = readEvent(process, output, mapper);
+            assertThat(added.at("/payload/status").stringValue()).isEqualTo("succeeded");
+            assertThat(added.toString()).doesNotContain("secret", "apiKey");
+
+            send(input, providerControl("provider-5", sessionId, 5, "control-use", "models.use",
+                    "{\"providerId\":\"anthropic\",\"modelId\":\"missing-model\",\"profileId\":\"fixture\"}"));
+            JsonNode rejected = readEvent(process, output, mapper);
+            assertThat(rejected.at("/payload/status").stringValue()).isEqualTo("rejected");
+            assertThat(rejected.at("/payload/code").stringValue()).isEqualTo("MODEL_UNKNOWN");
+            assertThat(rejected.at("/payload/result").size()).isZero();
+
+            send(input, ("{\"version\":0,\"type\":\"shutdown\",\"requestId\":\"provider-6\","
+                    + "\"sessionId\":\"%s\",\"sequence\":6,\"payload\":{}}").formatted(sessionId));
+        } finally {
+            if (!process.waitFor(PROCESS_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)) {
+                process.destroyForcibly();
+                process.waitFor();
+            }
+        }
+        assertThat(process.exitValue()).isZero();
+        assertThat(new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8)).isBlank();
+    }
+
+    @Test
     void realJavaProcessCompletesTwoRunsInOneSession() throws Exception {
         Process process = startFixtureProcess();
         List<ProcessHandle> descendants = new ArrayList<>();
@@ -143,18 +191,28 @@ class StdioProtocolProcessTest {
         assertThat(descendants).noneMatch(ProcessHandle::isAlive);
     }
 
-    private Process startFixtureProcess() throws IOException {
+    private static String providerControl(String requestId, String sessionId, int sequence,
+                                          String controlId, String intent, String arguments) {
+        return ("{\"version\":0,\"type\":\"provider.control\",\"requestId\":\"%s\","
+                + "\"sessionId\":\"%s\",\"sequence\":%d,\"payload\":{\"controlId\":\"%s\","
+                + "\"intent\":\"%s\",\"arguments\":%s}}")
+                .formatted(requestId, sessionId, sequence, controlId, intent, arguments);
+    }
+
+    private Process startFixtureProcess(String... arguments) throws IOException {
         Path javaHome = Path.of(System.getProperty("java.home"));
         Path javaExecutable = javaHome.resolve("bin").resolve(
                 System.getProperty("os.name").startsWith("Windows")
                         ? "java.exe"
                         : "java");
         assertThat(Files.isRegularFile(javaExecutable)).isTrue();
-        return new ProcessBuilder(
-                javaExecutable.toString(),
-                "-cp",
-                System.getProperty("java.class.path"),
-                StdioProtocolFixtureMain.class.getName())
+        List<String> command = new ArrayList<>();
+        command.add(javaExecutable.toString());
+        command.add("-cp");
+        command.add(System.getProperty("java.class.path"));
+        command.add(StdioProtocolFixtureMain.class.getName());
+        command.addAll(List.of(arguments));
+        return new ProcessBuilder(command)
                 .directory(Path.of("").toAbsolutePath().toFile())
                 .start();
     }

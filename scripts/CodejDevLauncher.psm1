@@ -39,6 +39,21 @@ function ConvertFrom-CodejArguments {
     )
 
     if ($null -eq $Arguments) { $Arguments = @() }
+    if ($Arguments.Count -gt 0 -and $Arguments[0] -in @('providers', 'auth', 'models')) {
+        if ($Arguments | Where-Object { $_ -match "[`r`n`0]" }) {
+            throw 'Provider 控制参数包含非法控制字符。'
+        }
+        return [pscustomobject]@{
+            Workspace = [IO.Path]::GetFullPath($InvocationDirectory)
+            ProviderControlArguments = @($Arguments)
+            Model = $null; Timeout = '5m'; Print = $null; Continue = $false; Resume = $null; Fork = $null
+            ContextMaximumInputTokens = $script:DefaultContextMaximumInputTokens
+            ContextReservedOutputTokens = $script:DefaultContextReservedOutputTokens
+            ContextSafetyMarginTokens = $script:DefaultContextSafetyMarginTokens
+            ModelDiagnostics = 'off'; ModelDiagnosticsDirectory = $null
+            Rebuild = $false; Doctor = $false; Help = $false
+        }
+    }
     $values = @{}
     $flags = @{}
     $remaining = [Collections.Generic.List[string]]::new()

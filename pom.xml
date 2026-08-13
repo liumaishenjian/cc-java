@@ -17,6 +17,7 @@
         <module>cc-java-core</module>
         <module>cc-java-model-spring-ai</module>
         <module>cc-java-tools-local</module>
+        <module>cc-java-tools-web</module>
         <module>cc-java-mcp</module>
         <module>cc-java-protocol</module>
         <module>cc-java-sdk</module>

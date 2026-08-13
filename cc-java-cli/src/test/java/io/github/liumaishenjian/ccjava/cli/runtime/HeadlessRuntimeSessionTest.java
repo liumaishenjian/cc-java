@@ -10,6 +10,7 @@ import io.github.liumaishenjian.ccjava.core.ContextPreparationConfig;
 import io.github.liumaishenjian.ccjava.core.ContextPreparationService;
 import io.github.liumaishenjian.ccjava.core.ModelGateway;
 import io.github.liumaishenjian.ccjava.core.RunTelemetry;
+import io.github.liumaishenjian.ccjava.core.RunScopedModelGateway;
 import io.github.liumaishenjian.ccjava.core.TokenUsageTotals;
 import io.github.liumaishenjian.ccjava.cli.session.SessionOpenRequest;
 import io.github.liumaishenjian.ccjava.domain.AgentEventEnvelope;
@@ -53,6 +54,7 @@ import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -137,6 +139,45 @@ class HeadlessRuntimeSessionTest {
         assertThat(result.toolCalls()).isZero();
     }
 
+    @Test
+    void opensBindsAndClosesRunScopedGatewayForEveryRunAndAllTerminalPaths() {
+        RecordingRunScopedGateway gateway = new RecordingRunScopedGateway();
+
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                gateway, AgentEventSink.noop(),
+                testOptions(temporaryWorkspace, Duration.ofSeconds(5)))) {
+            application.open();
+            assertThat(application.run("first").stopReason()).isEqualTo(StopReason.COMPLETED);
+            gateway.failNext = true;
+            assertThat(application.run("second").stopReason()).isEqualTo(StopReason.MODEL_ERROR);
+            assertThat(application.run("third").stopReason()).isEqualTo(StopReason.COMPLETED);
+        }
+
+        assertThat(gateway.opens).hasValue(3);
+        assertThat(gateway.binds).hasValue(3);
+        assertThat(gateway.closes).hasValue(3);
+        assertThat(gateway.calls).hasValue(3);
+    }
+
+    @Test
+    void clearsActiveRunEvenWhenRunScopeCloseFails() {
+        RecordingRunScopedGateway gateway = new RecordingRunScopedGateway();
+        gateway.failCloseNext = true;
+
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                gateway, AgentEventSink.noop(),
+                testOptions(temporaryWorkspace, Duration.ofSeconds(5)))) {
+            application.open();
+            assertThatThrownBy(() -> application.run("first"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessage("scope close failed");
+            assertThat(application.run("second").stopReason()).isEqualTo(StopReason.COMPLETED);
+        }
+
+        assertThat(gateway.opens).hasValue(2);
+        assertThat(gateway.binds).hasValue(2);
+        assertThat(gateway.closes).hasValue(2);
+    }
     @Test
     void productionInstructionLayoutResolvesUserHomeOnceForSharedSettingsComposition() throws Exception {
         Path home = Files.createDirectory(sessionStoreRoot.resolve("resolved-home"));
@@ -1849,6 +1890,62 @@ class HeadlessRuntimeSessionTest {
                 visibleTools, Map.of(), java.util.List.of(), RuntimeDiagnosticsVerbosity.SUMMARY);
     }
 
+    private static final class RecordingRunScopedGateway implements RunScopedModelGateway {
+        private final AtomicInteger opens = new AtomicInteger();
+        private final AtomicInteger binds = new AtomicInteger();
+        private final AtomicInteger closes = new AtomicInteger();
+        private final AtomicInteger calls = new AtomicInteger();
+        private final ThreadLocal<Boolean> open = new ThreadLocal<>();
+        private volatile boolean failNext;
+        private volatile boolean failCloseNext;
+
+        @Override
+        public RunScope openRun() {
+            if (open.get() != null) {
+                throw new IllegalStateException("scope already open");
+            }
+            opens.incrementAndGet();
+            open.set(Boolean.TRUE);
+            return new RunScope() {
+                private boolean closed;
+
+                @Override
+                public void bindCancellation(Runnable cancellation) {
+                    Objects.requireNonNull(cancellation);
+                    binds.incrementAndGet();
+                }
+
+                @Override
+                public void close() {
+                    if (closed) {
+                        return;
+                    }
+                    closed = true;
+                    closes.incrementAndGet();
+                    open.remove();
+                    if (failCloseNext) {
+                        failCloseNext = false;
+                        throw new IllegalStateException("scope close failed");
+                    }
+                }
+            };
+        }
+
+        @Override
+        public ModelTurn complete(ModelRequest request) throws io.github.liumaishenjian.ccjava.core.ModelGatewayException {
+            if (open.get() == null) {
+                throw new AssertionError("模型调用发生在 RunScope 之外");
+            }
+            calls.incrementAndGet();
+            if (failNext) {
+                failNext = false;
+                throw new io.github.liumaishenjian.ccjava.core.ModelGatewayException(
+                        io.github.liumaishenjian.ccjava.core.ModelGatewayException.FailureKind.PERMANENT,
+                        "fixed test failure");
+            }
+            return ModelTurn.text("done");
+        }
+    }
     private HeadlessRuntimeOptions testOptions(Path workspace, Duration timeout) {
         return testOptions(workspace, "fake-model", timeout);
     }

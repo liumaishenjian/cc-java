@@ -84,8 +84,16 @@ $dependencyClasspath = (Get-Content -LiteralPath $buildState.Paths.ClasspathFile
 $separator = [IO.Path]::PathSeparator
 $mainClasses = Join-Path $repositoryRoot 'cc-java-cli\target\classes'
 $classpath = "$mainClasses$separator$dependencyClasspath"
+if ($null -ne $options.ProviderControlArguments) {
+    $env:CC_JAVA_REPOSITORY_ROOT = $repositoryRoot
+    & $java.Executable '-Dfile.encoding=UTF-8' "-Duser.home=$installationHome" '-cp' $classpath `
+        'io.github.liumaishenjian.ccjava.cli.CcJavaCliMain' @($options.ProviderControlArguments)
+    exit $LASTEXITCODE
+}
 $childCommand = @(
     $java.Executable,
+    '-Dfile.encoding=UTF-8',
+    "-Duser.home=$installationHome",
     '-cp',
     $classpath,
     'io.github.liumaishenjian.ccjava.cli.CcJavaCliMain',

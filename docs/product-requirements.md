@@ -2,7 +2,7 @@
 
 > 文档状态：Draft v0.9
 >
-> 最后更新：2026-08-10
+> 最后更新：2026-08-14
 >
 > 当前阶段：S01-S08 已 Accepted；S08 ADR-048 的既有能力已在 Commit
 > `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 上 Accepted，ADR-049 的显式文件引用又在实现
@@ -301,6 +301,11 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
 - FR-MODEL-003：Adapter 支持文本增量事件，并在回合结束时返回聚合后的 Tool Call。
 - FR-MODEL-004：模型异常、限流和无效响应转换成 Runtime 错误。
 - FR-MODEL-005：Token Usage 不可用时允许缺省，但不得伪造。
+- FR-MODEL-006（S15 已实现 L1，`MODEL-13`）：产品采用本地直连 BYOK，不提供官方模型中转 Gateway；非秘密 `ProviderDefinition` 已与用户级 `CredentialProfile`/SecretRef 分离，并已实现 OpenAI-compatible custom URL/model、Anthropic 与 OpenRouter 三类 Provider Factory。CLI、TUI 与 stdio 的 `auth/providers/models`（含 TUI `/connect`、`/auth list`、`/auth logout`、`/models`）共用 Java Application Service，真实请求仍仅走现有 `ModelGateway`/`ProviderRouter`。
+- FR-MODEL-007（S15 已实现 L1，`MODEL-13`）：API key 只支持权限受限用户文件 STORE 或显式 ENV SecretRef；restricted store 已实现，secret 不得进入 Domain、Canonical/Session、log、telemetry、Agent event、普通 error、argv、evidence 或 Provider Definition。Console `/connect` 已使用 masked input，普通文件不得称 OS vault；OAuth 仅保留 Provider 官方固定 issuer/client/redirect 的合法扩展，当前不实现。
+- FR-MODEL-008（S15 已实现 L1，`MODEL-13`）：profile 解析固定为显式 profile→Provider default→env ephemeral→legacy properties ephemeral；显式或 default profile 失效必须 fail closed，不 silent rotation/failover。list/status 不联网，显式单 profile 的有界 probe 已实现；logout 已实现先 fence 新 lease、取消并 drain 同进程 active runs、清应用 secret/Gateway cache，再原子删除本地 secret，同时明确本地删除不等于 Provider revoke。
+- FR-MODEL-009（S15 已实现 L1，`MODEL-13`）：`config/provider.local.properties` 保持可读且最低优先级；迁移只能由用户显式触发，发布并重读新 store 后仍不得修改、重命名或删除旧文件。restricted store 已覆盖严格 schema/ceiling、原子 move、单 writer lock、crash recovery、ACL/mode、Symlink/Junction/reparse 与竞态 fail closed。完整契约和验收矩阵见 ADR-069/070；当前 `MODEL-13` 达到 L1。
+- FR-MODEL-010（S15 已实现 L1，`MODEL-13`）：built-in 模型目录已支持通过 strict 本地 `modelOverrides` 和 `models add/remove` 显式维护；Anthropic baseline 为 `claude-sonnet-4-6`，OpenRouter baseline 为 `anthropic/claude-sonnet-4.6`；本地 `list` 零网络，CLI `models use` 默认持久化，而 TUI 默认只影响 next run。remote model sync 尚未实现，且尚无至少两个 distinct Provider 的真实 BYOK 在线 E2E，因此 `MODEL-13` 不得提升到 L2。
 
 ### 11.4 Tool Runtime
 
@@ -312,6 +317,7 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
 - FR-TOOL-006：`run_command` 必须显示准确命令、Shell 类型和工作目录后再审批。
 - FR-TOOL-007：命令执行支持超时、取消、退出码和 stdout/stderr 上限。
 - FR-TOOL-008：模型不能通过工具参数修改 Permission Policy。
+- FR-TOOL-009：`web_search` 必须作为 `NETWORK_OR_REMOTE / BUILT_IN` Tool 进入唯一 Pipeline；模型只可提供 query 和有界结果数，不能提供 Provider、endpoint、Header、credential、remote Tool name 或 fetch URL。可信本地 Provider gate 固定 Exa/Parallel hosted MCP 目标；Exa 可选 key 只能由 Adapter 形成精确编码的 `exaApiKey` query，Parallel key 只能形成 Bearer。每次出站均须经过绑定固定 scheme/host/effective port 的 `NetworkAccessPort`，使用 JSON-RPC 2.0 `tools/call`，只接受有界 `application/json`/`text/event-stream`（兼容参数，未知或缺失 media type 拒绝），redirect 不跟随，结果页不抓取，外部 textual content 以有界 untrusted provenance 返回。生产默认关闭，显式启用即表示 query 会发送给所选第三方。
 
 ### 11.5 Permission
 
@@ -579,6 +585,10 @@ ADR-063/064 冻结的产品范围已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb
 - 可嵌入 Spring 应用的 Agent Runtime；
 - 面向测试、FixBug 和代码评审的高质量 Skill；
 - 基于评测数据而不是直觉的模型与工具路由。
+
+S15 第一优先级补齐 `TOOL-18` 的可控网络检索基线：新增 BUILT_IN `web_search`，模型只可提交 query 与 result limit；显式本地 Provider gate 固定 Exa/Parallel hosted MCP endpoint、远端 Tool 和可选 credential。每次出站都经过 `NETWORK_OR_REMOTE` Permission/Approval、统一 Hook/Pipeline 与 `NetworkAccessPort`，使用 JSON-RPC `tools/call` 并有界解析 JSON/SSE；结果标记 external/untrusted provenance，不打开或抓取引用 URL。2026-08-12 真实 Exa 与安装版 `codej` 天气 E2E 已通过；该 L2 基线仍不是 L4 创新证据，S15 保持 `IN_PROGRESS/OPEN`。
+
+S15 的准确 Feature `MODEL-13` 不复用 Managed Policy 的 `CFG-07`。ADR-069 将 OpenCode/OpenClaw 官方 Documented 输入、Claude 授权快照与 Codex 0.147.0 的 Observed 机制、项目 Inferred/Unknown 分开；ADR-070 冻结 ProviderDefinition/CredentialProfile、用户级 restricted store、CLI/TUI/stdio 共用服务、优先级、legacy 迁移、probe、logout active-run fence/drain、隐私错误/事件及测试/E2E。当前工作树已实现 restricted store、OpenAI-compatible/Anthropic/OpenRouter 三类 Provider Factory、CLI/TUI/stdio 管理入口、masked Console `/connect`、显式有界 probe、logout fence/drain，以及 strict 本地 `modelOverrides`，`MODEL-13` 已达到 L1。由于尚未完成至少两个 distinct Provider 的真实 BYOK 在线 E2E，且 remote model sync 尚未实现，因此不得提升到 L2；它仍是参考能力补齐而非 L4 创新，S15 Exit 继续 OPEN。
 
 ## 17. 非功能需求
 

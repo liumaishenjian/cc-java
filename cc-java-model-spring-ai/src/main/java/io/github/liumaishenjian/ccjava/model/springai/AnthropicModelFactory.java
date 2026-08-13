@@ -29,12 +29,26 @@ public final class AnthropicModelFactory {
      * @return 仅执行单个模型回合的 Spring AI ChatModel
      */
     public ChatModel create(AnthropicSettings settings) {
+        return create(settings, java.util.Map.of(), Duration.ofMinutes(30));
+    }
+
+    /**
+     * 使用 definition 的非认证 Header 与请求 timeout 创建禁用自动重试的 ChatModel。
+     *
+     * @param settings 已校验且不进入日志的 Provider 配置
+     * @param staticHeaders 随请求发送的非认证静态 Header
+     * @param requestTimeout 单次 Provider 请求的超时时间
+     * @return 仅执行单个模型回合的 Spring AI ChatModel
+     */
+    public ChatModel create(AnthropicSettings settings, java.util.Map<String, String> staticHeaders,
+                            Duration requestTimeout) {
         Objects.requireNonNull(settings, "settings 不能为空");
         AnthropicChatOptions options = AnthropicChatOptions.builder()
                 .baseUrl(settings.baseUrl().toString().replaceAll("/+$", ""))
                 .apiKey(settings.apiKey())
                 .model(settings.model())
-                .timeout(Duration.ofMinutes(30))
+                .customHeaders(java.util.Map.copyOf(Objects.requireNonNull(staticHeaders, "staticHeaders 不能为空")))
+                .timeout(Objects.requireNonNull(requestTimeout, "requestTimeout 不能为空"))
                 .maxRetries(0)
                 .build();
         return AnthropicChatModel.builder().options(options).build();

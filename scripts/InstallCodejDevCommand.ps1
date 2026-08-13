@@ -41,6 +41,23 @@ function Read-InstallMetadata {
     catch { throw "Installation metadata is invalid: $metadataPath" }
 }
 
+function Protect-CodejMetadataRoot {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not $IsWindows) { return }
+    $acl = Get-Acl -LiteralPath $Path
+    $owner = $acl.Owner
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($rule in @($acl.Access)) { $null = $acl.RemoveAccessRuleSpecific($rule) }
+    $ownerRule = [Security.AccessControl.FileSystemAccessRule]::new(
+        $owner,
+        [Security.AccessControl.FileSystemRights]::FullControl,
+        [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit',
+        [Security.AccessControl.PropagationFlags]::None,
+        [Security.AccessControl.AccessControlType]::Allow)
+    $acl.SetAccessRule($ownerRule)
+    Set-Acl -LiteralPath $Path -AclObject $acl
+}
+
 if ($Uninstall) {
     $metadata = Read-InstallMetadata
     if (-not $metadata) { throw 'codej development installation metadata was not found; refusing an unowned uninstall.' }
@@ -142,7 +159,9 @@ $metadata = [ordered]@{
     pathAddedByInstaller = $pathAdded
 }
 if ($PSCmdlet.ShouldProcess($metadataPath, 'Write codej installation metadata')) {
+    $metadataRootCreated = -not (Test-Path -LiteralPath $metadataRoot -PathType Container)
     $null = New-Item -ItemType Directory -Path $metadataRoot -Force
+    if ($metadataRootCreated) { Protect-CodejMetadataRoot -Path $metadataRoot }
     [IO.File]::WriteAllText($metadataPath, (($metadata | ConvertTo-Json) + "`n"), [Text.UTF8Encoding]::new($false))
 }
 

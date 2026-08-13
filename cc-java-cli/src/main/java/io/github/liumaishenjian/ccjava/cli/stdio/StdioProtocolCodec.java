@@ -34,6 +34,7 @@ public final class StdioProtocolCodec {
             "checkpoint.diff",
             "checkpoint.undo",
             "session.command",
+            "provider.control",
             "skill.invoke",
             "task.inspect",
             "task.wait",
@@ -106,6 +107,9 @@ public final class StdioProtocolCodec {
         }
         if ("session.command".equals(type)) {
             validateSessionCommand(root, (ObjectNode) payloadNode, requestId);
+        }
+        if ("provider.control".equals(type)) {
+            validateProviderControl(root, (ObjectNode) payloadNode, requestId);
         }
         if ("skill.invoke".equals(type)) {
             validateSkillInvoke(root, (ObjectNode) payloadNode, requestId);
@@ -260,6 +264,86 @@ public final class StdioProtocolCodec {
         }
     }
 
+    /** 校验不含 secret 的 Provider 控制命令；登录必须继续使用独立 stdin 子进程。 */
+    private void validateProviderControl(JsonNode root, ObjectNode payload, String requestId)
+            throws StdioProtocolException {
+        Set<String> envelope = Set.of("version", "type", "requestId", "sessionId", "runId", "sequence", "payload");
+        if (root.properties().stream().anyMatch(entry -> !envelope.contains(entry.getKey()))
+                || root.get("sessionId") == null || root.get("runId") != null) {
+            throw new StdioProtocolException("INVALID_ENVELOPE", requestId,
+                    "provider.control 必须携带 Session 且不能携带 Run");
+        }
+        Set<String> fields = Set.of("controlId", "intent", "arguments");
+        if (payload.properties().stream().anyMatch(entry -> !fields.contains(entry.getKey()))) {
+            throw new StdioProtocolException("UNKNOWN_FIELD", requestId, "provider.control payload 包含未知字段");
+        }
+        if (invalidIdentifier(requiredPayloadText(payload, "controlId", requestId))) {
+            throw new StdioProtocolException("INVALID_PAYLOAD", requestId, "controlId 非法");
+        }
+        String intent = requiredPayloadText(payload, "intent", requestId);
+        JsonNode rawArguments = payload.get("arguments");
+        if (rawArguments == null || !rawArguments.isObject()) {
+            throw new StdioProtocolException("INVALID_PAYLOAD", requestId, "arguments 必须是 JSON Object");
+        }
+        ObjectNode arguments = (ObjectNode) rawArguments;
+        Set<String> allowed = switch (intent) {
+            case "auth.list" -> Set.of();
+            case "auth.probe" -> Set.of("providerId", "profileId", "modelId");
+            case "auth.logout" -> Set.of("providerId", "profileId", "confirmed");
+            case "models.list" -> Set.of("providerId");
+            case "models.add" -> Set.of("providerId", "modelId", "setDefault");
+            case "models.remove" -> Set.of("providerId", "modelId");
+            case "models.use" -> Set.of("providerId", "modelId", "profileId", "setDefault");
+            default -> throw new StdioProtocolException("INVALID_ARGUMENT", requestId,
+                    "未知 provider.control intent");
+        };
+        if (arguments.properties().stream().anyMatch(entry -> !allowed.contains(entry.getKey()))) {
+            throw new StdioProtocolException("UNKNOWN_FIELD", requestId, "provider.control arguments 包含未知字段");
+        }
+        if (intent.equals("auth.list") && !arguments.isEmpty()) {
+            throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "auth.list 不接受参数");
+        }
+        boolean modelMutation = intent.equals("models.add") || intent.equals("models.remove");
+        validateOptionalControlText(arguments, "providerId", requestId,
+                intent.equals("auth.probe") || intent.equals("auth.logout")
+                        || intent.equals("models.use") || modelMutation);
+        validateOptionalControlText(arguments, "profileId", requestId,
+                intent.equals("auth.probe") || intent.equals("auth.logout"));
+        validateOptionalControlText(arguments, "modelId", requestId,
+                intent.equals("models.use") || modelMutation);
+        if (intent.equals("auth.probe") && arguments.get("modelId") != null) {
+            validateOptionalControlText(arguments, "modelId", requestId, true);
+        }
+        if (intent.equals("models.add") || intent.equals("models.use")) {
+            validateOptionalControlBoolean(arguments, "setDefault", requestId);
+        }
+        if (intent.equals("auth.logout")) {
+            JsonNode confirmed = arguments.get("confirmed");
+            if (confirmed == null || !confirmed.isBoolean() || !confirmed.booleanValue()) {
+                throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "logout 需要显式确认");
+            }
+        }
+    }
+
+    private void validateOptionalControlBoolean(ObjectNode arguments, String field, String requestId)
+            throws StdioProtocolException {
+        JsonNode value = arguments.get(field);
+        if (value != null && !value.isBoolean()) {
+            throw new StdioProtocolException("INVALID_ARGUMENT", requestId, field + " 非法");
+        }
+    }
+
+    private void validateOptionalControlText(ObjectNode arguments, String field, String requestId, boolean required)
+            throws StdioProtocolException {
+        JsonNode value = arguments.get(field);
+        if (value == null) {
+            if (required) throw new StdioProtocolException("INVALID_ARGUMENT", requestId, field + " 缺失");
+            return;
+        }
+        if (!value.isString() || invalidCommandText(value.stringValue())) {
+            throw new StdioProtocolException("INVALID_ARGUMENT", requestId, field + " 非法");
+        }
+    }
     private String requiredPayloadText(ObjectNode payload, String field, String requestId) throws StdioProtocolException {
         JsonNode value = payload.get(field);
         if (value == null || !value.isString()) {

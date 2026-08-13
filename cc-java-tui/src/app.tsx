@@ -2,6 +2,7 @@ import {useEffect, useReducer, useRef, useState} from 'react';
 import {Box, Text, useApp, useInput, usePaste, useWindowSize} from 'ink';
 import {initialTuiState, reduceTuiState} from './state.js';
 import type {ProtocolEvent} from './protocol.js';
+import type {ProviderLoginRequest, ProviderLoginResult} from './stdio-client.js';
 import type {
   ApprovalView,
   CheckpointPhase,
@@ -65,11 +66,69 @@ export interface AgentClient {
   keepTaskWorktree?(taskId: string): string;
   removeTaskWorktree?(taskId: string): string;
   sessionCommand?(commandId: string, intent: 'help' | 'clear' | 'compact' | 'context' | 'doctor' | 'model' | 'permissions' | 'resume', arguments_: Readonly<Record<string, unknown>>): string;
+  providerControl?(controlId: string, intent: 'auth.list' | 'auth.probe' | 'auth.logout' | 'models.list' | 'models.use' | 'models.add' | 'models.remove', arguments_: Readonly<Record<string, unknown>>): string;
+  providerLogin?(request: ProviderLoginRequest): Promise<ProviderLoginResult>;
+  cancelProviderLogin?(): void;
   suggestFiles?(query: string): string;
   shutdown(): Promise<void>;
   terminate(): void;
 }
 
+export function renderProviderControlResult(
+  intent: string, status: string, code: string, result: Readonly<Record<string, unknown>>,
+): string {
+  if (status !== 'succeeded') return `Provider 控制未执行：${providerControlError(code)}（${code}）`;
+  if (intent === 'auth.list' && Array.isArray(result.profiles)) {
+    const lines = result.profiles.flatMap(item => {
+      if (typeof item !== 'object' || item === null || Array.isArray(item)) return [];
+      const profile = item as Record<string, unknown>;
+      const flags = [profile.providerDefault === true ? '默认' : '',
+        typeof profile.lastProbeCode === 'string' ? `探测 ${profile.lastProbeCode}` : '']
+        .filter(Boolean).join(' · ');
+      return [`${String(profile.providerId)}/${String(profile.profileId)} · ${String(profile.authMethod)}/${String(profile.refKind)} · ${String(profile.localStatus)}${flags.length === 0 ? '' : ` · ${flags}`}`];
+    });
+    return ['Credential profiles', ...(lines.length === 0 ? ['（无）'] : lines)].join('\n');
+  }
+  if (intent === 'models.list' && Array.isArray(result.models)) {
+    const lines = result.models.flatMap(item => typeof item === 'object' && item !== null && !Array.isArray(item)
+      ? [`${String((item as Record<string, unknown>).providerId)}/${String((item as Record<string, unknown>).modelId)}${(item as Record<string, unknown>).providerDefault === true ? ' · 默认' : ''}`]
+      : []);
+    return ['Models', ...(lines.length === 0 ? ['（无）'] : lines)].join('\n');
+  }
+  if (intent === 'models.use') {
+    return `下一 Run 模型：${String(result.providerId)}/${String(result.modelId)} · profile ${String(result.profileId)}`;
+  }
+  if (intent === 'auth.probe') {
+    return `认证探测：${String(result.providerId)}/${String(result.profileId)} · ${String(result.modelId)} · ${String(result.outcome)} · ${String(result.probedAt)}`;
+  }
+  if (intent === 'auth.logout') {
+    return `本机 credential 已删除：${String(result.providerId)}/${String(result.profileId)}；Provider 侧 credential 未撤销`;
+  }
+  return 'Provider 控制已完成';
+}
+
+function providerControlError(code: string): string {
+  const labels: Readonly<Record<string, string>> = {
+    AUTH_PROFILE_REQUIRED: '需要先选择 credential profile',
+    AUTH_PROFILE_UNKNOWN: 'credential profile 不存在',
+    AUTH_SECRET_UNAVAILABLE: '本机 secret 不可用',
+    AUTH_STORE_INSECURE: '本机 credential store 未通过安全检查',
+    AUTH_STORE_LOCKED: '本机 credential store 正在被占用',
+    AUTH_STORE_CORRUPT: '本机 credential store 已损坏',
+    AUTH_PROBE_REJECTED: 'Provider 拒绝该 credential',
+    AUTH_PROBE_RATE_LIMITED: 'Provider 对探测限流',
+    AUTH_PROBE_UNSUPPORTED: '该 Provider 不支持安全探测',
+    AUTH_PROBE_UNREACHABLE: '探测目标不可达或响应无效',
+    AUTH_PROBE_TIMED_OUT: '认证探测超时',
+    AUTH_CANCELLED: '操作已取消',
+    AUTH_LOGOUT_DRAIN_FAILED: '活动 Run 未能在期限内停止，credential 未删除',
+    AUTH_STORE_DELETE_FAILED: '运行资源已停止，但本机 credential 删除失败',
+    MODEL_UNKNOWN: '模型不在本地 Provider 目录中',
+    AUTH_TRANSACTION_CONFLICT: '当前有活动 Run 或本机状态已变化',
+    INVALID_ARGUMENT: '参数无效',
+  };
+  return labels[code] ?? '请求被安全拒绝';
+}
 export {
   appendInput,
   MAX_INPUT_CODE_POINTS as MAX_INPUT_CHARS,
@@ -84,6 +143,7 @@ export {
 export function AgentTui({client}: AgentTuiProps) {
   const [state, dispatch] = useReducer(reduceTuiState, initialTuiState);
   const [composer, setComposer] = useState<ComposerState>(() => createComposerState(4));
+  const [providerLoginActive, setProviderLoginActive] = useState(false);
   const composerRef = useRef(composer);
   const historySessionIdRef = useRef<string | undefined>(undefined);
   const pendingSteeringPromptsRef = useRef(new Map<string, string>());
@@ -173,6 +233,18 @@ export function AgentTui({client}: AgentTuiProps) {
             composerRef.current, {type: 'SetCompletions', candidates}, composerLayout,
           );
           replaceComposer(completion.state);
+        }
+      }
+      if (event.type === 'provider.control.result') {
+        const payload = event.payload;
+        dispatch({type: 'slash.notice', message: renderProviderControlResult(
+          String(payload.intent), String(payload.status), String(payload.code),
+          payload.result as Readonly<Record<string, unknown>>,
+        )});
+        if (payload.intent === 'models.add' && payload.status === 'succeeded') {
+          client.providerControl?.(
+            `tui-provider-${nextCommandNumber.current++}`, 'models.list', {},
+          );
         }
       }
       if (event.type === 'session.command.result') {
@@ -300,6 +372,10 @@ export function AgentTui({client}: AgentTuiProps) {
 
   useInput((text, key) => {
     if (key.ctrl && text.toLowerCase() === 'c') {
+      if (providerLoginActive) {
+        client.cancelProviderLogin?.();
+        return;
+      }
       const action = decideInterrupt(
         state.phase,
         state.activeRunId,
@@ -409,6 +485,69 @@ export function AgentTui({client}: AgentTuiProps) {
           dispatch({type: 'slash.notice', message: '当前连接或状态不支持子任务动作'});
           return;
         }
+      } else if (slash.kind === 'provider-control') {
+        const {intent, arguments: arguments_} = slash.command;
+        if (intent === 'connect') {
+          const action = String(arguments_.action);
+          if (action === 'providers') {
+            if (client.providerControl === undefined) {
+              dispatch({type: 'slash.notice', message: '当前连接不支持 Provider 控制命令'});
+              return;
+            }
+            dispatch({type: 'slash.notice', message: [
+              '连接 Provider',
+              '可用内置 Provider：anthropic、openrouter；custom Provider 先用 codej providers add 创建',
+              'STORE：/connect <provider> <profile>（Java 将遮蔽读取 API key）',
+              'ENV：/connect <provider> <profile> env <ENV_NAME>（只传环境变量名称）',
+            ].join('\n')});
+            client.providerControl(`tui-provider-${nextCommandNumber.current++}`, 'models.list', {});
+            client.providerControl(`tui-provider-${nextCommandNumber.current++}`, 'auth.list', {});
+          } else if (action === 'login') {
+            if (state.phase === 'running') {
+              dispatch({type: 'slash.notice', message: 'Agent Run 运行中，结束或取消后再连接 Provider'});
+              return;
+            }
+            if (client.providerLogin === undefined || providerLoginActive) {
+              dispatch({type: 'slash.notice', message: providerLoginActive
+                ? '已有 Provider 登录正在执行；Ctrl+C 可取消'
+                : '当前启动器不支持安全 Provider 登录桥'});
+              return;
+            }
+            const request: ProviderLoginRequest = {
+              providerId: String(arguments_.providerId),
+              profileId: String(arguments_.profileId),
+              secretSource: arguments_.secretSource === 'env' ? 'env' : 'store',
+              ...(typeof arguments_.environmentName === 'string'
+                ? {environmentName: arguments_.environmentName} : {}),
+            };
+            setProviderLoginActive(true);
+            dispatch({type: 'slash.notice', message: request.secretSource === 'store'
+              ? '已暂停 TUI 输入；请在 Java 提示中输入 API key（输入将被遮蔽，Ctrl+C 取消）'
+              : `正在保存 ENV 引用 ${request.environmentName ?? ''}；TUI 不读取环境值`});
+            void client.providerLogin(request).then(result => {
+              if (result.status === 'succeeded') {
+                dispatch({type: 'slash.notice', message: 'Provider profile 已保存，正在刷新 credential 列表'});
+                client.providerControl?.(`tui-provider-${nextCommandNumber.current++}`, 'auth.list', {});
+              } else {
+                const label = result.status === 'cancelled' ? '已取消'
+                  : result.status === 'timed_out' ? '已超时并终止子进程'
+                    : `失败（exit ${result.exitCode ?? 'unknown'}）`;
+                dispatch({type: 'slash.notice', message: `Provider 登录${label}；未通过 TUI 传输 secret`});
+              }
+            }).catch(() => {
+              dispatch({type: 'slash.notice', message: 'Provider 登录桥启动失败；未通过 TUI 传输 secret'});
+            }).finally(() => setProviderLoginActive(false));
+          }
+        } else if (client.providerControl === undefined) {
+          dispatch({type: 'slash.notice', message: '当前连接不支持 Provider 控制命令'});
+          return;
+        } else {
+          const action = String(arguments_.action);
+          const wireIntent = intent === 'auth' ? `auth.${action}` : `models.${action}`;
+          const {action: _ignored, ...wireArguments} = arguments_;
+          client.providerControl(`tui-provider-${nextCommandNumber.current++}`,
+            wireIntent as 'auth.list' | 'auth.probe' | 'auth.logout' | 'models.list' | 'models.use' | 'models.add' | 'models.remove', wireArguments);
+        }
       } else if (slash.kind === 'command') {
         if (client.sessionCommand === undefined) {
           dispatch({type: 'slash.notice', message: '当前连接不支持 Slash 命令'});
@@ -450,7 +589,7 @@ export function AgentTui({client}: AgentTuiProps) {
           return;
         }
       }
-      if (slash.kind === 'command' || slash.kind === 'task') replaceComposer(acceptSubmittedComposer(submission.state));
+      if (slash.kind === 'command' || slash.kind === 'provider-control' || slash.kind === 'task') replaceComposer(acceptSubmittedComposer(submission.state));
       return;
     }
     if (key.upArrow || key.downArrow) {
@@ -487,9 +626,9 @@ export function AgentTui({client}: AgentTuiProps) {
       }
     }
   }, {
-    isActive: state.phase === 'connecting'
+    isActive: !providerLoginActive && (state.phase === 'connecting'
       || state.phase === 'ready'
-      || state.phase === 'running',
+      || state.phase === 'running'),
   });
 
   return <AgentView

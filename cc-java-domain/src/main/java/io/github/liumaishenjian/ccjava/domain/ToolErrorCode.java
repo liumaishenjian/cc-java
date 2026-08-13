@@ -76,6 +76,42 @@ public enum ToolErrorCode {
     /** Tool 或 Adapter 的有界输出超过允许预算。 */
     OUTPUT_LIMIT_EXCEEDED,
 
+    /** Web 搜索未由可信本地配置启用。 */
+    WEB_SEARCH_DISABLED,
+
+    /** NetworkAccessPort 拒绝当前受控出站。 */
+    NETWORK_ACCESS_DENIED,
+
+    /** 当前出站路径无法由 NetworkAccessPort 完整控制。 */
+    NETWORK_CONTROL_UNAVAILABLE,
+
+    /** Web 搜索实际目标与固定授权目标不一致。 */
+    WEB_SEARCH_INVALID_TARGET,
+
+    /** Web 搜索服务要求重定向但当前契约禁止跟随。 */
+    WEB_SEARCH_REDIRECT_REFUSED,
+
+    /** Web 搜索服务返回 429 限流。 */
+    WEB_SEARCH_RATE_LIMITED,
+
+    /** Web 搜索服务返回其他 4xx。 */
+    WEB_SEARCH_REMOTE_CLIENT_ERROR,
+
+    /** Web 搜索服务返回 5xx。 */
+    WEB_SEARCH_REMOTE_SERVER_ERROR,
+
+    /** hosted MCP 返回 JSON-RPC error。 */
+    WEB_SEARCH_REMOTE_PROTOCOL_ERROR,
+
+    /** Web 搜索响应声明了不受支持的 media type。 */
+    WEB_SEARCH_UNSUPPORTED_MEDIA_TYPE,
+
+    /** Web 搜索响应不满足严格、有界 JSON-RPC JSON/SSE 契约。 */
+    WEB_SEARCH_MALFORMED_RESPONSE,
+
+    /** hosted MCP 没有返回可用搜索内容。 */
+    WEB_SEARCH_NO_RESULTS,
+
     /** Runtime 无法归类的内部错误。 */
     INTERNAL_ERROR
 }

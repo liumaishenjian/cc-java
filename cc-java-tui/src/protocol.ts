@@ -51,6 +51,7 @@ const EVENT_TYPES = new Set([
   'checkpoint.diffed',
   'checkpoint.undone',
   'session.command.result',
+  'provider.control.result',
   'steering.queued',
   'steering.discarded',
   'file.suggestions',
@@ -78,6 +79,7 @@ export type EventType =
   | 'checkpoint.diffed'
   | 'checkpoint.undone'
   | 'session.command.result'
+  | 'provider.control.result'
   | 'steering.queued'
   | 'steering.discarded'
   | 'file.suggestions'
@@ -107,6 +109,7 @@ export interface ProtocolCommand {
     | 'checkpoint.diff'
     | 'checkpoint.undo'
     | 'session.command'
+    | 'provider.control'
     | 'skill.invoke'
     | 'task.inspect'
     | 'task.wait'
@@ -203,6 +206,8 @@ function validateEventShape(
   }
   if (type === 'session.command.result') {
     validateSessionCommandResult(sessionId, runId, payload);
+  } else if (type === 'provider.control.result') {
+    validateProviderControlResult(sessionId, runId, payload);
   } else if (type === 'file.suggestions') {
     validateFileSuggestions(sessionId, runId, payload);
   } else if (type === 'steering.queued') {
@@ -434,6 +439,57 @@ function validateSteeringDiscarded(
   }
 }
 
+const PROVIDER_CONTROL_INTENTS = new Set([
+  'auth.list', 'auth.probe', 'auth.logout', 'models.list', 'models.use',
+]);
+
+function validateProviderControlResult(
+  sessionId: string | undefined,
+  runId: string | undefined,
+  payload: Readonly<Record<string, unknown>>,
+): void {
+  if (sessionId === undefined || runId !== undefined
+    || !hasExactFields(payload, new Set(['controlId', 'intent', 'status', 'code', 'result']))
+    || !isBoundedIdentifier(payload.controlId)
+    || typeof payload.intent !== 'string' || !PROVIDER_CONTROL_INTENTS.has(payload.intent)
+    || (payload.status !== 'succeeded' && payload.status !== 'rejected')
+    || typeof payload.code !== 'string' || !/^[A-Z][A-Z0-9_]{0,63}$/u.test(payload.code)
+    || !isRecord(payload.result)) {
+    throw new ProtocolViolation('provider.control.result 包含无效安全投影');
+  }
+  if (payload.status === 'rejected') {
+    if (!hasExactFields(payload.result, new Set())) throw new ProtocolViolation('provider.control 拒绝结果不得携带数据');
+    return;
+  }
+  const result = payload.result;
+  if (payload.intent === 'auth.list') {
+    if (!hasExactFields(result, new Set(['profiles'])) || !Array.isArray(result.profiles) || result.profiles.length > 256) {
+      throw new ProtocolViolation('provider.control profile 投影无效');
+    }
+    for (const item of result.profiles) {
+      const required = new Set(['providerId', 'profileId', 'authMethod', 'refKind', 'localStatus', 'providerDefault']);
+      if (!isRecord(item) || !Object.keys(item).every(key => required.has(key) || key === 'lastProbeCode' || key === 'lastProbeAt')
+        || ![...required].every(key => key in item) || !isBoundedIdentifier(item.providerId)
+        || !isBoundedIdentifier(item.profileId) || !isBoundedProjectionEnum(item.authMethod)
+        || (item.refKind !== 'STORE' && item.refKind !== 'ENV') || !isBoundedProjectionEnum(item.localStatus)
+        || typeof item.providerDefault !== 'boolean') throw new ProtocolViolation('provider.control profile 条目无效');
+    }
+  } else if (payload.intent === 'models.list') {
+    if (!hasExactFields(result, new Set(['models'])) || !Array.isArray(result.models) || result.models.length > 256
+      || result.models.some(item => !isRecord(item)
+        || !hasExactFields(item, new Set(['providerId', 'modelId', 'providerDefault']))
+        || !isBoundedIdentifier(item.providerId) || typeof item.modelId !== 'string'
+        || item.modelId.length < 1 || item.modelId.length > 256 || typeof item.providerDefault !== 'boolean')) {
+      throw new ProtocolViolation('provider.control model 投影无效');
+    }
+  } else if (payload.intent === 'models.use') {
+    if (!hasExactFields(result, new Set(['providerId', 'profileId', 'modelId']))) throw new ProtocolViolation('provider.control selection 投影无效');
+  } else if (payload.intent === 'auth.probe') {
+    if (!hasExactFields(result, new Set(['providerId', 'profileId', 'modelId', 'outcome', 'probedAt']))) throw new ProtocolViolation('provider.control probe 投影无效');
+  } else if (!hasExactFields(result, new Set(['providerId', 'profileId', 'remoteRevoked'])) || result.remoteRevoked !== false) {
+    throw new ProtocolViolation('provider.control logout 投影无效');
+  }
+}
 const SESSION_COMMAND_INTENTS = new Set([
   'help', 'clear', 'compact', 'context', 'doctor', 'model', 'permissions', 'resume',
 ]);

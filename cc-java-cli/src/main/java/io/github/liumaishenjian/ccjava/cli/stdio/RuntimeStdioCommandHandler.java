@@ -87,6 +87,7 @@ public final class RuntimeStdioCommandHandler
     private final Clock clock;
     private final StdioApprovalCoordinator approvals;
     private final HeadlessRuntimeSession application;
+    private final io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService providerAuth;
     private final Deque<QueuedSteering> steeringQueue = new ArrayDeque<>();
     private State state = State.NEW;
     private ActiveRun activeRun;
@@ -251,6 +252,7 @@ public final class RuntimeStdioCommandHandler
         clock = Clock.systemUTC();
         assemblyScheduler = InputAssemblyScheduler.production();
         approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
+        providerAuth = null;
         application = new HeadlessRuntimeSession(
                 Objects.requireNonNull(settings, "settings 不能为空"),
                 this,
@@ -270,6 +272,31 @@ public final class RuntimeStdioCommandHandler
                 approvals);
     }
 
+    /**
+     * 同时接入 Provider/Auth 服务，使 stdio/TUI 消费结构化本地控制面结果。
+     *
+     * @param selectedApplication 已完成 Provider 选择装配的生产 Session
+     * @param providerAuth Provider/Auth 本地控制面服务
+     */
+    public RuntimeStdioCommandHandler(HeadlessRuntimeSession selectedApplication,
+                                      io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService providerAuth) {
+        clock = Clock.systemUTC(); assemblyScheduler = InputAssemblyScheduler.production();
+        approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
+        application = Objects.requireNonNull(selectedApplication, "selectedApplication 不能为空");
+        this.providerAuth = Objects.requireNonNull(providerAuth, "providerAuth 不能为空");
+    }
+    /**
+     * 使用已经接入 ProviderAuthRuntimeResources 的生产 Session 装配 stdio handler。
+     *
+     * @param selectedApplication 已接入 Provider/Auth 运行时资源的生产 Session
+     */
+    public RuntimeStdioCommandHandler(HeadlessRuntimeSession selectedApplication) {
+        clock = Clock.systemUTC();
+        assemblyScheduler = InputAssemblyScheduler.production();
+        approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
+        application = Objects.requireNonNull(selectedApplication, "selectedApplication 不能为空");
+        providerAuth = null;
+    }
     /**
      * 使用 Fake Model 装配真实 Runtime/stdio Adapter，供确定性契约测试使用。
      *
@@ -304,6 +331,7 @@ public final class RuntimeStdioCommandHandler
         this.clock = Objects.requireNonNull(clock, "clock 不能为空");
         this.assemblyScheduler = Objects.requireNonNull(assemblyScheduler, "assemblyScheduler 不能为空");
         approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
+        providerAuth = null;
         application = new HeadlessRuntimeSession(
                 Objects.requireNonNull(model, "model 不能为空"),
                 this,
@@ -327,6 +355,7 @@ public final class RuntimeStdioCommandHandler
             case "checkpoint.diff" -> checkpointDiff(command, events);
             case "checkpoint.undo" -> checkpointUndo(command, events);
             case "session.command" -> sessionCommand(command, events);
+            case "provider.control" -> providerControl(command, events);
             case "skill.invoke" -> invokeSkill(command, events);
             case "task.inspect" -> inspectTask(command, events);
             case "task.wait" -> waitTask(command, events);
@@ -929,6 +958,123 @@ public final class RuntimeStdioCommandHandler
         return StdioProtocol.Disposition.CONTINUE;
     }
 
+    /** 执行不含 secret 的 MODEL-13 本地控制命令，并发出严格安全投影。 */
+    private StdioProtocol.Disposition providerControl(
+            StdioProtocol.Command command, StdioProtocol.EventEmitter events) throws StdioProtocolException {
+        synchronized (lock) {
+            ensureStateNotNewOrClosed(command);
+            requireSession(command);
+            requireNoRunId(command);
+        }
+        if (providerAuth == null) {
+            throw protocolError("INVALID_STATE", command, "provider.control 未装配");
+        }
+        String controlId = requiredSessionCommandText(command, "controlId");
+        String intent = requiredSessionCommandText(command, "intent");
+        JsonNode arguments = command.payload().get("arguments");
+        ObjectNode result = codec.objectNode();
+        String status = "succeeded";
+        String code = "OK";
+        try {
+            switch (intent) {
+                case "auth.list" -> {
+                    ArrayNode profiles = codec.arrayNode();
+                    providerAuth.listProfiles(Optional.empty(), CancellationToken.none()).forEach(value -> {
+                        ObjectNode item = codec.objectNode();
+                        item.put("providerId", value.providerId()); item.put("profileId", value.profileId());
+                        item.put("authMethod", value.authMethod()); item.put("refKind", value.refKind());
+                        item.put("localStatus", value.status().name()); item.put("providerDefault", value.providerDefault());
+                        value.lastProbeCode().ifPresent(v -> item.put("lastProbeCode", v));
+                        value.lastProbeAt().ifPresent(v -> item.put("lastProbeAt", v.toString()));
+                        profiles.add(item);
+                    });
+                    result.set("profiles", profiles);
+                }
+                case "models.list" -> {
+                    Optional<String> provider = optionalArgument(arguments, "providerId");
+                    ArrayNode models = codec.arrayNode();
+                    providerAuth.listModels(provider, CancellationToken.none()).forEach(value -> {
+                        ObjectNode item = codec.objectNode(); item.put("providerId", value.providerId());
+                        item.put("modelId", value.modelId()); item.put("providerDefault", value.providerDefault());
+                        models.add(item);
+                    });
+                    result.set("models", models);
+                }
+                case "models.add" -> {
+                    String providerId = requiredArgument(arguments, "providerId");
+                    String modelId = requiredArgument(arguments, "modelId");
+                    boolean setDefault = optionalBooleanArgument(arguments, "setDefault");
+                    providerAuth.addModel(providerId, modelId, setDefault, CancellationToken.none());
+                    result.put("providerId", providerId); result.put("modelId", modelId);
+                    result.put("setDefault", setDefault);
+                }
+                case "models.remove" -> {
+                    String providerId = requiredArgument(arguments, "providerId");
+                    String modelId = requiredArgument(arguments, "modelId");
+                    providerAuth.removeModel(providerId, modelId, CancellationToken.none());
+                    result.put("providerId", providerId); result.put("modelId", modelId);
+                }
+                case "models.use" -> {
+                    boolean setDefault = optionalBooleanArgument(arguments, "setDefault");
+                    var selected = providerAuth.selectModel(new io.github.liumaishenjian.ccjava.cli.runtime
+                            .ProviderAuthApplicationService.ModelSelectionRequest(
+                            requiredArgument(arguments, "providerId"), requiredArgument(arguments, "modelId"),
+                            optionalArgument(arguments, "profileId"), setDefault), CancellationToken.none());
+                    result.put("providerId", selected.providerId()); result.put("profileId", selected.profileId());
+                    result.put("modelId", selected.modelId()); result.put("setDefault", setDefault);
+                }
+                case "auth.probe" -> {
+                    String providerId = requiredArgument(arguments, "providerId");
+                    String modelId = optionalArgument(arguments, "modelId").orElseGet(() -> providerAuth
+                            .listModels(Optional.of(providerId), CancellationToken.none()).stream()
+                            .filter(io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService
+                                    .ModelSummary::providerDefault).findFirst().orElseThrow().modelId());
+                    var probe = providerAuth.probe(new io.github.liumaishenjian.ccjava.cli.runtime
+                            .ProviderAuthApplicationService.ProbeRequest(providerId,
+                            requiredArgument(arguments, "profileId"), modelId, Duration.ofSeconds(5)),
+                            CancellationToken.none());
+                    result.put("providerId", probe.providerId()); result.put("profileId", probe.profileId());
+                    result.put("modelId", probe.modelId()); result.put("outcome", probe.outcome().name());
+                    result.put("probedAt", probe.probedAt().toString());
+                }
+                case "auth.logout" -> {
+                    var logout = providerAuth.logout(requiredArgument(arguments, "providerId"),
+                            requiredArgument(arguments, "profileId"), CancellationToken.none());
+                    result.put("providerId", logout.providerId()); result.put("profileId", logout.profileId());
+                    result.put("remoteRevoked", false);
+                }
+                default -> throw new IllegalArgumentException("未知 provider control intent");
+            }
+        } catch (io.github.liumaishenjian.ccjava.cli.auth.ProviderAuthException failure) {
+            status = "rejected"; code = failure.code().name(); result = codec.objectNode();
+        } catch (RuntimeException failure) {
+            status = "rejected"; code = "INVALID_ARGUMENT"; result = codec.objectNode();
+        }
+        ObjectNode payload = codec.objectNode(); payload.put("controlId", controlId);
+        payload.put("intent", intent); payload.put("status", status); payload.put("code", code);
+        payload.set("result", result);
+        events.emit("provider.control.result", command.requestId(), Optional.of(application.sessionId().value()),
+                Optional.empty(), payload);
+        return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    private static String requiredArgument(JsonNode arguments, String field) {
+        JsonNode value = arguments.get(field);
+        if (value == null || !value.isString()) throw new IllegalArgumentException(field);
+        return value.stringValue();
+    }
+
+    private static Optional<String> optionalArgument(JsonNode arguments, String field) {
+        JsonNode value = arguments.get(field);
+        return value == null ? Optional.empty() : Optional.of(requiredArgument(arguments, field));
+    }
+
+    private static boolean optionalBooleanArgument(JsonNode arguments, String field) {
+        JsonNode value = arguments.get(field);
+        if (value == null) return false;
+        if (!value.isBoolean()) throw new IllegalArgumentException(field);
+        return value.booleanValue();
+    }
     private void emitSessionCommandResult(
             String requestId,
             SessionCommandResult result,

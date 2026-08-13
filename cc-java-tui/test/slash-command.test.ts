@@ -22,6 +22,52 @@ describe('parseSlashCommand', () => {
     expect(parseSlashCommand('/permissions mode ACCEPT_EDITS')).toEqual({
       kind: 'command', command: {intent: 'permissions', arguments: {mode: 'ACCEPT_EDITS'}},
     });
+    expect(parseSlashCommand('/connect')).toEqual({
+      kind: 'provider-control', command: {intent: 'connect', arguments: {action: 'providers'}},
+    });
+    expect(parseSlashCommand('/connect anthropic personal')).toEqual({
+      kind: 'provider-control', command: {intent: 'connect', arguments: {
+        action: 'login', providerId: 'anthropic', profileId: 'personal', secretSource: 'store',
+      }},
+    });
+    expect(parseSlashCommand('/connect openrouter ci env OPENROUTER_API_KEY')).toEqual({
+      kind: 'provider-control', command: {intent: 'connect', arguments: {
+        action: 'login', providerId: 'openrouter', profileId: 'ci', secretSource: 'env',
+        environmentName: 'OPENROUTER_API_KEY',
+      }},
+    });
+    expect(parseSlashCommand('/auth list')).toEqual({
+      kind: 'provider-control', command: {intent: 'auth', arguments: {action: 'list'}},
+    });
+    expect(parseSlashCommand('/auth probe anthropic personal claude-sonnet')).toEqual({
+      kind: 'provider-control', command: {intent: 'auth', arguments: {
+        action: 'probe', providerId: 'anthropic', profileId: 'personal', modelId: 'claude-sonnet',
+      }},
+    });    expect(parseSlashCommand('/auth logout anthropic personal confirm')).toEqual({
+      kind: 'provider-control', command: {intent: 'auth', arguments: {
+        action: 'logout', providerId: 'anthropic', profileId: 'personal', confirmed: true,
+      }},
+    });
+    expect(parseSlashCommand('/models use anthropic claude-sonnet personal')).toEqual({
+      kind: 'provider-control', command: {intent: 'models', arguments: {
+        action: 'use', providerId: 'anthropic', modelId: 'claude-sonnet', profileId: 'personal',
+      }},
+    });
+    expect(parseSlashCommand('/models add anthropic claude-opus default')).toEqual({
+      kind: 'provider-control', command: {intent: 'models', arguments: {
+        action: 'add', providerId: 'anthropic', modelId: 'claude-opus', providerDefault: true,
+      }},
+    });
+    expect(parseSlashCommand('/models add anthropic claude-sonnet')).toEqual({
+      kind: 'provider-control', command: {intent: 'models', arguments: {
+        action: 'add', providerId: 'anthropic', modelId: 'claude-sonnet', providerDefault: false,
+      }},
+    });
+    expect(parseSlashCommand('/models remove anthropic claude-sonnet')).toEqual({
+      kind: 'provider-control', command: {intent: 'models', arguments: {
+        action: 'remove', providerId: 'anthropic', modelId: 'claude-sonnet',
+      }},
+    });
     expect(parseSlashCommand('/task wait task-a 1500')).toEqual({
       kind: 'task', command: {action: 'wait', taskId: 'task-a', timeoutMillis: 1500},
     });
@@ -49,6 +95,15 @@ describe('parseSlashCommand', () => {
     expect(parseSlashCommand('/permissions mode PLAN extra').kind).toBe('invalid');
     expect(parseSlashCommand('/task wait task-a 0').kind).toBe('invalid');
     expect(parseSlashCommand('/task remove invalid').kind).toBe('invalid');
+    expect(parseSlashCommand('/connect secret').kind).toBe('invalid');
+    expect(parseSlashCommand('/connect anthropic personal env bad-name').kind).toBe('invalid');
+    expect(parseSlashCommand('/connect anthropic personal env KEY extra').kind).toBe('invalid');
+    expect(parseSlashCommand('/auth logout anthropic personal').kind).toBe('invalid');
+    expect(parseSlashCommand('/auth logout anthropic personal yes').kind).toBe('invalid');
+    expect(parseSlashCommand('/models add anthropic').kind).toBe('invalid');
+    expect(parseSlashCommand('/models add anthropic model primary').kind).toBe('invalid');
+    expect(parseSlashCommand('/models remove anthropic').kind).toBe('invalid');
+    expect(parseSlashCommand('/models remove anthropic model extra').kind).toBe('invalid');
   });
 
   it('renders fixed local status without server-provided text', () => {

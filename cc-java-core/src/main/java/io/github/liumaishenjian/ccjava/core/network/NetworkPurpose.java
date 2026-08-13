@@ -11,5 +11,9 @@ public enum NetworkPurpose {
     /** 调用远程 MCP Server。 */
     MCP_REMOTE,
     /** 调用受信任的远程 Hook。 */
-    HOOK_REMOTE
+    HOOK_REMOTE,
+    /** 通过固定可信 Search endpoint 执行内置 Web 搜索。 */
+    WEB_SEARCH,
+    /** 对已选择 Provider/profile 的固定派生 endpoint 执行一次显式鉴权探测。 */
+    PROVIDER_AUTH_PROBE
 }
