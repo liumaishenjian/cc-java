@@ -1,8 +1,8 @@
-# S15 TOOL-18 hosted MCP Web Search G0-G5 Evidence
+# S15 TOOL-18 hosted MCP Web Search Commit-scoped Evidence
 
 - Stage: S15 Independent Innovation
-- Status: In Progress；Stage Exit Open
-- Release / Commit: 工作树实现，未 commit
+- Status: `TOOL-18` 实现切片 G0-G6 Commit-scoped 完成；S15 Stage Exit Open
+- Release / Commit: `f0e274f779143164e0859961437a53acd220e7bd`
 - Reference Behavior Baseline: `R2026.03`
 - Authorized Snapshot ID: `AUTH-SRC-2026-07-29-A`
 - Public Snapshot: OpenCode `0d927ba03f36d7f87e3cdb2b6c1f34c44913a099` / tree `e749e4c946cf0eca237143472882a104bbbbcdb8` / MIT
@@ -48,6 +48,8 @@ ADR-067 记录授权快照边界与 OpenCode 固定公开 revision、五个研�
 
 可复制配置、focused 命令、真实 smoke、真实 `codej` 路径、安全摘要和事实边界见 `docs/demos/S15-controlled-web-search.md`。
 
-## 等级与 Stage 边界
+## G6 与 Stage 边界
 
-生产 composition、确定性故障/安全矩阵、真实 hosted MCP 与实际 `codej` Agent Loop 支持 `TOOL-18` 达 L2。S15 仍为 IN_PROGRESS/OPEN；本项是参考工具基线，不是相对 S14 的 L4 创新证据。用户禁止 commit，因此 commit-scoped G6 留待维护者后续绑定实现 Commit。
+实现 Commit `f0e274f779143164e0859961437a53acd220e7bd` 完整包含本证据记录的生产 composition、确定性故障/安全矩阵、真实 hosted MCP 与实际 `codej` Agent Loop，支持 `TOOL-18` 达 L2；该能力实现切片的矩阵、证据、Demo 与 Gap 已完成 Commit-scoped G6 对账。
+
+S15 整体仍为 IN_PROGRESS/OPEN；本项是参考工具基线，不是相对 S14 的 L4 创新证据。`MODEL-13` L2 在线双 Provider 缺口与 S15 创新 A/B Eval、收益/成本/安全阈值仍是 Stage Exit blocker。

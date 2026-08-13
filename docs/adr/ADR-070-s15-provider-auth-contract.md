@@ -1,9 +1,10 @@
 # ADR-070：S15 本地直连 Provider Definition 与 Credential Profile 契约
 
-- Status: Implemented at L1（未 Accepted，未达到 L2）
+- Status: Implemented and Commit-verified at L1（未达到 L2）
 - Date: 2026-08-14
 - Stage: S15 Independent Innovation（OPEN）
 - Feature ID: `MODEL-13`
+- Implementation Commit: `f0e274f779143164e0859961437a53acd220e7bd`
 - Current → Exit Target: `L1 → L2`（L2 仍需真实 BYOK 在线证据）
 - Depends On: ADR-024、027、031、039、047、064、066、069
 - Baseline: `R2026.03`；Authorized Snapshot: `AUTH-SRC-2026-07-29-A`
@@ -307,7 +308,7 @@ operationId、validated IDs、status、count、duration bucket、timestamp；不
 | G3 | store/service/CLI/TUI/factories/Router composition 与中文 Javadoc 已在本地实现 | PASSED |
 | G4 | clean verify、TUI/launcher、fault/security/loopback/logout race/secret scan 与普通测试零网络证据已完成 | PASSED |
 | G5 | 离线 Demo 与负例已完成；尚缺至少两个 distinct Provider 的真实 BYOK text stream、Tool call、cancel、auth-negative E2E | PARTIAL |
-| G6 | 提交前 implementation commit-scoped 证据及文档/Demo/Gap/Dashboard 最终对账 | OPEN |
+| G6 | 实现 Commit `f0e274f779143164e0859961437a53acd220e7bd` 已绑定；`MODEL-13` L1 的文档/Demo/Gap/矩阵已完成 commit-scoped 对账 | PASSED_AT_L1 |
 
 ## 11. 测试、E2E 与量化阈值
 

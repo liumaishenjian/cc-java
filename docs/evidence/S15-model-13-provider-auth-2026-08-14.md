@@ -1,8 +1,9 @@
-# S15 MODEL-13 Provider/Auth 提交前 G0-G5 证据
+# S15 MODEL-13 Provider/Auth Commit-scoped G0-G6 证据
 
 - Date: 2026-08-14
 - Stage: S15 Independent Innovation（OPEN）
-- Status: 提交前工作树证据；未 commit
+- Status: `MODEL-13` L1 实现切片 G0-G6 Commit-scoped 完成；S15 Stage Exit 仍 OPEN
+- Release / Commit: `f0e274f779143164e0859961437a53acd220e7bd`
 - Feature: `MODEL-13 L0 → L1`
 - Reference Behavior Baseline: `R2026.03`
 - Authorized Snapshot ID: `AUTH-SRC-2026-07-29-A`
@@ -36,7 +37,7 @@ Provider Definition、Credential Profile metadata、secret material、Run select
 | G3 | restricted store、application service、CLI/TUI、Provider factories、单 route composition、probe、lease/logout 已生产接入 | PASSED |
 | G4 | 完整 clean verify、TUI check、launcher、严格 aggregate Javadoc，以及 fault/security/loopback/race/隐私回归已通过 | PASSED |
 | G5 | 离线 Demo 与负例完成；至少两个 distinct Provider 的真实 BYOK text stream、Tool call、cancel、auth-negative 在线 E2E 尚缺 | PARTIAL |
-| G6 | 尚未绑定 implementation commit，也未完成 commit-scoped 最终对账 | OPEN |
+| G6 | 实现 Commit `f0e274f779143164e0859961437a53acd220e7bd` 已绑定；`MODEL-13` L1 的矩阵、ADR、证据、Demo 与 Gap 已完成 commit-scoped 对账 | PASSED_AT_L1 |
 
 ## 最终验证
 

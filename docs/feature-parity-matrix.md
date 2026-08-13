@@ -165,12 +165,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 指标 | R2026.03 当前值 |
 | --- | --- |
 | 纳入追踪的 Capability ID | 198 |
-| 当前阶段 | S15 Independent Innovation `IN_PROGRESS`（TOOL-18 保持 L2；MODEL-13 工作树实现达到 L1） |
-| Stage Exit | S01-S14 Accepted；S15 `OPEN`，不得由 TOOL-18 或 MODEL-13 单项进展推断 Stage Accepted |
+| 当前阶段 | S15 Independent Innovation `IN_PROGRESS`（实现 Commit `f0e274f779143164e0859961437a53acd220e7bd` 完整包含 TOOL-18 L2 与 MODEL-13 L1） |
+| Stage Exit | S01-S14 Accepted；TOOL-18 与 MODEL-13 实现切片已完成 Commit-scoped G6 对账，S15 整体仍 `OPEN`，不得由两项切片进展推断 Stage Accepted |
 | 当前等级 | 151 项为 L2，38 项为 L1，9 项为 L0 |
 | 默认最终目标 | 198 项达到 L3，或存在明确 `Accepted Deviation` |
 | 当前能力覆盖 | 57.24%（198 项加权、按各 Feature 目标等级计算；MODEL-13 从 L0 提升至 L1，使总权重增加 1/594） |
-| 下一步 | MODEL-13 提交前保持 G6 OPEN；补齐至少两个 distinct Provider 的真实 BYOK text stream、Tool call、cancel 与 auth-negative 证据后，才评估 L2 |
+| 下一步 | MODEL-13 L1 实现切片已在 Commit `f0e274f779143164e0859961437a53acd220e7bd` 完成 G6；补齐至少两个 distinct Provider 的真实 BYOK text stream、Tool call、cancel 与 auth-negative 证据后，才评估 L2，并继续完成 S15 L4 创新 A/B Eval |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -304,7 +304,7 @@ Stage 完成项。
 | MODEL-10 | Rate Limit / Retry | ModelGatewayException typed Retry-After 已由 Adapter 解析并由 production ProviderRouter 在每请求 fresh shared deadline/cancel/attempt/cost budget 内有界消费；第三方 SDK 完整控制仍是 gap | L2 | S14 | REF-01/AUTH-01 |
 | MODEL-11 | Cost Budget | Provider Usage + 可信版本化价格才计算 ModelCost；Router 支持保守 attempt cost unit 上限，未知价格不伪造，精确执行中 token/cost 结算仍缺 | L2 | S14 | REF-01/AUTH-01 |
 | MODEL-12 | Capability Detection | configured/observed/effective 三层保守 snapshot；Unknown 不视为支持 | L2 | S14 | REF-02/AUTH-01/CODEX-0.147 |
-| MODEL-13 | Provider Auth / Credential Profiles | 已实现本地直连 BYOK：非秘密 ProviderDefinition 与 CredentialProfile/SecretRef 分离；OpenAI-compatible、Anthropic、OpenRouter；user-level restricted-file store、env/store、显式 profile>default>env>legacy、CLI/TUI 共用 service、local status/显式 probe、logout active-run fence、非破坏迁移；禁止 secret durable/argv/evidence 与 silent rotation/failover，OAuth 仅留官方扩展；工作树 G0-G4 已通过，G5 仅有离线 Demo，双 Provider 在线证据缺失，提交前 G6 OPEN | L1 | S15 | AUTH-01/CODEX-0.147/OPENCODE-DOC-20260813/OPENCLAW-DOC-20260813 |
+| MODEL-13 | Provider Auth / Credential Profiles | 已实现本地直连 BYOK：非秘密 ProviderDefinition 与 CredentialProfile/SecretRef 分离；OpenAI-compatible、Anthropic、OpenRouter；user-level restricted-file store、env/store、显式 profile>default>env>legacy、CLI/TUI 共用 service、local status/显式 probe、logout active-run fence、非破坏迁移；禁止 secret durable/argv/evidence 与 silent rotation/failover，OAuth 仅留官方扩展；实现 Commit `f0e274f779143164e0859961437a53acd220e7bd` 已完成 L1 commit-scoped G6，G5 仅有离线 Demo，双 Provider 在线证据仍缺失 | L1 | S15 | AUTH-01/CODEX-0.147/OPENCODE-DOC-20260813/OPENCLAW-DOC-20260813 |
 
 ## 10. Tool System 对照
 
@@ -787,7 +787,7 @@ ADR-063/064 冻结的范围已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776
 
 状态：`IN_PROGRESS`，Stage Exit `OPEN`。ADR-067/068 已完成 TOOL-18 OpenCode 固定公开 revision 研究与独立 Java 契约；`cc-java-tools-web`、Headless production composition、真实 JDK loopback、Permission/NetworkAccess/JSON-RPC/JSON/SSE/cancel/隐私矩阵与 Demo 形成工作树 G0-G5 verified，使 `TOOL-18 L0 → L2`。2026-08-12 真实 Exa hosted MCP smoke 和安装版 `codej --print` 杭州天气 E2E 均通过，Tool started/completed 各一次且 Call ID 匹配。该工具是参考差距补齐，不是 L4 创新收益证据；不支持 WebFetch/任意 URL，NetworkAccessPort 也不是 OS Sandbox。完整 S15 仍须完成创新 A/B Eval、收益/成本/安全阈值和 commit-scoped G6。
 
-ADR-069/070 冻结的 `MODEL-13` Provider/Auth 受控双源研究与契约已在工作树完成本地实现：本地直连 BYOK，不建设官方中转 Gateway；ProviderDefinition 与多 CredentialProfile/SecretRef 分离，覆盖 OpenAI-compatible、Anthropic、OpenRouter，提供 `/connect`、`/auth list/logout`、`/models` 及 headless 对等入口。list/status 零网络，probe 显式有界；profile 优先级为显式→default→env→legacy，logout 对同进程 active run 建 fence/cancel/drain 并明确不等于 Provider revoke。secret 不进入 Domain/Session/log/event/error/argv/evidence；普通文件只能称权限受限存储；不实现 silent rotation/failover、Gateway、SQLite 或通用 OAuth。工作树 G0-G4 已通过，`MODEL-13` 达到 L1；G5 仅有离线 Demo，双 Provider 在线证据仍缺失，不得虚报；提交前 G6 保持 OPEN，S15 Stage Exit 仍为 OPEN。
+ADR-069/070 冻结的 `MODEL-13` Provider/Auth 受控双源研究与契约已绑定实现 Commit `f0e274f779143164e0859961437a53acd220e7bd`：本地直连 BYOK，不建设官方中转 Gateway；ProviderDefinition 与多 CredentialProfile/SecretRef 分离，覆盖 OpenAI-compatible、Anthropic、OpenRouter，提供 `/connect`、`/auth list/logout`、`/models` 及 headless 对等入口。list/status 零网络，probe 显式有界；profile 优先级为显式→default→env→legacy，logout 对同进程 active run 建 fence/cancel/drain 并明确不等于 Provider revoke。secret 不进入 Domain/Session/log/event/error/argv/evidence；普通文件只能称权限受限存储；不实现 silent rotation/failover、Gateway、SQLite 或通用 OAuth。`MODEL-13` L1 切片已完成 commit-scoped G6；G5 仅有离线 Demo，双 Provider 在线证据仍缺失，不得虚报；S15 Stage Exit 仍为 OPEN。
 
 前置条件：
 
