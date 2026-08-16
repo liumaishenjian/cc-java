@@ -10,7 +10,7 @@
 
 ```text
 BuildRelease.ps1 installable app-dir: PASS
-codej --version: codej 0.1.0-SNAPSHOT
+codej --version: codej 0.1.0
 codej --help: PASS
 codej doctor: files/runtime PASS
 PackageDistribution.ps1 0.1.0 windows-x64 public release candidate: PASS
@@ -28,9 +28,17 @@ Apache-2.0 explicit public release manifest gate: PASS
 Node executable；清除 `JAVA_HOME` 且 PATH 不含 Java/Node 后仍从安装目录启动。篡改 `.sha256`
 后安装在解压/激活前失败。
 
+## 首个远端 tag workflow
+
+`v0.1.0` 的首个 GitHub Actions run `31927341615` 在创建 Release 前失败：Windows 与 Linux runner
+均把多个 Node Application executable 拼成一个路径；Linux 还实际暴露 `BuildRelease.ps1` 固定调用
+`mvnw.cmd`。因此该 run 不计 PASS，也没有公开 artifact。corrective 改为只选首个 Node executable、
+按平台选择 Maven Wrapper，并把 Maven resolver 的 artifact path 从 Windows-only 扩展为 Unix 绝对路径；
+修复后的远端 run 仍需重新对账。
+
 ## 未计为通过
 
-- GitHub Actions Windows/Linux 自包含运行时矩阵尚未在远端运行；
-- 维护者已选择 Apache-2.0；显式 public release gate 本地验证通过，tag CI 结果待对账；
-- 没有创建 tag、GitHub Release、网站下载端点或 N-1 artifact；
+- GitHub Actions Windows/Linux 自包含运行时矩阵尚未成功；
+- 维护者已选择 Apache-2.0；显式 public release gate 本地验证通过，corrective tag CI 结果待对账；
+- tag 已创建，但没有 GitHub Release、网站下载端点或 N-1 artifact；
 - 没有 macOS、签名、撤销、透明日志或自动后台更新。

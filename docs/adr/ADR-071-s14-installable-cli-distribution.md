@@ -49,6 +49,9 @@ OpenAI Codex README/installer 与 Anthropic Claude Code setup（访问日期 202
 ## 验证与等级纪律
 
 Windows 本地候选必须通过 build、`--version/--help/doctor`、archive checksum、安装、从 shim 启动、
-篡改 checksum Fail Closed 和卸载。Linux 在 CI 构建自包含 artifact；未得到真实 runner 结果前不记
-本地 PASS。由于尚无公开 Release 与真实 N-1 artifact，`DIST-02/DIST-06` 保持 L2，S14 Accepted
+篡改 checksum Fail Closed 和卸载。Linux 在 CI 构建自包含 artifact；首个 tag workflow
+`31927341615` 因多个 Node executable 路径被拼接、Linux 误用 `mvnw.cmd` 而在发布前失败，未创建
+Release。corrective 固定只选择首个 Application 类型 Node executable、按平台选择 Maven Wrapper，
+并允许 Maven resolver 返回 Unix 绝对路径；修复后的真实 runner 结果仍不得提前记 PASS。
+由于尚无公开 Release 与真实 N-1 artifact，`DIST-02/DIST-06` 保持 L2，S14 Accepted
 状态不变，S15 Gate/Capability 也不因此变化。

@@ -13,6 +13,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
+$mavenWrapper = Join-Path $root $(if ($IsWindows) { 'mvnw.cmd' } else { 'mvnw' })
 $versionPattern = '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$'
 if ($Version -notmatch $versionPattern) { throw 'Version must be a SemVer value' }
 if ($PublicRelease -and -not (Test-Path -LiteralPath (Join-Path $root 'LICENSE') -PathType Leaf)) {
@@ -37,7 +38,7 @@ if ($out -eq $releaseRoot) {
 }
 
 if (-not $SkipBuild) {
-    & (Join-Path $root 'mvnw.cmd') -DskipTests package
+    & $mavenWrapper -DskipTests package
     if ($LASTEXITCODE -ne 0) { throw 'Maven package failed' }
 }
 
@@ -54,9 +55,9 @@ $cli = Join-Path $root 'cc-java-cli/target/cc-java-cli-0.1.0.jar'
 if (-not (Test-Path -LiteralPath $cli -PathType Leaf)) { throw 'CLI JAR missing' }
 $runtimeDependencies = Join-Path $root 'cc-java-cli/target/release-dependency'
 Remove-Item -LiteralPath $runtimeDependencies -Recurse -Force -ErrorAction SilentlyContinue
-& (Join-Path $root 'mvnw.cmd') -q -pl cc-java-cli -am install -DskipTests
+& $mavenWrapper -q -pl cc-java-cli -am install -DskipTests
 if ($LASTEXITCODE -ne 0) { throw 'Maven install failed' }
-& (Join-Path $root 'mvnw.cmd') -q -pl cc-java-cli dependency:copy-dependencies `
+& $mavenWrapper -q -pl cc-java-cli dependency:copy-dependencies `
     "-DincludeScope=runtime" "-DoutputDirectory=$runtimeDependencies"
 if ($LASTEXITCODE -ne 0) { throw 'Runtime dependency collection failed' }
 
@@ -64,7 +65,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Runtime dependency collection failed' }
 # 等价的确定性坐标来源。后续仍要求每个 JAR 恰好解析出一个坐标，绝不猜文件名。
 $coordinateFile = Join-Path $root "target/release-runtime-coordinates-$PID.txt"
 Remove-Item -LiteralPath $coordinateFile -Force -ErrorAction SilentlyContinue
-& (Join-Path $root 'mvnw.cmd') -q -pl cc-java-cli dependency:list `
+& $mavenWrapper -q -pl cc-java-cli dependency:list `
     "-DincludeScope=runtime" "-DoutputAbsoluteArtifactFilename=true" `
     "-DoutputFile=$coordinateFile"
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $coordinateFile -PathType Leaf)) {
@@ -72,7 +73,7 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $coordinateFile -PathTy
 }
 $resolvedCoordinates = [Collections.Generic.List[object]]::new()
 foreach ($line in Get-Content -LiteralPath $coordinateFile) {
-    if ($line -notmatch '^\s*(.+):(compile|runtime):([A-Za-z]:\\.+?)(?: -- module .*)?$') {
+    if ($line -notmatch '^\s*(.+):(compile|runtime):(.+?)(?: -- module .*)?$') {
         continue
     }
     $prefix = @($Matches[1] -split ':')
@@ -123,6 +124,10 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'codej-release.sh') -Destination
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'codej-launcher.mjs') -Destination (Join-Path $staging 'codej-launcher.mjs')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'install.ps1') -Destination (Join-Path $staging 'install.ps1')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'install.sh') -Destination (Join-Path $staging 'install.sh')
+if (-not $IsWindows) {
+    & chmod '+x' (Join-Path $staging 'codej') (Join-Path $staging 'install.sh')
+    if ($LASTEXITCODE -ne 0) { throw 'Linux launcher permission setup failed' }
+}
 
 # 生产 TUI 运行编译后的 JavaScript；tsx、TypeScript、Vitest 与测试源码不进入发行物。
 $stagingTui = Join-Path $staging 'tui'
