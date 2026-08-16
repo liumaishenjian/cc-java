@@ -3,7 +3,7 @@
 - Date: 2026-08-17
 - Stage: S15 IN_PROGRESS / Stage Exit OPEN
 - Feature: `PERM-05 L0 → L1`
-- Implementation baseline: 当前工作树，待本次提交固定
+- Implementation baseline: `e2f23a7af7292ca2231fbb16a3d4cdc94ebf71bd`
 - Reference Behavior Baseline: `R2026.03`
 - Authorized Snapshot ID: `AUTH-SRC-2026-07-29-A`
 - Classification: `Observed / Inferred`（双源机制）；`Documented / Tested`（项目实现）
