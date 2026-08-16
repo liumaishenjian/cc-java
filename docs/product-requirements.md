@@ -1,4 +1,4 @@
-# cc-java 产品需求文档
+# codej 产品需求文档
 
 > 文档状态：Draft v0.9
 >
@@ -27,7 +27,7 @@
 
 最终定位：
 
-> `cc-java` 是一个以 Java 独立实现 Agent Runtime、用成熟终端前端技术提供 CLI 的
+> `codej` 是一个以 Java 独立实现 Agent Runtime、用成熟终端前端技术提供 CLI 的
 > 通用 Coding Agent 学习项目。
 
 项目先把成熟 Coding Agent 拆成完整能力地图，再按子系统独立重实现：Agent 语义、控制流、

@@ -21,6 +21,12 @@ foreach ($required in @('codej-launcher.mjs', 'install.ps1', 'install.sh', 'tui/
         throw "Installable release file missing: $required"
     }
 }
+$installerText = (Get-Content -LiteralPath (Join-Path $release 'install.ps1') -Raw) + "`n" +
+    (Get-Content -LiteralPath (Join-Path $release 'install.sh') -Raw)
+if ($installerText -notlike '*github.com/liumaishenjian/codej/releases/*' `
+        -or $installerText -like '*github.com/liumaishenjian/cc-java/releases/*') {
+    throw 'Public installers do not target the codej GitHub repository'
+}
 
 function Assert-Coordinate([string]$Group, [string]$Name, [string]$Version) {
     $matches = @($components | Where-Object {

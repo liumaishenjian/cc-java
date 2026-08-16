@@ -1,4 +1,4 @@
-# cc-java Compatibility Policy
+# codej Compatibility Policy
 
 - stable protocol v1 使用 semantic major/minor；major 不兼容，minor 只能增加协商能力。
 - experimental stdio v0 至少与首个 v1 本地发行候选共存一个 release，不原地改变既有 v0 语义。

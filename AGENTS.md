@@ -132,7 +132,8 @@ S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Com
 
 ## 3. 项目定位
 
-`cc-java` 是一个参考成熟 Coding Agent、采用 Java 独立设计和重实现的通用 Agent Runtime 与 CLI。
+`codej` 是一个参考成熟 Coding Agent、采用 Java 独立设计和重实现的通用 Agent Runtime 与 CLI。
+仓库中的 Maven 模块、Java 包和既有协议仍保留 `cc-java`/`ccjava` 技术标识，以维持兼容性。
 
 项目遵循以下学习闭环：
 

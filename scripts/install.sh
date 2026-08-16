@@ -24,9 +24,9 @@ if [ -n "${CODEJ_ARCHIVE_PATH:-}" ]; then
 else
   if [ -z "$DOWNLOAD_BASE" ]; then
     if [ -z "$VERSION" ]; then
-      DOWNLOAD_BASE='https://github.com/liumaishenjian/cc-java/releases/latest/download'
+      DOWNLOAD_BASE='https://github.com/liumaishenjian/codej/releases/latest/download'
     else
-      DOWNLOAD_BASE="https://github.com/liumaishenjian/cc-java/releases/download/v$VERSION"
+      DOWNLOAD_BASE="https://github.com/liumaishenjian/codej/releases/download/v$VERSION"
     fi
   fi
   curl -fL --retry 3 --proto '=https' --tlsv1.2 "$DOWNLOAD_BASE/$ARCHIVE_NAME" -o "$ARCHIVE"

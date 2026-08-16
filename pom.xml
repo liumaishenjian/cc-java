@@ -9,8 +9,8 @@
     <version>0.1.0</version>
     <packaging>pom</packaging>
 
-    <name>cc-java</name>
-    <description>参考驱动的 Java Coding Agent Runtime 与 CLI 学习项目</description>
+    <name>codej</name>
+    <description>Java 实现的开源 Coding Agent Runtime 与 CLI</description>
 
     <modules>
         <module>cc-java-domain</module>

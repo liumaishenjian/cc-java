@@ -43,9 +43,9 @@ try {
     } else {
         if ([string]::IsNullOrWhiteSpace($DownloadBase)) {
             $DownloadBase = if ([string]::IsNullOrWhiteSpace($Version)) {
-                'https://github.com/liumaishenjian/cc-java/releases/latest/download'
+                'https://github.com/liumaishenjian/codej/releases/latest/download'
             } else {
-                "https://github.com/liumaishenjian/cc-java/releases/download/v$Version"
+                "https://github.com/liumaishenjian/codej/releases/download/v$Version"
             }
         }
         Invoke-WebRequest -UseBasicParsing "$DownloadBase/codej-windows-x64.zip" -OutFile $archive

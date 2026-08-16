@@ -1,4 +1,4 @@
-# cc-java 技术设计文档
+# codej 技术设计文档
 
 > 文档状态：Proposed v0.10
 >
