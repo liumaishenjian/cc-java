@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sun.net.httpserver.HttpServer;
 import io.github.liumaishenjian.ccjava.cli.session.SessionOpenRequest;
+import io.github.liumaishenjian.ccjava.cli.stdio.RuntimeStdioCommandHandler;
+import io.github.liumaishenjian.ccjava.cli.stdio.StdioProtocol;
+import io.github.liumaishenjian.ccjava.cli.stdio.StdioProtocolCodec;
 import io.github.liumaishenjian.ccjava.core.AgentEventSink;
 import io.github.liumaishenjian.ccjava.core.ContextPreparationService;
 import io.github.liumaishenjian.ccjava.core.ModelGateway;
@@ -28,6 +31,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import tools.jackson.databind.node.ObjectNode;
 
 /** TOOL-18 外部配置 Gate 与 Headless 生产扩展装配的专项 E2E。 */
 class S15WebSearchHeadlessE2ETest {
@@ -87,6 +91,68 @@ class S15WebSearchHeadlessE2ETest {
         }
     }
 
+    @Test
+    void stdioFactoryWaitsForNetworkApprovalBeforeExecutingSearch(@TempDir java.nio.file.Path root)
+            throws Exception {
+        java.nio.file.Path workspace = java.nio.file.Files.createDirectory(root.resolve("workspace"));
+        AtomicInteger hits = new AtomicInteger();
+        try (Loopback fixture = new Loopback(hits)) {
+            WebSearchConfiguration configuration = WebSearchConfiguration.loopbackDevelopment(
+                    io.github.liumaishenjian.ccjava.tools.web.WebSearchProvider.EXA,
+                    fixture.uri(), Optional.empty(), Duration.ofSeconds(3));
+            WebSearchRuntimeResources resources = WebSearchRuntimeResources.fromConfiguration(configuration);
+            AtomicInteger turns = new AtomicInteger();
+            CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+            StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                    events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+            StdioProtocolCodec codec = new StdioProtocolCodec();
+            HeadlessRuntimeOptions options = new HeadlessRuntimeOptions(
+                    workspace, "fake-model", Duration.ofSeconds(10), PermissionMode.DEFAULT, List.of(),
+                    SessionOpenRequest.create(), root.resolve("sessions"));
+
+            try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(
+                    (eventSink, approvals) -> new HeadlessRuntimeSession(
+                            request -> turns.incrementAndGet() == 1
+                                    ? new ModelTurn(AssistantMessage.tools(List.of(new ToolCall(
+                                            "call-stdio-web", "web_search", new JsonObject(Map.of(
+                                                    "query", "明天杭州天气", "result_limit", 1))))),
+                                            ModelTurnMetadata.unknown())
+                                    : ModelTurn.text("明天晴"),
+                            eventSink, options, approvals, ContextPreparationService.noop(), null,
+                            HeadlessRuntimeSession.HeadlessMemoryLayout.disabled(),
+                            HeadlessRuntimeSession.HeadlessInstructionLayout.production(
+                                    () -> root.resolve("home")),
+                            null, true, resources))) {
+                handler.handle(codec.decodeCommand(
+                        "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"),
+                        emitter);
+                String sessionId = events.getFirst().sessionId().orElseThrow();
+                handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"run.start\","
+                        + "\"requestId\":\"run\",\"sessionId\":\"%s\",\"sequence\":2,"
+                        + "\"payload\":{\"prompt\":\"weather\"}}").formatted(sessionId)), emitter);
+
+                CapturedEvent approval = awaitEvent(events, "approval.requested");
+                assertThat(approval.payload().toString())
+                        .contains("\"effect\":\"network_or_remote\"",
+                                "\"destination\":\"configured_web_search_provider\"",
+                                "\"query\":\"明天杭州天气\"",
+                                "\"operation\":\"search\"")
+                        .doesNotContain("http://", "Authorization", "api-key");
+                assertThat(hits).hasValue(0);
+
+                handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"approval.resolve\","
+                        + "\"requestId\":\"approve\",\"sessionId\":\"%s\",\"runId\":\"%s\","
+                        + "\"sequence\":3,\"payload\":{\"approvalId\":\"%s\","
+                        + "\"decision\":\"allow_once\"}}").formatted(
+                                sessionId,
+                                approval.runId().orElseThrow(),
+                                approval.payload().get("approvalId").stringValue())), emitter);
+                assertThat(awaitEvent(events, "run.completed").type()).isEqualTo("run.completed");
+            }
+            assertThat(hits).hasValue(1);
+        }
+    }
+
     private static HeadlessRuntimeSession runtime(java.nio.file.Path workspace, java.nio.file.Path root,
             ModelGateway model, WebSearchRuntimeResources webResources,
             io.github.liumaishenjian.ccjava.core.ApprovalHandler approvals) {
@@ -121,5 +187,28 @@ class S15WebSearchHeadlessE2ETest {
         }
 
         @Override public void close() { server.stop(0); }
+    }
+
+    private static CapturedEvent awaitEvent(
+            CopyOnWriteArrayList<CapturedEvent> events,
+            String type) throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (System.nanoTime() < deadline) {
+            for (CapturedEvent event : events) {
+                if (event.type().equals(type)) {
+                    return event;
+                }
+            }
+            Thread.sleep(10);
+        }
+        throw new AssertionError("未收到事件: " + type + ", actual="
+                + events.stream().map(CapturedEvent::type).toList());
+    }
+
+    private record CapturedEvent(
+            String type,
+            Optional<String> sessionId,
+            Optional<String> runId,
+            ObjectNode payload) {
     }
 }

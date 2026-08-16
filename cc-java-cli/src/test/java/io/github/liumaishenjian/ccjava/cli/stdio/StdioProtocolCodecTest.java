@@ -143,14 +143,42 @@ class StdioProtocolCodecTest {
                 {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
                  "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"permissions","arguments":{"mode":"PLAN"}}}
                 """).type()).isEqualTo("session.command");
+        for (String selection : java.util.List.of("PLAN", "ASK", "AUTO")) {
+            assertThat(codec.decodeCommand("""
+                    {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
+                     "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"permissions","arguments":{"selection":"%s"}}}
+                    """.formatted(selection)).type()).isEqualTo("session.command");
+        }
         assertProtocolError("""
                 {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
                  "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"permissions","arguments":{"operation":"query"}}}
                 """, "UNKNOWN_FIELD");
         assertProtocolError("""
                 {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
+                 "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"permissions","arguments":{"mode":"PLAN","selection":"ASK"}}}
+                """, "INVALID_ARGUMENT");
+        assertProtocolError("""
+                {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
                  "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"permissions","arguments":{"mode":"INVALID"}}}
                 """, "INVALID_ARGUMENT");
+        for (String value : java.util.List.of("", "UNKNOWN", "SECRET_SELECTION")) {
+            assertThatThrownBy(() -> codec.decodeCommand("""
+                    {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
+                     "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"permissions","arguments":{"selection":"%s"}}}
+                    """.formatted(value)))
+                    .isInstanceOfSatisfying(StdioProtocolException.class, error -> {
+                        assertThat(error.code()).isEqualTo("INVALID_ARGUMENT");
+                        assertThat(error.getMessage()).doesNotContain("SECRET_SELECTION");
+                    });
+        }
+        assertProtocolError("""
+                {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
+                 "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"permissions","arguments":{"selection":null}}}
+                """, "INVALID_PAYLOAD");
+        assertProtocolError("""
+                {"version":0,"type":"session.command","requestId":"req-1","sessionId":"session-1",
+                 "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"permissions","arguments":{"selection":false}}}
+                """, "INVALID_PAYLOAD");
     }
 
     @Test
@@ -203,6 +231,25 @@ class StdioProtocolCodecTest {
                  "arguments":{"providerId":"team","displayName":"Team Gateway",
                  "baseUrl":"https://gateway.example/v1","modelId":"%s"}}}
                 """.formatted("x".repeat(257)), "INVALID_ARGUMENT");
+    }
+
+    @Test
+    void providerQuickConfigureAcceptsOnlyBaseUrlAndModelAndNeverApiKey() throws Exception {
+        assertThat(codec.decodeCommand("""
+                {"version":0,"type":"provider.control","requestId":"quick","sessionId":"session-1",
+                 "sequence":2,"payload":{"controlId":"quick-1","intent":"providers.configure",
+                 "arguments":{"baseUrl":"https://gateway.example/v1","modelId":"model-x"}}}
+                """).payload().get("intent").stringValue()).isEqualTo("providers.configure");
+        assertProtocolError("""
+                {"version":0,"type":"provider.control","requestId":"quick","sessionId":"session-1",
+                 "sequence":2,"payload":{"controlId":"quick-1","intent":"providers.configure",
+                 "arguments":{"baseUrl":"https://gateway.example/v1","modelId":"model-x","apiKey":"secret"}}}
+                """, "UNKNOWN_FIELD");
+        assertProtocolError("""
+                {"version":0,"type":"provider.control","requestId":"quick","sessionId":"session-1",
+                 "sequence":2,"payload":{"controlId":"quick-1","intent":"providers.configure",
+                 "arguments":{"baseUrl":"https://gateway.example/v1"}}}
+                """, "INVALID_ARGUMENT");
     }
 
     @Test

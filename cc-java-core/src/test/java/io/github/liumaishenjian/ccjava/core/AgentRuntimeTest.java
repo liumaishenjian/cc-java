@@ -8,6 +8,9 @@ import io.github.liumaishenjian.ccjava.domain.AgentLimits;
 import io.github.liumaishenjian.ccjava.domain.AgentMessage;
 import io.github.liumaishenjian.ccjava.domain.AgentRunRequest;
 import io.github.liumaishenjian.ccjava.domain.AgentRunResult;
+import io.github.liumaishenjian.ccjava.domain.ApprovalReviewContextItem;
+import io.github.liumaishenjian.ccjava.domain.ApprovalReviewResult;
+import io.github.liumaishenjian.ccjava.domain.ApprovalReviewer;
 import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
 import io.github.liumaishenjian.ccjava.domain.LifecycleEvent;
@@ -67,6 +70,77 @@ class AgentRuntimeTest {
         assertThat(harness.session().messages()).containsExactly(
                 new UserMessage("直接回答"),
                 AssistantMessage.text("任务完成"));
+    }
+
+    @Test
+    void autoReviewCircuitStopsAfterCompleteFourCallBatchWithoutRequestingAnotherModelTurn() {
+        List<ToolCall> calls = java.util.stream.IntStream.range(0, 4)
+                .mapToObj(index -> call("auto-runtime-" + index, "reviewed"))
+                .toList();
+        ScriptedModelGateway model = ScriptedModelGateway.of(ModelTurn.tools(calls));
+        AtomicInteger executions = new AtomicInteger();
+        AtomicInteger reviews = new AtomicInteger();
+        AtomicInteger approvals = new AtomicInteger();
+        AgentTool tool = reviewedTool(executions);
+        Harness harness = newAutoReviewHarness(model, reviews, approvals, tool);
+
+        AgentRunResult result = harness.run("auto review batch", AgentLimits.DEFAULT);
+
+        assertThat(result.status()).isEqualTo(RunStatus.STOPPED);
+        assertThat(result.stopReason()).isEqualTo(StopReason.AUTO_REVIEW_CIRCUIT_OPEN);
+        assertThat(result.modelTurns()).isEqualTo(1);
+        assertThat(result.toolCalls()).isEqualTo(4);
+        assertThat(model.requests()).hasSize(1);
+        assertThat(model.remainingTurns()).isZero();
+        assertThat(executions).hasValue(0);
+        assertThat(approvals).hasValue(0);
+        assertThat(reviews).hasValue(3);
+        assertThat(toolResults(harness.session())).extracting(ToolResult::callId)
+                .containsExactly("auto-runtime-0", "auto-runtime-1", "auto-runtime-2", "auto-runtime-3");
+        assertThat(toolResults(harness.session())).extracting(ToolResult::toolName)
+                .containsOnly("reviewed");
+        assertThat(toolResults(harness.session())).allMatch(resultItem ->
+                resultItem.status() == ToolResultStatus.DENIED);
+    }
+
+    @Test
+    void autoReviewRequestKeepsRecentContextRolesWhenHistoryExceedsMaximum() {
+        AtomicReference<io.github.liumaishenjian.ccjava.domain.ApprovalReviewRequest> captured =
+                new AtomicReference<>();
+        AtomicInteger reviews = new AtomicInteger();
+        ScriptedModelGateway model = ScriptedModelGateway.of(
+                ModelTurn.tools(List.of(call("seed-1", "seed"))), ModelTurn.text("seed one"),
+                ModelTurn.tools(List.of(call("seed-2", "seed"))), ModelTurn.text("seed two"),
+                ModelTurn.tools(List.of(call("seed-3", "seed"))), ModelTurn.text("seed three"),
+                ModelTurn.tools(List.of(
+                        call("recent-1", "reviewed"), call("recent-2", "reviewed"), call("recent-3", "reviewed"))));
+        Harness harness = newAutoReviewHarness(model, reviews, new AtomicInteger(),
+                (request, token) -> {
+                    if (request.callId().equals("recent-3")) {
+                        captured.set(request);
+                    }
+                    return ApprovalReviewResult.deny();
+                }, RecordingAgentTool.succeeding("seed", "seed result"), reviewedTool(new AtomicInteger()));
+        for (int index = 1; index <= 3; index++) {
+            assertThat(harness.run("seed " + index, AgentLimits.DEFAULT).stopReason())
+                    .isEqualTo(StopReason.COMPLETED);
+        }
+
+        AgentRunResult result = harness.run("current", AgentLimits.DEFAULT);
+
+        assertThat(result.stopReason()).isEqualTo(StopReason.AUTO_REVIEW_CIRCUIT_OPEN);
+        assertThat(captured.get().recentContext()).hasSize(
+                io.github.liumaishenjian.ccjava.domain.ApprovalReviewRequest.MAX_CONTEXT_ITEMS);
+        assertThat(captured.get().recentContext()).extracting(ApprovalReviewContextItem::role)
+                .containsExactly(
+                        ApprovalReviewContextItem.Role.TOOL_RESULT,
+                        ApprovalReviewContextItem.Role.ASSISTANT,
+                        ApprovalReviewContextItem.Role.USER,
+                        ApprovalReviewContextItem.Role.ASSISTANT,
+                        ApprovalReviewContextItem.Role.TOOL_RESULT,
+                        ApprovalReviewContextItem.Role.ASSISTANT,
+                        ApprovalReviewContextItem.Role.USER,
+                        ApprovalReviewContextItem.Role.ASSISTANT);
     }
 
     @Test
@@ -827,6 +901,72 @@ class AgentRuntimeTest {
                 .singleElement()
                 .satisfies(envelope -> assertThat(envelope.event())
                         .isEqualTo(new LifecycleEvent.RunFinished(result)));
+    }
+
+    private static AgentTool reviewedTool(AtomicInteger executions) {
+        return new AgentTool() {
+            @Override
+            public io.github.liumaishenjian.ccjava.domain.ToolDefinition definition() {
+                return io.github.liumaishenjian.ccjava.domain.ToolDefinition.readOnlyText(
+                        "reviewed", "auto review fixture", "{\"type\":\"object\"}");
+            }
+
+            @Override
+            public ToolValidationResult validate(JsonObject arguments) {
+                return ToolValidationResult.validResult();
+            }
+
+            @Override
+            public ToolExecutionOutcome execute(ToolInvocation invocation) {
+                executions.incrementAndGet();
+                return ToolExecutionOutcome.success(invocation.call().id());
+            }
+        };
+    }
+
+    private static Harness newAutoReviewHarness(
+            ModelGateway model,
+            AtomicInteger reviews,
+            AtomicInteger approvals,
+            AgentTool... tools) {
+        return newAutoReviewHarness(model, reviews, approvals,
+                (request, token) -> ApprovalReviewResult.deny(), tools);
+    }
+
+    private static Harness newAutoReviewHarness(
+            ModelGateway model,
+            AtomicInteger reviews,
+            AtomicInteger approvals,
+            ApprovalReviewGateway reviewer,
+            AgentTool... tools) {
+        RecordingAgentEventSink eventSink = new RecordingAgentEventSink();
+        LifecycleDispatcher lifecycle = new LifecycleDispatcher(FIXED_CLOCK, eventSink);
+        SequentialAgentIdGenerator idGenerator = new SequentialAgentIdGenerator();
+        InMemorySessionStore sessionStore = new InMemorySessionStore(idGenerator, lifecycle);
+        ToolRegistry registry = new ToolRegistry(Arrays.asList(tools));
+        ToolExecutionPipeline pipeline = new ToolExecutionPipeline(
+                registry,
+                (invocation, definition) -> io.github.liumaishenjian.ccjava.domain.PermissionOutcome.of(
+                        PermissionDecision.ASK,
+                        io.github.liumaishenjian.ccjava.domain.PermissionReason.EFFECT_DEFAULT,
+                        io.github.liumaishenjian.ccjava.domain.PermissionSelector.toolWide(
+                                definition.name(), definition.source())),
+                (invocation, definition, outcome) -> {
+                    approvals.incrementAndGet();
+                    return io.github.liumaishenjian.ccjava.domain.ApprovalResponse.allowOnce();
+                },
+                new InMemorySessionPermissionState(), lifecycle, SessionJournal.noop(), CheckpointCoordinator.noop(),
+                io.github.liumaishenjian.ccjava.core.hook.HookCoordinator.disabled(),
+                io.github.liumaishenjian.ccjava.core.skill.SkillRunCoordinator.disabled(),
+                ApprovalReviewer.AUTO_REVIEW,
+                new AutoReviewCoordinator((request, token) -> {
+                    reviews.incrementAndGet();
+                    return reviewer.review(request, token);
+                }));
+        AgentRuntime runtime = new AgentRuntime(sessionStore, idGenerator, model, new DefaultContextAssembler(),
+                registry, pipeline, lifecycle);
+        AgentSession session = sessionStore.create(SessionSpec.of(SYSTEM_INSTRUCTIONS));
+        return new Harness(runtime, session, eventSink);
     }
 
     private static Harness newHarness(

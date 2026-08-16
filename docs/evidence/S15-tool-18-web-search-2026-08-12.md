@@ -53,3 +53,12 @@ ADR-067 记录授权快照边界与 OpenCode 固定公开 revision、五个研�
 实现 Commit `f0e274f779143164e0859961437a53acd220e7bd` 完整包含本证据记录的生产 composition、确定性故障/安全矩阵、真实 hosted MCP 与实际 `codej` Agent Loop，支持 `TOOL-18` 达 L2；该能力实现切片的矩阵、证据、Demo 与 Gap 已完成 Commit-scoped G6 对账。
 
 S15 整体仍为 IN_PROGRESS/OPEN；本项是参考工具基线，不是相对 S14 的 L4 创新证据。`MODEL-13` L2 在线双 Provider 缺口与 S15 创新 A/B Eval、收益/成本/安全阈值仍是 Stage Exit blocker。
+
+## 2026-08-16 交互式网络审批 corrective
+
+真实 TUI 复现 `web_search · permission_denied` 后确认：生产 `runStdio` 先用固定 Deny ApprovalHandler 创建 Session，随后创建的 `StdioApprovalCoordinator` 未接回该 Session；同时 stdio/TUI v0 只接受 Write/Process 审批摘要，`NETWORK_OR_REMOTE` 无法形成可交互请求。修复使用 `RuntimeApplicationFactory` 在当前连接的事件出口与审批协调器就绪后创建 Session，并增加固定目的类型、最多 512 code point 且无控制字符的 query 预览。Endpoint、Header、credential 仍不进入协议。
+
+- Java focused：`StdioApprovalCoordinatorTest`、`RuntimeStdioCommandHandlerTest`、`S15WebSearchHeadlessE2ETest` 共 41 tests PASS；新增真实 loopback 断言批准前 HTTP hit=0、Allow Once 后 hit=1、Run 完成。
+- TUI：11 files / 197 tests PASS；覆盖网络摘要协议拒绝、State 投影与 `需要批准：访问网络` 面板。
+- 完整 `./mvnw.cmd verify`：11 modules BUILD SUCCESS，1,014 tests / 32 skips / 0 failure / 0 error。
+- `TOOL-18` 继续保持 L2；没有提升 Capability Level、Gate 或 S15 Stage Exit。

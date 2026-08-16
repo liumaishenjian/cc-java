@@ -1,5 +1,8 @@
 package io.github.liumaishenjian.ccjava.domain.command;
 
+import io.github.liumaishenjian.ccjava.domain.ApprovalReviewer;
+import io.github.liumaishenjian.ccjava.domain.PermissionMode;
+import io.github.liumaishenjian.ccjava.domain.PermissionSelection;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
 import java.util.List;
 import java.util.Objects;
@@ -100,18 +103,40 @@ public record SessionCommandEvent(SessionCommandKind kind, CommandId commandId, 
      * 已发布权限设置的无 selector 安全投影。
      *
      * @param effectiveMode 当前 Runtime 实际使用的 S05 PermissionMode 枚举名
+     * @param effectiveReviewer 最终 ASK 的审查主体枚举名
+     * @param effectiveSelection 面向 Surface 的安全选择枚举名；ACCEPT_EDITS 固定投影为 ADVANCED
      * @param modeSourceKind 有效 mode 的安全来源类别，未由 Settings 提供时为 BASELINE
      * @param modeSafeSourceId 有效 mode 的安全来源标识，基线时为 runtime-baseline
      * @param modeValidationStatus 来源校验状态，基线时为 BASELINE
      * @param startupRuleCount 仅 Settings 派生的最终 STARTUP 规则总数，不表示全部 Runtime 规则
      * @param rules 每项仅包含规则稳定 ID 和 Settings 来源安全投影
      */
-    public record PermissionsPayload(String effectiveMode, String modeSourceKind, String modeSafeSourceId,
-                                     String modeValidationStatus, int startupRuleCount,
-                                     List<PermissionRuleProvenance> rules) implements SessionCommandPayload {
+    public record PermissionsPayload(String effectiveMode, String effectiveReviewer, String effectiveSelection,
+                                     String modeSourceKind, String modeSafeSourceId, String modeValidationStatus,
+                                     int startupRuleCount, List<PermissionRuleProvenance> rules) implements SessionCommandPayload {
+        /**
+         * 兼容旧调用方按 mode 与 {@link ApprovalReviewer#USER} 推导 reviewer 和安全选择。
+         *
+         * @param effectiveMode 当前 Runtime 实际使用的 S05 PermissionMode 枚举名
+         * @param modeSourceKind 有效 mode 的安全来源类别
+         * @param modeSafeSourceId 有效 mode 的安全来源标识
+         * @param modeValidationStatus 来源校验状态
+         * @param startupRuleCount Settings 派生的最终 STARTUP 规则总数
+         * @param rules 不含 selector 的规则来源投影
+         */
+        public PermissionsPayload(String effectiveMode, String modeSourceKind, String modeSafeSourceId,
+                                  String modeValidationStatus, int startupRuleCount,
+                                  List<PermissionRuleProvenance> rules) {
+            this(effectiveMode, ApprovalReviewer.USER.name(), legacySelection(effectiveMode), modeSourceKind,
+                    modeSafeSourceId, modeValidationStatus, startupRuleCount, rules);
+        }
+
         /** 验证并冻结不含规则正文的权限投影。 */
         public PermissionsPayload {
             effectiveMode = boundedEnum(effectiveMode, "effectiveMode");
+            effectiveReviewer = boundedEnum(effectiveReviewer, "effectiveReviewer");
+            effectiveSelection = boundedEnum(effectiveSelection, "effectiveSelection");
+            requireEffectivePermissionState(effectiveMode, effectiveReviewer, effectiveSelection);
             modeSourceKind = boundedEnum(modeSourceKind, "modeSourceKind");
             modeSafeSourceId = boundedSafeId(modeSafeSourceId);
             modeValidationStatus = boundedEnum(modeValidationStatus, "modeValidationStatus");
@@ -216,6 +241,36 @@ public record SessionCommandEvent(SessionCommandKind kind, CommandId commandId, 
             safeId = boundedSafeId(safeId);
             code = boundedEnum(code, "code");
             severity = boundedEnum(severity, "severity");
+        }
+    }
+
+    private static String legacySelection(String effectiveMode) {
+        PermissionMode mode = PermissionMode.valueOf(boundedEnum(effectiveMode, "effectiveMode"));
+        return switch (mode) {
+            case PLAN -> PermissionSelection.PLAN.name();
+            case DEFAULT -> PermissionSelection.ASK.name();
+            case ACCEPT_EDITS -> "ADVANCED";
+        };
+    }
+
+    private static void requireEffectivePermissionState(String effectiveMode, String effectiveReviewer,
+                                                        String effectiveSelection) {
+        PermissionMode mode = PermissionMode.valueOf(effectiveMode);
+        ApprovalReviewer reviewer = ApprovalReviewer.valueOf(effectiveReviewer);
+        if ("ADVANCED".equals(effectiveSelection)) {
+            if (mode != PermissionMode.ACCEPT_EDITS || reviewer != ApprovalReviewer.USER) {
+                throw new IllegalArgumentException("effective permission state 非法");
+            }
+            return;
+        }
+        PermissionSelection selection;
+        try {
+            selection = PermissionSelection.valueOf(effectiveSelection);
+        } catch (IllegalArgumentException exception) {
+            throw new IllegalArgumentException("effectiveSelection 非法", exception);
+        }
+        if (mode != selection.mode() || reviewer != selection.reviewer()) {
+            throw new IllegalArgumentException("effective permission state 非法");
         }
     }
 

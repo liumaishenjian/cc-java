@@ -39,6 +39,17 @@ corrective workflow `31927683009` 随后通过：GitHub-hosted Ubuntu 1m47s、Wi
 按设计跳过。运行仅留下 upload-artifact v4 的 Node 20 弃用警告，正式 workflow 已升级为官方
 upload-artifact v7 / download-artifact v8，仍需随 tag 进行最终发布对账。
 
+## 产品启动 Surface corrective
+
+- Feature IDs：`BOOT-01`、`CLI-01`；Capability Level 无变化；
+- 空 Session 且终端宽度不少于 52、可用高度不少于 16 时显示五行 `CODEJ` 字标、版本、
+  `Java-powered coding agent` 与一句产品说明；
+- 窄窗口或短窗口自动降级为紧凑 `codej` 标题，20 列回归不会裁掉产品名，Composer 始终保留；
+- 常规终端使用青色、蓝色、洋红色 ANSI 层次区分字标与版本定位；首屏不额外堆叠 `/connect`、`/help` 或 `@file` 操作说明；
+- 启动首屏不再暴露 `S15`、内部快速失败说明或无 Checkpoint 时的 Undo 操作提示；
+- 品牌只存在于交互式空会话投影，不进入 `--print`、stdio 协议、Session 或模型 Prompt；
+- `npm --prefix cc-java-tui run check`：11 files / 194 tests PASS。
+
 ## 未计为通过
 
 - GitHub Actions Windows/Linux 自包含运行时矩阵已成功，但正式 tag 发布尚未完成；

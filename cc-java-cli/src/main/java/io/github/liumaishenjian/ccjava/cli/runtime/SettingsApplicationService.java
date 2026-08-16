@@ -9,6 +9,7 @@ import io.github.liumaishenjian.ccjava.core.settings.RuntimeSettingsApplier;
 import io.github.liumaishenjian.ccjava.core.settings.SettingsResolution;
 import io.github.liumaishenjian.ccjava.core.settings.SettingsResolver;
 import io.github.liumaishenjian.ccjava.core.settings.SettingsSnapshotStore;
+import io.github.liumaishenjian.ccjava.domain.ApprovalReviewer;
 import io.github.liumaishenjian.ccjava.domain.settings.ConfigurationDiagnostic;
 import io.github.liumaishenjian.ccjava.domain.settings.ConfigurationDiagnosticCode;
 import io.github.liumaishenjian.ccjava.domain.settings.ConfigurationDiagnosticSeverity;
@@ -53,6 +54,7 @@ public final class SettingsApplicationService {
     private SettingsSourceSnapshot projectLocal;
     private SettingsSourceSnapshot session;
     private SettingsSourceSnapshot cli;
+    private ApprovalReviewer sessionReviewer = ApprovalReviewer.USER;
 
     /**
      * 以已验证固定来源 Adapter 创建应用服务。
@@ -108,7 +110,8 @@ public final class SettingsApplicationService {
             if (runtime.isClosedOrActiveForSettings()) return rejected(RuntimeSettingsDiagnosticCode.ACTIVE_RUN);
             Candidate fixed = loadFixed(cancellationToken);
             if (!fixed.diagnostics().isEmpty()) return rejected(fixed.diagnostics());
-            return publish(fixed.user(), fixed.projectShared(), fixed.projectLocal(), session, cli, cancellationToken);
+            return publish(fixed.user(), fixed.projectShared(), fixed.projectLocal(), session, cli, sessionReviewer,
+                    cancellationToken);
         }
     }
 
@@ -129,7 +132,7 @@ public final class SettingsApplicationService {
      * <p>该操作不读取固定来源，也不写入文件、JSONL 或 Checkpoint。候选 overlay 只有在既有
      * LKG/Scope 配对事务成功后才成为当前值，因此取消、活动 Run、验证失败和 CAS 冲突均保留旧值。</p>
      *
-     * @param patch 只能是模型或 PermissionMode 的封闭更新
+     * @param patch 只能是模型、PermissionMode 或 PermissionSelection 的封闭更新
      * @param cancellationToken 发布取消边界
      * @return 完整发布结果或保留 LKG 的安全诊断
      */
@@ -141,6 +144,11 @@ public final class SettingsApplicationService {
         synchronized (applicationMonitor) {
             if (runtime.isClosedOrActiveForSettings()) return rejected(RuntimeSettingsDiagnosticCode.ACTIVE_RUN);
             DeclaredSettings base = session == null ? emptySettings() : session.declaredValues();
+            ApprovalReviewer candidateReviewer = switch (patch) {
+                case SessionSettingsPatch.PermissionSelectionChange selection -> selection.value().reviewer();
+                case SessionSettingsPatch.PermissionModeChange ignored -> ApprovalReviewer.USER;
+                case SessionSettingsPatch.ModelName ignored -> sessionReviewer;
+            };
             DeclaredSettings patched = switch (patch) {
                 case SessionSettingsPatch.ModelName model -> new DeclaredSettings(Optional.of(model.value()),
                         base.permissionMode(), base.permissionRules(), base.enabledTools(), base.toolConfigurations(),
@@ -148,9 +156,12 @@ public final class SettingsApplicationService {
                 case SessionSettingsPatch.PermissionModeChange mode -> new DeclaredSettings(base.modelName(),
                         Optional.of(mode.value().name()), base.permissionRules(), base.enabledTools(),
                         base.toolConfigurations(), base.compactInstructions(), base.diagnosticsVerbosity());
+                case SessionSettingsPatch.PermissionSelectionChange selection -> new DeclaredSettings(base.modelName(),
+                        Optional.of(selection.value().mode().name()), base.permissionRules(), base.enabledTools(),
+                        base.toolConfigurations(), base.compactInstructions(), base.diagnosticsVerbosity());
             };
             return publish(user, projectShared, projectLocal, snapshot(SettingsSourceKind.SESSION, patched), cli,
-                    cancellationToken);
+                    candidateReviewer, cancellationToken);
         }
     }
 
@@ -184,8 +195,8 @@ public final class SettingsApplicationService {
         synchronized (applicationMonitor) {
             if (runtime.isClosedOrActiveForSettings()) return rejected(RuntimeSettingsDiagnosticCode.ACTIVE_RUN);
             return kind == SettingsSourceKind.SESSION
-                    ? publish(user, projectShared, projectLocal, replacement, cli, token)
-                    : publish(user, projectShared, projectLocal, session, replacement, token);
+                    ? publish(user, projectShared, projectLocal, replacement, cli, ApprovalReviewer.USER, token)
+                    : publish(user, projectShared, projectLocal, session, replacement, sessionReviewer, token);
         }
     }
 
@@ -203,9 +214,11 @@ public final class SettingsApplicationService {
 
     private SettingsApplicationResult publish(SettingsSourceSnapshot nextUser, SettingsSourceSnapshot nextShared,
                                               SettingsSourceSnapshot nextLocal, SettingsSourceSnapshot nextSession,
-                                              SettingsSourceSnapshot nextCli, CancellationToken token) {
+                                              SettingsSourceSnapshot nextCli, ApprovalReviewer candidateReviewer,
+                                              CancellationToken token) {
         if (token.isCancellationRequested()) return rejected(ConfigurationDiagnosticCode.CANCELLED);
         if (runtime.isClosedOrActiveForSettings()) return rejected(RuntimeSettingsDiagnosticCode.ACTIVE_RUN);
+        candidateReviewer = Objects.requireNonNull(candidateReviewer, "candidateReviewer 不能为空");
         List<SettingsSourceSnapshot> sources = new ArrayList<>();
         sources.add(defaults());
         addIfPresent(sources, nextUser);
@@ -218,28 +231,48 @@ public final class SettingsApplicationService {
         RuntimeSettingsApplyResult prepared = applier.prepare(resolution.effectiveSettings().orElseThrow(),
                 runtime::hasActiveRun, token::isCancellationRequested);
         if (!prepared.applied()) return rejectedRuntime(prepared.diagnostics());
+        RuntimeConfiguration preparedConfiguration = withReviewer(prepared.configuration(),
+                reviewerFor(prepared.configuration(), candidateReviewer));
         Optional<EffectiveSettingsSnapshot> previous = store.current();
         long revision = previous.map(EffectiveSettingsSnapshot::revision).orElse(0L);
         if (revision == Long.MAX_VALUE) return rejected(ConfigurationDiagnosticCode.REVISION_EXHAUSTED);
         EffectiveSettingsSnapshot candidate = new EffectiveSettingsSnapshot(revision + 1,
                 resolution.effectiveSettings().orElseThrow());
         HeadlessRuntimeSession.SettingsCommitResult committed = runtime.replaceRuntimeConfigurationAtomically(
-                prepared.configuration(), store, previous.map(EffectiveSettingsSnapshot::revision), candidate, token);
+                preparedConfiguration, store, previous.map(EffectiveSettingsSnapshot::revision), candidate, token);
         return switch (committed) {
             case COMMITTED -> {
-                applier.commitPrepared(prepared.configuration());
+                applier.commitPrepared(preparedConfiguration);
                 user = nextUser;
                 projectShared = nextShared;
                 projectLocal = nextLocal;
                 session = nextSession;
                 cli = nextCli;
-                yield SettingsApplicationResult.published(candidate, prepared.configuration());
+                sessionReviewer = candidateReviewer;
+                yield SettingsApplicationResult.published(candidate, preparedConfiguration);
             }
             case ACTIVE_OR_CLOSED -> rejected(RuntimeSettingsDiagnosticCode.ACTIVE_RUN);
             case CANCELLED -> rejected(ConfigurationDiagnosticCode.CANCELLED);
             case CAS_CONFLICT -> rejected(ConfigurationDiagnosticCode.CAS_CONFLICT);
             case INTERNAL_FAILURE -> rejected(RuntimeSettingsDiagnosticCode.INTERNAL_FAILURE);
         };
+    }
+
+    /**
+     * 对兼容 PermissionMode 收敛到用户审查，避免旧 mode 携带自动 reviewer。
+     */
+    private static ApprovalReviewer reviewerFor(RuntimeConfiguration configuration, ApprovalReviewer candidateReviewer) {
+        return configuration.permissionMode() == io.github.liumaishenjian.ccjava.domain.PermissionMode.DEFAULT
+                ? candidateReviewer : ApprovalReviewer.USER;
+    }
+
+    /**
+     * 只替换已验证候选的 final-ASK reviewer，其他 Settings 投影字段保持同一原子候选。
+     */
+    private static RuntimeConfiguration withReviewer(RuntimeConfiguration configuration, ApprovalReviewer reviewer) {
+        return new RuntimeConfiguration(configuration.modelName(), configuration.permissionMode(), reviewer,
+                configuration.permissionRules(), configuration.enabledBuiltinTools(), configuration.toolConfigurations(),
+                configuration.compactAnchors(), configuration.diagnosticsVerbosity());
     }
 
     private static void addIfPresent(List<SettingsSourceSnapshot> snapshots, SettingsSourceSnapshot candidate) {

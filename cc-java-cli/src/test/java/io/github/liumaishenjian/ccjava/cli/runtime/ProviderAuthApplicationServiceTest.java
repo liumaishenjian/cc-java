@@ -95,6 +95,36 @@ class ProviderAuthApplicationServiceTest {
     }
 
     @Test
+    void codejQuickConfigureIsIdempotentAndBecomesUsableOnlyAfterCredentialExists() throws Exception {
+        Map<String, String> environment = Map.of("CODEJ_TEST_KEY", "fixture-secret");
+        Fixture fixture = fixture(environment);
+
+        fixture.service.configureCodejProvider(new ProviderAuthApplicationService.ConfigureProviderRequest(
+                "https://first.example/v1", "model-a"), CancellationToken.none());
+        assertThat(fixture.service.hasUsableDefaultSelection(CancellationToken.none())).isFalse();
+
+        fixture.service.configureCodejProvider(new ProviderAuthApplicationService.ConfigureProviderRequest(
+                "https://second.example/v1", "model-b"), CancellationToken.none());
+        assertThat(fixture.service.listProviders(CancellationToken.none()))
+                .filteredOn(provider -> provider.providerId().equals(
+                        ProviderAuthApplicationService.CODEJ_CUSTOM_PROVIDER_ID))
+                .singleElement().satisfies(provider -> assertThat(provider.defaultModelId()).isEqualTo("model-b"));
+        assertThat(fixture.service.listModels(Optional.of(
+                ProviderAuthApplicationService.CODEJ_CUSTOM_PROVIDER_ID), CancellationToken.none()))
+                .singleElement().satisfies(model -> {
+                    assertThat(model.modelId()).isEqualTo("model-b");
+                    assertThat(model.providerDefault()).isTrue();
+                });
+
+        fixture.service.login(new ProviderAuthApplicationService.LoginRequest(
+                ProviderAuthApplicationService.CODEJ_CUSTOM_PROVIDER_ID, "default",
+                ProviderAuthApplicationService.RefKind.ENV, "CODEJ_TEST_KEY", true),
+                null, CancellationToken.none());
+        assertThat(fixture.service.hasUsableDefaultSelection(CancellationToken.none())).isTrue();
+        assertThat(reopen(fixture, environment).hasUsableDefaultSelection(CancellationToken.none())).isTrue();
+    }
+
+    @Test
     void customProviderProfileAndModelSelectionPersistAcrossReopen() throws Exception {
         Map<String, String> environment = Map.of("CC_TEAM_GATEWAY_TOKEN", "fixture-token-value");
         Fixture fixture = fixture(environment);

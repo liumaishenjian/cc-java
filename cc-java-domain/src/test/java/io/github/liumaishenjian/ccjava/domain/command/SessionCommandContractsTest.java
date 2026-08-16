@@ -4,10 +4,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
+import io.github.liumaishenjian.ccjava.domain.ApprovalReviewer;
 import io.github.liumaishenjian.ccjava.domain.PermissionMode;
+import io.github.liumaishenjian.ccjava.domain.PermissionSelection;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
+import io.github.liumaishenjian.ccjava.domain.settings.RuntimeConfiguration;
+import io.github.liumaishenjian.ccjava.domain.settings.RuntimeDiagnosticsVerbosity;
 import io.github.liumaishenjian.ccjava.domain.settings.SessionSettingsPatch;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class SessionCommandContractsTest {
@@ -47,20 +53,60 @@ class SessionCommandContractsTest {
         assertThatIllegalArgumentException().isThrownBy(() -> new SessionSettingsPatch.ModelName("bad\nmodel"));
         assertThatIllegalArgumentException().isThrownBy(() -> new SessionSettingsPatch.ModelName("x".repeat(257)));
         assertThatNullPointerException().isThrownBy(() -> new SessionSettingsPatch.PermissionModeChange(null));
+        assertThat(new SessionSettingsPatch.PermissionSelectionChange(PermissionSelection.AUTO).value())
+                .isEqualTo(PermissionSelection.AUTO);
+        assertThatNullPointerException().isThrownBy(() -> new SessionSettingsPatch.PermissionSelectionChange(null));
 
         var operation = new SessionCommandIntent.PermissionsOperation.ModeChange(PermissionMode.ACCEPT_EDITS);
         assertThat(operation.mode()).isEqualTo(PermissionMode.ACCEPT_EDITS);
         assertThatNullPointerException().isThrownBy(() -> new SessionCommandIntent.PermissionsOperation.ModeChange(null));
+        var selectionOperation = new SessionCommandIntent.PermissionsOperation.SelectionChange(PermissionSelection.AUTO);
+        assertThat(selectionOperation.selection()).isEqualTo(PermissionSelection.AUTO);
+        assertThatNullPointerException().isThrownBy(() -> new SessionCommandIntent.PermissionsOperation.SelectionChange(null));
 
         var rule = new SessionCommandEvent.PermissionRuleProvenance(
                 "read-docs", "PROJECT_SHARED", "project-shared", "REPLACE", "VALID");
         var payload = new SessionCommandEvent.PermissionsPayload(
                 "PLAN", "PROJECT_SHARED", "project-shared", "VALID", 1, List.of(rule));
+        assertThat(payload.effectiveReviewer()).isEqualTo("USER");
+        assertThat(payload.effectiveSelection()).isEqualTo("PLAN");
         assertThat(payload.toString()).doesNotContain("selector", "G:\\private");
         assertThatIllegalArgumentException().isThrownBy(() -> new SessionCommandEvent.PermissionRuleProvenance(
                 "read-docs", "PROJECT_SHARED", "G:\\private", "REPLACE", "VALID"));
         assertThatIllegalArgumentException().isThrownBy(() -> new SessionCommandEvent.PermissionsPayload(
                 "PLAN", "PROJECT_SHARED", "project-shared", "VALID", 2, List.of(rule)));
+    }
+
+    @Test
+    void permissionPayloadMapsSelectionsAndRejectsInconsistentStates() {
+        var rule = new SessionCommandEvent.PermissionRuleProvenance(
+                "read-docs", "DEFAULTS", "runtime-baseline", "REPLACE", "BASELINE");
+
+        assertThat(new SessionCommandEvent.PermissionsPayload("PLAN", "USER", "PLAN", "DEFAULTS",
+                "runtime-baseline", "BASELINE", 1, List.of(rule)).effectiveSelection()).isEqualTo("PLAN");
+        assertThat(new SessionCommandEvent.PermissionsPayload("DEFAULT", "USER", "ASK", "DEFAULTS",
+                "runtime-baseline", "BASELINE", 1, List.of(rule)).effectiveSelection()).isEqualTo("ASK");
+        assertThat(new SessionCommandEvent.PermissionsPayload("DEFAULT", "AUTO_REVIEW", "AUTO", "DEFAULTS",
+                "runtime-baseline", "BASELINE", 1, List.of(rule)).effectiveSelection()).isEqualTo("AUTO");
+        assertThat(new SessionCommandEvent.PermissionsPayload("ACCEPT_EDITS", "DEFAULTS", "runtime-baseline",
+                "BASELINE", 1, List.of(rule)).effectiveSelection()).isEqualTo("ADVANCED");
+        assertThatIllegalArgumentException().isThrownBy(() -> new SessionCommandEvent.PermissionsPayload(
+                "DEFAULT", "USER", "AUTO", "DEFAULTS", "runtime-baseline", "BASELINE", 1, List.of(rule)));
+        assertThatIllegalArgumentException().isThrownBy(() -> new SessionCommandEvent.PermissionsPayload(
+                "ACCEPT_EDITS", "AUTO_REVIEW", "ADVANCED", "DEFAULTS", "runtime-baseline", "BASELINE", 1, List.of(rule)));
+    }
+
+    @Test
+    void runtimeConfigurationRetainsLegacyConstructorAndDefaultsReviewerToUser() {
+        RuntimeConfiguration legacy = new RuntimeConfiguration(Optional.empty(), PermissionMode.DEFAULT, List.of(),
+                List.of("read_file"), Map.of(), List.of(), RuntimeDiagnosticsVerbosity.SUMMARY);
+        RuntimeConfiguration initial = RuntimeConfiguration.initial(PermissionMode.PLAN, List.of("read_file"));
+
+        assertThat(legacy.approvalReviewer()).isEqualTo(ApprovalReviewer.USER);
+        assertThat(initial.approvalReviewer()).isEqualTo(ApprovalReviewer.USER);
+        assertThat(legacy.toString()).contains("approvalReviewer=USER", "modelName=<redacted>");
+        assertThatNullPointerException().isThrownBy(() -> new RuntimeConfiguration(Optional.empty(), PermissionMode.DEFAULT,
+                null, List.of(), List.of(), Map.of(), List.of(), RuntimeDiagnosticsVerbosity.SUMMARY));
     }
 
     @Test

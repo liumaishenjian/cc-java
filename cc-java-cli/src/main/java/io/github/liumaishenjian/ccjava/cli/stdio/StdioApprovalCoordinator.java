@@ -29,6 +29,7 @@ import io.github.liumaishenjian.ccjava.tools.local.workspace.LocalToolLimits;
 final class StdioApprovalCoordinator implements ApprovalHandler, AutoCloseable {
 
     private static final int MAX_PREVIEW_PATH_CHARACTERS = 512;
+    private static final int MAX_NETWORK_QUERY_CHARACTERS = 512;
     private static final Pattern WINDOWS_DRIVE = Pattern.compile("^[A-Za-z]:.*");
 
     private final Object lock = new Object();
@@ -175,6 +176,21 @@ final class StdioApprovalCoordinator implements ApprovalHandler, AutoCloseable {
             ToolInvocation invocation,
             ToolDefinition definition) {
         String name = definition.name();
+        if (definition.effect() == ToolEffect.NETWORK_OR_REMOTE
+                && "web_search".equals(name)) {
+            String query;
+            try {
+                query = invocation.call().arguments().string("query").orElse("");
+            } catch (IllegalArgumentException exception) {
+                return Preview.unavailable();
+            }
+            if (query.isBlank()
+                    || query.codePointCount(0, query.length()) > MAX_NETWORK_QUERY_CHARACTERS
+                    || query.codePoints().anyMatch(Character::isISOControl)) {
+                return Preview.unavailable();
+            }
+            return Preview.webSearch(query);
+        }
         if ("run_command".equals(name)) {
             String command;
             try {
@@ -195,7 +211,9 @@ final class StdioApprovalCoordinator implements ApprovalHandler, AutoCloseable {
                     0,
                     command,
                     CommandShell.current().id(),
-                    ".");
+                    ".",
+                    "",
+                    "");
         }
         if (!"apply_patch".equals(name) && !"write_file".equals(name)) {
             return Preview.unavailable();
@@ -211,6 +229,8 @@ final class StdioApprovalCoordinator implements ApprovalHandler, AutoCloseable {
                 operation,
                 lineCount(arguments.oldText()),
                 lineCount(arguments.newText()),
+                "",
+                "",
                 "",
                 "",
                 "");
@@ -263,7 +283,7 @@ final class StdioApprovalCoordinator implements ApprovalHandler, AutoCloseable {
      * @param toolName 固定 Tool 名称
      * @param effect Tool 最高副作用
      * @param scope 可用于 Session Allow 的具体规范化范围
-     * @param preview 只含相对路径、操作与行数的专用预览
+     * @param preview 只含相对路径、命令或受控网络查询的专用预览
      */
     record Request(
             String approvalId,
@@ -288,15 +308,17 @@ final class StdioApprovalCoordinator implements ApprovalHandler, AutoCloseable {
     }
 
     /**
-     * 允许进入 stdio 的文件变更摘要，不含文件正文或绝对路径。
+     * 允许进入 stdio 的专用审批摘要，不含文件正文、绝对路径、Endpoint、Header 或凭证。
      *
      * @param target Workspace-relative 目标；不可安全展示时为空
-     * @param operation {@code modify}、{@code create} 或 {@code unavailable}
+     * @param operation {@code modify}、{@code create}、{@code execute}、{@code search} 或 {@code unavailable}
      * @param removedLines 预计删除行数
      * @param addedLines 预计新增行数
      * @param command 已批准的完整命令正文；文件操作时为空
      * @param shell 固定 Shell ID；文件操作时为空
      * @param workingDirectory Workspace-relative 工作目录
+     * @param networkDestination 固定网络目的类型；非网络操作时为空
+     * @param networkQuery 将发送给受控搜索 Provider 的有界查询；非网络操作时为空
      */
     record Preview(
             String target,
@@ -305,7 +327,9 @@ final class StdioApprovalCoordinator implements ApprovalHandler, AutoCloseable {
             int addedLines,
             String command,
             String shell,
-            String workingDirectory) {
+            String workingDirectory,
+            String networkDestination,
+            String networkQuery) {
 
         Preview {
             target = Objects.requireNonNull(target, "target 不能为空");
@@ -314,23 +338,35 @@ final class StdioApprovalCoordinator implements ApprovalHandler, AutoCloseable {
             shell = Objects.requireNonNull(shell, "shell 不能为空");
             workingDirectory = Objects.requireNonNull(
                     workingDirectory, "workingDirectory 不能为空");
+            networkDestination = Objects.requireNonNull(
+                    networkDestination, "networkDestination 不能为空");
+            networkQuery = Objects.requireNonNull(networkQuery, "networkQuery 不能为空");
             if (target.length() > MAX_PREVIEW_PATH_CHARACTERS
                     || (!"modify".equals(operation)
                     && !"create".equals(operation)
                     && !"execute".equals(operation)
+                    && !"search".equals(operation)
                     && !"unavailable".equals(operation))
                     || removedLines < 0
                     || addedLines < 0
                     || command.codePointCount(0, command.length())
                     > LocalToolLimits.MAX_COMMAND_CHARACTERS
                     || shell.length() > 64
-                    || workingDirectory.length() > MAX_PREVIEW_PATH_CHARACTERS) {
+                    || workingDirectory.length() > MAX_PREVIEW_PATH_CHARACTERS
+                    || networkDestination.length() > 64
+                    || networkQuery.codePointCount(0, networkQuery.length()) > MAX_NETWORK_QUERY_CHARACTERS
+                    || networkQuery.codePoints().anyMatch(Character::isISOControl)) {
                 throw new IllegalArgumentException("审批预览字段无效");
             }
         }
 
         static Preview unavailable() {
-            return new Preview("", "unavailable", 0, 0, "", "", "");
+            return new Preview("", "unavailable", 0, 0, "", "", "", "", "");
+        }
+
+        static Preview webSearch(String query) {
+            return new Preview("", "search", 0, 0, "", "", "",
+                    "configured_web_search_provider", query);
         }
     }
 

@@ -34,6 +34,7 @@ export type SlashParseResult =
   | {readonly kind: 'command'; readonly command: ParsedSlashCommand}
   | {readonly kind: 'provider-control'; readonly command: ProviderControlSlashCommand}
   | {readonly kind: 'task'; readonly command: ParsedTaskCommand}
+  | {readonly kind: 'permission-picker'}
   | {readonly kind: 'skill'; readonly name: string; readonly arguments: string}
   | {readonly kind: 'invalid'; readonly message: string};
 
@@ -101,7 +102,10 @@ export function parseSlashCommand(input: string): SlashParseResult {
     return {kind: 'command', command: {intent, arguments: {anchors: values}}};
   }
   if (intent === 'permissions') {
-    if (values.length === 0 || (values.length === 1 && values[0] === 'query')) {
+    if (values.length === 0) {
+      return {kind: 'permission-picker'};
+    }
+    if (values.length === 1 && values[0] === 'query') {
       return {kind: 'command', command: {intent, arguments: {}}};
     }
     const [operation, mode] = values;
@@ -181,8 +185,8 @@ function renderSuccessfulResult(
       : []);
     return [
       'Permissions',
-      `模式 ${safeValue(result.effectiveMode)} · 来源 ${safeValue(result.modeSourceKind)}/${safeValue(result.modeSafeSourceId)} · ${safeValue(result.modeValidationStatus)}`,
-      `启动规则 ${safeValue(result.startupRuleCount)}`,
+      `模式 ${safeValue(result.effectiveMode)} · 审阅 ${safeValue(result.effectiveReviewer)} · 选择 ${safeValue(result.effectiveSelection)}`,
+      `来源 ${safeValue(result.modeSourceKind)}/${safeValue(result.modeSafeSourceId)} · ${safeValue(result.modeValidationStatus)} · 启动规则 ${safeValue(result.startupRuleCount)}`,
       ...ruleLines,
     ].join('\n');
   }

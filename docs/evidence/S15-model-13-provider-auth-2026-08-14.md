@@ -84,6 +84,30 @@ Windows `user.home` 的 owner 可能是 `SYSTEM`，因此不能用 home owner �
 
 短窗口真实 TTY/PTY 自动化未取得可用 harness：当前工具调用 stdin 不是 TTY，`winpty` 因此拒绝启动交互 codej；仓库现有脚本也没有可由本会话驱动并捕获固定 rows 的 PTY harness。本轮只把 Ink renderer 的确定性 `rows=8/9/12` 组件测试记录为布局证据，不把它伪报为真实 TTY。维护者仍需在原生短窗口人工启动 `codej`，确认 Composer 可见并输入无参数 `/connect` 观察本机状态输出；不得输入真实 key。
 
+## 2026-08-16 首次配置最小化 corrective
+
+普通 TUI 配置从 Provider picker 收敛为单一 OpenAI-compatible BYOK 表单。Java `initialized` 增加
+`modelConfigured` 安全布尔投影：持久默认 Provider/model 与同 Provider 默认 credential 可用时直接进入
+Composer，否则首次启动自动打开表单且 Esc 不能绕过。表单只收集 HTTPS API Base URL 与模型名，随后
+配置态不再渲染完整聊天 viewport 与 composer 大框。Corrective 后首次配置在紧凑页接收可打印 ASCII
+Key 字节，粘贴/键入时实时只显示前三位、圆点与后四位；Enter 后通过一次性 Java
+`--api-key-stdin` 保存，调用方与写入缓冲均清零。原始值不进入 React state、Agent stdio、Session 或日志。
+
+Corrective 验证包含按键/粘贴后、Enter 前的 renderer 断言：画面包含 `sk-••••••••a9K2` 且不包含
+原始中段，并覆盖一次性 stdin 精确写入与调用方缓冲清零。Capability Level 无变化。
+
+新增 `providers.configure` 严格协议只接受 `baseUrl/modelId`，应用层固定 `codej-custom/default`、
+compatible Chat Completions、空 Header 与 timeout，并用 generation CAS 原位替换 definition 和默认模型。
+重复 `/connect` 不累积 Provider；成功结果不回传 endpoint。原有带参数 Provider/Auth/Models 命令继续作为
+高级/脚本兼容接口。Capability Level 无变化，MODEL-13 仍因双 Provider 在线证据缺失保持 L1。
+
+验证结果：
+
+- `npm --prefix cc-java-tui run check`：12 files、187/187；
+- Java 聚焦 `ProviderAuthApplicationServiceTest,StdioProtocolCodecTest`：22/22；
+- `./mvnw.cmd verify`：1016 tests、32 skips、0 failures/errors，11 modules BUILD SUCCESS；
+- 测试不使用真实 API Key 或真实 Provider 网络。
+
 临时 home E2E 未执行 probe 或任何模型网络请求，不构成真实 Provider 在线证据。本轮未读取真实本地 secret 配置，也未使用、记录或输出真实 key、endpoint、用户名或旧会话内容。
 
 ## 等级与 Stage 边界

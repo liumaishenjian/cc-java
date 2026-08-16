@@ -2,14 +2,14 @@
 
 > 文档状态：Draft v0.9
 >
-> 最后更新：2026-08-14
+> 最后更新：2026-08-17
 >
 > 当前阶段：S01-S08 已 Accepted；S08 ADR-048 的既有能力已在 Commit
 > `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 上 Accepted，ADR-049 的显式文件引用又在实现
 > Commit `5910a8f` 上完成 Commit-scoped G0-G6；`CLI-13`、`CTX-19` 达到 L2。S09 已完成
 > Settings/Trust、Command/loopback HTTP、生命周期、Compact 与生产装配并 Accepted；S10 MCP Tool
 > 主链已完成 STDIO/Streamable HTTP、多 Server、统一 Permission、Trust 与恢复并通过真实 E2E，Accepted。
-> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、安全矩阵、Demo 与能力对账均通过，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted；相关 Feature 达到冻结的 L2/L1 目标。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted：ExecutionBackend/五维 policy、WSL2+bwrap Linux A、Docker pinned-image B、Windows process/env B（file/network U）、攻击回归、Command Hook/MCP stdio managed seam 与 root/child execution composition 均已验证。S14 已在实现 Commit `dff814c1bb5a659979e007061e6d10a0a9ff6e82` 上完成 Commit-scoped G0-G6，Stage Exit Accepted with documented deviations；`PERM-05` 保持 L0，`CFG-07/HOOK-10` 保持 L1，`SEC-11` 保持 L0。
+> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、安全矩阵、Demo 与能力对账均通过，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted；相关 Feature 达到冻结的 L2/L1 目标。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted：ExecutionBackend/五维 policy、WSL2+bwrap Linux A、Docker pinned-image B、Windows process/env B（file/network U）、攻击回归、Command Hook/MCP stdio managed seam 与 root/child execution composition 均已验证。S14 已在实现 Commit `dff814c1bb5a659979e007061e6d10a0a9ff6e82` 上完成 Commit-scoped G0-G6，Stage Exit Accepted with documented deviations。S15 已完成 `PERM-05` 的 Headless、stdio 与 React/Ink 三选 picker 受限生产接线及离线 Fake/E2E，达到 L1；真实 Provider 误放行率、延迟、成本与 A/B Eval 仍缺，S15 保持 IN_PROGRESS/OPEN。`CFG-07/HOOK-10` 保持 L1，`SEC-11` 保持 L0。
 >
 > 产品负责人：项目维护者
 
@@ -334,6 +334,11 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
   Effect Default，不受规则列表顺序影响。
 - FR-PERM-008：相同 Session 与 selector 连续两次拒绝后，第三次及以后固定拒绝且不再弹窗；
   新 selector 仍可正常评估。
+- FR-PERM-009（S15，`PERM-05` L1）：`AUTO` 选择仅将 `DEFAULT` 的最终 `ASK` 交给受限模型复核；
+  Hard Denial、显式 Deny、PLAN、permission hook Deny 与既有 Allow 均不得被覆盖。复核只接收有界、
+  脱敏摘要，以无 Tool 模型回合严格返回当前 Call 的 `ALLOW_ONCE` 或 `DENY`；解析、Provider、超时和
+  内部失败全部拒绝，不能建立 Session Grant。真实 Provider 误放行率、延迟、成本和 A/B Eval 未完成，
+  因此不声明 L2 或更高自动化能力。
 
 ### 11.6 Context
 
@@ -490,7 +495,7 @@ Sandbox。历史 ADR-019 继续 Superseded。
 S08 的 G0 受控机制研究已由 ADR-045 完成；G1 已由 ADR-046 冻结项目自有 Instructions 文件位置、
 Settings schema v1、逐字段 merge/delete/provenance、最小 Slash/doctor 语义和可证伪切片；G2 已由 ADR-047 冻结
 Domain/Core/Application/Adapter 契约、独立 user-root guard、严格 duplicate-key parser、last-known-good 刷新、
-Command Intent/Event 与 G3/G4 测试矩阵。G3-C/D/F 的有界子切片现已接入内存 Session patch、stdio v0 与封闭 Slash/TUI：输入 `/` 显示固定命令面板，方向键选择且由 Tab/Enter 补全；`/help`、`/context`、`/doctor`、`/permissions` 的严格结果使用本地固定标签渲染，不显示服务端自由文本。`/model` 只接受当前启动模型名，`/permissions` 可查询实际 Runtime mode 或将 mode 改为 `DEFAULT`、`PLAN`、`ACCEPT_EDITS`；两者均只作用于下一 Run，保留 CLI precedence，且不读取 Settings 文件、不写 JSONL/Checkpoint。`/resume <session-id>` 仅在 idle 边界通过既有 S06 Workspace、Writer、fence、incomplete-side-effect 与 Checkpoint recovery Gate 后原子切换当前 Session；拒绝、取消或竞争保留原 Session，绝不自动重放 Tool 或副作用。permissions query 只显示无 selector 的 Settings-derived STARTUP rules provenance；无 LKG 时如实显示 Runtime baseline。
+Command Intent/Event 与 G3/G4 测试矩阵。G3-C/D/F 的有界子切片现已接入内存 Session patch、stdio v0 与封闭 Slash/TUI：输入 `/` 显示固定命令面板，方向键选择且由 Tab/Enter 补全；`/help`、`/context`、`/doctor`、`/permissions` 的严格结果使用本地固定标签渲染，不显示服务端自由文本。`/model` 只接受当前启动模型名；`/permissions query` 查询实际 mode/reviewer/selection，裸 `/permissions` 打开固定 `Plan / Ask for approval / Approve for me` picker，并分别映射为 `PLAN+USER / DEFAULT+USER / DEFAULT+AUTO_REVIEW`。旧 `mode DEFAULT|PLAN|ACCEPT_EDITS` 继续兼容，但 `ACCEPT_EDITS` 不进入 picker。变更只作用于下一 Run，保留 CLI precedence，且不读取 Settings 文件、不写 JSONL/Checkpoint。`/resume <session-id>` 仅在 idle 边界通过既有 S06 Workspace、Writer、fence、incomplete-side-effect 与 Checkpoint recovery Gate 后原子切换当前 Session；拒绝、取消或竞争保留原 Session，绝不自动重放 Tool 或副作用。permissions query 只显示无 selector 的 Settings-derived STARTUP rules provenance；无 LKG 时如实显示 Runtime baseline。
 
 历史 G3-E 实现提供了受限多行、进程内历史、封闭补全与 steering，但其字符串缓冲与证据没有证明 grapheme 光标、视觉多行导航、完整编辑键、History/Completion 优先级、viewport 和无损大 Paste；8,192 只能约束可见 grapheme/token 结构，不能约束展开后的用户内容，且旧契约未与 Java UTF-16 和 stdio 64 KiB 单行预算形成无歧义边界。因此 [ADR-048](./adr/ADR-048-s08-corrective-composer-model-diagnostics.md) 重开 S08，并完成 `ComposerState` 纯 Reducer、约 1 MiB UTF-8 的有界无损 payload/展开预算、stdio v0 原子 begin/chunk/commit 及独立 privacy-safe ModelDiagnostic。完整 Reactor 各模块 45/172/43/101/227（Spring/Tools/CLI 分别 2/8/11 skipped，0 failures/errors）、TUI 111/111、launcher 59/59、真实 TTY G5 与独立最终 review 均通过；成功组装后的输入仍由 256K Token Context pipeline 权威治理，不得截断、提前写 Session/Canonical 或创建部分 Run。corrective implementation Commit `8fabd94b66881a4a8236cccabd4ae61dd39845d4` 已固定并完成 G6，S08 Accepted，`CLI-08`/`CLI-09` 恢复 L2；内部分块不恢复 `DIST-04`，规则编辑、Provider discovery/多模型注册、稳定机器协议与 OTel/诊断导出仍属后续 Stage。
 

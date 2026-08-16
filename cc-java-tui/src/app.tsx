@@ -24,24 +24,28 @@ import {
   slashCommandUsage,
 } from './slash-command.js';
 import {
+  initialPermissionPickerState,
+  movePermissionPicker,
+  PERMISSION_PICKER_ITEMS,
+  selectedPermissionSelection,
+  type PermissionPickerState,
+} from './permission-picker.js';
+import {
   independentProviderControlId,
   isIndependentProviderControlResult,
 } from './provider-control-id.js';
 import {
-  applyConnectWizardResult,
-  beginConnectWizard,
-  completeConnectWizardLogin,
-  connectWizardInitialControls,
-  connectWizardProviderOptions,
-  connectedProfile,
-  editConnectWizardText,
-  enterConnectWizard,
-  escapeConnectWizard,
-  modelsForProvider,
-  moveConnectWizard,
-  providerName,
-  type ConnectWizardState,
-} from './connect-wizard.js';
+  applyModelSetupResult,
+  beginModelSetupLogin,
+  beginModelSetup,
+  completeModelSetupLogin,
+  editModelSetup,
+  enterModelSetup,
+  escapeModelSetup,
+  moveModelSetup,
+  projectModelSetupCredential,
+  type ModelSetupState,
+} from './model-setup.js';
 import {
   acceptPendingComposer,
   acceptSubmittedComposer,
@@ -59,6 +63,15 @@ import {
   type ComposerLayout,
   type ComposerState,
 } from './input-editor.js';
+
+const PRODUCT_VERSION = '0.1.0';
+const CODEJ_BANNER = [
+  ' ██████  ██████  ██████  ███████     ██',
+  '██      ██    ██ ██   ██ ██          ██',
+  '██      ██    ██ ██   ██ █████       ██',
+  '██      ██    ██ ██   ██ ██      ██  ██',
+  ' ██████  ██████  ██████  ███████  ████',
+] as const;
 
 export interface AgentTuiProps {
   readonly client: AgentClient;
@@ -85,7 +98,7 @@ export interface AgentClient {
   keepTaskWorktree?(taskId: string): string;
   removeTaskWorktree?(taskId: string): string;
   sessionCommand?(commandId: string, intent: 'help' | 'clear' | 'compact' | 'context' | 'doctor' | 'model' | 'permissions' | 'resume', arguments_: Readonly<Record<string, unknown>>): string;
-  providerControl?(controlId: string, intent: 'providers.add' | 'auth.list' | 'auth.probe' | 'auth.logout' | 'models.list' | 'models.use' | 'models.add' | 'models.remove', arguments_: Readonly<Record<string, unknown>>): string;
+  providerControl?(controlId: string, intent: 'providers.configure' | 'providers.add' | 'auth.list' | 'auth.probe' | 'auth.logout' | 'models.list' | 'models.use' | 'models.add' | 'models.remove', arguments_: Readonly<Record<string, unknown>>): string;
   providerLogin?(request: ProviderLoginRequest): Promise<ProviderLoginResult>;
   cancelProviderLogin?(): void;
   suggestFiles?(query: string): string;
@@ -169,8 +182,10 @@ export function AgentTui({client}: AgentTuiProps) {
   const [state, dispatch] = useReducer(reduceTuiState, initialTuiState);
   const [composer, setComposer] = useState<ComposerState>(() => createComposerState(4));
   const [providerLoginActive, setProviderLoginActive] = useState(false);
-  const [connectWizard, setConnectWizard] = useState<ConnectWizardState | undefined>(undefined);
+  const [connectWizard, setConnectWizard] = useState<ModelSetupState | undefined>(undefined);
+  const [permissionPicker, setPermissionPicker] = useState<PermissionPickerState | undefined>(undefined);
   const composerRef = useRef(composer);
+  const permissionPickerSubmittedRef = useRef(false);
   const historySessionIdRef = useRef<string | undefined>(undefined);
   const pendingSteeringPromptsRef = useRef(new Map<string, string>());
   const pendingSubmissionsRef = useRef(new Map<string, {
@@ -181,7 +196,8 @@ export function AgentTui({client}: AgentTuiProps) {
   const transportFailureRef = useRef(false);
   const nextCommandNumber = useRef(1);
   const nextConnectGeneration = useRef(1);
-  const connectWizardRef = useRef<ConnectWizardState | undefined>(undefined);
+  const connectWizardRef = useRef<ModelSetupState | undefined>(undefined);
+  const setupCredentialBytesRef = useRef<number[]>([]);
   const fileSuggestionRef = useRef<{
     readonly requestId: string;
     readonly query: string;
@@ -210,7 +226,7 @@ export function AgentTui({client}: AgentTuiProps) {
     composerRef.current = next;
     setComposer(next);
   };
-  const replaceConnectWizard = (next: ConnectWizardState | undefined) => {
+  const replaceConnectWizard = (next: ModelSetupState | undefined) => {
     connectWizardRef.current = next;
     setConnectWizard(next);
   };
@@ -260,6 +276,10 @@ export function AgentTui({client}: AgentTuiProps) {
           pendingSteeringPromptsRef.current.clear();
           pendingSubmissionsRef.current.clear();
         }
+        if (event.payload.modelConfigured === false && connectWizardRef.current === undefined) {
+          setupCredentialBytesRef.current.fill(0); setupCredentialBytesRef.current.length = 0;
+          replaceConnectWizard(beginModelSetup(nextConnectGeneration.current++, true));
+        }
       }
       if (event.type === 'file.suggestions') {
         const pending = fileSuggestionRef.current;
@@ -280,11 +300,11 @@ export function AgentTui({client}: AgentTuiProps) {
       if (event.type === 'provider.control.result') {
         const payload = event.payload;
         const currentWizard = connectWizardRef.current;
-        const nextWizard = currentWizard === undefined ? undefined : applyConnectWizardResult(currentWizard, {
+        const nextWizard = currentWizard === undefined ? undefined : applyModelSetupResult(currentWizard, {
           controlId: String(payload.controlId), intent: String(payload.intent), status: String(payload.status),
           code: String(payload.code), result: payload.result as Readonly<Record<string, unknown>>,
         });
-        if (currentWizard !== undefined && nextWizard !== currentWizard) {
+        if (currentWizard !== undefined && nextWizard !== undefined && nextWizard !== currentWizard) {
           replaceConnectWizard(nextWizard);
         } else if (isIndependentProviderControlResult(String(payload.controlId), String(payload.intent))) {
           dispatch({type: 'slash.notice', message: renderProviderControlResult(
@@ -420,7 +440,14 @@ export function AgentTui({client}: AgentTuiProps) {
   }, [composer.text, composer.cursorGrapheme, client, state.phase]);
 
   usePaste(pasted => {
-    if (canEditInput(state.phase)) {
+    const setup = connectWizardRef.current;
+    if (setup?.phase === 'form') {
+      replaceConnectWizard(editModelSetup(setup, {kind: 'append', text: pasted}));
+    } else if (setup?.phase === 'credential') {
+      updateSetupCredential(setupCredentialBytesRef.current, pasted);
+      replaceConnectWizard(projectModelSetupCredential(setup,
+        maskedCredentialPreview(setupCredentialBytesRef.current), setupCredentialBytesRef.current.length));
+    } else if (permissionPicker === undefined && canEditInput(state.phase)) {
       applyComposer({type: 'Paste', text: pasted});
     }
   });
@@ -448,67 +475,98 @@ export function AgentTui({client}: AgentTuiProps) {
       }
       return;
     }
+    if (permissionPicker !== undefined) {
+      if (key.escape) {
+        permissionPickerSubmittedRef.current = false;
+        setPermissionPicker(undefined);
+      } else if (key.upArrow || key.downArrow) {
+        setPermissionPicker(movePermissionPicker(permissionPicker, key.upArrow ? -1 : 1));
+      } else if (key.return && !permissionPickerSubmittedRef.current) {
+        permissionPickerSubmittedRef.current = true;
+        client.sessionCommand!(
+          `tui-command-${nextCommandNumber.current++}`,
+          'permissions',
+          {selection: selectedPermissionSelection(permissionPicker)},
+        );
+        setPermissionPicker(undefined);
+      }
+      return;
+    }
     const currentWizard = connectWizardRef.current;
     if (currentWizard !== undefined) {
       if (key.escape) {
-        const next = escapeConnectWizard(currentWizard);
+        setupCredentialBytesRef.current.fill(0); setupCredentialBytesRef.current.length = 0;
+        const next = escapeModelSetup(currentWizard);
         replaceConnectWizard(next);
         return;
       }
       if (key.upArrow || key.downArrow) {
-        replaceConnectWizard(moveConnectWizard(currentWizard, key.upArrow ? -1 : 1));
+        replaceConnectWizard(moveModelSetup(currentWizard, key.upArrow ? 'baseUrl' : 'modelId'));
         return;
       }
-      const textPage = currentWizard.phase === 'env-input'
-        || currentWizard.phase === 'custom-name' || currentWizard.phase === 'custom-id'
-        || currentWizard.phase === 'custom-base-url' || currentWizard.phase === 'custom-model';
+      const textPage = currentWizard.phase === 'form';
       if (textPage) {
         if (key.backspace || key.delete) {
-          replaceConnectWizard(editConnectWizardText(currentWizard, {kind: 'backspace'}));
+          replaceConnectWizard(editModelSetup(currentWizard, {kind: 'backspace'}));
           return;
         }
         if (!key.ctrl && !key.meta && text.length > 0 && !key.return) {
-          replaceConnectWizard(editConnectWizardText(currentWizard, {kind: 'append', text}));
+          replaceConnectWizard(editModelSetup(currentWizard, {kind: 'append', text}));
           return;
         }
       }
+      if (currentWizard.phase === 'credential') {
+        if (key.backspace || key.delete) setupCredentialBytesRef.current.pop();
+        else if (!key.ctrl && !key.meta && text.length > 0 && !key.return) {
+          updateSetupCredential(setupCredentialBytesRef.current, text);
+        }
+        if (!key.return) {
+          replaceConnectWizard(projectModelSetupCredential(currentWizard,
+            maskedCredentialPreview(setupCredentialBytesRef.current), setupCredentialBytesRef.current.length));
+          return;
+        }
+        if (setupCredentialBytesRef.current.length === 0) return;
+        if (client.providerLogin === undefined || providerLoginActive) {
+          setupCredentialBytesRef.current.fill(0); setupCredentialBytesRef.current.length = 0;
+          replaceConnectWizard({...currentWizard, phase: 'error', message: '当前启动器不支持安全 API Key 输入'});
+          return;
+        }
+        const secretBytes = Uint8Array.from(setupCredentialBytesRef.current);
+        setupCredentialBytesRef.current.fill(0);
+        setupCredentialBytesRef.current.length = 0;
+        const loggingIn = beginModelSetupLogin(currentWizard);
+        replaceConnectWizard(loggingIn);
+        setProviderLoginActive(true);
+        void client.providerLogin({providerId: currentWizard.providerId, profileId: 'default',
+          secretSource: 'stdin', secretBytes, setDefault: true}).then(result => {
+          const latest = connectWizardRef.current;
+          if (latest !== undefined && latest.generation === currentWizard.generation) {
+            replaceConnectWizard(completeModelSetupLogin(latest, result.status));
+          }
+        }).catch(() => {
+          secretBytes.fill(0);
+          const latest = connectWizardRef.current;
+          if (latest !== undefined && latest.generation === currentWizard.generation) {
+            replaceConnectWizard({...latest, phase: 'error', message: 'API Key 未能保存'});
+          }
+        }).finally(() => {
+          secretBytes.fill(0);
+          setProviderLoginActive(false);
+        });
+        return;
+      }
       if (key.return) {
-        const action = enterConnectWizard(currentWizard);
+        if (currentWizard.phase === 'complete') {
+          replaceConnectWizard(undefined);
+          return;
+        }
+        const action = enterModelSetup(currentWizard);
         replaceConnectWizard(action.state);
         if (action.kind === 'control') {
           try {
             client.providerControl?.(action.controlId, action.intent, action.arguments);
           } catch {
-            replaceConnectWizard({...action.state, phase: 'error', message: '当前连接未接受该操作',
-              returnTo: action.intent === 'providers.add' ? 'custom-confirm'
-                : action.intent === 'models.use' ? 'models' : 'connected'});
-          }
-        } else if (action.kind === 'login') {
-          if (client.providerLogin === undefined || providerLoginActive) {
-            replaceConnectWizard({...action.state, phase: 'error', message: '当前启动器不支持安全凭证输入', returnTo: 'auth'});
-          } else {
-            setProviderLoginActive(true);
-            void client.providerLogin({providerId: action.providerId, profileId: action.profileId,
-              secretSource: action.secretSource, setDefault: true,
-              ...(action.environmentName === undefined ? {} : {environmentName: action.environmentName})})
-              .then(result => {
-                const latest = connectWizardRef.current;
-                if (latest === undefined || latest.generation !== action.state.generation) return;
-                const completed = completeConnectWizardLogin(latest, result.status);
-                replaceConnectWizard(completed.state);
-                if (completed.refreshControlId !== undefined) {
-                  try {
-                    client.providerControl?.(completed.refreshControlId, 'auth.list', {});
-                  } catch {
-                    replaceConnectWizard({...completed.state, phase: 'error', message: '凭证已保存，但状态刷新失败', returnTo: 'auth'});
-                  }
-                }
-              }).catch(() => {
-                const latest = connectWizardRef.current;
-                if (latest !== undefined && latest.generation === action.state.generation) {
-                  replaceConnectWizard({...latest, phase: 'error', message: '安全登录桥未能启动', returnTo: 'auth'});
-                }
-              }).finally(() => setProviderLoginActive(false));
+            replaceConnectWizard({...action.state, phase: 'error', message: '当前连接未接受模型配置'});
           }
         }
         return;
@@ -582,7 +640,7 @@ export function AgentTui({client}: AgentTuiProps) {
       return;
     }
     if (key.return) {
-      if (current.completionCandidates.length > 0) {
+      if (current.completionCandidates.length > 0 && current.text.trim() !== '/permissions') {
         acceptCurrentCompletion();
         return;
       }
@@ -616,11 +674,8 @@ export function AgentTui({client}: AgentTuiProps) {
               dispatch({type: 'slash.notice', message: '当前连接不支持 Provider 控制命令'});
               return;
             }
-            const wizard = beginConnectWizard(nextConnectGeneration.current++);
-            replaceConnectWizard(wizard);
-            for (const [controlId, controlIntent] of connectWizardInitialControls(wizard)) {
-              client.providerControl(controlId, controlIntent as 'models.list' | 'auth.list', {});
-            }
+            setupCredentialBytesRef.current.fill(0); setupCredentialBytesRef.current.length = 0;
+            replaceConnectWizard(beginModelSetup(nextConnectGeneration.current++));
           } else if (action === 'login') {
             if (state.phase === 'running') {
               dispatch({type: 'slash.notice', message: 'Agent Run 运行中，结束或取消后再连接 Provider'});
@@ -669,6 +724,16 @@ export function AgentTui({client}: AgentTuiProps) {
             wireArguments,
           );
         }
+      } else if (slash.kind === 'permission-picker') {
+        if (state.phase !== 'ready' || pendingApproval !== undefined || connectWizardRef.current !== undefined
+          || client.sessionCommand === undefined) {
+          replaceComposer(acceptSubmittedComposer(submission.state));
+          dispatch({type: 'slash.notice', message: client.sessionCommand === undefined
+            ? '当前连接不支持 Slash 命令' : '当前状态不能打开权限选择'});
+          return;
+        }
+        permissionPickerSubmittedRef.current = false;
+        setPermissionPicker(initialPermissionPickerState);
       } else if (slash.kind === 'command') {
         if (client.sessionCommand === undefined) {
           dispatch({type: 'slash.notice', message: '当前连接不支持 Slash 命令'});
@@ -710,7 +775,7 @@ export function AgentTui({client}: AgentTuiProps) {
           return;
         }
       }
-      if (slash.kind === 'command' || slash.kind === 'provider-control' || slash.kind === 'task') replaceComposer(acceptSubmittedComposer(submission.state));
+      if (slash.kind === 'command' || slash.kind === 'provider-control' || slash.kind === 'task' || slash.kind === 'permission-picker') replaceComposer(acceptSubmittedComposer(submission.state));
       return;
     }
     if (key.upArrow || key.downArrow) {
@@ -757,6 +822,7 @@ export function AgentTui({client}: AgentTuiProps) {
     rows={rows}
     composerLayout={composerLayout}
     {...(connectWizard === undefined ? {} : {connectWizard})}
+    {...(permissionPicker === undefined ? {} : {permissionPicker})}
   />;
 }
 
@@ -769,17 +835,59 @@ export interface AgentViewProps {
   /** 终端可用行数；省略时保持既有无界纯展示测试兼容。 */
   readonly rows?: number;
   readonly composerLayout?: ComposerLayout;
-  readonly connectWizard?: ConnectWizardState;
+  readonly connectWizard?: ModelSetupState;
+  readonly permissionPicker?: PermissionPickerState;
+}
+
+const MAX_SETUP_CREDENTIAL_BYTES = 16_384;
+
+/** 首次配置只接受常见可打印 ASCII Key，并把原始字节留在短生命周期缓冲中。 */
+export function updateSetupCredential(target: number[], text: string): void {
+  for (const byte of Buffer.from(text, 'utf8')) {
+    if (target.length >= MAX_SETUP_CREDENTIAL_BYTES) return;
+    if (byte >= 0x21 && byte <= 0x7e) target.push(byte);
+  }
+}
+
+/** 实时展示固定前三位/后四位；不足七位时显示已有前缀并遮蔽其余内容。 */
+export function maskedCredentialPreview(value: readonly number[]): string {
+  if (value.length === 0) return '';
+  if (value.length < 7) {
+    return `${String.fromCharCode(...value.slice(0, 3))}${'•'.repeat(Math.max(0, value.length - 3))}`;
+  }
+  const first = String.fromCharCode(...value.slice(0, 3));
+  const last = String.fromCharCode(...value.slice(-4));
+  return `${first}${'•'.repeat(Math.min(8, value.length - 7))}${last}`;
 }
 
 /**
  * 纯展示组件，使宽字符、窄窗口和各 Run 终态无需真实终端即可验证。
  */
-export function AgentView({state, composer, input = '', columns, rows, composerLayout, connectWizard}: AgentViewProps) {
+export function AgentView({state, composer, input = '', columns, rows, composerLayout, connectWizard, permissionPicker}: AgentViewProps) {
   const width = Math.max(20, columns);
   const viewportRows = rows === undefined
     ? undefined
     : Math.max(5, Math.floor(rows));
+  if (connectWizard !== undefined) {
+    return <Box flexDirection="column">
+      <Text>
+        <Text bold color="cyan">codej</Text>
+        <Text dimColor>  v{PRODUCT_VERSION}</Text>
+        <Text dimColor>  · 配置模型</Text>
+      </Text>
+      <ConnectWizardPanel state={connectWizard} />
+    </Box>;
+  }
+  if (permissionPicker !== undefined) {
+    return <Box flexDirection="column">
+      <Text>
+        <Text bold color="cyan">codej</Text>
+        <Text dimColor>  v{PRODUCT_VERSION}</Text>
+        <Text dimColor>  · 权限选择</Text>
+      </Text>
+      <PermissionPickerPanel state={permissionPicker} />
+    </Box>;
+  }
   const effectiveComposer = composer ?? reduceComposer(
     createComposerState(4), {type: 'InsertText', text: input}, {width: Math.max(1, width - 6), height: 4},
   ).state;
@@ -799,6 +907,11 @@ export function AgentView({state, composer, input = '', columns, rows, composerL
     selectedCompletion,
     candidateRegionRows === undefined ? candidates.length : Math.max(0, candidateRegionRows - 1),
   );
+  const showStartupBrand = state.phase === 'ready'
+    && state.runs.length === 0
+    && connectWizard === undefined
+    && width >= 52
+    && (viewportRows === undefined || viewportRows >= 16);
   return (
     <Box
       flexDirection="column"
@@ -807,9 +920,13 @@ export function AgentView({state, composer, input = '', columns, rows, composerL
       overflow={viewportRows === undefined ? 'visible' : 'hidden'}
     >
       <Box flexShrink={0}>
-        <Text bold color="cyan">cc-java</Text>
-        <Text color="blue">  S15</Text>
-        <Text dimColor>  {phaseLabel(state.phase)}</Text>
+        <Text bold color="cyan">codej</Text>
+        {width < 28 ? null : (
+          <>
+            <Text dimColor>  v{PRODUCT_VERSION}</Text>
+            <Text dimColor>  · {phaseLabel(state.phase)}</Text>
+          </>
+        )}
       </Box>
       <Box
         flexDirection="column"
@@ -876,16 +993,33 @@ export function AgentView({state, composer, input = '', columns, rows, composerL
         <Box marginTop={1} flexDirection="column">
           {state.runs.length === 0 ? (
             <>
-              <Text color="cyan">输入 /help 查看命令；输入 /connect 查看并配置 Provider。</Text>
-              <Text dimColor>若 Provider/profile/model 未就绪，先运行 /connect；普通任务会快速安全失败并恢复输入。</Text>
+              {showStartupBrand ? (
+                <Box flexDirection="column" marginBottom={1}>
+                  {CODEJ_BANNER.map((line, index) => (
+                    <Text
+                      key={line}
+                      bold
+                      color={index < 2 ? 'cyanBright' : index < 4 ? 'blueBright' : 'magentaBright'}
+                    >
+                      {line}
+                    </Text>
+                  ))}
+                  <Text bold>
+                    <Text color="magentaBright">v{PRODUCT_VERSION}</Text>
+                    <Text dimColor> · </Text>
+                    <Text color="cyanBright">Java-powered coding agent</Text>
+                  </Text>
+                  <Text dimColor>Read, edit, run, and verify code from your terminal.</Text>
+                </Box>
+              ) : null}
             </>
           ) : null}
-          <Text dimColor>
-            C 列表　↑/↓ 选择　D Diff　U 请求 Undo
-          </Text>
-          <Text dimColor>
-            Undo 必须针对当前 Checkpoint 二次确认，绝不自动重放。
-          </Text>
+          {state.checkpoints.length === 0 ? null : (
+            <>
+              <Text dimColor>C 列表　↑/↓ 选择　D Diff　U 请求 Undo</Text>
+              <Text dimColor>Undo 必须针对当前 Checkpoint 二次确认，绝不自动重放。</Text>
+            </>
+          )}
         </Box>
       ) : null}
         </Box>
@@ -967,117 +1101,57 @@ export function completionWindow(
   }));
 }
 
-function ConnectWizardPanel({state}: {readonly state: ConnectWizardState}) {
-  const loadStatus = [
-    state.auth.status === 'pending' ? '连接状态加载中' : state.auth.status === 'failed' ? '连接状态暂不可用' : undefined,
-    state.models.status === 'pending' ? '模型目录加载中' : state.models.status === 'failed' ? '模型目录暂不可用' : undefined,
-  ].filter((value): value is string => value !== undefined);
-  const options = (items: readonly string[], selected: number) => items.map((item, index) => (
-    <Text key={item} color={index === selected ? 'cyan' : 'white'}>
-      {index === selected ? '❯ ' : '  '}{item}
-    </Text>
-  ));
-  let body;
-  switch (state.phase) {
-    case 'select-provider':
-      body = <>{options(connectWizardProviderOptions(state).map(option => option.kind === 'provider'
-        ? `${option.label}${providerStatus(state, option.providerId)}` : option.label), state.providerIndex)}</>;
-      break;
-    case 'select-auth':
-      body = <>
-        <Text bold>{providerName(state.providerId)}</Text>
-        {options(['粘贴 API Key（推荐）', '使用环境变量（高级）', '返回'], state.optionIndex)}
-      </>;
-      break;
-    case 'custom-name':
-      body = <><Text bold>1/5 服务名称</Text><Text>当前：<Text color="cyan">{state.custom.displayName || '（空）'}</Text></Text>
-        <Text dimColor>示例：团队模型网关</Text>{customValidation(state)}</>;
-      break;
-    case 'custom-id':
-      body = <><Text bold>2/5 稳定 ID</Text><Text>当前：<Text color="cyan">{state.custom.providerId || '（空）'}</Text></Text>
-        <Text dimColor>示例：team-gateway；可编辑建议值，只接受小写字母、数字和连字符。</Text>{customValidation(state)}</>;
-      break;
-    case 'custom-base-url':
-      body = <><Text bold>3/5 HTTPS Base URL</Text><Text>当前：<Text color="cyan">{state.custom.baseUrl || '（空）'}</Text></Text>
-        <Text dimColor>示例：https://gateway.example/v1</Text>{customValidation(state)}</>;
-      break;
-    case 'custom-model':
-      body = <><Text bold>4/5 模型名</Text><Text>当前：<Text color="cyan">{state.custom.modelId || '（空）'}</Text></Text>
-        <Text dimColor>示例：my-chat-model</Text>{customValidation(state)}</>;
-      break;
-    case 'custom-confirm':
-      body = <><Text bold>5/5 确认服务配置</Text><Text>名称：{state.custom.displayName}</Text>
-        <Text>ID：{state.custom.providerId}</Text><Text>Base URL：{state.custom.baseUrl}</Text>
-        <Text>模型：{state.custom.modelId}</Text><Text dimColor>Enter 保存；Esc 返回修改模型。</Text></>;
-      break;
-    case 'saving-provider':
-      body = <><Text color="yellow">正在保存，请稍候。</Text>
-        <Text dimColor>保存结果返回前 Enter/Esc 不会离开此页或重复提交。</Text></>;
-      break;
-    case 'env-input':
-      body = <>
-        <Text>环境变量名称</Text><Text color="cyan">{state.value.length === 0 ? '例如 OPENAI_API_KEY' : state.value}</Text>
-        {state.validation === undefined ? null : <Text color="red">{state.validation}</Text>}
-        <Text dimColor>这里只保存名称，TUI 不读取变量值。</Text>
-      </>;
-      break;
-    case 'logging-in':
-      body = <><Text color="yellow">正在打开安全凭证输入…</Text>
-        {state.secretSource === 'env' ? <Text dimColor>TUI 只传环境变量名称，不读取变量值。</Text> : null}</>;
-      break;
-    case 'refreshing-credential':
-      body = <Text color="yellow">凭证已保存，正在刷新连接状态…</Text>;
-      break;
-    case 'select-model': {
-      const models = modelsForProvider(state, state.providerId);
-      body = models.length === 0
-        ? <><Text color="yellow">当前本地模型目录为空。</Text><Text>请运行 codej models add --help 添加模型，然后重新打开 /connect。</Text></>
-        : <><Text bold>选择 {providerName(state.providerId)} 模型</Text>
-            {options(models.map(model => `${model.modelId}${model.providerDefault ? ' · 当前默认' : ''}`), state.modelIndex)}</>;
-      break;
-    }
-    case 'select-connected-action':
-      body = <><Text color="green">已连接 {providerName(state.providerId)}</Text>
-        {options(['选择模型', '更新凭证', '退出登录（高级）'], state.optionIndex)}</>;
-      break;
-    case 'confirm-logout':
-      body = <><Text color="red">确认退出 {providerName(state.providerId)}？</Text>
-        <Text dimColor>只删除本机凭证，不会撤销 Provider 侧 Key；活动任务会先安全停止。</Text>
-        {options(['确认退出登录', '取消'], state.optionIndex)}</>;
-      break;
-    case 'waiting-control':
-      body = <Text color="yellow">{state.action === 'models.use' ? '正在选择模型…' : '正在安全退出登录…'}</Text>;
-      break;
-    case 'complete':
-      body = state.providerName === undefined
-        ? <><Text color="green">{state.message}</Text><Text>可以开始对话</Text></>
-        : <><Text color="green">已连接 {state.providerName}</Text>
-            <Text color="green">已选择 {state.modelId}</Text><Text>可以开始对话</Text></>;
-      break;
-    case 'error':
-      body = <><Text color="red">{state.message}</Text><Text>Enter 返回上一步，Esc 也可返回。</Text></>;
-      break;
-    case 'cancelled':
-      body = <Text>连接已取消</Text>;
-      break;
-  }
-  return <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1} flexShrink={0}>
-    <Text bold color="cyan">连接模型服务</Text>
-    {loadStatus.length === 0 ? null : <Text dimColor>{loadStatus.join(' · ')}</Text>}
-    {body}
-    <Text dimColor>↑/↓ 选择　Enter 确认　Esc 返回或关闭</Text>
+function PermissionPickerPanel({state}: {readonly state: PermissionPickerState}) {
+  return <Box flexDirection="column" marginTop={1} borderStyle="round" borderColor="cyan" paddingX={1}>
+    <Text bold color="cyan">Permissions</Text>
+    {PERMISSION_PICKER_ITEMS.map((item, index) => (
+      <Text key={item.selection} color={index === state.selectedIndex ? 'cyan' : 'white'}>
+        {index === state.selectedIndex ? '❯ ' : '  '}{item.label}
+      </Text>
+    ))}
+    <Text dimColor>↑/↓ 选择　Enter 确认　Esc 取消</Text>
   </Box>;
 }
 
-function customValidation(state: ConnectWizardState) {
-  return state.custom.validation === undefined ? null : <Text color="red">{state.custom.validation}</Text>;
-}
-
-function providerStatus(state: ConnectWizardState, providerId: string): string {
-  const profile = connectedProfile(state, providerId);
-  const model = modelsForProvider(state, providerId).find(item => item.providerDefault);
-  if (profile === undefined) return state.auth.status === 'pending' ? ' · 加载中' : ' · 未连接';
-  return ` · 已连接${model === undefined ? '' : ` · 当前使用 ${model.modelId}`}`;
+function ConnectWizardPanel({state}: {readonly state: ModelSetupState}) {
+  let body;
+  switch (state.phase) {
+    case 'form':
+      body = <>
+        <Text color={state.field === 'baseUrl' ? 'cyan' : 'white'}>
+          {state.field === 'baseUrl' ? '❯ ' : '  '}API Base URL　{state.baseUrl || '例如 https://api.openai.com/v1'}
+        </Text>
+        <Text color={state.field === 'modelId' ? 'cyan' : 'white'}>
+          {state.field === 'modelId' ? '❯ ' : '  '}模型名称　　　{state.modelId || '例如 gpt-5.2'}
+        </Text>
+        {state.validation === undefined ? null : <Text color="red">{state.validation}</Text>}
+        <Text dimColor>填写完成后将打开遮罩输入，请粘贴 API Key。</Text>
+      </>;
+      break;
+    case 'saving':
+      body = <Text color="yellow">正在保存模型配置…</Text>;
+      break;
+    case 'logging-in':
+      body = <Text color="yellow">正在安全保存 API Key…</Text>;
+      break;
+    case 'credential':
+      body = <><Text>API Key　<Text color="cyan">{state.credentialPreview || '粘贴或输入'}</Text></Text>
+        <Text dimColor>仅显示前三位和后四位，中间内容始终隐藏 · Enter 保存</Text></>;
+      break;
+    case 'complete':
+      body = <><Text color="green">模型配置完成：{state.modelId}</Text>
+        {state.credentialPreview === undefined ? null : <Text>API Key　{state.credentialPreview}</Text>}
+        <Text>按 Enter 开始使用 CodeJ</Text></>;
+      break;
+    case 'error':
+      body = <><Text color="red">{state.message}</Text><Text>Enter 返回重新填写</Text></>;
+      break;
+  }
+  return <Box flexDirection="column" marginTop={1} flexShrink={0}>
+    <Text bold color="cyan">配置 CodeJ 模型</Text>
+    {body}
+    <Text dimColor>↑/↓ 切换字段　Enter 下一步　Esc 返回{state.required ? '' : '或关闭'}</Text>
+  </Box>;
 }
 
 function ChildTaskPanel({state}: {readonly state: AgentViewProps['state']}) {
@@ -1179,7 +1253,9 @@ function CheckpointRow({
 function ApprovalPrompt({approval}: {readonly approval: ApprovalView}) {
   const action = approval.effect === 'write_workspace'
     ? '修改 Workspace'
-    : '启动本地进程';
+    : approval.effect === 'execute_process'
+      ? '启动本地进程'
+      : '访问网络';
   return (
     <Box
       marginTop={1}
@@ -1213,6 +1289,12 @@ function ApprovalPrompt({approval}: {readonly approval: ApprovalView}) {
             <Text color="cyan">{approval.command}</Text>
           </>
         )}
+      {approval.effect !== 'network_or_remote' ? null : (
+        <>
+          <Text>将搜索词发送给已配置的 Web Search Provider：</Text>
+          <Text color="cyan">{approval.query ?? '（查询内容不可安全预览）'}</Text>
+        </>
+      )}
       <Text dimColor>
         {approval.submitted
           ? '决定已发送，等待 Java 确认'

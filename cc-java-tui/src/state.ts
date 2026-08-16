@@ -27,7 +27,7 @@ export interface ApprovalView {
   readonly approvalId: string;
   readonly ordinal: number;
   readonly toolName: string;
-  readonly effect: 'write_workspace' | 'execute_process';
+  readonly effect: 'write_workspace' | 'execute_process' | 'network_or_remote';
   readonly target: string | undefined;
   readonly operation: 'modify' | 'create' | undefined;
   readonly removedLines: number | undefined;
@@ -35,6 +35,8 @@ export interface ApprovalView {
   readonly command: string | undefined;
   readonly shell: 'powershell' | 'sh' | undefined;
   readonly workingDirectory: string | undefined;
+  readonly destination: 'configured_web_search_provider' | undefined;
+  readonly query: string | undefined;
   readonly submitted: boolean;
 }
 
@@ -326,6 +328,8 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
           command: optionalText(event.payload.command),
           shell: approvalShell(event.payload.shell),
           workingDirectory: optionalText(event.payload.workingDirectory),
+          destination: approvalDestination(event.payload.destination),
+          query: optionalText(event.payload.query),
           submitted: false,
         },
       }));
@@ -502,6 +506,10 @@ function approvalOperation(
 
 function approvalShell(value: unknown): ApprovalView['shell'] {
   return value === 'powershell' || value === 'sh' ? value : undefined;
+}
+
+function approvalDestination(value: unknown): ApprovalView['destination'] {
+  return value === 'configured_web_search_provider' ? value : undefined;
 }
 
 function optionalNonNegativeInteger(value: unknown): number | undefined {

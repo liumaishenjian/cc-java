@@ -70,6 +70,29 @@ import java.util.concurrent.ScheduledFuture;
 public final class RuntimeStdioCommandHandler
         implements StdioProtocol.CommandHandler, AgentEventSink {
 
+    /**
+     * 在 stdio 的事件出口与审批协调器都就绪后创建生产 Runtime。
+     *
+     * <p>该工厂避免先创建一个绑定拒绝型 ApprovalHandler 的 Session，再在外层创建一个
+     * 永远不会被 Runtime 调用的交互审批器。返回的 Session 必须把两个参数原样接入其
+     * EventSink 与 ApprovalHandler。</p>
+     *
+     * @since 0.1.0
+     */
+    @FunctionalInterface
+    public interface RuntimeApplicationFactory {
+        /**
+         * 创建当前 stdio 连接独占的 Runtime Session。
+         *
+         * @param events 当前连接的唯一事件出口
+         * @param approvals 当前连接的交互审批端口
+         * @return 尚未打开、由 Handler 持有生命周期的 Session
+         */
+        HeadlessRuntimeSession create(
+                AgentEventSink events,
+                io.github.liumaishenjian.ccjava.core.ApprovalHandler approvals);
+    }
+
     /** 当前连接允许保留的未发送 steering 数量。 */
     static final int MAX_STEERING_MESSAGES = 100;
     static final int MAX_EXPANDED_INPUT_BYTES = 1_048_576;
@@ -285,6 +308,43 @@ public final class RuntimeStdioCommandHandler
         application = Objects.requireNonNull(selectedApplication, "selectedApplication 不能为空");
         this.providerAuth = Objects.requireNonNull(providerAuth, "providerAuth 不能为空");
     }
+
+    /**
+     * 使用当前连接的真实事件出口和审批协调器装配生产 Session。
+     *
+     * @param applicationFactory 必须把收到的 events/approvals 接入 Session
+     * @param providerAuth Provider/Auth 本地控制面服务
+     */
+    public RuntimeStdioCommandHandler(
+            RuntimeApplicationFactory applicationFactory,
+            io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService providerAuth) {
+        clock = Clock.systemUTC();
+        assemblyScheduler = InputAssemblyScheduler.production();
+        approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
+        application = Objects.requireNonNull(applicationFactory, "applicationFactory 不能为空")
+                .create(this, approvals);
+        if (application == null) {
+            throw new IllegalArgumentException("applicationFactory 返回 null");
+        }
+        this.providerAuth = Objects.requireNonNull(providerAuth, "providerAuth 不能为空");
+    }
+
+    /**
+     * 使用可交互审批工厂装配无 Provider 控制面的测试/嵌入式 Session。
+     *
+     * @param applicationFactory 必须把收到的 events/approvals 接入 Session
+     */
+    public RuntimeStdioCommandHandler(RuntimeApplicationFactory applicationFactory) {
+        clock = Clock.systemUTC();
+        assemblyScheduler = InputAssemblyScheduler.production();
+        approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
+        application = Objects.requireNonNull(applicationFactory, "applicationFactory 不能为空")
+                .create(this, approvals);
+        if (application == null) {
+            throw new IllegalArgumentException("applicationFactory 返回 null");
+        }
+        providerAuth = null;
+    }
     /**
      * 使用已经接入 ProviderAuthRuntimeResources 的生产 Session 装配 stdio handler。
      *
@@ -395,6 +455,7 @@ public final class RuntimeStdioCommandHandler
         var sessionOpen = application.sessionOpenResult();
         payload.put("openMode", sessionOpen.mode().name().toLowerCase(Locale.ROOT));
         payload.put("readOnly", sessionOpen.readOnly());
+        payload.put("modelConfigured", modelConfigured());
         sessionOpen.parentSessionId().ifPresent(parent ->
                 payload.put("parentSessionId", parent.value()));
         ArrayNode warnings = codec.arrayNode();
@@ -408,6 +469,16 @@ public final class RuntimeStdioCommandHandler
                 Optional.empty(),
                 payload);
         return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    /** 本机 Provider/Auth 状态损坏时只触发重新配置，不让初始化泄漏底层失败。 */
+    private boolean modelConfigured() {
+        if (providerAuth == null) return false;
+        try {
+            return providerAuth.hasUsableDefaultSelection(CancellationToken.none());
+        } catch (RuntimeException unavailable) {
+            return false;
+        }
     }
 
     private StdioProtocol.Disposition startRun(
@@ -977,6 +1048,17 @@ public final class RuntimeStdioCommandHandler
         String code = "OK";
         try {
             switch (intent) {
+                case "providers.configure" -> {
+                    var configured = providerAuth.configureCodejProvider(
+                            new io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService
+                                    .ConfigureProviderRequest(
+                                    requiredArgument(arguments, "baseUrl"),
+                                    requiredArgument(arguments, "modelId")),
+                            CancellationToken.none());
+                    result.put("providerId", configured.providerId());
+                    result.put("displayName", configured.displayName());
+                    result.put("modelId", configured.modelId());
+                }
                 case "providers.add" -> {
                     var added = providerAuth.addCompatibleProvider(
                             new io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService
@@ -1134,6 +1216,8 @@ public final class RuntimeStdioCommandHandler
             }
             case SessionCommandEvent.PermissionsPayload permissions -> {
                 payload.put("effectiveMode", permissions.effectiveMode());
+                payload.put("effectiveReviewer", permissions.effectiveReviewer());
+                payload.put("effectiveSelection", permissions.effectiveSelection());
                 payload.put("modeSourceKind", permissions.modeSourceKind());
                 payload.put("modeSafeSourceId", permissions.modeSafeSourceId());
                 payload.put("modeValidationStatus", permissions.modeValidationStatus());
@@ -1196,8 +1280,13 @@ public final class RuntimeStdioCommandHandler
             case "model" -> new SessionCommandIntent.ModelChange(arguments.get("name").stringValue());
             case "permissions" -> new SessionCommandIntent.Permissions(arguments.isEmpty()
                     ? new SessionCommandIntent.PermissionsOperation.Query()
-                    : new SessionCommandIntent.PermissionsOperation.ModeChange(
-                            io.github.liumaishenjian.ccjava.domain.PermissionMode.valueOf(arguments.get("mode").stringValue())));
+                    : arguments.has("selection")
+                            ? new SessionCommandIntent.PermissionsOperation.SelectionChange(
+                                    io.github.liumaishenjian.ccjava.domain.PermissionSelection.valueOf(
+                                            arguments.get("selection").stringValue()))
+                            : new SessionCommandIntent.PermissionsOperation.ModeChange(
+                                    io.github.liumaishenjian.ccjava.domain.PermissionMode.valueOf(
+                                            arguments.get("mode").stringValue())));
             case "resume" -> new SessionCommandIntent.Resume(new SessionId(arguments.get("sessionId").stringValue()));
             default -> throw protocolError("INVALID_ARGUMENT", command, "未知 session.command intent");
         };
@@ -1442,6 +1531,11 @@ public final class RuntimeStdioCommandHandler
             payload.put("command", request.preview().command());
             payload.put("shell", request.preview().shell());
             payload.put("workingDirectory", request.preview().workingDirectory());
+            payload.put("operation", request.preview().operation());
+        }
+        if (!request.preview().networkQuery().isEmpty()) {
+            payload.put("destination", request.preview().networkDestination());
+            payload.put("query", request.preview().networkQuery());
             payload.put("operation", request.preview().operation());
         }
         emit(run, "approval.requested", payload);

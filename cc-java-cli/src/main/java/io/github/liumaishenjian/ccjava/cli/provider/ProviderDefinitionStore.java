@@ -120,6 +120,40 @@ public final class ProviderDefinitionStore {
     }
 
     /**
+     * 新增或替换一个 custom compatible definition，并把其默认模型设为全局默认选择。
+     *
+     * <p>该入口只服务于 CodeJ 的单连接首次配置：相同 Provider ID 会被原位替换，
+     * 因而重复执行 {@code /connect} 不会累积定义；内置 Provider 仍不可覆盖。发布前会用
+     * 新模型重建默认选择，避免旧模型引用使完整快照失效。</p>
+     *
+     * @param definition 待保存的 OpenAI-compatible Provider 定义
+     * @param expectedGeneration 调用方读取到的预期 generation
+     * @param cancellation 等待文件锁期间使用的取消令牌
+     * @return 发布后的新快照
+     */
+    public Snapshot configure(ProviderDefinition definition, long expectedGeneration,
+                              CancellationToken cancellation) {
+        Objects.requireNonNull(definition, "definition 不能为空");
+        if (definition.kind() != ProviderDefinition.Kind.OPENAI_COMPATIBLE
+                || ProviderCatalog.isBuiltinId(definition.providerId())) throw invalid();
+        return locked(cancellation, () -> {
+            Snapshot old = read();
+            requireGeneration(old, expectedGeneration);
+            boolean existing = old.customDefinitions().stream()
+                    .anyMatch(value -> value.providerId().equals(definition.providerId()));
+            if (!existing && old.customDefinitions().size() >= MAXIMUM_PROVIDERS) throw invalid();
+            List<ProviderDefinition> values = new ArrayList<>(old.customDefinitions());
+            values.removeIf(value -> value.providerId().equals(definition.providerId()));
+            values.add(definition);
+            Snapshot next = new Snapshot(old.generation() + 1, values, old.modelOverrides(),
+                    Optional.of(new DefaultSelection(definition.providerId(), definition.defaultModelId())));
+            next.catalog();
+            publish(next);
+            return next;
+        });
+    }
+
+    /**
      * 以 generation CAS 删除 custom definition；仍被默认选择引用时拒绝。
      *
      * @param providerId 待删除的 custom Provider 标识

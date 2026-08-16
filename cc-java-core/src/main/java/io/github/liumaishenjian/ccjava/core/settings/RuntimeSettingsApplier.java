@@ -163,7 +163,7 @@ public final class RuntimeSettingsApplier {
         List<String> anchors = anchors(settings, previous);
         RuntimeDiagnosticsVerbosity verbosity = settings.diagnosticsVerbosity()
                 .map(value -> verbosity(value.value())).orElse(previous.diagnosticsVerbosity());
-        return new RuntimeConfiguration(model, mode, rules, enabled, configurations, anchors, verbosity);
+        return new RuntimeConfiguration(model, mode, previous.approvalReviewer(), rules, enabled, configurations, anchors, verbosity);
     }
 
     private String supportedModel(String model) {

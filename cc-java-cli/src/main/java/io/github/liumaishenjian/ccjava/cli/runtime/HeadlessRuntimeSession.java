@@ -1827,7 +1827,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                     CONTEXT_LIMIT_REACHED, OUTPUT_LIMIT_REACHED -> "limit";
             case MODEL_ERROR, MODEL_RETRY_EXHAUSTED, INCOMPLETE_MODEL_STREAM,
                     INVALID_MODEL_RESPONSE -> "model_error";
-            case TOOL_ERROR, PERMISSION_DENIED, HOOK_BLOCKED -> "tool_error";
+            case TOOL_ERROR, PERMISSION_DENIED, HOOK_BLOCKED, AUTO_REVIEW_CIRCUIT_OPEN -> "tool_error";
             case INTERNAL_ERROR -> "internal_error";
         };
     }

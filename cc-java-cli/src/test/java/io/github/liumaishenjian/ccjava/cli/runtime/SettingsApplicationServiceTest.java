@@ -10,8 +10,10 @@ import io.github.liumaishenjian.ccjava.core.CancellationToken;
 import io.github.liumaishenjian.ccjava.core.settings.SettingsResolver;
 import io.github.liumaishenjian.ccjava.core.settings.SettingsSnapshotStore;
 import io.github.liumaishenjian.ccjava.core.settings.RuntimeSettingsApplier;
+import io.github.liumaishenjian.ccjava.domain.ApprovalReviewer;
 import io.github.liumaishenjian.ccjava.domain.ModelTurn;
 import io.github.liumaishenjian.ccjava.domain.PermissionMode;
+import io.github.liumaishenjian.ccjava.domain.PermissionSelection;
 import io.github.liumaishenjian.ccjava.domain.settings.DeclaredSettings;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -83,6 +85,57 @@ class SettingsApplicationServiceTest {
             assertThat(service.patchSessionOverlay(new io.github.liumaishenjian.ccjava.domain.settings.SessionSettingsPatch.PermissionModeChange(PermissionMode.ACCEPT_EDITS),
                     CancellationToken.none()).published()).isTrue();
             assertThat(runtime.runtimeConfiguration().permissionMode()).isEqualTo(PermissionMode.PLAN);
+        }
+    }
+
+    @Test
+    void permissionSelectionUpdatesModeAndReviewerAtomicallyAndModeChangeResetsReviewer() throws Exception {
+        Path home = Files.createDirectories(root.resolve("home"));
+        Path workspace = Files.createDirectories(root.resolve("workspace"));
+        try (HeadlessRuntimeSession runtime = runtime(workspace)) {
+            runtime.open();
+            SettingsApplicationService service = new SettingsApplicationService(runtime,
+                    countingLoader(home, runtime, new AtomicInteger()), runtime.builtinToolRegistry());
+
+            assertThat(service.patchSessionOverlay(
+                    new io.github.liumaishenjian.ccjava.domain.settings.SessionSettingsPatch.PermissionSelectionChange(PermissionSelection.AUTO),
+                    CancellationToken.none()).published()).isTrue();
+            assertThat(runtime.runtimeConfiguration().permissionMode()).isEqualTo(PermissionMode.DEFAULT);
+            assertThat(runtime.runtimeConfiguration().approvalReviewer()).isEqualTo(ApprovalReviewer.AUTO_REVIEW);
+
+            assertThat(service.patchSessionOverlay(
+                    new io.github.liumaishenjian.ccjava.domain.settings.SessionSettingsPatch.PermissionModeChange(PermissionMode.PLAN),
+                    CancellationToken.none()).published()).isTrue();
+            assertThat(runtime.runtimeConfiguration().permissionMode()).isEqualTo(PermissionMode.PLAN);
+            assertThat(runtime.runtimeConfiguration().approvalReviewer()).isEqualTo(ApprovalReviewer.USER);
+        }
+    }
+
+    @Test
+    void compatibilityModesForceUserReviewerAndFailedSelectionRetainsPublishedState() throws Exception {
+        Path home = Files.createDirectories(root.resolve("home"));
+        Path workspace = Files.createDirectories(root.resolve("workspace"));
+        try (HeadlessRuntimeSession runtime = runtime(workspace)) {
+            runtime.open();
+            SettingsApplicationService service = new SettingsApplicationService(runtime,
+                    countingLoader(home, runtime, new AtomicInteger()), runtime.builtinToolRegistry());
+            assertThat(service.patchSessionOverlay(
+                    new io.github.liumaishenjian.ccjava.domain.settings.SessionSettingsPatch.PermissionSelectionChange(PermissionSelection.AUTO),
+                    CancellationToken.none()).published()).isTrue();
+            var published = service.current().orElseThrow();
+            var configuration = runtime.runtimeConfiguration();
+
+            assertThat(service.patchSessionOverlay(
+                    new io.github.liumaishenjian.ccjava.domain.settings.SessionSettingsPatch.PermissionSelectionChange(PermissionSelection.PLAN),
+                    new CancellationToken() {
+                        @Override public boolean isCancellationRequested() { return true; }
+                        @Override public Registration onCancellation(Runnable action) { return () -> { }; }
+                    }).published()).isFalse();
+
+            assertThat(service.current()).contains(published);
+            assertThat(runtime.runtimeConfiguration()).isSameAs(configuration);
+            assertThat(service.replaceSessionOverlay(Optional.of(declaredMode("ACCEPT_EDITS")), CancellationToken.none()).published()).isTrue();
+            assertThat(runtime.runtimeConfiguration().approvalReviewer()).isEqualTo(ApprovalReviewer.USER);
         }
     }
 

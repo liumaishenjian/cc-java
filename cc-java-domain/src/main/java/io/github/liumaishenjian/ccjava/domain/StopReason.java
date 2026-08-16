@@ -51,6 +51,9 @@ public enum StopReason {
     /** 用户 Hook 在 Run 建立前阻断了本次用户请求。 */
     HOOK_BLOCKED,
 
+    /** 自动审查连续 non-allow 达到 Run 阈值，当前拒绝已完成后停止。 */
+    AUTO_REVIEW_CIRCUIT_OPEN,
+
     /** 不可恢复的 Tool 错误。 */
     TOOL_ERROR,
 

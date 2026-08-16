@@ -1,6 +1,7 @@
 package io.github.liumaishenjian.ccjava.domain.command;
 
 import io.github.liumaishenjian.ccjava.domain.PermissionMode;
+import io.github.liumaishenjian.ccjava.domain.PermissionSelection;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
 import java.util.List;
 import java.util.Objects;
@@ -82,9 +83,9 @@ public sealed interface SessionCommandIntent permits SessionCommandIntent.Help, 
     }
 
     /**
-     * 请求权限安全视图或仅变更 PermissionMode；本切片不暴露或编辑 selector/规则。
+     * 请求权限安全视图或变更封闭 Permission 设置；本切片不暴露或编辑 selector/规则。
      *
-     * @param operation 封闭查询或模式变更
+     * @param operation 封闭查询、模式或选择变更
      */
     record Permissions(PermissionsOperation operation) implements SessionCommandIntent {
         /**
@@ -113,7 +114,8 @@ public sealed interface SessionCommandIntent permits SessionCommandIntent.Help, 
     }
 
     /** 不解析 selector、规则或 grant 的封闭权限动作。 */
-    sealed interface PermissionsOperation permits PermissionsOperation.Query, PermissionsOperation.ModeChange {
+    sealed interface PermissionsOperation permits PermissionsOperation.Query, PermissionsOperation.ModeChange,
+            PermissionsOperation.SelectionChange {
         /** 仅查询当前已发布安全状态。 */
         record Query() implements PermissionsOperation { }
 
@@ -129,6 +131,20 @@ public sealed interface SessionCommandIntent permits SessionCommandIntent.Help, 
              * @param mode 已封闭的 S05 PermissionMode
              */
             public ModeChange { mode = Objects.requireNonNull(mode, "mode 不能为空"); }
+        }
+
+        /**
+         * 原子请求下一 Run 的 PermissionMode 与 reviewer 选择。
+         *
+         * @param selection 面向 Surface 的封闭 Permission 选择
+         */
+        record SelectionChange(PermissionSelection selection) implements PermissionsOperation {
+            /**
+             * 验证封闭 Permission 选择。
+             *
+             * @param selection 映射到既有 mode 与 reviewer 的选择
+             */
+            public SelectionChange { selection = Objects.requireNonNull(selection, "selection 不能为空"); }
         }
     }
 

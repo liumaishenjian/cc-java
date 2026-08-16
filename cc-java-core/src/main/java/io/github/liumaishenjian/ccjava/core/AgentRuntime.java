@@ -552,15 +552,17 @@ public final class AgentRuntime {
         Thread deadlineThread = startDeadline(request.limits().maxDuration(), activeRun);
 
         AgentRunResult result;
+        AutoReviewRunScope autoReviewScope = toolPipeline.createRunScope(runId);
         try {
             result = executeLoop(
-                    session, runId, state, activeRun, request.userMessage());
+                    session, runId, state, activeRun, request.userMessage(), autoReviewScope);
         } catch (RuntimeException exception) {
             result = state.stop(StopReason.INTERNAL_ERROR);
         } finally {
             deadlineThread.interrupt();
             activeRuns.remove(sessionId, activeRun);
             contextPreparation.closeRun(runId);
+            autoReviewScope.close();
             skills.closeRun(runId);
             closeRunHooks(runHookLease);
             plugins.closeRun(runId);
@@ -646,7 +648,8 @@ public final class AgentRuntime {
             RunId runId,
             AgentRunState state,
             ActiveRun activeRun,
-            UserMessage currentUserMessage) {
+            UserMessage currentUserMessage,
+            AutoReviewRunScope autoReviewScope) {
         while (true) {
             if (activeRun.cancellation().token().isCancellationRequested()) {
                 return stopForCancellation(state, activeRun);
@@ -760,14 +763,19 @@ public final class AgentRuntime {
                 for (int ignored = 0; ignored < calls.size(); ignored++) {
                     ordinals.add(state.recordToolCall());
                 }
-                List<ToolResult> batchResults;
+                ToolBatchExecutionResult batchExecution;
                 try {
-                    batchResults = parallelToolBatch.executeSafeBatch(
-                            session, runId, ordinals, calls, activeRun.cancellation().token());
+                    batchExecution = parallelToolBatch.executeBatch(
+                            session, runId, ordinals, calls, activeRun.cancellation().token(), autoReviewScope);
                 } catch (ToolJournalPersistenceException journalFailure) {
                     session.fence();
                     return state.stop(StopReason.INTERNAL_ERROR);
                 } catch (RuntimeException exception) {
+                    session.fence();
+                    return state.stop(StopReason.INTERNAL_ERROR);
+                }
+                List<ToolResult> batchResults = batchExecution.results();
+                if (batchResults.size() != calls.size()) {
                     session.fence();
                     return state.stop(StopReason.INTERNAL_ERROR);
                 }
@@ -786,6 +794,9 @@ public final class AgentRuntime {
                             // Instructions 刷新是短生命周期投影旁路，不能推翻已持久化的 Tool 成功事实。
                         }
                     }
+                }
+                if (batchExecution.stopAfterBatch()) {
+                    return state.stop(StopReason.AUTO_REVIEW_CIRCUIT_OPEN);
                 }
             } finally {
                 memoryPrefetch.close();

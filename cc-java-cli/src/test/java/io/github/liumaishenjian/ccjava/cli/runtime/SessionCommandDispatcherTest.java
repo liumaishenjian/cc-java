@@ -10,7 +10,9 @@ import io.github.liumaishenjian.ccjava.core.ContextPreparationConfig;
 import io.github.liumaishenjian.ccjava.core.ContextSummarizer;
 import io.github.liumaishenjian.ccjava.domain.ContextCapacity;
 import io.github.liumaishenjian.ccjava.domain.ModelTurn;
+import io.github.liumaishenjian.ccjava.domain.ApprovalReviewer;
 import io.github.liumaishenjian.ccjava.domain.PermissionMode;
+import io.github.liumaishenjian.ccjava.domain.PermissionSelection;
 import io.github.liumaishenjian.ccjava.domain.command.CommandId;
 import io.github.liumaishenjian.ccjava.domain.command.SessionCommandIntent;
 import io.github.liumaishenjian.ccjava.domain.command.SessionCommandResultCode;
@@ -97,6 +99,36 @@ class SessionCommandDispatcherTest {
 
             assertThat(Files.readAllBytes(journal)).isEqualTo(before);
             assertThat(runtime.runtimeConfiguration()).isSameAs(configuration);
+        }
+    }
+
+    @Test
+    void permissionsQueryProjectsModeReviewerAndAdvancedCompatibilitySelection() throws Exception {
+        Path workspace = Files.createDirectory(root.resolve("workspace"));
+        try (HeadlessRuntimeSession runtime = runtime(workspace, root.resolve("sessions"))) {
+            runtime.open();
+            var payload = new io.github.liumaishenjian.ccjava.domain.command.SessionCommandEvent.PermissionsPayload(
+                    "ACCEPT_EDITS", ApprovalReviewer.USER.name(), "ADVANCED", "BASELINE", "runtime-baseline",
+                    "BASELINE", 0, List.of());
+
+            assertThat(payload.effectiveMode()).isEqualTo("ACCEPT_EDITS");
+            assertThat(payload.effectiveReviewer()).isEqualTo("USER");
+            assertThat(payload.effectiveSelection()).isEqualTo("ADVANCED");
+        }
+    }
+
+    @Test
+    void selectionChangeUsesTheSamePermissionPatchPathWhenSettingsAreAvailable() throws Exception {
+        Path workspace = Files.createDirectory(root.resolve("workspace"));
+        try (HeadlessRuntimeSession runtime = runtime(workspace, root.resolve("sessions"))) {
+            runtime.open();
+            var result = dispatcher(runtime).dispatch(new CommandId("selection"),
+                    new SessionCommandIntent.Permissions(
+                            new SessionCommandIntent.PermissionsOperation.SelectionChange(PermissionSelection.AUTO)),
+                    CancellationToken.none());
+
+            assertThat(result.event().status()).isEqualTo(SessionCommandStatus.REJECTED);
+            assertThat(result.event().code()).isEqualTo(SessionCommandResultCode.NOT_AVAILABLE);
         }
     }
 

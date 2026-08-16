@@ -26,7 +26,6 @@ import {
   independentProviderControlId,
   isIndependentProviderControlResult,
 } from '../src/provider-control-id.js';
-import {applyConnectWizardResult, beginConnectWizard} from '../src/connect-wizard.js';
 
 const SHIFT_ENTER = String.fromCharCode(27) + '[13;2u';
 
@@ -57,8 +56,9 @@ describe('AgentView', () => {
     };
     const view = render(<AgentView state={state} input="下一步" columns={20} />);
 
-    expect(view.lastFrame()).toContain('cc-java  S15');
+    expect(view.lastFrame()).toContain('codej');
     expect(view.lastFrame()).not.toContain('S06');
+    expect(view.lastFrame()).not.toContain('S15');
     expect(view.lastFrame()).toContain('解释中文宽字符');
     expect(view.lastFrame()).toContain('coding');
     expect(view.lastFrame()).toContain('已完成');
@@ -74,9 +74,13 @@ describe('AgentView', () => {
       checkpointUndo: undefined, notice: undefined,
     };
     const readyView = render(<AgentView state={ready} input="" columns={100} />);
-    expect(readyView.lastFrame()).toContain('输入 /help 查看命令');
-    expect(readyView.lastFrame()).toContain('输入 /connect 查看并配置 Provider');
-    expect(readyView.lastFrame()).toContain('普通任务会快速安全失败并恢复输入');
+    expect(readyView.lastFrame()).toContain('██████  ██████  ██████');
+    expect(readyView.lastFrame()).toContain('v0.1.0 · Java-powered coding agent');
+    expect(readyView.lastFrame()).not.toContain('输入任务开始，或使用 /connect 配置模型');
+    expect(readyView.lastFrame()).not.toContain('/help 查看命令 · @file 引用工作区文件');
+    expect(readyView.lastFrame()).not.toContain('S15');
+    expect(readyView.lastFrame()).not.toContain('快速安全失败');
+    expect(readyView.lastFrame()).not.toContain('Undo 必须');
     readyView.unmount();
 
     const state: TuiState = {
@@ -90,6 +94,7 @@ describe('AgentView', () => {
     const frame = view.lastFrame() ?? '';
 
     expect(frame.split('\n').length).toBeLessThanOrEqual(8);
+    expect(frame).not.toContain('██████  ██████  ██████');
     expect(frame).toContain('╭');
     expect(frame).toContain('❯');
     expect(frame).toContain('Enter 发送，Shift+Enter 换行');
@@ -168,7 +173,7 @@ describe('AgentView', () => {
         pendingApproval: {approvalId: 'approval-short', ordinal: 1, toolName: 'apply_patch',
           effect: 'write_workspace', target: 'src/App.java', operation: 'modify',
           removedLines: 1, addedLines: 2, command: undefined, shell: undefined,
-          workingDirectory: undefined, submitted: false},
+          workingDirectory: undefined, destination: undefined, query: undefined, submitted: false},
         status: 'running', stopReason: undefined, modelTurns: undefined, toolCalls: undefined,
       }],
     };
@@ -268,6 +273,8 @@ describe('AgentView', () => {
           command: undefined,
           shell: undefined,
           workingDirectory: undefined,
+          destination: undefined,
+          query: undefined,
           submitted: false,
         },
         status: 'running',
@@ -282,6 +289,55 @@ describe('AgentView', () => {
     expect(view.lastFrame()).toContain('修改：src/main/App.java');
     expect(view.lastFrame()).toContain('+3 行');
     expect(view.lastFrame()).toContain('-2 行');
+  });
+
+  it('网络审批面板明确展示出站行为和有界搜索词', () => {
+    const state: TuiState = {
+      phase: 'running',
+      sessionId: 'session-1',
+      activeRunId: 'run-web',
+      notice: undefined,
+      checkpoints: [],
+      checkpointPanelOpen: false,
+      selectedCheckpointId: undefined,
+      checkpointDiff: undefined,
+      pendingUndoCheckpointId: undefined,
+      checkpointUndo: undefined,
+      runs: [{
+        requestId: 'req-web',
+        prompt: '查询天气',
+        runId: 'run-web',
+        text: '',
+        tools: [],
+        pendingApproval: {
+          approvalId: 'approval-web',
+          ordinal: 1,
+          toolName: 'web_search',
+          effect: 'network_or_remote',
+          target: undefined,
+          operation: undefined,
+          removedLines: undefined,
+          addedLines: undefined,
+          command: undefined,
+          shell: undefined,
+          workingDirectory: undefined,
+          destination: 'configured_web_search_provider',
+          query: '明天杭州天气',
+          submitted: false,
+        },
+        status: 'running',
+        stopReason: undefined,
+        modelTurns: undefined,
+        toolCalls: undefined,
+      }],
+    };
+
+    const view = render(<AgentView state={state} input="" columns={80} />);
+
+    expect(view.lastFrame()).toContain('需要批准：访问网络');
+    expect(view.lastFrame()).toContain('已配置的 Web Search Provider');
+    expect(view.lastFrame()).toContain('明天杭州天气');
+    expect(view.lastFrame()).toContain('Y 允许本次');
   });
 
   it('Backspace 按 Unicode Code Point 删除且中断动作取决于 Java Run 投影', () => {
@@ -733,6 +789,74 @@ describe('AgentView', () => {
     view.unmount();
   });
 
+  it('/permissions 打开本地三选 picker，箭头选择后 Enter 仅发送一次准确 selection', async () => {
+    const client = new FakeAgentClient();
+    const view = await initializedTui(client);
+    view.stdin.write('/permissions'); view.stdin.write('\r');
+    await waitForFrame(() => view.lastFrame()?.includes('Ask for approval') === true);
+
+    expect(view.lastFrame()).toContain('Plan');
+    expect(view.lastFrame()).toContain('Ask for approval');
+    expect(view.lastFrame()).toContain('Approve for me');
+    expect(client.prompts).toEqual([]);
+    expect(view.lastFrame()).toContain('❯ Ask for approval');
+    expect(client.sessionCommands).toEqual([]);
+    view.stdin.write('[B');
+    await waitForFrame(() => view.lastFrame()?.includes('❯ Approve for me') === true);
+    view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 1);
+    view.stdin.write('\r');
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    expect(client.sessionCommands).toEqual(['tui-command-1:permissions:{"selection":"AUTO"}']);
+    expect(client.prompts).toEqual([]);
+    view.unmount();
+  });
+
+  it('缺少 session command 通道时不打开 permissions picker', async () => {
+    const client = new FakeAgentClient();
+    Object.defineProperty(client, 'sessionCommand', {
+      value: undefined, configurable: true, writable: true,
+    });
+    const view = await initializedTui(client);
+    view.stdin.write('/permissions'); view.stdin.write('\r');
+    await waitForFrame(() => view.lastFrame()?.includes('当前连接不支持 Slash 命令') === true);
+
+    expect(view.lastFrame()).not.toContain('权限选择');
+    expect(client.prompts).toEqual([]);
+    view.unmount();
+  });
+
+  it('permissions picker Escape 关闭且不发送命令，也不会接受 composer 输入', async () => {
+    const client = new FakeAgentClient();
+    const view = await initializedTui(client);
+    view.stdin.write('/permissions'); view.stdin.write('\r');
+    await waitForFrame(() => view.lastFrame()?.includes('Approve for me') === true);
+    view.stdin.write('ordinary input');
+    view.stdin.write('');
+    await waitForFrame(() => view.lastFrame()?.includes('权限选择') === false);
+
+    expect(client.sessionCommands).toEqual([]);
+    expect(client.prompts).toEqual([]);
+    expect(view.lastFrame()).not.toContain('ordinary input');
+    view.unmount();
+  });
+
+  it('/permissions query 和 legacy mode 继续走 session command', async () => {
+    const client = new FakeAgentClient();
+    const view = await initializedTui(client);
+    view.stdin.write('/permissions query'); view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 1);
+    view.stdin.write('/permissions mode ACCEPT_EDITS'); view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 2);
+
+    expect(client.sessionCommands).toEqual([
+      'tui-command-1:permissions:{}',
+      'tui-command-2:permissions:{"mode":"ACCEPT_EDITS"}',
+    ]);
+    view.unmount();
+  });
+
   it('文件建议优先补全而不提交，下一次 Enter 才发送并支持 steering', async () => {
     const client = new FakeAgentClient();
     const view = render(<AgentTui client={client} />);
@@ -1030,460 +1154,100 @@ function initialCheckpointState(): TuiState {
     view.unmount();
   });
 
-  it('/connet 在本地建议 /connect 且不进入 Skill、Run、命令或 Hook 可达路径', async () => {
+  it('首次启动缺少模型配置时自动打开最小表单且不能用 Esc 绕过', async () => {
     const client = new FakeAgentClient();
     const view = render(<AgentTui client={client} />);
     await waitForFrame(() => client.initializeCalls === 1);
-    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1,
+      payload: {modelConfigured: false}});
+    await waitForFrame(() => view.lastFrame()?.includes('配置 CodeJ 模型') === true);
+
+    expect(view.lastFrame()).toContain('API Base URL');
+    expect(view.lastFrame()).toContain('模型名称');
+    expect(view.lastFrame()).toContain('粘贴 API Key');
+    expect(view.lastFrame()).not.toContain('╭');
+    expect(view.lastFrame()).not.toContain('Anthropic');
+    expect(view.lastFrame()).not.toContain('OpenRouter');
+
+    view.stdin.write('\x1b');
+    await new Promise(resolve => setTimeout(resolve, 25));
+    expect(view.lastFrame()).toContain('配置 CodeJ 模型');
+    view.unmount();
+  });
+
+  it('已有可用默认模型时首次启动不打断 Composer', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1,
+      payload: {modelConfigured: true}});
     await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
 
-    view.stdin.write('/connet ignored-arguments'); view.stdin.write('\r');
-    await waitForFrame(() => view.lastFrame()?.includes('你是否想输入 /connect？') === true);
-
-    expect(view.lastFrame()).toContain('/connet ignored-arguments');
-    expect(client.skillInvocations).toEqual([]);
-    expect(client.prompts).toEqual([]);
-    expect(client.sessionCommands).toEqual([]);
+    expect(view.lastFrame()).not.toContain('配置 CodeJ 模型');
     expect(client.providerControls).toEqual([]);
-    expect(client.providerLogins).toEqual([]);
-    expect(client.taskCommands).toEqual([]);
+    view.unmount();
+  });
 
-    for (let index = 0; index < '/connet ignored-arguments'.length; index++) view.stdin.write('\x7f');
-    view.stdin.write('/connect'); view.stdin.write('\r');
-    await waitForFrame(() => client.providerControls.length === 2);
+  it('/connect 实时显示脱敏 Key，再通过一次性 stdin 保存', async () => {
+    const client = new FakeAgentClient();
+    client.providerLoginResult = {
+      status: 'succeeded', exitCode: 0, credentialPreview: 'sk-…a9K2',
+    };
+    const view = await initializedTui(client);
+    submitConnect(view);
+    await waitForFrame(() => view.lastFrame()?.includes('配置 CodeJ 模型') === true);
+
+    view.stdin.write('https://gateway.example/v1');
+    view.stdin.write('\r');
+    await waitForFrame(() => view.lastFrame()?.includes('❯ 模型名称') === true);
+    view.stdin.write('model-x');
+    view.stdin.write('\r');
+    await waitForFrame(() => client.providerControls.length === 1);
 
     expect(client.providerControls).toEqual([
-      'tui-connect:1:models:models.list:{}',
-      'tui-connect:1:auth:auth.list:{}',
+      'tui-setup:1:configure:providers.configure:{"baseUrl":"https://gateway.example/v1","modelId":"model-x"}',
     ]);
-    expect(client.skillInvocations).toEqual([]);
-    expect(client.prompts).toEqual([]);
-    expect(client.sessionCommands).toEqual([]);
-    view.unmount();
-  });
-
-  it.each([
-    ['models→auth', ['models.list', 'auth.list']],
-    ['auth→models', ['auth.list', 'models.list']],
-  ] as const)('/connect 聚合两个任意顺序的结果：%s', async (_label, order) => {
-    const client = new FakeAgentClient();
-    const view = await initializedTui(client);
-    submitConnect(view);
-    await waitForFrame(() => client.providerControls.length === 2);
-
-    let sequence = 2;
-    for (const intent of order) {
-      client.emit(connectResult(intent === 'models.list' ? 'tui-connect:1:models' : 'tui-connect:1:auth', intent, sequence++,
-        intent === 'models.list'
-          ? {models: [{providerId: 'anthropic', modelId: 'claude-sonnet-4-6', providerDefault: true}]}
-          : {profiles: [{providerId: 'anthropic', profileId: 'personal', authMethod: 'API_KEY',
-              refKind: 'ENV', localStatus: 'AVAILABLE_LOCAL', providerDefault: true}]}));
-    }
-    await waitForFrame(() => view.lastFrame()?.includes('已连接 · 当前使用 claude-sonnet-4-6') === true);
-    const frame = view.lastFrame() ?? '';
-
-    expect(frame).toContain('连接模型服务');
-    expect(frame).toContain('Anthropic · 已连接 · 当前使用 claude-sonnet-4-6');
-    expect(frame).toContain('OpenRouter · 未连接');
-    expect(frame).toContain('添加自定义服务（高级）');
-    expect(frame).not.toContain('Credential profiles');
-    expect(frame).not.toContain('providers add');
-    expect(frame).not.toContain('profileId');
-    expect(frame).not.toContain('（刷新中）');
-    expect(client.prompts).toEqual([]);
-    view.unmount();
-  });
-
-  it('/connect 空列表最终仍同时显示完整配置面板', async () => {
-    const client = new FakeAgentClient();
-    const view = await initializedTui(client);
-    submitConnect(view);
-    await waitForFrame(() => client.providerControls.length === 2);
-    client.emit(connectResult('tui-connect:1:models', 'models.list', 2, {models: []}));
-    client.emit(connectResult('tui-connect:1:auth', 'auth.list', 3, {profiles: []}));
-    await waitForFrame(() => view.lastFrame()?.includes('Anthropic · 未连接') === true
-      && view.lastFrame()?.includes('加载中') === false);
-    const frame = view.lastFrame() ?? '';
-
-    expect(frame).toContain('连接模型服务');
-    expect(frame).toContain('Anthropic · 未连接');
-    expect(frame).toContain('OpenRouter · 未连接');
-    expect(frame).toContain('添加自定义服务（高级）');
-    expect(frame).not.toContain('Credential profiles');
-    expect(frame).not.toContain('providers add');
-    view.unmount();
-  });
-
-  it.each([
-    ['models 失败', 'models.list', 'AUTH_STORE_CORRUPT'],
-    ['auth 失败', 'auth.list', 'AUTH_STORE_INSECURE'],
-  ] as const)('/connect 单边失败仍收敛并保留另一边：%s', async (_label, failedIntent, code) => {
-    const client = new FakeAgentClient();
-    const view = await initializedTui(client);
-    submitConnect(view);
-    await waitForFrame(() => client.providerControls.length === 2);
-    const otherIntent = failedIntent === 'models.list' ? 'auth.list' : 'models.list';
-    client.emit(connectResult(failedIntent === 'models.list' ? 'tui-connect:1:models' : 'tui-connect:1:auth',
-      failedIntent, 2, {}, 'rejected', code));
-    client.emit(connectResult(otherIntent === 'models.list' ? 'tui-connect:1:models' : 'tui-connect:1:auth',
-      otherIntent, 3, otherIntent === 'models.list' ? {models: []} : {profiles: []}));
-    await waitForFrame(() => view.lastFrame()?.includes('连接模型服务') === true
-      && view.lastFrame()?.includes('加载中') === false);
-    const frame = view.lastFrame() ?? '';
-
-    expect(frame).toContain('连接模型服务');
-    expect(frame).toContain(failedIntent === 'models.list' ? '模型目录暂不可用' : '连接状态暂不可用');
-    expect(frame).toContain('添加自定义服务（高级）');
-    expect(frame).not.toContain(code);
-    expect(frame).not.toContain('Credential profiles');
-    view.unmount();
-  });
-
-  it('连接向导只保留当前 generation 的两条加载腿，旧代与错误 intent 不改变状态', () => {
-    const wizard = beginConnectWizard(10_000);
-    expect(wizard.generation).toBe(10_000);
-    expect(wizard.auth.controlId).toBe('tui-connect:10000:auth');
-    expect(wizard.models.controlId).toBe('tui-connect:10000:models');
-    expect(wizard.profiles).toEqual([]);
-    expect(wizard.modelCatalog).toEqual([]);
-
-    const stale = applyConnectWizardResult(wizard, {
-      controlId: 'tui-connect:1:models', intent: 'models.list', status: 'succeeded', code: 'OK', result: {models: []},
-    });
-    const wrongIntent = applyConnectWizardResult(wizard, {
-      controlId: wizard.models.controlId, intent: 'auth.list', status: 'succeeded', code: 'OK', result: {profiles: []},
-    });
-    expect(stale).toBe(wizard);
-    expect(wrongIntent).toBe(wizard);
-  });
-
-  it('独立 Provider namespace 绑定 sequence 与 intent，无需 pending registry', () => {
-    const controlId = independentProviderControlId(42, 'models.list');
-    expect(controlId).toBe('tui-provider:42:models.list');
-    expect(isIndependentProviderControlResult(controlId, 'models.list')).toBe(true);
-    expect(isIndependentProviderControlResult(controlId, 'auth.list')).toBe(false);
-    expect(isIndependentProviderControlResult('tui-connect:42:models', 'models.list')).toBe(false);
-    expect(isIndependentProviderControlResult('unrelated-auth', 'auth.list')).toBe(false);
-  });
-
-  it('/connect 关闭后第二代 fence 第一代，并忽略重复、迟到与无关结果', async () => {
-    const client = new FakeAgentClient();
-    const view = await initializedTui(client);
-    submitConnect(view);
-    await waitForFrame(() => client.providerControls.length === 2);
-    view.stdin.write('\x1b');
-    await waitForFrame(() => view.lastFrame()?.includes('连接模型服务') === false);
-    submitConnect(view);
-    await waitForFrame(() => client.providerControls.length === 4);
-
-    client.emit(connectResult('tui-connect:1:models', 'models.list', 2, {
-      models: [{providerId: 'stale', modelId: 'old-model', providerDefault: false}],
+    client.emit(connectResult('tui-setup:1:configure', 'providers.configure', 2, {
+      providerId: 'codej-custom', displayName: 'CodeJ Custom', modelId: 'model-x',
     }));
-    client.emit(connectResult('unrelated-auth', 'auth.list', 3, {
-      profiles: [{providerId: 'unrelated', profileId: 'foreign', authMethod: 'API_KEY', refKind: 'ENV',
-        localStatus: 'AVAILABLE_LOCAL', providerDefault: false}],
-    }));
-    client.emit(connectResult('tui-connect:2:auth', 'auth.list', 4, {profiles: []}));
-    client.emit(connectResult('tui-connect:2:models', 'models.list', 5, {models: []}));
-    client.emit(connectResult('tui-connect:2:models', 'models.list', 6, {
-      models: [{providerId: 'duplicate', modelId: 'late-model', providerDefault: false}],
-    }));
-    client.emit(connectResult('tui-connect:1:auth', 'auth.list', 7, {
-      profiles: [{providerId: 'stale', profileId: 'old-profile', authMethod: 'API_KEY', refKind: 'ENV',
-        localStatus: 'AVAILABLE_LOCAL', providerDefault: false}],
-    }));
-    await waitForFrame(() => view.lastFrame()?.includes('Anthropic · 未连接') === true
-      && view.lastFrame()?.includes('加载中') === false);
-    const frame = view.lastFrame() ?? '';
-
-    expect(client.providerControls).toEqual([
-      'tui-connect:1:models:models.list:{}', 'tui-connect:1:auth:auth.list:{}',
-      'tui-connect:2:models:models.list:{}', 'tui-connect:2:auth:auth.list:{}',
-    ]);
-    expect(frame).toContain('Anthropic · 未连接');
-    expect(frame).toContain('OpenRouter · 未连接');
-    expect(frame).not.toContain('old-model');
-    expect(frame).not.toContain('foreign');
-    expect(frame).not.toContain('late-model');
-    expect(frame).not.toContain('old-profile');
-    expect(frame).not.toContain('（刷新中）');
-    view.unmount();
-  });
-
-  it('无参数 /connect 从 Provider 到 masked login、刷新、模型选择和完成页完整闭环', async () => {
-    const client = new FakeAgentClient();
-    const view = await initializedTui(client);
-    submitConnect(view);
-    await waitForFrame(() => client.providerControls.length === 2);
-    client.emit(connectResult('tui-connect:1:models', 'models.list', 2, {models: [
-      {providerId: 'anthropic', modelId: 'claude-sonnet-4-6', providerDefault: true},
-    ]}));
-    client.emit(connectResult('tui-connect:1:auth', 'auth.list', 3, {profiles: []}));
-    await waitForFrame(() => view.lastFrame()?.includes('Anthropic · 未连接') === true);
-
-    view.stdin.write('\r');
-    await waitForFrame(() => view.lastFrame()?.includes('粘贴 API Key（推荐）') === true);
-    view.stdin.write('\r');
-    await waitForFrame(() => client.providerLogins.length === 1 && client.providerControls.length === 3);
-    expect(client.providerLogins).toEqual([{providerId: 'anthropic', profileId: 'default', secretSource: 'store', setDefault: true}]);
-    expect(client.providerControls[2]).toBe('tui-connect:1:refresh:auth:auth.list:{}');
-    client.emit(connectResult('tui-connect:1:refresh:auth', 'auth.list', 4, {profiles: [{
-      providerId: 'anthropic', profileId: 'default', authMethod: 'API_KEY', refKind: 'STORE',
-      localStatus: 'AVAILABLE_LOCAL', providerDefault: true,
-    }]}));
-    await waitForFrame(() => view.lastFrame()?.includes('选择 Anthropic 模型') === true);
-    view.stdin.write('\r');
-    await waitForFrame(() => client.providerControls.length === 4);
-    expect(client.providerControls[3]).toBe(
-      'tui-connect:1:action:model:models.use:{"providerId":"anthropic","profileId":"default","modelId":"claude-sonnet-4-6","setDefault":true}',
-    );
-    client.emit({version: 0, type: 'provider.control.result', requestId: 'provider-result-5', sessionId: 'session-1',
-      sequence: 5, payload: {controlId: 'tui-connect:1:action:model', intent: 'models.use', status: 'succeeded',
-        code: 'OK', result: {providerId: 'anthropic', profileId: 'default', modelId: 'claude-sonnet-4-6', setDefault: true}}});
-    await waitForFrame(() => view.lastFrame()?.includes('可以开始对话') === true);
-    const frame = view.lastFrame() ?? '';
-    expect(frame).toContain('已连接 Anthropic');
-    expect(frame).toContain('已选择 claude-sonnet-4-6');
-    expect(frame).not.toContain('refKind');
-    expect(frame).not.toContain('localStatus');
-    expect(frame).not.toContain('controlId');
-    view.unmount();
-  });
-
-  it('已连接但模型目录为空时给出可执行提示，短窗口仍保留向导与 Composer', async () => {
-    const client = new FakeAgentClient();
-    const view = await initializedTui(client);
-    submitConnect(view);
-    await waitForFrame(() => client.providerControls.length === 2);
-    client.emit(connectResult('tui-connect:1:models', 'models.list', 2, {models: []}));
-    client.emit(connectResult('tui-connect:1:auth', 'auth.list', 3, {profiles: [{
-      providerId: 'anthropic', profileId: 'default', authMethod: 'API_KEY', refKind: 'ENV',
-      localStatus: 'AVAILABLE_LOCAL', providerDefault: true,
-    }]}));
-    await waitForFrame(() => view.lastFrame()?.includes('Anthropic · 已连接') === true);
-    view.stdin.write('\r'); view.stdin.write('\r');
-    await waitForFrame(() => view.lastFrame()?.includes('codej models add --help') === true);
-    expect(view.lastFrame()).toContain('当前本地模型目录为空');
-
-    const state: TuiState = {...initialCheckpointState(), checkpointPanelOpen: false};
-    const wizard = applyConnectWizardResult(applyConnectWizardResult(beginConnectWizard(7), {
-      controlId: 'tui-connect:7:models', intent: 'models.list', status: 'succeeded', code: 'OK', result: {models: []},
-    }), {controlId: 'tui-connect:7:auth', intent: 'auth.list', status: 'succeeded', code: 'OK', result: {profiles: []}});
-    const narrow = render(<AgentView state={state} input="" columns={70} rows={9} connectWizard={wizard} />);
-    const frame = narrow.lastFrame() ?? '';
-    expect(frame.split('\n').length).toBeLessThanOrEqual(9);
-    expect(frame).toContain('连接模型服务');
-    expect(frame).toContain('正在配置连接，请按上方提示操作');
-    expect(frame).not.toContain('连接向导打开中');
-    expect(frame).toContain('╭');
-    narrow.unmount(); view.unmount();
-  });
-
-  it('无参数 /connect 的 ENV 路径只把名称与稳定 default profile 交给登录桥', async () => {
-    const client = new FakeAgentClient();
-    const view = await initializedTui(client);
-    submitConnect(view);
-    await waitForFrame(() => client.providerControls.length === 2);
-    client.emit(connectResult('tui-connect:1:models', 'models.list', 2, {models: []}));
-    client.emit(connectResult('tui-connect:1:auth', 'auth.list', 3, {profiles: []}));
-    await waitForFrame(() => view.lastFrame()?.includes('Anthropic · 未连接') === true);
-
-    view.stdin.write('\r');
-    view.stdin.write('\x1b[B');
-    await waitForFrame(() => view.lastFrame()?.includes('❯ 使用环境变量（高级）') === true);
-    view.stdin.write('\r');
-    view.stdin.write('ANTHROPIC_API_KEY');
-    await waitForFrame(() => view.lastFrame()?.includes('ANTHROPIC_API_KEY') === true);
+    await waitForFrame(() => view.lastFrame()?.includes('粘贴或输入') === true);
+    view.stdin.write('sk-');
+    await waitForFrame(() => view.lastFrame()?.includes('API Key　sk-') === true);
+    view.stdin.write('\x1b[200~protected-a9K2\x1b[201~');
+    await waitForFrame(() => view.lastFrame()?.includes('sk-••••••••a9K2') === true);
+    expect(view.lastFrame()).not.toContain('protected');
     view.stdin.write('\r');
     await waitForFrame(() => client.providerLogins.length === 1);
-
-    expect(client.providerLogins).toEqual([{
-      providerId: 'anthropic', profileId: 'default', secretSource: 'env', environmentName: 'ANTHROPIC_API_KEY',
-      setDefault: true,
-    }]);
-    expect(view.lastFrame()).toContain('TUI 只传环境变量名称，不读取变量值');
-    view.unmount();
-  });
-
-  it('已连接 Provider 提供模型、更新凭证与二次确认 logout，并支持返回取消', async () => {
-    const client = new FakeAgentClient();
-    const view = await initializedTui(client);
-    submitConnect(view);
-    await waitForFrame(() => client.providerControls.length === 2);
-    client.emit(connectResult('tui-connect:1:models', 'models.list', 2, {models: [{
-      providerId: 'anthropic', modelId: 'claude-sonnet-4-6', providerDefault: true,
-    }]}));
-    client.emit(connectResult('tui-connect:1:auth', 'auth.list', 3, {profiles: [{
-      providerId: 'anthropic', profileId: 'default', authMethod: 'API_KEY', refKind: 'ENV',
-      localStatus: 'AVAILABLE_LOCAL', providerDefault: true,
-    }]}));
-    await waitForFrame(() => view.lastFrame()?.includes('Anthropic · 已连接') === true);
+    expect(client.providerLogins[0]).toMatchObject({
+      providerId: 'codej-custom', profileId: 'default', secretSource: 'stdin', setDefault: true,
+    });
+    await waitForFrame(() => view.lastFrame()?.includes('模型配置完成：model-x') === true);
+    expect(view.lastFrame()).toContain('API Key　sk-••••••••a9K2');
     view.stdin.write('\r');
-    await waitForFrame(() => view.lastFrame()?.includes('退出登录（高级）') === true);
-    view.stdin.write('\x1b[B'); view.stdin.write('\x1b[B'); view.stdin.write('\r');
-    await waitForFrame(() => view.lastFrame()?.includes('确认退出 Anthropic') === true);
-    expect(view.lastFrame()).toContain('只删除本机凭证');
-    view.stdin.write('\r');
-    await waitForFrame(() => view.lastFrame()?.includes('已连接 Anthropic') === true);
-    view.stdin.write('\x1b[B'); view.stdin.write('\x1b[B'); view.stdin.write('\r');
-    view.stdin.write('\x1b[A'); view.stdin.write('\r');
-    await waitForFrame(() => client.providerControls.length === 3);
-    expect(client.providerControls[2]).toBe(
-      'tui-connect:1:action:logout:auth.logout:{"providerId":"anthropic","profileId":"default","confirmed":true}',
-    );
-    view.unmount();
-  });
-
-  it('真实键盘从自定义服务逐字段编辑、退格和 Esc，提交精确 providers.add payload', async () => {
-    const client = new FakeAgentClient();
-    const view = await initializedTui(client);
-    submitConnect(view);
-    await waitForFrame(() => client.providerControls.length === 2);
-    client.emit(connectResult('tui-connect:1:models', 'models.list', 2, {models: []}));
-    client.emit(connectResult('tui-connect:1:auth', 'auth.list', 3, {profiles: []}));
-    await waitForFrame(() => view.lastFrame()?.includes('连接状态加载中') === false);
-    view.stdin.write('\x1b[B'); view.stdin.write('\x1b[B'); view.stdin.write('\r');
-    await waitForFrame(() => view.lastFrame()?.includes('1/5 服务名称') === true);
-    view.stdin.write('Team GatewaX'); view.stdin.write('\x7f'); view.stdin.write('y'); view.stdin.write('\r');
-    await waitForFrame(() => view.lastFrame()?.includes('2/5 稳定 ID') === true);
-    expect(view.lastFrame()).toContain('team-gateway');
-    view.stdin.write('\x7f'); view.stdin.write('y');
-    view.stdin.write('\x1b');
-    await waitForFrame(() => view.lastFrame()?.includes('1/5 服务名称') === true);
-    view.stdin.write('\r');
-    await waitForFrame(() => view.lastFrame()?.includes('team-gateway') === true);
-    view.stdin.write('\r');
-    view.stdin.write('https://gateway.example/v1'); view.stdin.write('\r');
-    view.stdin.write('model-X'); view.stdin.write('\x7f'); view.stdin.write('x'); view.stdin.write('\r');
-    await waitForFrame(() => view.lastFrame()?.includes('5/5 确认服务配置') === true);
-    view.stdin.write('\r');
-    await waitForFrame(() => client.providerControls.length === 3);
-
-    expect(client.providerControls[2]).toBe(
-      'tui-connect:1:action:provider:providers.add:{"providerId":"team-gateway","displayName":"Team Gateway","baseUrl":"https://gateway.example/v1","modelId":"model-x"}',
-    );
-    expect(view.lastFrame()).toContain('正在保存，请稍候');
-    expect(view.lastFrame()).not.toContain('codej providers add --help');
-    client.emit(connectResult('tui-connect:1:action:provider', 'providers.add', 4, {
-      providerId: 'team-gateway', displayName: 'Team Gateway', modelId: 'model-x',
-    }));
-    await waitForFrame(() => view.lastFrame()?.includes('粘贴 API Key（推荐）') === true);
-    view.stdin.write('\r');
-    await waitForFrame(() => client.providerLogins.length === 1 && client.providerControls.length === 4);
-    expect(client.providerLogins).toEqual([{providerId: 'team-gateway', profileId: 'default', secretSource: 'store', setDefault: true}]);
-    expect(client.providerControls[3]).toBe('tui-connect:1:refresh:auth:auth.list:{}');
-    client.emit(connectResult('tui-connect:1:refresh:auth', 'auth.list', 5, {profiles: [{
-      providerId: 'team-gateway', profileId: 'default', authMethod: 'API_KEY', refKind: 'STORE',
-      localStatus: 'AVAILABLE_LOCAL', providerDefault: true,
-    }]}));
-    await waitForFrame(() => view.lastFrame()?.includes('选择 team-gateway 模型') === true);
-    view.stdin.write('\r');
-    await waitForFrame(() => client.providerControls.length === 5);
-    expect(client.providerControls[4]).toBe(
-      'tui-connect:1:action:model:models.use:{"providerId":"team-gateway","profileId":"default","modelId":"model-x","setDefault":true}',
-    );
-    client.emit(connectResult('tui-connect:1:action:model', 'models.use', 6, {
-      providerId: 'team-gateway', profileId: 'default', modelId: 'model-x', setDefault: true,
-    }));
-    await waitForFrame(() => view.lastFrame()?.includes('可以开始对话') === true);
-    expect(view.lastFrame()).toContain('已连接 team-gateway');
+    await waitForFrame(() => view.lastFrame()?.includes('配置 CodeJ 模型') === false);
     expect(client.prompts).toEqual([]);
     view.unmount();
   });
 
-  it('保存中重复 Enter/Esc 只提交一次，迟到成功进入认证且返回 picker 不会重放 add', async () => {
+  it('/connect 在当前表单内校验 HTTPS URL，并允许 Esc 返回或关闭', async () => {
     const client = new FakeAgentClient();
     const view = await initializedTui(client);
     submitConnect(view);
-    await waitForFrame(() => client.providerControls.length === 2);
-    client.emit(connectResult('tui-connect:1:models', 'models.list', 2, {models: []}));
-    client.emit(connectResult('tui-connect:1:auth', 'auth.list', 3, {profiles: []}));
-    view.stdin.write('\x1b[B'); view.stdin.write('\x1b[B'); view.stdin.write('\r');
-    view.stdin.write('Team'); view.stdin.write('\r'); view.stdin.write('\r');
-    view.stdin.write('https://gateway.example/v1'); view.stdin.write('\r');
-    view.stdin.write('model-x'); view.stdin.write('\r'); view.stdin.write('\r');
-    await waitForFrame(() => client.providerControls.length === 3);
-
-    view.stdin.write('\r'); view.stdin.write('\x1b'); view.stdin.write('\r'); view.stdin.write('\x1b');
-    await new Promise(resolve => setTimeout(resolve, 25));
-    expect(client.providerControls).toHaveLength(3);
-    expect(view.lastFrame()).toContain('正在保存，请稍候');
-
-    client.emit(connectResult('tui-connect:1:action:provider', 'providers.add', 4, {
-      providerId: 'team', displayName: 'Team', modelId: 'model-x',
-    }));
-    await waitForFrame(() => view.lastFrame()?.includes('粘贴 API Key（推荐）') === true);
-    view.stdin.write('\x1b');
-    await waitForFrame(() => view.lastFrame()?.includes('自定义 · team') === true);
-    expect(client.providerControls).toHaveLength(3);
-    expect(view.lastFrame()).not.toContain('5/5 确认服务配置');
-    view.unmount();
-  });
-
-  it('重新打开 /connect 可见稳定排序的已有 custom，Enter 直接进入 management/auth 而不 add', async () => {
-    const client = new FakeAgentClient();
-    const view = await initializedTui(client);
-    submitConnect(view);
-    await waitForFrame(() => client.providerControls.length === 2);
-    client.emit(connectResult('tui-connect:1:models', 'models.list', 2, {models: [
-      {providerId: 'z-gateway', modelId: 'z-model', providerDefault: true},
-      {providerId: 'team-gateway', modelId: 'team-model', providerDefault: true},
-    ]}));
-    client.emit(connectResult('tui-connect:1:auth', 'auth.list', 3, {profiles: [{
-      providerId: 'team-gateway', profileId: 'default', authMethod: 'API_KEY', refKind: 'ENV',
-      localStatus: 'AVAILABLE_LOCAL', providerDefault: true,
-    }]}));
-    await waitForFrame(() => view.lastFrame()?.includes('自定义 · team-gateway · 已连接') === true);
-    const frame = view.lastFrame() ?? '';
-    expect(frame.indexOf('自定义 · team-gateway')).toBeLessThan(frame.indexOf('自定义 · z-gateway'));
-    expect(frame.indexOf('自定义 · z-gateway')).toBeLessThan(frame.indexOf('添加自定义服务（高级）'));
-
-    view.stdin.write('\x1b[B'); view.stdin.write('\x1b[B'); view.stdin.write('\r');
-    await waitForFrame(() => view.lastFrame()?.includes('已连接 team-gateway') === true);
-    expect(view.lastFrame()).toContain('选择模型');
-    expect(client.providerControls).toHaveLength(2);
-    view.stdin.write('\x1b');
-    view.stdin.write('\x1b[B'); view.stdin.write('\r');
-    await waitForFrame(() => view.lastFrame()?.includes('粘贴 API Key（推荐）') === true);
-    expect(client.providerControls).toHaveLength(2);
-    view.unmount();
-  });
-
-  it('providers.add 失败允许返回确认页修改，旧代与重复保存结果不污染新向导', async () => {
-    const client = new FakeAgentClient();
-    const view = await initializedTui(client);
-    submitConnect(view);
-    await waitForFrame(() => client.providerControls.length === 2);
-    client.emit(connectResult('tui-connect:1:models', 'models.list', 2, {models: []}));
-    client.emit(connectResult('tui-connect:1:auth', 'auth.list', 3, {profiles: []}));
-    view.stdin.write('\x1b[B'); view.stdin.write('\x1b[B'); view.stdin.write('\r');
-    view.stdin.write('Team'); view.stdin.write('\r'); view.stdin.write('\r');
-    view.stdin.write('https://gateway.example/v1'); view.stdin.write('\r');
-    view.stdin.write('model-x'); view.stdin.write('\r'); view.stdin.write('\r');
-    await waitForFrame(() => client.providerControls.length === 3);
-    client.emit(connectResult('tui-connect:1:action:provider', 'providers.add', 4, {}, 'rejected', 'PROVIDER_DEFINITION_INVALID'));
-    await waitForFrame(() => view.lastFrame()?.includes('该 ID 已存在') === true);
+    view.stdin.write('http://unsafe.example/v1');
     view.stdin.write('\r');
-    await waitForFrame(() => view.lastFrame()?.includes('5/5 确认服务配置') === true);
+    await waitForFrame(() => view.lastFrame()?.includes('请输入有效的 HTTPS API Base URL') === true);
+    expect(client.providerControls).toEqual([]);
+
+    for (let index = 0; index < 'http://unsafe.example/v1'.length; index++) view.stdin.write('\x7f');
+    view.stdin.write('https://safe.example/v1');
+    view.stdin.write('\r');
+    await waitForFrame(() => view.lastFrame()?.includes('❯ 模型名称') === true);
     view.stdin.write('\x1b');
-    await waitForFrame(() => view.lastFrame()?.includes('4/5 模型名') === true);
-    view.stdin.write('\x1b'); await waitForFrame(() => view.lastFrame()?.includes('3/5 HTTPS Base URL') === true);
-    view.stdin.write('\x1b'); await waitForFrame(() => view.lastFrame()?.includes('2/5 稳定 ID') === true);
-    view.stdin.write('\x1b'); await waitForFrame(() => view.lastFrame()?.includes('1/5 服务名称') === true);
-    view.stdin.write('\x1b'); await waitForFrame(() => view.lastFrame()?.includes('❯ 添加自定义服务（高级）') === true);
-    view.stdin.write('\x1b'); await waitForFrame(() => view.lastFrame()?.includes('连接模型服务') === false);
-    submitConnect(view);
-    await waitForFrame(() => client.providerControls.length === 5);
-    client.emit(connectResult('tui-connect:1:action:provider', 'providers.add', 5, {
-      providerId: 'team', displayName: 'Team', modelId: 'model-x',
-    }));
-    client.emit(connectResult('tui-connect:2:auth', 'auth.list', 6, {profiles: []}));
-    client.emit(connectResult('tui-connect:2:models', 'models.list', 7, {models: []}));
-    await waitForFrame(() => view.lastFrame()?.includes('Anthropic · 未连接') === true);
-    expect(view.lastFrame()).not.toContain('粘贴 API Key（推荐）');
+    await waitForFrame(() => view.lastFrame()?.includes('❯ API Base URL') === true);
+    view.stdin.write('\x1b');
+    await waitForFrame(() => view.lastFrame()?.includes('配置 CodeJ 模型') === false);
     view.unmount();
   });
-
   it('/connect profile 直接调用一次性 Java 登录并在成功后刷新 auth.list', async () => {
     const client = new FakeAgentClient();
     const view = render(<AgentTui client={client} />);
@@ -1579,7 +1343,7 @@ function submitConnect(view: ReturnType<typeof render>): void {
 
 function connectResult(
   controlId: string,
-  intent: 'providers.add' | 'models.list' | 'models.use' | 'auth.list',
+  intent: 'providers.configure' | 'providers.add' | 'models.list' | 'models.use' | 'auth.list',
   sequence: number,
   result: Readonly<Record<string, unknown>>,
   status: 'succeeded' | 'rejected' = 'succeeded',
@@ -1689,7 +1453,7 @@ class FakeAgentClient implements AgentClient {
     return 'tui-session-command';
   }
 
-  public providerControl(controlId: string, intent: 'auth.list' | 'auth.probe' | 'auth.logout' | 'models.list' | 'models.use' | 'models.add' | 'models.remove', arguments_: Readonly<Record<string, unknown>>): string {
+  public providerControl(controlId: string, intent: 'providers.configure' | 'providers.add' | 'auth.list' | 'auth.probe' | 'auth.logout' | 'models.list' | 'models.use' | 'models.add' | 'models.remove', arguments_: Readonly<Record<string, unknown>>): string {
     this.providerControls.push(`${controlId}:${intent}:${JSON.stringify(arguments_)}`);
     return 'tui-provider-control';
   }

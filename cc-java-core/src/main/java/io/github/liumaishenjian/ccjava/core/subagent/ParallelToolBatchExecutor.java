@@ -1,7 +1,9 @@
 package io.github.liumaishenjian.ccjava.core.subagent;
 
 import io.github.liumaishenjian.ccjava.core.AgentSession;
+import io.github.liumaishenjian.ccjava.core.AutoReviewRunScope;
 import io.github.liumaishenjian.ccjava.core.CancellationToken;
+import io.github.liumaishenjian.ccjava.core.ToolBatchExecutionResult;
 import io.github.liumaishenjian.ccjava.core.ToolExecutionPipeline;
 import io.github.liumaishenjian.ccjava.core.ToolJournalPersistenceException;
 import io.github.liumaishenjian.ccjava.core.ToolRegistry;
@@ -71,24 +73,61 @@ public final class ParallelToolBatchExecutor implements AutoCloseable {
      */
     public List<ToolResult> executeSafeBatch(AgentSession session, RunId runId,
             List<Integer> ordinals, List<ToolCall> calls, CancellationToken cancellation) {
+        try (AutoReviewRunScope scope = AutoReviewRunScope.disabled(runId)) {
+            return executeBatch(session, runId, ordinals, calls, cancellation, scope).results();
+        }
+    }
+
+    /**
+     * 执行当前 Run 的 Tool batch，并返回完整协议结果与 batch 级停止信号。
+     *
+     * <p>AUTO scope 强制按原顺序逐项执行。第三次连续 non-allow 后，当前拒绝仍保留，
+     * 后续未开始调用转换为匹配 Call ID 的结构化拒绝；USER scope 继续只对整批安全 read
+     * 调用采用并行执行。</p>
+     *
+     * @param session Tool 执行所属 Session
+     * @param runId Tool 执行所属 Run
+     * @param ordinals 每个调用在 Run 中的原始序号
+     * @param calls 同一 Assistant Message 提出的调用
+     * @param cancellation 批次共享取消令牌
+     * @param autoReviewScope 当前 Run 独占的 reviewer 状态
+     * @return 与模型调用一一对应的完整结果及 batch stop 信号
+     */
+    public ToolBatchExecutionResult executeBatch(AgentSession session, RunId runId,
+            List<Integer> ordinals, List<ToolCall> calls, CancellationToken cancellation,
+            AutoReviewRunScope autoReviewScope) {
         Objects.requireNonNull(session, "session 不能为空");
         Objects.requireNonNull(runId, "runId 不能为空");
         Objects.requireNonNull(calls, "calls 不能为空");
         Objects.requireNonNull(ordinals, "ordinals 不能为空");
         Objects.requireNonNull(cancellation, "cancellation 不能为空");
+        Objects.requireNonNull(autoReviewScope, "autoReviewScope 不能为空");
+        if (!runId.equals(autoReviewScope.runId())) {
+            throw new IllegalArgumentException("自动审查 scope 必须绑定当前 Run");
+        }
         if (calls.size() != ordinals.size()) {
             throw new IllegalArgumentException("ordinal 数量不匹配");
         }
-        if (calls.size() < 2 || calls.stream().anyMatch(call -> !safe(call))) {
-            return sequential(session, runId, ordinals, calls, cancellation);
+        if (autoReviewScope.enabled()) {
+            return autoSequential(session, runId, ordinals, calls, cancellation, autoReviewScope);
         }
+        if (calls.size() < 2 || calls.stream().anyMatch(call -> !safe(call))) {
+            return new ToolBatchExecutionResult(
+                    sequential(session, runId, ordinals, calls, cancellation, autoReviewScope), false);
+        }
+        return new ToolBatchExecutionResult(
+                parallel(session, runId, ordinals, calls, cancellation, autoReviewScope), false);
+    }
 
+    private List<ToolResult> parallel(AgentSession session, RunId runId,
+            List<Integer> ordinals, List<ToolCall> calls, CancellationToken cancellation,
+            AutoReviewRunScope autoReviewScope) {
         List<Future<ToolResult>> futures = new ArrayList<>(calls.size());
         for (int index = 0; index < calls.size(); index++) {
             int ordinal = ordinals.get(index);
             ToolCall call = calls.get(index);
             futures.add(executor.submit(
-                    () -> pipeline.execute(session, runId, ordinal, call, cancellation)));
+                    () -> pipeline.execute(session, runId, ordinal, call, cancellation, autoReviewScope)));
         }
 
         List<ToolResult> results = new ArrayList<>(calls.size());
@@ -133,11 +172,30 @@ public final class ParallelToolBatchExecutor implements AutoCloseable {
                 .orElse(false);
     }
 
+    private ToolBatchExecutionResult autoSequential(AgentSession session, RunId runId,
+            List<Integer> ordinals, List<ToolCall> calls, CancellationToken cancellation,
+            AutoReviewRunScope autoReviewScope) {
+        List<ToolResult> results = new ArrayList<>(calls.size());
+        for (int index = 0; index < calls.size(); index++) {
+            ToolCall call = calls.get(index);
+            if (autoReviewScope.stopAfterBatch()) {
+                results.add(ToolResult.denied(call.id(), call.name(),
+                        "自动审查连续拒绝已停止当前批次"));
+                continue;
+            }
+            results.add(pipeline.execute(session, runId, ordinals.get(index), call, cancellation,
+                    autoReviewScope));
+        }
+        return new ToolBatchExecutionResult(results, autoReviewScope.stopAfterBatch());
+    }
+
     private List<ToolResult> sequential(AgentSession session, RunId runId,
-            List<Integer> ordinals, List<ToolCall> calls, CancellationToken cancellation) {
+            List<Integer> ordinals, List<ToolCall> calls, CancellationToken cancellation,
+            AutoReviewRunScope autoReviewScope) {
         List<ToolResult> results = new ArrayList<>();
         for (int index = 0; index < calls.size(); index++) {
-            results.add(pipeline.execute(session, runId, ordinals.get(index), calls.get(index), cancellation));
+            results.add(pipeline.execute(session, runId, ordinals.get(index), calls.get(index), cancellation,
+                    autoReviewScope));
         }
         return List.copyOf(results);
     }

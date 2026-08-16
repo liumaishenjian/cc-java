@@ -1,5 +1,6 @@
 import {EventEmitter} from 'node:events';
 import type {ChildProcess, SpawnOptions} from 'node:child_process';
+import {PassThrough} from 'node:stream';
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
   ProviderLoginBridge,
@@ -23,6 +24,8 @@ const DEFAULT_STORE: ProviderLoginRequest = {...STORE, setDefault: true};
 
 class FakeChild extends EventEmitter {
   readonly kill = vi.fn(() => true);
+  readonly stdin = new PassThrough();
+  readonly stderr = new PassThrough();
 }
 
 function terminal(isTTY = true) {
@@ -57,9 +60,10 @@ describe('ProviderLoginBridge', () => {
     await expect(result).resolves.toEqual({status: 'succeeded', exitCode: 0});
     expect(spawnProcess).toHaveBeenCalledWith('java', [
       '-cp', 'fixed-classpath', MAIN, 'auth', 'login',
-      '--provider', 'anthropic', '--profile', 'default',
+      '--provider', 'anthropic', '--profile', 'default', '--tui-preview',
     ], expect.objectContaining({
-      cwd: 'fixed-workspace', env: SPEC.env, shell: false, stdio: 'inherit', windowsHide: false,
+      cwd: 'fixed-workspace', env: SPEC.env, shell: false,
+      stdio: ['inherit', 'inherit', 'pipe'], windowsHide: false,
     }));
     expect(tty.pause).toHaveBeenCalledTimes(1);
     expect(tty.resume).toHaveBeenCalledTimes(1);
@@ -76,7 +80,7 @@ describe('ProviderLoginBridge', () => {
     await result;
     expect(defaultSpawn.mock.calls[0]?.[1]).toEqual([
       '-cp', 'fixed-classpath', MAIN, 'auth', 'login',
-      '--provider', 'anthropic', '--profile', 'default', '--set-default',
+      '--provider', 'anthropic', '--profile', 'default', '--tui-preview', '--set-default',
     ]);
 
     const legacyChild = new FakeChild();
@@ -86,6 +90,38 @@ describe('ProviderLoginBridge', () => {
     legacyChild.emit('exit', 0, null);
     await legacyResult;
     expect(legacySpawn.mock.calls[0]?.[1]).not.toContain('--set-default');
+  });
+
+  it('只接受 Java 生成的固定格式脱敏摘要', async () => {
+    const child = new FakeChild();
+    const bridge = new ProviderLoginBridge(SPEC, {
+      spawnProcess: spawnFixture(child), terminal: terminal(),
+    });
+
+    const result = bridge.login(STORE);
+    child.stderr.write('CODEJ_CREDENTIAL_PREVIEW=sk-...a9K2\n');
+    child.emit('exit', 0, null);
+
+    await expect(result).resolves.toEqual({
+      status: 'succeeded', exitCode: 0, credentialPreview: 'sk-…a9K2',
+    });
+  });
+
+  it('首次配置通过一次性 stdin 写入且立即清零调用方缓冲', async () => {
+    const child = new FakeChild();
+    const chunks: Buffer[] = [];
+    child.stdin.on('data', chunk => chunks.push(Buffer.from(chunk)));
+    const secretBytes = Buffer.from('sk-protected-a9K2');
+    const bridge = new ProviderLoginBridge(SPEC, {
+      spawnProcess: spawnFixture(child), terminal: terminal(),
+    });
+
+    const result = bridge.login({...STORE, secretSource: 'stdin', secretBytes});
+    child.emit('exit', 0, null);
+
+    await expect(result).resolves.toEqual({status: 'succeeded', exitCode: 0});
+    expect(Buffer.concat(chunks).toString('utf8')).toBe('sk-protected-a9K2\n');
+    expect(secretBytes.every(byte => byte === 0)).toBe(true);
   });
 
   it('spawn 同步失败也只恢复一次终端并返回 typed failed', async () => {

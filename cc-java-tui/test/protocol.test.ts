@@ -262,7 +262,8 @@ describe('decodeEvent', () => {
 
   it('严格校验 permissions 安全投影且不接受 selector 泄漏', () => {
     const result = {
-      effectiveMode: 'PLAN', modeSourceKind: 'PROJECT_SHARED', modeSafeSourceId: 'project-shared',
+      effectiveMode: 'PLAN', effectiveReviewer: 'USER', effectiveSelection: 'PLAN',
+      modeSourceKind: 'PROJECT_SHARED', modeSafeSourceId: 'project-shared',
       modeValidationStatus: 'VALID', startupRuleCount: 1,
       rules: [{ruleId: 'project-read', sourceKind: 'PROJECT_SHARED', safeSourceId: 'project-shared',
         operation: 'REPLACE', validationStatus: 'VALID'}],
@@ -271,11 +272,18 @@ describe('decodeEvent', () => {
       version: 0, type: 'session.command.result', requestId: 'req-permissions', sessionId: 'session-1', sequence: 1,
       payload: {commandId: 'permissions-1', intent: 'permissions', status: 'succeeded', code: 'ok', result},
     }), 1).payload.result).toEqual(result);
-    expect(() => decodeEvent(JSON.stringify({
-      version: 0, type: 'session.command.result', requestId: 'req-permissions', sessionId: 'session-1', sequence: 1,
-      payload: {commandId: 'permissions-1', intent: 'permissions', status: 'succeeded', code: 'ok',
-        result: {...result, rules: [{...result.rules[0], selector: 'secret'}]}},
-    }), 1)).toThrowError(/permissions/);
+    for (const invalidResult of [
+      {...result, rules: [{...result.rules[0], selector: 'secret'}]},
+      (({effectiveReviewer: _ignored, ...rest}) => rest)(result),
+      {...result, effectiveReviewer: 'ROBOT'},
+      {...result, effectiveSelection: 'ACCEPT_EDITS'},
+      {...result, unexpected: true},
+    ]) {
+      expect(() => decodeEvent(JSON.stringify({
+        version: 0, type: 'session.command.result', requestId: 'req-permissions', sessionId: 'session-1', sequence: 1,
+        payload: {commandId: 'permissions-1', intent: 'permissions', status: 'succeeded', code: 'ok', result: invalidResult},
+      }), 1)).toThrowError(/permissions/);
+    }
   });
 
   it('接受 overflow context 的负 freeTokens，但仍拒绝不安全数值', () => {
@@ -487,5 +495,46 @@ describe('decodeEvent', () => {
 
     expect(approval.payload.command).toBe('mvn test');
     expect(output.payload.text).toContain('BUILD SUCCESS');
+  });
+
+  it('严格接受 providers.configure 安全投影且不允许 endpoint 回传', () => {
+    const base = {
+      version: 0, type: 'provider.control.result', requestId: 'quick', sessionId: 'session-1', sequence: 1,
+      payload: {controlId: 'tui-setup:1:configure', intent: 'providers.configure', status: 'succeeded', code: 'OK',
+        result: {providerId: 'codej-custom', displayName: 'CodeJ Custom', modelId: 'model-x'}},
+    };
+    expect(decodeEvent(JSON.stringify(base), 1).payload.result).toEqual(base.payload.result);
+    expect(() => decodeEvent(JSON.stringify({...base, payload: {...base.payload,
+      result: {...base.payload.result, baseUrl: 'https://private.example'}}}), 1)).toThrowError(/provider/);
+  });
+
+  it('接受固定目的类型和有界查询的网络审批摘要', () => {
+    const approval = decodeEvent(JSON.stringify({
+      version: 0,
+      type: 'approval.requested',
+      requestId: 'req-network',
+      sessionId: 'session-1',
+      runId: 'run-1',
+      sequence: 1,
+      payload: {
+        approvalId: 'approval-network',
+        ordinal: 1,
+        toolName: 'web_search',
+        effect: 'network_or_remote',
+        operation: 'search',
+        destination: 'configured_web_search_provider',
+        query: '明天杭州天气',
+      },
+    }), 1);
+
+    expect(approval.payload.query).toBe('明天杭州天气');
+    expect(() => decodeEvent(JSON.stringify({
+      ...approval,
+      payload: {...approval.payload, destination: 'https://attacker.example'},
+    }), 1)).toThrowError(/网络预览/);
+    expect(() => decodeEvent(JSON.stringify({
+      ...approval,
+      payload: {...approval.payload, query: 'weather\nspoof'},
+    }), 1)).toThrowError(/网络预览/);
   });
 });

@@ -1,6 +1,13 @@
 package io.github.liumaishenjian.ccjava.core;
 
 import io.github.liumaishenjian.ccjava.domain.ApprovalResponse;
+import io.github.liumaishenjian.ccjava.domain.ApprovalReviewer;
+import io.github.liumaishenjian.ccjava.domain.ApprovalReviewContextItem;
+import io.github.liumaishenjian.ccjava.domain.ApprovalReviewRequest;
+import io.github.liumaishenjian.ccjava.domain.AgentMessage;
+import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
+import io.github.liumaishenjian.ccjava.domain.ToolResultMessage;
+import io.github.liumaishenjian.ccjava.domain.UserMessage;
 import io.github.liumaishenjian.ccjava.domain.CheckpointId;
 import io.github.liumaishenjian.ccjava.domain.CheckpointTarget;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
@@ -52,6 +59,8 @@ public final class ToolExecutionPipeline {
     private final CheckpointCoordinator checkpoints;
     private final HookCoordinator hooks;
     private final SkillRunCoordinator skills;
+    private final ApprovalReviewer reviewer;
+    private final AutoReviewCoordinator autoReview;
 
     /**
      * 创建 Tool 执行管线。
@@ -229,6 +238,68 @@ public final class ToolExecutionPipeline {
         this.checkpoints = Objects.requireNonNull(checkpoints, "checkpoints 不能为空");
         this.hooks = Objects.requireNonNull(hooks, "hooks 不能为空");
         this.skills = Objects.requireNonNull(skills, "skills 不能为空");
+        this.reviewer = ApprovalReviewer.USER;
+        this.autoReview = null;
+    }
+
+    /**
+     * 创建接入 AUTO final-ASK 审查的 Tool 管线。
+     *
+     * <p>旧构造器保持 USER 审批。自动审查只在 Policy 与 Permission Hook 后仍为 ASK 时运行，
+     * 不读取或写入 SessionPermissionState 的 Grant/拒绝状态。</p>
+     *
+     * @param registry 当前 Runtime 的 Tool 注册表
+     * @param permissionGate 确定性 Permission Policy 入口
+     * @param approvalHandler USER reviewer 的交互审批端口
+     * @param permissionState Session Grant 与拒绝计数状态
+     * @param lifecycle Tool/Permission 生命周期分发器
+     * @param sessionJournal 副作用 Tool 的持久化 Journal
+     * @param checkpoints ordinary-file Checkpoint 协调器
+     * @param hooks Tool 与 Permission Hook 协调器
+     * @param skills Skill Run 生命周期协调器
+     * @param reviewer final ASK 的收敛主体
+     * @param autoReview AUTO_REVIEW 使用的失败关闭协调器；USER 时可为 null
+     */
+    public ToolExecutionPipeline(
+            ToolRegistry registry,
+            PermissionGate permissionGate,
+            ApprovalHandler approvalHandler,
+            SessionPermissionState permissionState,
+            LifecycleDispatcher lifecycle,
+            SessionJournal sessionJournal,
+            CheckpointCoordinator checkpoints,
+            HookCoordinator hooks,
+            SkillRunCoordinator skills,
+            ApprovalReviewer reviewer,
+            AutoReviewCoordinator autoReview) {
+        this.registry = Objects.requireNonNull(registry, "registry 不能为空");
+        this.permissionGate = Objects.requireNonNull(permissionGate, "permissionGate 不能为空");
+        this.approvalHandler = Objects.requireNonNull(approvalHandler, "approvalHandler 不能为空");
+        this.permissionState = Objects.requireNonNull(permissionState, "permissionState 不能为空");
+        this.lifecycle = Objects.requireNonNull(lifecycle, "lifecycle 不能为空");
+        this.sessionJournal = Objects.requireNonNull(sessionJournal, "sessionJournal 不能为空");
+        this.checkpoints = Objects.requireNonNull(checkpoints, "checkpoints 不能为空");
+        this.hooks = Objects.requireNonNull(hooks, "hooks 不能为空");
+        this.skills = Objects.requireNonNull(skills, "skills 不能为空");
+        this.reviewer = Objects.requireNonNull(reviewer, "reviewer 不能为空");
+        this.autoReview = reviewer == ApprovalReviewer.AUTO_REVIEW
+                ? Objects.requireNonNull(autoReview, "autoReview 不能为空") : autoReview;
+    }
+
+    /**
+     * 创建当前 Run 独占的自动审查 scope。
+     *
+     * <p>Pipeline 是 final ASK 收敛策略的唯一配置所有者，因此由它依据当前 reviewer
+     * 创建 scope，Runtime 只负责在 Run 结束时关闭。返回的对象不得跨 Run 传递或缓存。</p>
+     *
+     * @param runId 当前 Run 标识
+     * @return AUTO_REVIEW 时启用、否则保持 USER 既有语义的 scope
+     */
+    public AutoReviewRunScope createRunScope(RunId runId) {
+        Objects.requireNonNull(runId, "runId 不能为空");
+        return reviewer == ApprovalReviewer.AUTO_REVIEW
+                ? AutoReviewRunScope.enabled(runId)
+                : AutoReviewRunScope.disabled(runId);
     }
 
     /**
@@ -245,7 +316,8 @@ public final class ToolExecutionPipeline {
             RunId runId,
             int ordinal,
             ToolCall call) {
-        return execute(session, runId, ordinal, call, CancellationToken.none());
+        return execute(session, runId, ordinal, call, CancellationToken.none(),
+                AutoReviewRunScope.disabled(runId));
     }
 
     /**
@@ -270,7 +342,32 @@ public final class ToolExecutionPipeline {
         Objects.requireNonNull(session, "session 不能为空");
         Objects.requireNonNull(runId, "runId 不能为空");
         Objects.requireNonNull(call, "call 不能为空");
+        return execute(session, runId, ordinal, call, cancellationToken, AutoReviewRunScope.disabled(runId));
+    }
+
+    /**
+     * 以显式 Run-owned 自动审查 scope 执行一次 Tool Call。
+     *
+     * @param session 当前 Session
+     * @param runId 当前 Run
+     * @param ordinal 本次 Run 内的调用序号
+     * @param call 原始模型调用
+     * @param cancellationToken 当前 Run 的取消信号
+     * @param autoReviewScope 当前 Run 的自动审查状态；不得跨 Run 复用
+     * @return 已规范化结果
+     */
+    public ToolResult execute(
+            AgentSession session,
+            RunId runId,
+            int ordinal,
+            ToolCall call,
+            CancellationToken cancellationToken,
+            AutoReviewRunScope autoReviewScope) {
         Objects.requireNonNull(cancellationToken, "cancellationToken 不能为空");
+        Objects.requireNonNull(autoReviewScope, "autoReviewScope 不能为空");
+        if (!runId.equals(autoReviewScope.runId())) {
+            throw new IllegalArgumentException("自动审查 scope 必须绑定当前 Run");
+        }
         ToolInvocation invocation = new ToolInvocation(
                 session.id(),
                 runId,
@@ -379,45 +476,11 @@ public final class ToolExecutionPipeline {
                         permissionCall,
                         permissionSummary(outcome, outcome.decision() == PermissionDecision.ASK)));
         if (outcome.decision() == PermissionDecision.ASK) {
-            if (permissionState.denialCount(session.id(), outcome.selector()) >= 2) {
-                outcome = PermissionOutcome.of(
-                        PermissionDecision.DENY,
-                        PermissionReason.REPEATED_DENIAL,
-                        outcome.selector());
-            } else {
-                HookAggregateResult permissionHook = hooks.evaluate(
-                        new HookInvocation(
-                                HookEventKind.PERMISSION_REQUEST,
-                                session.id(),
-                                java.util.Optional.of(runId),
-                                call.name(),
-                                new JsonObject(Map.of(
-                                        "callId", call.id(),
-                                        "toolName", call.name(),
-                                        "effect", definition.effect().name()))),
-                        cancellationToken);
-                if (permissionHook.disposition() == HookDisposition.DENY
-                        || permissionHook.disposition() == HookDisposition.BLOCK) {
-                    outcome = PermissionOutcome.of(
-                            PermissionDecision.DENY,
-                            PermissionReason.HOOK_DENIED,
-                            outcome.selector());
-                } else if (permissionHook.disposition() == HookDisposition.ALLOW) {
-                    outcome = PermissionOutcome.of(
-                            PermissionDecision.ALLOW,
-                            PermissionReason.HOOK_ALLOWED,
-                            outcome.selector());
-                } else {
-                    lifecycle.dispatch(
-                            session,
-                            runId,
-                            new LifecycleEvent.ApprovalRequested(
-                                    permissionCall,
-                                    permissionSummary(outcome, true)));
-                    outcome = requestApprovalFailClosed(
-                            session, invocation, definition, outcome);
-                }
-            }
+            outcome = reviewer == ApprovalReviewer.USER
+                    ? resolveUserFinalAsk(session, runId, call, invocation, definition, permissionCall,
+                            outcome, cancellationToken)
+                    : resolveAutoFinalAsk(session, runId, call, definition, permissionCall, outcome,
+                            cancellationToken, autoReviewScope);
         }
         lifecycle.dispatch(
                 session,
@@ -426,7 +489,8 @@ public final class ToolExecutionPipeline {
                         permissionCall,
                         permissionSummary(outcome, false)));
         if (outcome.decision() == PermissionDecision.DENY) {
-            if (outcome.reason() != PermissionReason.POLICY_EVALUATION_FAILED_CLOSED) {
+            if (reviewer == ApprovalReviewer.USER
+                    && outcome.reason() != PermissionReason.POLICY_EVALUATION_FAILED_CLOSED) {
                 permissionState.recordDenialUpTo(session.id(), outcome.selector(), 3);
             }
             return resolveWithoutExecution(
@@ -500,7 +564,8 @@ public final class ToolExecutionPipeline {
                     "Tool 已执行但完成记录未可靠持久化",
                     journalFailure);
         }
-        if (result.status() == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS) {
+        if (reviewer == ApprovalReviewer.USER
+                && result.status() == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS) {
             permissionState.clearDenials(session.id(), finalOutcome.selector());
         }
         return finish(session, runId, ordinal, result, cancellationToken);
@@ -534,6 +599,168 @@ public final class ToolExecutionPipeline {
                 outcome.ruleSource(),
                 interactive,
                 !outcome.selector().toolWide());
+    }
+
+    /**
+     * 保留既有 USER 审批与 Session Permission State 语义。
+     */
+    private PermissionOutcome resolveUserFinalAsk(
+            AgentSession session,
+            RunId runId,
+            ToolCall call,
+            ToolInvocation invocation,
+            ToolDefinition definition,
+            LifecycleEvent.PermissionCallSummary permissionCall,
+            PermissionOutcome initial,
+            CancellationToken cancellationToken) {
+        if (permissionState.denialCount(session.id(), initial.selector()) >= 2) {
+            return PermissionOutcome.of(
+                    PermissionDecision.DENY,
+                    PermissionReason.REPEATED_DENIAL,
+                    initial.selector());
+        }
+        PermissionOutcome hookOutcome = resolvePermissionHook(
+                session, runId, call, definition, initial, cancellationToken);
+        if (hookOutcome.decision() != PermissionDecision.ASK) {
+            return hookOutcome;
+        }
+        lifecycle.dispatch(
+                session,
+                runId,
+                new LifecycleEvent.ApprovalRequested(
+                        permissionCall,
+                        permissionSummary(hookOutcome, true)));
+        return requestApprovalFailClosed(session, invocation, definition, hookOutcome);
+    }
+
+    /**
+     * 收敛 AUTO 的最终 ASK，不访问 Session Grant 或拒绝计数。
+     */
+    private PermissionOutcome resolveAutoFinalAsk(
+            AgentSession session,
+            RunId runId,
+            ToolCall call,
+            ToolDefinition definition,
+            LifecycleEvent.PermissionCallSummary permissionCall,
+            PermissionOutcome initial,
+            CancellationToken cancellationToken,
+            AutoReviewRunScope scope) {
+        if (!scope.enabled()) {
+            throw new IllegalStateException("AUTO_REVIEW 必须使用启用的 AutoReviewRunScope");
+        }
+        PermissionOutcome hookOutcome = resolvePermissionHook(
+                session, runId, call, definition, initial, cancellationToken);
+        if (hookOutcome.decision() != PermissionDecision.ASK) {
+            return hookOutcome;
+        }
+        lifecycle.dispatch(
+                session,
+                runId,
+                new LifecycleEvent.ApprovalRequested(
+                        permissionCall,
+                        permissionSummary(hookOutcome, true)));
+        AutoReviewDecision decision = autoReview.reviewFinalAsk(
+                hookOutcome,
+                approvalReviewRequest(session, runId, call, definition, hookOutcome),
+                cancellationToken,
+                scope.circuit());
+        if (decision.stopAfterCurrentDeny()) {
+            scope.requestStopAfterBatch();
+        }
+        return switch (decision.status()) {
+            case ALLOW_ONCE -> PermissionOutcome.of(
+                    PermissionDecision.ALLOW,
+                    PermissionReason.AUTO_REVIEW_ALLOW_ONCE,
+                    hookOutcome.selector());
+            case DENY -> PermissionOutcome.of(
+                    PermissionDecision.DENY,
+                    PermissionReason.AUTO_REVIEW_DENY,
+                    hookOutcome.selector());
+            case FAILED_CLOSED -> PermissionOutcome.of(
+                    PermissionDecision.DENY,
+                    PermissionReason.AUTO_REVIEW_FAILED_CLOSED,
+                    hookOutcome.selector());
+            case CIRCUIT_OPEN, RUN_CLOSED -> PermissionOutcome.of(
+                    PermissionDecision.DENY,
+                    PermissionReason.AUTO_REVIEW_CIRCUIT_STOP,
+                    hookOutcome.selector());
+            case NOT_FINAL_ASK -> throw new IllegalStateException("Auto Review 未收敛最终 ASK");
+        };
+    }
+
+    private PermissionOutcome resolvePermissionHook(
+            AgentSession session,
+            RunId runId,
+            ToolCall call,
+            ToolDefinition definition,
+            PermissionOutcome initial,
+            CancellationToken cancellationToken) {
+        HookAggregateResult permissionHook = hooks.evaluate(
+                new HookInvocation(
+                        HookEventKind.PERMISSION_REQUEST,
+                        session.id(),
+                        java.util.Optional.of(runId),
+                        call.name(),
+                        new JsonObject(Map.of(
+                                "callId", call.id(),
+                                "toolName", call.name(),
+                                "effect", definition.effect().name()))),
+                cancellationToken);
+        if (permissionHook.disposition() == HookDisposition.DENY
+                || permissionHook.disposition() == HookDisposition.BLOCK) {
+            return PermissionOutcome.of(
+                    PermissionDecision.DENY,
+                    PermissionReason.HOOK_DENIED,
+                    initial.selector());
+        }
+        if (permissionHook.disposition() == HookDisposition.ALLOW) {
+            return PermissionOutcome.of(
+                    PermissionDecision.ALLOW,
+                    PermissionReason.HOOK_ALLOWED,
+                    initial.selector());
+        }
+        return initial;
+    }
+
+    private static ApprovalReviewRequest approvalReviewRequest(
+            AgentSession session,
+            RunId runId,
+            ToolCall call,
+            ToolDefinition definition,
+            PermissionOutcome outcome) {
+        java.util.List<ApprovalReviewContextItem> context = new java.util.ArrayList<>();
+        for (AgentMessage message : session.messages()) {
+            ApprovalReviewContextItem item = approvalReviewContextItem(message);
+            if (item != null) {
+                context.add(item);
+                if (context.size() > ApprovalReviewRequest.MAX_CONTEXT_ITEMS) {
+                    context.removeFirst();
+                }
+            }
+        }
+        return new ApprovalReviewRequest(
+                session.id(),
+                runId,
+                call.id(),
+                call.name(),
+                definition.effect(),
+                definition.source(),
+                !outcome.selector().toolWide(),
+                "请求执行受控 Tool 调用",
+                context);
+    }
+
+    private static ApprovalReviewContextItem approvalReviewContextItem(AgentMessage message) {
+        if (message instanceof UserMessage) {
+            return new ApprovalReviewContextItem(ApprovalReviewContextItem.Role.USER, "用户已提交请求");
+        }
+        if (message instanceof AssistantMessage) {
+            return new ApprovalReviewContextItem(ApprovalReviewContextItem.Role.ASSISTANT, "模型已提出响应");
+        }
+        if (message instanceof ToolResultMessage) {
+            return new ApprovalReviewContextItem(ApprovalReviewContextItem.Role.TOOL_RESULT, "已有 Tool 结果");
+        }
+        return null;
     }
 
     private PermissionOutcome requestApprovalFailClosed(

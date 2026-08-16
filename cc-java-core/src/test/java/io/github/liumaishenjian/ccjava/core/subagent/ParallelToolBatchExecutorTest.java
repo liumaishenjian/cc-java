@@ -44,6 +44,51 @@ class ParallelToolBatchExecutorTest {
     }
 
     @Test
+    void autoReviewStopsAfterThirdNonAllowButPreservesTheWholeBatchProtocol() {
+        AtomicInteger executed = new AtomicInteger();
+        AtomicInteger approvals = new AtomicInteger();
+        AtomicInteger reviews = new AtomicInteger();
+        AgentTool tool = new AgentTool() {
+            @Override public ToolDefinition definition() {
+                return new ToolDefinition("reviewed", "reviewed", "{}", ToolEffect.READ_WORKSPACE,
+                        ToolSource.BUILT_IN, false, Duration.ofSeconds(2), "text/plain", 1024);
+            }
+            @Override public ToolValidationResult validate(JsonObject arguments) {
+                return ToolValidationResult.validResult();
+            }
+            @Override public ToolExecutionOutcome execute(ToolInvocation invocation) {
+                executed.incrementAndGet();
+                return ToolExecutionOutcome.success(invocation.call().id());
+            }
+        };
+        Fixture fixture = autoReviewFixture(tool, approvals, reviews);
+        List<ToolCall> calls = java.util.stream.IntStream.range(0, 4)
+                .mapToObj(index -> new ToolCall("auto-" + index, "reviewed", JsonObject.empty())).toList();
+        RunId runId = new RunId("run-auto-batch");
+
+        ToolBatchExecutionResult batch;
+        try (var executor = new ParallelToolBatchExecutor(fixture.registry, fixture.pipeline, Set.of("reviewed"), 4);
+                var scope = AutoReviewRunScope.enabled(runId)) {
+            batch = executor.executeBatch(fixture.session, runId, List.of(1, 2, 3, 4), calls,
+                    CancellationToken.none(), scope);
+        }
+
+        assertThat(batch.stopAfterBatch()).isTrue();
+        assertThat(batch.results()).extracting(ToolResult::callId)
+                .containsExactly("auto-0", "auto-1", "auto-2", "auto-3");
+        assertThat(batch.results()).extracting(ToolResult::toolName)
+                .containsExactly("reviewed", "reviewed", "reviewed", "reviewed");
+        assertThat(batch.results()).allMatch(result -> result.status() == ToolResultStatus.DENIED);
+        assertThat(executed).hasValue(0);
+        assertThat(approvals).hasValue(0);
+        assertThat(reviews).hasValue(3);
+        assertThat(fixture.lifecycleEvents).filteredOn(event -> event.event() instanceof LifecycleEvent.BeforeTool)
+                .hasSize(3);
+        assertThat(fixture.lifecycleEvents).filteredOn(event -> event.event() instanceof LifecycleEvent.ApprovalRequested)
+                .hasSize(3);
+    }
+
+    @Test
     void oneUnsafeCallDegradesWholeBatchToOriginalSequentialOrder() {
         AtomicInteger active = new AtomicInteger();
         AtomicInteger maximum = new AtomicInteger();
@@ -101,6 +146,34 @@ class ParallelToolBatchExecutorTest {
                         PermissionReason.EFFECT_DEFAULT,
                         PermissionSelector.toolWide(definition.name(), definition.source())),
                 (invocation, definition, outcome) -> ApprovalResponse.allowOnce(), lifecycle);
+        return new Fixture(registry, pipeline, session, events);
+    }
+
+    private static Fixture autoReviewFixture(AgentTool tool, AtomicInteger approvals, AtomicInteger reviews) {
+        AgentIdGenerator ids = new AgentIdGenerator() {
+            public SessionId newSessionId() { return new SessionId("session-auto"); }
+            public RunId newRunId() { return new RunId("run-generated"); }
+        };
+        List<AgentEventEnvelope> events = new CopyOnWriteArrayList<>();
+        LifecycleDispatcher lifecycle = new LifecycleDispatcher(Clock.systemUTC(), events::add);
+        AgentSession session = new InMemorySessionStore(ids, lifecycle).create(SessionSpec.of("auto"));
+        ToolRegistry registry = new ToolRegistry(List.of(tool));
+        ToolExecutionPipeline pipeline = new ToolExecutionPipeline(registry,
+                (invocation, definition) -> PermissionOutcome.of(PermissionDecision.ASK,
+                        PermissionReason.EFFECT_DEFAULT,
+                        PermissionSelector.toolWide(definition.name(), definition.source())),
+                (invocation, definition, outcome) -> {
+                    approvals.incrementAndGet();
+                    return ApprovalResponse.allowOnce();
+                },
+                new InMemorySessionPermissionState(), lifecycle, SessionJournal.noop(), CheckpointCoordinator.noop(),
+                io.github.liumaishenjian.ccjava.core.hook.HookCoordinator.disabled(),
+                io.github.liumaishenjian.ccjava.core.skill.SkillRunCoordinator.disabled(),
+                ApprovalReviewer.AUTO_REVIEW,
+                new AutoReviewCoordinator((request, token) -> {
+                    reviews.incrementAndGet();
+                    return ApprovalReviewResult.deny();
+                }));
         return new Fixture(registry, pipeline, session, events);
     }
 

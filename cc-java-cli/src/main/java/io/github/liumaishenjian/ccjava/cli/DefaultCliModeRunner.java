@@ -137,15 +137,10 @@ final class DefaultCliModeRunner implements CliModeRunner {
             StdioProtocolServer.ExitReason reason;
             try (var auth = io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthRuntimeResources.open(
                     userHome, repositoryRoot, environment)) {
-                java.util.concurrent.atomic.AtomicReference<io.github.liumaishenjian.ccjava.core.AgentEventSink>
-                        runtimeEvents = new java.util.concurrent.atomic.AtomicReference<>(
-                                io.github.liumaishenjian.ccjava.core.AgentEventSink.noop());
-                HeadlessRuntimeSession application = selectedSession(auth, prepared, overrides,
-                        envelope -> runtimeEvents.get().publish(envelope),
-                        (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
-                                io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny());
-                try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(application, auth.service())) {
-                    runtimeEvents.set(handler);
+                try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(
+                        (events, approvals) -> selectedSession(
+                                auth, prepared, overrides, events, approvals),
+                        auth.service())) {
                     reason = new StdioProtocolServer(input, output, handler).run();
                 }
             }

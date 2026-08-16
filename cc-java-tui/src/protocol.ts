@@ -270,7 +270,8 @@ function validateEventShape(
       || typeof payload.toolName !== 'string'
       || payload.toolName.trim().length === 0
       || (payload.effect !== 'write_workspace'
-        && payload.effect !== 'execute_process'))
+        && payload.effect !== 'execute_process'
+        && payload.effect !== 'network_or_remote'))
   ) {
     throw new ProtocolViolation('approval.requested 缺少安全审批摘要');
   }
@@ -440,7 +441,7 @@ function validateSteeringDiscarded(
 }
 
 const PROVIDER_CONTROL_INTENTS = new Set([
-  'providers.add', 'auth.list', 'auth.probe', 'auth.logout',
+  'providers.configure', 'providers.add', 'auth.list', 'auth.probe', 'auth.logout',
   'models.list', 'models.add', 'models.remove', 'models.use',
 ]);
 
@@ -463,7 +464,7 @@ function validateProviderControlResult(
     return;
   }
   const result = payload.result;
-  if (payload.intent === 'providers.add') {
+  if (payload.intent === 'providers.add' || payload.intent === 'providers.configure') {
     if (!hasExactFields(result, new Set(['providerId', 'displayName', 'modelId']))
       || !isProviderId(result.providerId)
       || !isProviderDisplayName(result.displayName)
@@ -592,9 +593,12 @@ function validateSessionCommandPayload(
     return;
   }
   if (intent === 'permissions') {
-    const fields = new Set(['effectiveMode', 'modeSourceKind', 'modeSafeSourceId', 'modeValidationStatus', 'startupRuleCount', 'rules']);
+    const fields = new Set(['effectiveMode', 'effectiveReviewer', 'effectiveSelection', 'modeSourceKind', 'modeSafeSourceId', 'modeValidationStatus', 'startupRuleCount', 'rules']);
     if (!hasExactFields(result, fields)
       || (result.effectiveMode !== 'DEFAULT' && result.effectiveMode !== 'PLAN' && result.effectiveMode !== 'ACCEPT_EDITS')
+      || (result.effectiveReviewer !== 'USER' && result.effectiveReviewer !== 'AUTO_REVIEW')
+      || (result.effectiveSelection !== 'PLAN' && result.effectiveSelection !== 'ASK'
+        && result.effectiveSelection !== 'AUTO' && result.effectiveSelection !== 'ADVANCED')
       || !isBoundedProjectionEnum(result.modeSourceKind) || !isSafeRelativeTarget(result.modeSafeSourceId)
       || !isBoundedProjectionEnum(result.modeValidationStatus)
       || !Number.isSafeInteger(result.startupRuleCount) || (result.startupRuleCount as number) < 0
@@ -794,6 +798,38 @@ function isSafeDisplayText(
 function validateApprovalPreview(
   payload: Readonly<Record<string, unknown>>,
 ): void {
+  const networkFields = [payload.destination, payload.query];
+  const networkPresent = networkFields.filter(value => value !== undefined).length;
+  if (payload.effect === 'network_or_remote') {
+    const hasNonNetworkPreview = payload.target !== undefined
+      || payload.removedLines !== undefined
+      || payload.addedLines !== undefined
+      || payload.command !== undefined
+      || payload.shell !== undefined
+      || payload.workingDirectory !== undefined;
+    if (hasNonNetworkPreview) {
+      throw new ProtocolViolation('approval.requested 网络预览混入其他副作用字段');
+    }
+    if (networkPresent === 0 && payload.operation === undefined) {
+      return;
+    }
+    if (
+      networkPresent !== networkFields.length
+      || payload.operation !== 'search'
+      || payload.destination !== 'configured_web_search_provider'
+      || typeof payload.query !== 'string'
+      || payload.query.trim().length === 0
+      || Array.from(payload.query).length > 512
+      || !isSafeDisplayText(payload.query, 512, false)
+      || /[\u0000-\u001f\u007f]/u.test(payload.query)
+    ) {
+      throw new ProtocolViolation('approval.requested 网络预览无效');
+    }
+    return;
+  }
+  if (networkPresent > 0 || payload.operation === 'search') {
+    throw new ProtocolViolation('approval.requested 非网络审批包含网络预览');
+  }
   const fields = [
     payload.target,
     payload.operation,

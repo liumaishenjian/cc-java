@@ -127,6 +127,8 @@ Exa arguments 固定包含 query、`type=auto`、result limit、保守 live craw
 
 只有名称精确 `web_search`、Source=`BUILT_IN`、Effect=`NETWORK_OR_REMOTE` 的宿主 Definition 进入默认 ASK；其他 BUILT_IN Network 继续 hard deny，PLAN 拒绝。可信 Startup/Settings ALLOW 可让非交互 Print 执行，但不能绕过参数、NetworkAccessPort 或 Adapter 目标复验。
 
+交互式 stdio/TUI 必须把当前连接的 ApprovalHandler 直接注入生产 Session，不得在 Session 已绑定拒绝型 Handler 后创建悬空的 UI 协调器。`approval.requested` 只携带固定网络目的类型与有界、无控制字符的实际 query，不携带 endpoint、Header 或 credential；用户选择 Allow Once 或 Allow Session 后才允许进入 NetworkAccessPort 与 HTTP Adapter，拒绝、取消、EOF 和关闭均须在零 HTTP 请求下收敛。
+
 系统指令只给通用规则：实时天气、新闻、价格、日程等在 Tool 可用时应搜索，不依赖训练知识；不得硬编码杭州。Session runtime metadata 增加本机当前日期，避免 Provider/model 用过期日期构造 query。
 
 唯一 Pipeline 继续保证 validate、Pre/Post Hook、Permission final、durable started/completed、Call ID、取消、裁剪和脱敏 exactly-once。批准、NetworkAccess 或 Adapter 均不能旁路该链。

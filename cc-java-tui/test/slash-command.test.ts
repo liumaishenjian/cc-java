@@ -13,9 +13,7 @@ describe('parseSlashCommand', () => {
     expect(parseSlashCommand('/compact focus release')).toEqual({
       kind: 'command', command: {intent: 'compact', arguments: {anchors: ['focus', 'release']}},
     });
-    expect(parseSlashCommand('/permissions')).toEqual({
-      kind: 'command', command: {intent: 'permissions', arguments: {}},
-    });
+    expect(parseSlashCommand('/permissions')).toEqual({kind: 'permission-picker'});
     expect(parseSlashCommand('/permissions query')).toEqual({
       kind: 'command', command: {intent: 'permissions', arguments: {}},
     });
@@ -162,11 +160,14 @@ describe('parseSlashCommand', () => {
       contextStatus: 'WITHIN_BUDGET', modelRequestAttempts: 1,
       reductionStrategies: ['C1'], reasonCodes: [],
     })).toContain('总计 100 / 可输入 256000 / 剩余 255900');
-    expect(renderSlashResult('permissions', 'succeeded', 'ok', {
-      effectiveMode: 'PLAN', modeSourceKind: 'SESSION', modeSafeSourceId: 'session',
+    const permissions = renderSlashResult('permissions', 'succeeded', 'ok', {
+      effectiveMode: 'PLAN', effectiveReviewer: 'USER', effectiveSelection: 'PLAN',
+      modeSourceKind: 'SESSION', modeSafeSourceId: 'session',
       modeValidationStatus: 'VALID', startupRuleCount: 1,
       rules: [{ruleId: 'read-docs', sourceKind: 'PROJECT_SHARED', safeSourceId: 'project', operation: 'REPLACE', validationStatus: 'VALID'}],
-    })).toContain('- read-docs · PROJECT_SHARED/project · REPLACE');
+    });
+    expect(permissions).toContain('模式 PLAN · 审阅 USER · 选择 PLAN');
+    expect(permissions).toContain('- read-docs · PROJECT_SHARED/project · REPLACE');
     expect(renderSlashResult('doctor', 'succeeded', 'ok', {
       settingsAvailable: true, settingsRevision: 3, instructionCount: 2,
       contextAvailable: true, activeRun: false,

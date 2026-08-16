@@ -321,6 +321,8 @@ describe('reduceTuiState', () => {
       command: undefined,
       shell: undefined,
       workingDirectory: undefined,
+      destination: undefined,
+      query: undefined,
       submitted: false,
     });
     state = reduceTuiState(state, {
@@ -329,6 +331,40 @@ describe('reduceTuiState', () => {
     });
     expect(state.runs[0]?.pendingApproval?.submitted).toBe(true);
     expect(state.phase).toBe('running');
+  });
+
+  it('投影受控网络审批的固定目的类型和查询', () => {
+    let state = reduceTuiState(initialTuiState, {
+      type: 'event.received',
+      event: event('initialized', 1, {protocolVersion: 0}, 'init', 'session-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'run.submitted',
+      requestId: 'req-web',
+      prompt: '查询天气',
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('run.started', 2, {}, 'req-web', 'session-1', 'run-web'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('approval.requested', 3, {
+        approvalId: 'approval-web',
+        ordinal: 1,
+        toolName: 'web_search',
+        effect: 'network_or_remote',
+        operation: 'search',
+        destination: 'configured_web_search_provider',
+        query: '明天杭州天气',
+      }, 'req-web', 'session-1', 'run-web'),
+    });
+
+    expect(state.runs[0]?.pendingApproval).toMatchObject({
+      effect: 'network_or_remote',
+      destination: 'configured_web_search_provider',
+      query: '明天杭州天气',
+    });
   });
 
   it('保留 Checkpoint phase、Diff 和 Undo 投影并逐项选择', () => {

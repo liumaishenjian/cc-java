@@ -1021,6 +1021,122 @@ class HeadlessRuntimeSessionTest {
     }
 
     @Test
+    void autoReviewUsesBoundedModelRequestAndAllowsOnlyCurrentPatch() throws Exception {
+        Path file = Files.writeString(temporaryWorkspace.resolve("sample.txt"), "old\n");
+        CopyOnWriteArrayList<ModelRequest> requests = new CopyOnWriteArrayList<>();
+        ModelGateway model = request -> {
+            requests.add(request);
+            if (request.toolDefinitions().isEmpty()) {
+                return ModelTurn.text("{\"verdict\":\"ALLOW_ONCE\"}");
+            }
+            boolean firstAgentTurn = request.messages().stream()
+                    .noneMatch(ToolResultMessage.class::isInstance);
+            if (firstAgentTurn) {
+                return new ModelTurn(AssistantMessage.tools(List.of(new ToolCall(
+                        "call-read", "read_file", new JsonObject(Map.of("path", "sample.txt"))))),
+                        ModelTurnMetadata.unknown());
+            }
+            boolean patchAlreadyProposed = request.messages().stream()
+                    .filter(AssistantMessage.class::isInstance)
+                    .map(AssistantMessage.class::cast)
+                    .flatMap(message -> message.toolCalls().stream())
+                    .anyMatch(call -> call.name().equals("apply_patch"));
+            if (!patchAlreadyProposed) {
+                return new ModelTurn(AssistantMessage.tools(List.of(new ToolCall(
+                        "call-patch", "apply_patch", new JsonObject(Map.of(
+                                "path", "sample.txt", "oldText", "old", "newText", "new"))))),
+                        ModelTurnMetadata.unknown());
+            }
+            return ModelTurn.text("patched");
+        };
+
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                model, AgentEventSink.noop(), testOptions(temporaryWorkspace, Duration.ofSeconds(3)))) {
+            application.open();
+            RuntimeConfiguration current = application.runtimeConfiguration();
+            assertThat(application.replaceRuntimeConfiguration(new RuntimeConfiguration(
+                    current.modelName(), current.permissionMode(),
+                    io.github.liumaishenjian.ccjava.domain.ApprovalReviewer.AUTO_REVIEW,
+                    current.permissionRules(), current.enabledBuiltinTools(), current.toolConfigurations(),
+                    current.compactAnchors(), current.diagnosticsVerbosity()))).isTrue();
+
+            AgentRunResult result = application.run("patch with automatic review");
+
+            assertThat(result.stopReason()).isEqualTo(StopReason.COMPLETED);
+        }
+
+        assertThat(Files.readString(file)).isEqualTo("new\n");
+        List<ModelRequest> reviews = requests.stream()
+                .filter(request -> request.toolDefinitions().isEmpty())
+                .toList();
+        assertThat(reviews).singleElement();
+        ModelRequest review = reviews.getFirst();
+        assertThat(review.messages()).hasSize(2);
+        assertThat(((UserMessage) review.messages().get(1)).content())
+                .contains("cc-java-approval-review-v1")
+                .doesNotContain("oldText", "newText", "sample.txt");
+    }
+
+    @Test
+    void autoReviewDenyFailsClosedWithoutInteractiveApprovalOrWorkspaceWrite() throws Exception {
+        Path file = Files.writeString(temporaryWorkspace.resolve("sample.txt"), "old\n");
+        CopyOnWriteArrayList<ModelRequest> requests = new CopyOnWriteArrayList<>();
+        ModelGateway model = request -> {
+            requests.add(request);
+            if (request.toolDefinitions().isEmpty()) {
+                return ModelTurn.text("{\"verdict\":\"DENY\"}");
+            }
+            boolean firstAgentTurn = request.messages().stream()
+                    .noneMatch(ToolResultMessage.class::isInstance);
+            if (firstAgentTurn) {
+                return new ModelTurn(AssistantMessage.tools(List.of(new ToolCall(
+                        "call-read", "read_file", new JsonObject(Map.of("path", "sample.txt"))))),
+                        ModelTurnMetadata.unknown());
+            }
+            boolean patchAlreadyProposed = request.messages().stream()
+                    .filter(AssistantMessage.class::isInstance)
+                    .map(AssistantMessage.class::cast)
+                    .flatMap(message -> message.toolCalls().stream())
+                    .anyMatch(call -> call.name().equals("apply_patch"));
+            if (!patchAlreadyProposed) {
+                return new ModelTurn(AssistantMessage.tools(List.of(new ToolCall(
+                        "call-patch", "apply_patch", new JsonObject(Map.of(
+                                "path", "sample.txt", "oldText", "old", "newText", "new"))))),
+                        ModelTurnMetadata.unknown());
+            }
+            return ModelTurn.text("denied");
+        };
+
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                model, AgentEventSink.noop(), testOptions(temporaryWorkspace, Duration.ofSeconds(3)),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) -> {
+                    throw new AssertionError("AUTO_REVIEW 不应请求交互审批");
+                })) {
+            application.open();
+            RuntimeConfiguration current = application.runtimeConfiguration();
+            assertThat(application.replaceRuntimeConfiguration(new RuntimeConfiguration(
+                    current.modelName(), current.permissionMode(),
+                    io.github.liumaishenjian.ccjava.domain.ApprovalReviewer.AUTO_REVIEW,
+                    current.permissionRules(), current.enabledBuiltinTools(), current.toolConfigurations(),
+                    current.compactAnchors(), current.diagnosticsVerbosity()))).isTrue();
+
+            assertThat(application.run("deny patch with automatic review").stopReason())
+                    .isEqualTo(StopReason.COMPLETED);
+        }
+
+        assertThat(Files.readString(file)).isEqualTo("old\n");
+        assertThat(requests.stream().filter(request -> request.toolDefinitions().isEmpty()).toList())
+                .singleElement();
+        ToolResultMessage result = requests.getLast().messages().stream()
+                .filter(ToolResultMessage.class::isInstance)
+                .map(ToolResultMessage.class::cast)
+                .filter(message -> message.result().toolName().equals("apply_patch"))
+                .findFirst().orElseThrow();
+        assertThat(result.result().status())
+                .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolResultStatus.DENIED);
+    }
+
+    @Test
     void nonInteractiveApprovalDeniesPatchWithoutChangingWorkspace() throws Exception {
         Path file = Files.writeString(temporaryWorkspace.resolve("sample.txt"), "old\n");
         CopyOnWriteArrayList<ModelRequest> requests = new CopyOnWriteArrayList<>();

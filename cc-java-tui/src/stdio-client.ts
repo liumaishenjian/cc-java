@@ -39,8 +39,10 @@ export interface StdioClientOptions {
 export interface ProviderLoginRequest {
   readonly providerId: string;
   readonly profileId: string;
-  readonly secretSource: 'store' | 'env';
+  readonly secretSource: 'store' | 'stdin' | 'env';
   readonly environmentName?: string;
+  /** 仅首次配置的短生命周期缓冲；不得记录、序列化或转交 Agent stdio。 */
+  readonly secretBytes?: Uint8Array;
   /** 仅显式 true 时把 profile 持久设为该 Provider 默认；省略保持旧接口的非默认语义。 */
   readonly setDefault?: boolean;
 }
@@ -48,6 +50,8 @@ export interface ProviderLoginRequest {
 export interface ProviderLoginResult {
   readonly status: 'succeeded' | 'failed' | 'cancelled' | 'timed_out';
   readonly exitCode: number | null;
+  /** 原始 secret 不进入 Node；该值仅是 Java 生成的有界脱敏投影。 */
+  readonly credentialPreview?: string;
 }
 
 interface LoginTerminal {
@@ -77,8 +81,9 @@ const ENVIRONMENT_NAME = /^[A-Z][A-Z0-9_]{0,127}$/u;
 /**
  * 从启动时已验证的 Java ChildProcessSpec 派生一次性认证进程。
  *
- * 该桥只固定替换主类后的参数，使用 shell=false 且直接继承终端。STORE 模式下 API key
- * 由 Java Console.readPassword 遮蔽读取，Node/Ink 不接收、不编码也不保存 secret。
+ * 该桥只固定替换主类后的参数，使用 shell=false 且直接继承终端输入输出。STORE 模式下 API key
+ * 由 Java Console.readPassword 遮蔽读取，Node/Ink 不接收、不编码也不保存原始 secret；认证成功后
+ * 仅从独立 stderr 管道接受一个严格校验的有界脱敏投影。
  */
 export class ProviderLoginBridge {
   readonly #spec: ChildProcessSpec;
@@ -134,13 +139,30 @@ export class ProviderLoginBridge {
         cwd: this.#spec.cwd,
         env: this.#spec.env ?? process.env,
         shell: false,
-        stdio: 'inherit',
+        stdio: request.secretSource === 'stdin'
+          ? ['pipe', 'inherit', 'pipe'] : ['inherit', 'inherit', 'pipe'],
         windowsHide: false,
       });
       this.#active = child;
+      if (request.secretSource === 'stdin') {
+        const source = request.secretBytes;
+        if (source === undefined || source.byteLength === 0 || child.stdin === null) {
+          child.kill();
+          throw new Error('stdin credential 无效');
+        }
+        const payload = Buffer.alloc(source.byteLength + 1);
+        payload.set(source); payload[payload.length - 1] = 0x0a;
+        source.fill(0);
+        child.stdin.end(payload, () => payload.fill(0));
+      }
       return await new Promise<ProviderLoginResult>(resolve => {
         let settled = false;
         let timedOut = false;
+        let diagnostic = '';
+        child.stderr?.setEncoding('utf8');
+        child.stderr?.on('data', (chunk: string) => {
+          if (diagnostic.length < 4_096) diagnostic += chunk.slice(0, 4_096 - diagnostic.length);
+        });
         const finish = (result: ProviderLoginResult) => {
           if (settled) return;
           settled = true;
@@ -156,6 +178,7 @@ export class ProviderLoginBridge {
           status: timedOut ? 'timed_out' : this.#cancelled ? 'cancelled'
             : code === 0 ? 'succeeded' : 'failed',
           exitCode: timedOut ? null : code,
+          ...(code === 0 ? credentialPreviewFromDiagnostic(diagnostic) : {}),
         });
         const timer = setTimeout(() => {
           timedOut = true;
@@ -371,7 +394,7 @@ export class StdioClient {
   /** 发送不含 secret 的 Provider/Auth 本地控制命令。 */
   public providerControl(
     controlId: string,
-    intent: 'providers.add' | 'auth.list' | 'auth.probe' | 'auth.logout' | 'models.list' | 'models.use' | 'models.add' | 'models.remove',
+    intent: 'providers.configure' | 'providers.add' | 'auth.list' | 'auth.probe' | 'auth.logout' | 'models.list' | 'models.use' | 'models.add' | 'models.remove',
     arguments_: Readonly<Record<string, unknown>>,
   ): string {
     if (this.#sessionId === undefined) throw new Error('Session 尚未初始化');
@@ -897,15 +920,31 @@ function providerLoginArguments(base: readonly string[], request: ProviderLoginR
   const fixed = base.slice(0, mainIndex + 1);
   const control = ['auth', 'login', '--provider', request.providerId, '--profile', request.profileId];
   if (request.secretSource === 'store') {
-    if (request.environmentName !== undefined) throw new Error('STORE 不接受 ENV name');
+    if (request.environmentName !== undefined || request.secretBytes !== undefined) {
+      throw new Error('STORE 不接受 ENV name/secret bytes');
+    }
+    control.push('--tui-preview');
+  } else if (request.secretSource === 'stdin') {
+    if (request.environmentName !== undefined || request.secretBytes === undefined
+      || request.secretBytes.byteLength < 1 || request.secretBytes.byteLength > 16_384) {
+      throw new Error('stdin credential 无效');
+    }
+    control.push('--api-key-stdin');
   } else {
-    if (request.environmentName === undefined || !ENVIRONMENT_NAME.test(request.environmentName)) {
+    if (request.secretBytes !== undefined || request.environmentName === undefined
+      || !ENVIRONMENT_NAME.test(request.environmentName)) {
       throw new Error('ENV name 无效');
     }
     control.push('--from-env', request.environmentName);
   }
   if (request.setDefault === true) control.push('--set-default');
   return [...fixed, ...control];
+}
+
+function credentialPreviewFromDiagnostic(diagnostic: string): {readonly credentialPreview?: string} {
+  const match = /(?:^|\r?\n)CODEJ_CREDENTIAL_PREVIEW=([A-Za-z0-9_-]{3}\.\.\.[A-Za-z0-9_-]{4}|已保存（已隐藏）)(?:\r?\n|$)/u
+    .exec(diagnostic);
+  return match?.[1] === undefined ? {} : {credentialPreview: match[1].replace('...', '…')};
 }
 
 function killWindowsProcessTree(pid: number): boolean {

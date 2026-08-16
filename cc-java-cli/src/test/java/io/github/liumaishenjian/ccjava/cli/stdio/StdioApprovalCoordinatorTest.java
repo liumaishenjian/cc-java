@@ -116,9 +116,48 @@ class StdioApprovalCoordinatorTest {
 
         assertThat(captured.get().preview()).isEqualTo(
                 new StdioApprovalCoordinator.Preview(
-                        "src/main/App.java", "modify", 2, 3, "", "", ""));
+                        "src/main/App.java", "modify", 2, 3, "", "", "", "", ""));
         assertThat(coordinator.resolve("patch-approval", ApprovalResponse.deny())).isTrue();
         assertThat(decision.get(2, TimeUnit.SECONDS)).isEqualTo(ApprovalResponse.deny());
+    }
+
+    @Test
+    void webSearchPreviewContainsOnlyBoundedQueryAndFixedDestination() throws Exception {
+        CountDownLatch requested = new CountDownLatch(1);
+        AtomicReference<StdioApprovalCoordinator.Request> captured = new AtomicReference<>();
+        StdioApprovalCoordinator coordinator = new StdioApprovalCoordinator(request -> {
+            captured.set(request);
+            requested.countDown();
+        }, () -> "network-approval");
+        ToolInvocation invocation = new ToolInvocation(
+                new SessionId("session-1"),
+                new RunId("run-1"),
+                1,
+                new ToolCall("call-web", "web_search", new JsonObject(java.util.Map.of(
+                        "query", "明天杭州天气",
+                        "result_limit", 5))),
+                new CancellationSource().token());
+        ToolDefinition definition = new ToolDefinition(
+                "web_search",
+                "Controlled web search",
+                "{\"type\":\"object\"}",
+                ToolEffect.NETWORK_OR_REMOTE,
+                ToolSource.BUILT_IN,
+                true,
+                Duration.ofSeconds(10),
+                "text/plain",
+                64_000);
+        PermissionSelector scope = PermissionSelector.toolWide("web_search", ToolSource.BUILT_IN);
+
+        CompletableFuture<ApprovalResponse> decision = CompletableFuture.supplyAsync(
+                () -> coordinator.requestApproval(invocation, definition, ask(scope)));
+        assertThat(requested.await(2, TimeUnit.SECONDS)).isTrue();
+        assertThat(captured.get().preview()).isEqualTo(
+                StdioApprovalCoordinator.Preview.webSearch("明天杭州天气"));
+        assertThat(captured.get().preview().toString())
+                .doesNotContain("https://", "Authorization", "api-key");
+        assertThat(coordinator.resolve("network-approval", ApprovalResponse.allowOnce())).isTrue();
+        assertThat(decision.get(2, TimeUnit.SECONDS)).isEqualTo(ApprovalResponse.allowOnce());
     }
 
     private static PermissionOutcome ask(PermissionSelector selector) {

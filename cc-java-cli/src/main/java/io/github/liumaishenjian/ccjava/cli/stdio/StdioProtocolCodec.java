@@ -287,6 +287,7 @@ public final class StdioProtocolCodec {
         }
         ObjectNode arguments = (ObjectNode) rawArguments;
         Set<String> allowed = switch (intent) {
+            case "providers.configure" -> Set.of("baseUrl", "modelId");
             case "providers.add" -> Set.of("providerId", "displayName", "baseUrl", "modelId");
             case "auth.list" -> Set.of();
             case "auth.probe" -> Set.of("providerId", "profileId", "modelId");
@@ -305,12 +306,13 @@ public final class StdioProtocolCodec {
             throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "auth.list 不接受参数");
         }
         boolean providerAdd = intent.equals("providers.add");
+        boolean providerConfigure = intent.equals("providers.configure");
         boolean modelMutation = intent.equals("models.add") || intent.equals("models.remove");
         validateOptionalControlText(arguments, "providerId", requestId,
                 providerAdd || intent.equals("auth.probe") || intent.equals("auth.logout")
                         || intent.equals("models.use") || modelMutation);
-        if (providerAdd) {
-            validateProviderAddText(arguments, "displayName", requestId, 80, 256);
+        if (providerAdd || providerConfigure) {
+            if (providerAdd) validateProviderAddText(arguments, "displayName", requestId, 80, 256);
             validateProviderAddText(arguments, "baseUrl", requestId, 2_048, 4_096);
             validateProviderAddText(arguments, "modelId", requestId, 256, 1_024);
         }
@@ -382,7 +384,7 @@ public final class StdioProtocolCodec {
             case "help", "clear", "context", "doctor" -> Set.of();
             case "compact" -> Set.of("anchors");
             case "model" -> Set.of("name");
-            case "permissions" -> Set.of("mode");
+            case "permissions" -> Set.of("mode", "selection");
             case "resume" -> Set.of("sessionId");
             default -> throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "未知 session.command intent");
         };
@@ -405,9 +407,20 @@ public final class StdioProtocolCodec {
             throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "model name 非法");
         }
         if (intent.equals("permissions") && !arguments.isEmpty()) {
-            String mode = requiredPayloadText(arguments, "mode", requestId);
-            if (!mode.equals("DEFAULT") && !mode.equals("PLAN") && !mode.equals("ACCEPT_EDITS")) {
-                throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "permissions mode 非法");
+            if (arguments.has("mode") && arguments.has("selection")) {
+                throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "permissions 参数冲突");
+            }
+            if (arguments.has("mode")) {
+                String mode = requiredPayloadText(arguments, "mode", requestId);
+                if (!mode.equals("DEFAULT") && !mode.equals("PLAN") && !mode.equals("ACCEPT_EDITS")) {
+                    throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "permissions mode 非法");
+                }
+            }
+            if (arguments.has("selection")) {
+                String selection = requiredPayloadText(arguments, "selection", requestId);
+                if (!selection.equals("PLAN") && !selection.equals("ASK") && !selection.equals("AUTO")) {
+                    throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "permissions selection 非法");
+                }
             }
         }
         if (intent.equals("resume") && invalidCommandText(requiredPayloadText(arguments, "sessionId", requestId))) {

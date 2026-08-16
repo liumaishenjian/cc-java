@@ -2,8 +2,15 @@ package io.github.liumaishenjian.ccjava.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.liumaishenjian.ccjava.domain.ApprovalResponse;
+import io.github.liumaishenjian.ccjava.domain.ApprovalReviewer;
+import io.github.liumaishenjian.ccjava.domain.ApprovalReviewResult;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
+import io.github.liumaishenjian.ccjava.domain.LifecycleEvent;
 import io.github.liumaishenjian.ccjava.domain.PermissionDecision;
+import io.github.liumaishenjian.ccjava.domain.PermissionOutcome;
+import io.github.liumaishenjian.ccjava.domain.PermissionReason;
+import io.github.liumaishenjian.ccjava.domain.PermissionSelector;
 import io.github.liumaishenjian.ccjava.domain.PermissionMode;
 import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.domain.SessionSpec;
@@ -196,6 +203,96 @@ class ToolExecutionPipelineTest {
 
         assertThat(deniedEffect).isFalse();
         assertThat(deniedResult.status()).isEqualTo(ToolResultStatus.DENIED);
+    }
+
+    @Test
+    void autoReviewOnlyHandlesFinalAskAndDoesNotTouchSessionPermissionState() {
+        AtomicBoolean executed = new AtomicBoolean();
+        AtomicBoolean userApprovalCalled = new AtomicBoolean();
+        java.util.concurrent.atomic.AtomicInteger gatewayCalls = new java.util.concurrent.atomic.AtomicInteger();
+        InMemorySessionPermissionState state = new InMemorySessionPermissionState();
+        AgentTool tool = fakeWriteTool(executed);
+        PermissionGate finalAsk = (invocation, definition) -> PermissionOutcome.of(
+                PermissionDecision.ASK,
+                PermissionReason.EFFECT_DEFAULT,
+                new PermissionSelector(definition.name(), definition.source(), "fixture-target"));
+        RecordingAgentEventSink events = new RecordingAgentEventSink();
+        LifecycleDispatcher lifecycle = new LifecycleDispatcher(CLOCK, events);
+        SequentialAgentIdGenerator ids = new SequentialAgentIdGenerator();
+        AgentSession session = new InMemorySessionStore(ids, lifecycle).create(SessionSpec.of("test"));
+        ToolExecutionPipeline pipeline = new ToolExecutionPipeline(
+                new ToolRegistry(List.of(tool)), finalAsk,
+                (invocation, definition, outcome) -> {
+                    userApprovalCalled.set(true);
+                    return ApprovalResponse.allowSession(outcome.selector());
+                },
+                state, lifecycle, SessionJournal.noop(), CheckpointCoordinator.noop(),
+                io.github.liumaishenjian.ccjava.core.hook.HookCoordinator.disabled(),
+                SkillRunCoordinator.disabled(), ApprovalReviewer.AUTO_REVIEW,
+                new AutoReviewCoordinator((request, token) -> {
+                    gatewayCalls.incrementAndGet();
+                    return ApprovalReviewResult.allowOnce();
+                }));
+        RunId runId = new RunId("run-auto");
+
+        try (AutoReviewRunScope scope = AutoReviewRunScope.enabled(runId)) {
+            ToolResult result = pipeline.execute(session, runId, 1,
+                    new ToolCall("call-auto", tool.definition().name(), JsonObject.empty()),
+                    CancellationToken.none(), scope);
+
+            assertThat(result.status()).isEqualTo(ToolResultStatus.SUCCESS);
+            assertThat(executed).isTrue();
+            assertThat(gatewayCalls).hasValue(1);
+            assertThat(userApprovalCalled).isFalse();
+            assertThat(state.rules(session.id())).isEmpty();
+            assertThat(state.denialCount(session.id(), new PermissionSelector(
+                    tool.definition().name(), tool.definition().source(), "fixture-target"))).isZero();
+            assertThat(events.envelopes())
+                    .filteredOn(envelope -> envelope.event() instanceof LifecycleEvent.PermissionDecided)
+                    .singleElement()
+                    .satisfies(envelope -> assertThat(
+                            ((LifecycleEvent.PermissionDecided) envelope.event()).outcome().reason())
+                            .isEqualTo(PermissionReason.AUTO_REVIEW_ALLOW_ONCE));
+        }
+    }
+
+    @Test
+    void autoReviewDoesNotReachGatewayAfterPolicyOrHookAlreadyDecided() {
+        java.util.concurrent.atomic.AtomicInteger gatewayCalls = new java.util.concurrent.atomic.AtomicInteger();
+        AtomicBoolean executed = new AtomicBoolean();
+        AgentTool tool = fakeWriteTool(executed);
+        PermissionGate denied = (invocation, definition) -> PermissionOutcome.of(
+                PermissionDecision.DENY,
+                PermissionReason.HARD_DENIAL,
+                PermissionSelector.toolWide(definition.name(), definition.source()));
+        RecordingAgentEventSink events = new RecordingAgentEventSink();
+        LifecycleDispatcher lifecycle = new LifecycleDispatcher(CLOCK, events);
+        SequentialAgentIdGenerator ids = new SequentialAgentIdGenerator();
+        AgentSession session = new InMemorySessionStore(ids, lifecycle).create(SessionSpec.of("test"));
+        ToolExecutionPipeline pipeline = new ToolExecutionPipeline(
+                new ToolRegistry(List.of(tool)), denied,
+                (invocation, definition, outcome) -> { throw new AssertionError("approval must not run"); },
+                new InMemorySessionPermissionState(), lifecycle, SessionJournal.noop(), CheckpointCoordinator.noop(),
+                io.github.liumaishenjian.ccjava.core.hook.HookCoordinator.disabled(),
+                SkillRunCoordinator.disabled(), ApprovalReviewer.AUTO_REVIEW,
+                new AutoReviewCoordinator((request, token) -> {
+                    gatewayCalls.incrementAndGet();
+                    return ApprovalReviewResult.allowOnce();
+                }));
+        RunId runId = new RunId("run-policy-deny");
+
+        try (AutoReviewRunScope scope = AutoReviewRunScope.enabled(runId)) {
+            ToolResult result = pipeline.execute(session, runId, 1,
+                    new ToolCall("call-policy-deny", tool.definition().name(), JsonObject.empty()),
+                    CancellationToken.none(), scope);
+
+            assertThat(result.status()).isEqualTo(ToolResultStatus.DENIED);
+            assertThat(executed).isFalse();
+            assertThat(gatewayCalls).hasValue(0);
+            assertThat(events.envelopes())
+                    .filteredOn(envelope -> envelope.event() instanceof LifecycleEvent.PermissionDecided)
+                    .hasSize(1);
+        }
     }
 
     private static AgentTool toolWithLimit(String content, int limit) {

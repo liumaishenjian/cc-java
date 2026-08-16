@@ -13,7 +13,7 @@
 - 交互式 TUI 与 `--print` 非交互模式，共用同一个 Java Agent Runtime；
 - 流式模型输出、原始 Tool Call、多轮工具循环和严格的 Call/Result ID 对应；
 - 仓库搜索、文件读取、精确 Patch、新文件写入、Git 状态与受控命令执行；
-- Permission、Approval、Hard Denial、超时、取消、输出上限和敏感信息脱敏；
+- Permission、Approval、Hard Denial，以及 `Plan / Ask for approval / Approve for me` 三类运行选择；
 - 可恢复 Session、Checkpoint、Diff/Undo、Context 压缩、文件记忆与 Instructions；
 - Hooks、MCP、Skills、Plugins、Subagent、Worktree 和后台任务；
 - OpenAI-compatible、Anthropic、OpenRouter 的本地 BYOK 配置；
@@ -81,6 +81,10 @@ model-adapter   tool-adapters
 
 模型只能提出操作意图，不能绕过应用代码直接访问文件系统、Shell 或网络。
 
+`Approve for me` 只把既有规则与 Hook 求值后仍为 `ASK` 的调用交给有界、无 Tool 的模型复核，
+自动允许仅对当前调用有效；失败会拒绝并在连续三次 non-allow 后停止 Run。该能力当前为离线
+Fake/E2E 验证的 L1，尚无真实 Provider 的误放行率、延迟和成本 A/B 证据。
+
 ### 3. 安全边界不是 Prompt
 
 路径 realpath、Traversal、Symlink/Junction、敏感文件、最小子进程环境、命令超时和进程树清理由确定性代码执行。Permission、Checkpoint 和普通本地进程不会被描述成 OS Sandbox；只有通过真实探测的 WSL2/bubblewrap 或 Docker 后端才报告对应隔离能力。
@@ -134,7 +138,16 @@ codej --print "解释这个项目的核心架构"
 codej --doctor
 ```
 
-交互模式使用 `/connect` 配置模型。也可以使用脚本化命令：
+首次运行 `codej` 且没有可用模型时，会自动打开最小配置表单：
+
+```text
+API Base URL  https://api.openai.com/v1
+模型名称      gpt-5.2
+API Key       在紧凑页实时显示脱敏预览后安全保存
+```
+
+配置完成后直接进入 CodeJ；以后使用 `/connect` 打开同一表单修改。普通交互路径只支持
+OpenAI-compatible 自定义 API Key，不要求选择 Provider 或 Profile。高级/脚本接口仍可使用：
 
 ```powershell
 codej auth login --provider anthropic --profile personal --set-default
@@ -144,7 +157,7 @@ codej providers list
 codej models list --provider anthropic
 ```
 
-不带 `--from-env` 时，API Key 由 Java masked Console 读取，不经过 Ink/Node，也不会写入 Session、日志或命令参数。原有 OpenAI-compatible 本地配置方式见 [`config/provider.local.properties.example`](./config/provider.local.properties.example)。
+首次配置时，API Key 粘贴或键入后会立即显示有界脱敏预览（例如 `sk-••••a9K2`）；原始字节只短暂存在于 TUI 内存缓冲，并通过一次性 Java 子进程 stdin 保存，随后清零，不进入 Agent stdio、Session、日志或命令参数。带参数 `auth login` 不使用 `--from-env` 时仍由 Java masked Console 读取。原有 OpenAI-compatible 本地配置方式见 [`config/provider.local.properties.example`](./config/provider.local.properties.example)。
 
 ## 构建与测试
 

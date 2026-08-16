@@ -126,6 +126,16 @@ class ProviderControlCommandsTest {
     }
 
     @Test
+    void credentialPreviewOnlyExposesBoundedAsciiFragments() {
+        assertThat(ProviderControlCommands.credentialPreview("sk-protected-a9K2".toCharArray()))
+                .isEqualTo("sk-...a9K2");
+        assertThat(ProviderControlCommands.credentialPreview("short-key".toCharArray()))
+                .isEqualTo("已保存（已隐藏）");
+        assertThat(ProviderControlCommands.credentialPreview("sk-unsafe-value-换行".toCharArray()))
+                .isEqualTo("已保存（已隐藏）");
+    }
+
+    @Test
     void applicationAddCompatibleProviderReusesDefinitionAndStoreValidation() throws Exception {
         Fixture fixture = fixture("");
         var added = fixture.service().addCompatibleProvider(

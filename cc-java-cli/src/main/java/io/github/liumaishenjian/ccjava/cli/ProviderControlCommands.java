@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** MODEL-13 Picocli 本地控制面命令集合。 */
 final class ProviderControlCommands {
@@ -126,20 +127,24 @@ final class ProviderControlCommands {
         @Option(names="--api-key-stdin") boolean stdin;
         @Option(names="--from-env") String environmentName;
         @Option(names="--set-default") boolean setDefault;
+        @Option(names="--tui-preview", hidden=true) boolean tuiPreview;
         @Override public Integer call(){return execute(parent.err,()->{
             if(stdin&&environmentName!=null) throw new IllegalArgumentException("secret source");
             ProviderAuthApplicationService.LoginRequest request;
             ProviderAuthApplicationService.SecretInput input=null;
+            AtomicReference<String> preview=new AtomicReference<>();
             if(environmentName!=null){
                 request=new ProviderAuthApplicationService.LoginRequest(provider,profile,
                         ProviderAuthApplicationService.RefKind.ENV,environmentName,setDefault);
             }else{
                 request=new ProviderAuthApplicationService.LoginRequest(provider,profile,
                         ProviderAuthApplicationService.RefKind.STORE,null,setDefault);
-                input=stdin?()->readStdinSecret(parent.input):consoleInput();
+                input=stdin?()->readStdinSecret(parent.input):consoleInput(tuiPreview ? preview::set : ignored -> { });
             }
             var saved=parent.service.login(request,input,CancellationToken.none());
-            parent.out.println("profile saved: "+saved.providerId()+"/"+saved.profileId());return 0;
+            parent.out.println("profile saved: "+saved.providerId()+"/"+saved.profileId());
+            if(tuiPreview&&preview.get()!=null) parent.err.println("CODEJ_CREDENTIAL_PREVIEW="+preview.get());
+            return 0;
         });}
     }
 
@@ -291,14 +296,25 @@ final class ProviderControlCommands {
     }
 
     private static ProviderAuthApplicationService.SecretInput consoleInput(){
+        return consoleInput(ignored -> { });
+    }
+
+    private static ProviderAuthApplicationService.SecretInput consoleInput(
+            java.util.function.Consumer<String> previewConsumer){
         Console console=System.console();
         if(console==null)throw new ProviderAuthException(ProviderAuthException.Code.AUTH_SECRET_INPUT_REQUIRED,
                 ProviderAuthException.Action.LOGIN,false);
-        return consoleInput(() -> console.readPassword("API key: "));
+        return consoleInput(() -> console.readPassword("API Key（输入时隐藏）: "),previewConsumer);
     }
 
     static ProviderAuthApplicationService.SecretInput consoleInput(PasswordReader reader) {
+        return consoleInput(reader,ignored -> { });
+    }
+
+    static ProviderAuthApplicationService.SecretInput consoleInput(
+            PasswordReader reader,java.util.function.Consumer<String> previewConsumer) {
         java.util.Objects.requireNonNull(reader, "reader 不能为空");
+        java.util.Objects.requireNonNull(previewConsumer, "previewConsumer 不能为空");
         return () -> {
             char[] value = reader.readPassword();
             if (value == null) {
@@ -308,11 +324,25 @@ final class ProviderControlCommands {
                         false);
             }
             try {
+                previewConsumer.accept(credentialPreview(value));
                 return new SecretMaterial(value);
             } finally {
                 java.util.Arrays.fill(value, '\0');
             }
         };
+    }
+
+    /**
+     * 生成仅供当前 TUI 配置结果展示的有界摘要；短值或非普通 ASCII 值不投影任何片段。
+     */
+    static String credentialPreview(char[] value) {
+        if (value.length < 12) return "已保存（已隐藏）";
+        String first = new String(value,0,3);
+        String last = new String(value,value.length-4,4);
+        if (!first.matches("[A-Za-z0-9_-]{3}") || !last.matches("[A-Za-z0-9_-]{4}")) {
+            return "已保存（已隐藏）";
+        }
+        return first+"..."+last;
     }
 
     @FunctionalInterface

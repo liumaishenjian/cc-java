@@ -695,6 +695,32 @@ class RuntimeStdioCommandHandlerTest {
     }
 
     @Test
+    void permissionsSelectionUsesTheStdioDispatcherAndSettingsApplicationPath() throws Exception {
+        HeadlessRuntimeOptions options = testOptions();
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler((runtimeEvents, approvals) ->
+                io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeSession.production(
+                        ignored -> ModelTurn.text("unused"), runtimeEvents, options, approvals))) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+
+            assertPermissionsQuery(handler, codec, events, sessionId, 2, "select-plan",
+                    "{\"selection\":\"PLAN\"}", "PLAN", "USER", "PLAN");
+            assertPermissionsQuery(handler, codec, events, sessionId, 4, "select-ask",
+                    "{\"selection\":\"ASK\"}", "DEFAULT", "USER", "ASK");
+            assertPermissionsQuery(handler, codec, events, sessionId, 6, "select-auto",
+                    "{\"selection\":\"AUTO\"}", "DEFAULT", "AUTO_REVIEW", "AUTO");
+            assertPermissionsQuery(handler, codec, events, sessionId, 8, "legacy-mode",
+                    "{\"mode\":\"ACCEPT_EDITS\"}", "ACCEPT_EDITS", "USER", "ADVANCED");
+        }
+    }
+
+    @Test
     void sessionCommandEmitsOnePrivacySafeTerminalForDuplicateCommandId() throws Exception {
         StdioProtocolCodec codec = new StdioProtocolCodec();
         CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
@@ -1233,6 +1259,35 @@ class RuntimeStdioCommandHandlerTest {
                 .formatted(requestId, sessionId, sequence, commandId, intent, arguments);
     }
 
+    private static void assertPermissionsQuery(
+            RuntimeStdioCommandHandler handler,
+            StdioProtocolCodec codec,
+            List<CapturedEvent> events,
+            String sessionId,
+            long sequence,
+            String commandId,
+            String arguments,
+            String expectedMode,
+            String expectedReviewer,
+            String expectedSelection) throws Exception {
+        handler.handle(codec.decodeCommand(sessionCommand(
+                commandId + "-request", sessionId, sequence, commandId, "permissions", arguments)),
+                (type, requestId, eventSessionId, runId, payload) ->
+                        events.add(new CapturedEvent(type, eventSessionId, runId, payload.deepCopy())));
+        String queryId = commandId + "-query";
+        handler.handle(codec.decodeCommand(sessionCommand(
+                queryId + "-request", sessionId, sequence + 1, queryId, "permissions", "{}")),
+                (type, requestId, eventSessionId, runId, payload) ->
+                        events.add(new CapturedEvent(type, eventSessionId, runId, payload.deepCopy())));
+        CapturedEvent query = events.stream()
+                .filter(event -> event.type().equals("session.command.result"))
+                .filter(event -> event.payload().get("commandId").stringValue().equals(queryId))
+                .findFirst().orElseThrow();
+        assertThat(query.payload().at("/result/effectiveMode").stringValue()).isEqualTo(expectedMode);
+        assertThat(query.payload().at("/result/effectiveReviewer").stringValue()).isEqualTo(expectedReviewer);
+        assertThat(query.payload().at("/result/effectiveSelection").stringValue()).isEqualTo(expectedSelection);
+    }
+
     @Test
     void emptyProviderProfilesProduceImmediateStdioTerminalWithSafeConfigurationSummary() throws Exception {
         Path home = Files.createDirectory(temporaryRoot.resolve("empty-provider-home"));
@@ -1349,22 +1404,34 @@ class RuntimeStdioCommandHandlerTest {
             handler.handle(codec.decodeCommand(
                     "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\","
                             + "\"sequence\":1,\"payload\":{}}"), emitter);
+            assertThat(events.getFirst().payload().get("modelConfigured").booleanValue()).isFalse();
             String sessionId = events.getFirst().sessionId().orElseThrow();
             handler.handle(codec.decodeCommand(providerControl(sessionId, 2, "provider-add", "providers.add",
                     "{\"providerId\":\"team\",\"displayName\":\"Team Gateway\","
                             + "\"baseUrl\":\"https://gateway.example/v1\",\"modelId\":\"model-x\"}")), emitter);
             handler.handle(codec.decodeCommand(providerControl(sessionId, 3, "models", "models.list",
                     "{\"providerId\":\"team\"}")), emitter);
+            handler.handle(codec.decodeCommand(providerControl(sessionId, 4, "quick", "providers.configure",
+                    "{\"baseUrl\":\"https://codej.example/v1\",\"modelId\":\"codej-model\"}")), emitter);
 
             assertThat(service.listModels(Optional.of("team"), io.github.liumaishenjian.ccjava.core.CancellationToken.none()))
                     .extracting(io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService
                             .ModelSummary::modelId).containsExactly("model-x");
+            assertThat(service.listModels(Optional.of("codej-custom"),
+                    io.github.liumaishenjian.ccjava.core.CancellationToken.none()))
+                    .extracting(io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService
+                            .ModelSummary::modelId).containsExactly("codej-model");
             CapturedEvent added = events.stream().filter(event -> event.type().equals("provider.control.result")
                     && event.payload().get("intent").stringValue().equals("providers.add")).findFirst().orElseThrow();
             assertThat(added.payload().get("result").properties().stream()
                     .map(java.util.Map.Entry::getKey).toList())
                     .containsExactlyInAnyOrder("providerId", "displayName", "modelId");
             assertThat(added.payload().toString()).doesNotContain("gateway.example");
+            CapturedEvent configured = events.stream().filter(event -> event.type().equals("provider.control.result")
+                    && event.payload().get("intent").stringValue().equals("providers.configure"))
+                    .findFirst().orElseThrow();
+            assertThat(configured.payload().toString()).contains("codej-custom", "codej-model")
+                    .doesNotContain("codej.example");
             assertThat(Files.exists(home.resolve(".cc-java/providers.v1.json"))).isTrue();
         }
     }

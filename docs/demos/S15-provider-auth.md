@@ -52,19 +52,22 @@ codej auth logout --provider anthropic --profile s15-demo --yes
 
 ## TUI 流程
 
-启动 TUI 后，普通用户输入 `/connect`：
+首次启动 TUI 且没有可用默认模型时会自动进入配置；已有配置时可输入 `/connect` 重新打开：
 
 ```text
-连接模型服务
-→ 选择 Anthropic 或 OpenRouter
-→ 选择“粘贴 API Key（推荐）”或“使用环境变量（高级）”
-→ 登录成功后选择模型
-→ 看到“已连接 / 已选择 / 可以开始对话”
+配置 CodeJ 模型
+→ 输入 OpenAI-compatible HTTPS API Base URL
+→ 输入模型名称
+→ 在紧凑配置页粘贴 API Key，立即看到脱敏预览，例如 sk-••••a9K2
+→ Enter 后通过一次性 Java stdin 保存
+→ 看到“模型配置完成”并开始使用
 ```
 
-API Key 由一次性 Java masked Console 读取，Ink/Node 不接触 secret；ENV 页面只输入变量名称。已连接 Provider
-再次进入会看到“选择模型 / 更新凭证 / 退出登录（高级）”，logout 必须二次确认。自定义 OpenAI-compatible
-服务在“添加自定义服务（高级）”中依次输入名称、稳定 ID、HTTPS Base URL、模型并确认；保存中会显示“正在保存，请稍候”，Enter/Esc 不会离开或重复提交。保存成功后立即进入相同的 masked API Key/ENV、credential 刷新、模型选择与完成页。重新打开 `/connect` 时，已有 custom 会以“自定义 · <id>”稳定排序显示，选择它会直接进入管理或认证，不重复新增。普通向导登录与模型选择均持久设为默认，重启后仍可恢复。
+首次配置的原始 API Key 只进入 TUI 的短生命周期字节缓冲，并实时显示前三位/后四位脱敏预览；Enter 后
+通过一次性 Java stdin 保存，交接与写入缓冲随后清零，不进入 Agent stdio、Session 或日志。普通路径固定使用内部
+`codej-custom/default`，服务名称、Provider/Profile、STORE/ENV、确认页和模型二次选择都不会展示。
+`providers.configure` 只传 Base URL 与模型名，重复 `/connect` 会原位替换同一个 definition，不累积记录。
+带参数 Provider/Auth/Models 命令继续作为高级/脚本接口，logout 仍需明确确认。
 
 以下带参数命令继续作为高级/脚本接口：
 

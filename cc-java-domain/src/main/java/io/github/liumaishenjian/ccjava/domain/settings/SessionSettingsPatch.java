@@ -1,17 +1,19 @@
 package io.github.liumaishenjian.ccjava.domain.settings;
 
 import io.github.liumaishenjian.ccjava.domain.PermissionMode;
+import io.github.liumaishenjian.ccjava.domain.PermissionSelection;
 import java.util.Objects;
 
 /**
  * 当前 Session 内存 Settings overlay 的受限标量更新。
  *
- * <p>该补丁只能变更模型或权限默认模式；它不能携带规则、selector、ToolSource、grant、
- * 文件路径或任何持久化意图。Application 层必须以当前 overlay 为基底复制其余字段后再发布。</p>
+ * <p>该补丁只能变更模型、权限默认模式或封闭 Permission 选择；它不能携带规则、selector、
+ * ToolSource、grant、文件路径或任何持久化意图。Application 层必须以当前 overlay 为基底复制其余字段后再发布。</p>
  *
  * @since 0.8.0
  */
-public sealed interface SessionSettingsPatch permits SessionSettingsPatch.ModelName, SessionSettingsPatch.PermissionModeChange {
+public sealed interface SessionSettingsPatch permits SessionSettingsPatch.ModelName, SessionSettingsPatch.PermissionModeChange,
+        SessionSettingsPatch.PermissionSelectionChange {
     /**
      * 仅替换下一 Run 的模型名称。
      *
@@ -35,6 +37,8 @@ public sealed interface SessionSettingsPatch permits SessionSettingsPatch.ModelN
     /**
      * 仅替换下一 Run 的 PermissionMode 默认值。
      *
+     * <p>应用此变更时必须将 reviewer 重置为 {@code USER}，避免旧的自动审查状态跨 mode 变更保留。</p>
+     *
      * @param value 已封闭的 S05 默认权限模式
      */
     record PermissionModeChange(PermissionMode value) implements SessionSettingsPatch {
@@ -44,5 +48,19 @@ public sealed interface SessionSettingsPatch permits SessionSettingsPatch.ModelN
          * @param value 已封闭的 S05 默认权限模式
          */
         public PermissionModeChange { value = Objects.requireNonNull(value, "value 不能为空"); }
+    }
+
+    /**
+     * 原子替换下一 Run 的 PermissionMode 与 reviewer 组合。
+     *
+     * @param value 面向 Surface 的封闭 Permission 选择
+     */
+    record PermissionSelectionChange(PermissionSelection value) implements SessionSettingsPatch {
+        /**
+         * 验证封闭 Permission 选择。
+         *
+         * @param value 映射到既有 mode 与 reviewer 的选择
+         */
+        public PermissionSelectionChange { value = Objects.requireNonNull(value, "value 不能为空"); }
     }
 }

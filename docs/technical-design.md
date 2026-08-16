@@ -2,7 +2,7 @@
 
 > 文档状态：Proposed v0.10
 >
-> 最后更新：2026-08-14
+> 最后更新：2026-08-17
 >
 > 对应需求：[产品需求文档](./product-requirements.md)
 >
@@ -11,7 +11,7 @@
 > `CLI-13`/`CTX-19` 补充切片已在实现 Commit `5910a8f` 上完成 Commit-scoped G0-G6；S09 已完成
 > Settings/Trust、Command/loopback HTTP、Compact、Context Projection 与生产装配并 Accepted；S10 MCP
 > Tool 主链已完成两个 Transport、多 Server、统一 Permission、Trust 与恢复并通过真实 E2E，Accepted；
-> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6；`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6；冻结的 L2/L1 目标与 Stage Exit Accepted。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted：ExecutionBackend/五维 policy、WSL2+bwrap Linux A、Docker B、Windows process/env B（file/network U）、攻击验证、Command Hook/MCP stdio managed seam 与 root/child execution composition 均已固定。S14 已在实现 Commit `dff814c1bb5a659979e007061e6d10a0a9ff6e82` 上完成 Commit-scoped G0-G6，Stage Exit Accepted with documented deviations；`PERM-05` 保持 L0，`CFG-07/HOOK-10` 保持 L1，`SEC-11` 保持 L0，外部条件不足项不计 L3。
+> S11 Skills + Plugins 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6；`SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2，`PLUGIN-04` 为 L1，Stage Exit Accepted。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6；冻结的 L2/L1 目标与 Stage Exit Accepted。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit Accepted：ExecutionBackend/五维 policy、WSL2+bwrap Linux A、Docker B、Windows process/env B（file/network U）、攻击验证、Command Hook/MCP stdio managed seam 与 root/child execution composition 均已固定。S14 已在实现 Commit `dff814c1bb5a659979e007061e6d10a0a9ff6e82` 上完成 Commit-scoped G0-G6，Stage Exit Accepted with documented deviations。S15 的 `PERM-05` 已完成 Headless、stdio 与 React/Ink 三选 picker 的受限生产接线和离线 Fake/E2E，达到 L1；真实 Provider Eval 未完成。`CFG-07/HOOK-10` 保持 L1，`SEC-11` 保持 L0，外部条件不足项不计 L3。
 >
 > 当前实现状态：ADR-042/043/044 已固定并验证 Context Projection、条件式 Reduction、文件记忆和零等待
 > 预取的独立契约；C1-C4 Runtime Projection、typed overflow、Provider Adapter、显式启动容量的 Headless
@@ -625,7 +625,7 @@ Hard Denial
 → Explicit ALLOW Rule（含 Session Grant）
 → ACCEPT_EDITS / Mode Default
 → Tool Effect Default
-→ User Approval
+→ final ASK：User Approval 或 AUTO_REVIEW
 ```
 
 越靠前优先级越高。Prompt、项目指令、Tool 参数和 Tool 来源不能改变此顺序。S05 规则
@@ -686,8 +686,21 @@ S05 的 Print 模式没有交互终端，遇到 `ASK` 时返回拒绝结果；�
 预授权仍须经过 Hard Denial、参数校验和结果规范化。
 
 同一 Session 对相同 selector 的连续拒绝由 Core 计数：第三次及以后固定 Deny，不再反复
-弹出相同审批；新 selector 仍独立评估。该阈值是本项目可测试的 S05 决策，持久恢复和
-自动分类留到 S06/S14。
+弹出相同审批；新 selector 仍独立评估。该阈值是本项目可测试的 S05 决策。
+
+S15 的 `AUTO_REVIEW` 仅替换 Hook 后仍为 `ASK` 的最后收敛者：Headless Scope 将当前已绑定的
+`ModelGateway` 包装为 `ModelGatewayApprovalReviewGateway`，向空 Tool 定义的模型回合投递
+`ApprovalReviewRequest` 白名单 envelope。Adapter 只接受精确 `{"verdict":"ALLOW_ONCE"}` 或
+`{"verdict":"DENY"}`；Tool Call、附加文本、解析/Provider/timeout/内部失败均 fail closed，取消
+传播给当前 Run。每 Run 独占的三次连续 non-allow circuit 在第三次后停止 Run，且 `ALLOW_ONCE`
+只允许当前 Call，不创建 Session Grant。该离线 Fake 验证的生产接线为 `PERM-05` L1；真实 Provider
+安全性、延迟、成本与 A/B Eval 仍未验证。
+
+选择平面与执行平面保持正交：stdio v0 的 `selection=PLAN|ASK|AUTO` 分别映射到
+`PLAN+USER`、`DEFAULT+USER`、`DEFAULT+AUTO_REVIEW`，查询严格返回 mode/reviewer/selection。
+React/Ink 的裸 `/permissions` 只打开本地三项 picker，默认停在 `Ask for approval`，Enter 只发送
+一次封闭 selection，Esc 不发送；旧 `mode ACCEPT_EDITS` 仅保留协议兼容并投影为 `ADVANCED`。
+设置事务只有在新 Runtime Scope 成功替换后才提交 overlay，失败继续使用旧配置。
 
 ### 13.4 Permission 不等于 Sandbox
 
@@ -1394,7 +1407,7 @@ Desktop rg。解析成功后只把绝对目录补入本次进程树 PATH，不�
 
 `cc-java-tools-web` 是只依赖 Domain/Core、JDK 21 HTTP 与仓库既有 Jackson 3 的边缘模块。Headless production composition 仅在环境或 Git ignored provider local 配置显式 `enabled=true` 且选择 `exa|parallel` 时注册 `web_search`；默认关闭。Provider gate 固定 hosted MCP URI 与远端 Tool，模型 schema 只有 query 和 result limit，endpoint、Header、credential、remote Tool、method 与 fetch URL 均不进入 Tool 参数。
 
-可信 Definition 固定为 `ToolSource.BUILT_IN + NETWORK_OR_REMOTE`，先经过唯一 Pipeline 的 validate、Hook、Permission/Approval、durable started/completed 与结果裁剪；只有 allow 后，JDK Adapter 才以 `NetworkPurpose.WEB_SEARCH` 对不含 credential 的固定 scheme/host/effective port 逐次调用 `NetworkAccessPort` 并对账 request。Exa 无 key 使用固定 path，有 key 时仅由 Adapter 将 UTF-8 key 精确百分号编码为单一 `exaApiKey` query；Parallel 才使用 Bearer Header，模型不能控制两者。stdio 审批只展示 tool/effect 与 `Preview.unavailable`，不展示 query。HttpClient 使用 Redirect.NEVER，以 JSON-RPC 2.0 `tools/call` POST，只接受 `application/json` 与 `text/event-stream`（兼容 media type 参数）；未知或缺失 Content-Type 不回退 JSON。Client 从 `search` 入口以 monotonic clock 建立默认 10 秒、配置最大 30 秒的单一 wall deadline，下游仅消费 remaining duration；可关闭的虚拟线程 operation 覆盖 NetworkAccess、headers、完整有界 body 与 JSON/SSE 解析。timeout/cancel first-wins 地取消 HTTP future、关闭 active InputStream 并中断 operation，Client close `shutdownNow`，无永久 scheduler。3xx/429/4xx/5xx、unsupported media type、protocol error、malformed/duplicate/no-result/oversized、timeout/cancel 均映射为隐私安全 typed failure。
+可信 Definition 固定为 `ToolSource.BUILT_IN + NETWORK_OR_REMOTE`，先经过唯一 Pipeline 的 validate、Hook、Permission/Approval、durable started/completed 与结果裁剪；只有 allow 后，JDK Adapter 才以 `NetworkPurpose.WEB_SEARCH` 对不含 credential 的固定 scheme/host/effective port 逐次调用 `NetworkAccessPort` 并对账 request。Exa 无 key 使用固定 path，有 key 时仅由 Adapter 将 UTF-8 key 精确百分号编码为单一 `exaApiKey` query；Parallel 才使用 Bearer Header，模型不能控制两者。交互式 stdio/TUI 审批展示固定 `network_or_remote` Effect、`configured_web_search_provider` 目的类型与最多 512 code point、无控制字符的实际 query；不暴露真实 endpoint、Header、credential 或任意 Tool 参数。生产 TUI 通过 `RuntimeApplicationFactory` 在审批协调器就绪后装配 Session，保证 Runtime 使用的正是当前连接的 ApprovalHandler；批准前不得产生 HTTP hit。HttpClient 使用 Redirect.NEVER，以 JSON-RPC 2.0 `tools/call` POST，只接受 `application/json` 与 `text/event-stream`（兼容 media type 参数）；未知或缺失 Content-Type 不回退 JSON。Client 从 `search` 入口以 monotonic clock 建立默认 10 秒、配置最大 30 秒的单一 wall deadline，下游仅消费 remaining duration；可关闭的虚拟线程 operation 覆盖 NetworkAccess、headers、完整有界 body 与 JSON/SSE 解析。timeout/cancel first-wins 地取消 HTTP future、关闭 active InputStream 并中断 operation，Client close `shutdownNow`，无永久 scheduler。3xx/429/4xx/5xx、unsupported media type、protocol error、malformed/duplicate/no-result/oversized、timeout/cancel 均映射为隐私安全 typed failure。
 
 Hosted MCP textual content 保持自由文本事实形状，不伪造逐条 URL；输出声明 external provenance、untrusted、contentFetched=false 与固定 provider host，Adapter 从不连接引用 URL。响应 512 KiB、SSE 2,048 行、content 32 项、external context 48K 与 ToolResult 64K 各有 ceiling；外部 control/ESC 清洗，query、credential、endpoint、Header、raw body 与底层异常不进入普通事件、日志或错误。生产 HTTPS；loopback HTTP 仅显式测试 seam。系统指令只要求实时事实在 Tool 可用时搜索，Session runtime metadata 提供本机当前日期，避免训练知识或旧日期 query；不硬编码天气地点。该 `NetworkAccessPort` 不是 OS Sandbox，也不能证明任意 JVM socket、DNS rebinding 或 native Windows egress 受内核强制。研究、契约和证据见 ADR-067/068 与 S15 Demo。
 
@@ -1406,7 +1419,24 @@ ADR-069/070 定义的 `MODEL-13` 已在当前工作树完成生产接入并达�
 
 用户 store 固定在 `~/.cc-java/providers.v1.json` 与 `~/.cc-java/auth/{profiles.v1.json,secrets/*,.lock,.txn.v1.json}`；它只是权限受限普通文件，不称 OS vault。Windows 的 `user.home` owner 可能是 `SYSTEM`，因此 `expectedOwner` 必须由当前 `user.name` 经目标文件系统 `UserPrincipalLookupService` 解析，并以 `UserPrincipal.equals`（Windows 对应 SID 身份）验证，禁止使用 home owner 或字符串猜测。`.cc-java` 同时承载 Session、Settings 等共享能力，因此共享根只验证 path/identity/link/reparse 及可证明的当前用户访问边界，不要求 owner-only；既有根上的额外只读 principal 不阻断，Provider/Auth 也绝不自动修改真实用户根 ACL。owner-only 边界从 `auth` 和实际文件开始：`auth` 及所有 credential/file/temp/lock/txn、实际 `providers.v1.json` 文件都要求 owner-only，多余 principal 继续 fail closed。严格 UTF-8/schema/duplicate/unknown/size ceiling、NOFOLLOW、Symlink/Junction/reparse/hardlink与 identity复核、Unix 0700/0600、Windows DACL证明、同目录 force+重读+atomic move、exclusive lock、generation/transaction crash recovery均 fail closed。secret仅进入可清零 edge holder和Gateway lease，不进 Domain/Session/log/event/error/argv/evidence。
 
-profile优先级固定显式→default→env→legacy，已配置层失效不回退。`/connect`、`/auth list/logout`、`/models` 与 headless `auth/providers/models` 已经由 CLI/TUI/stdio 共用 Application Service；masked Console `/connect` 不回显 secret，list/status/models零网络。无参数 `/connect` 进入有界 `ConnectWizardState`：首屏固定先显示 Anthropic、OpenRouter，再从安全 models/profiles 投影导出最多 32 个 custom providerId，去重后按 code point 稳定排序显示“自定义 · <id>”及已连接/当前使用状态，最后一项固定为“添加自定义服务（高级）”；方向键计数与 Enter 路由共用同一纯 helper，避免 renderer/reducer 分叉；未连接内置 Provider 依次执行认证方式、Java masked Console 或 ENV 名称、credential 刷新、模型选择与完成页，普通路径固定使用合法 `default` profile。已连接入口提供模型选择、更新凭证和带二次确认的本地 logout。带参数 `/connect`、`/auth`、`/models` 继续作为高级/脚本接口。自定义服务在主动进入高级项后使用名称→稳定 ID→HTTPS Base URL→模型→确认的有界文本状态机；严格 `provider.control/providers.add` 只允许这四个非秘密字段，Java 应用服务固定 compatible/chat-completions、空 Header 与保守 timeout，并复用 `ProviderDefinition`、store generation CAS、重复和 restricted-file 安全校验。成功结果只投影 providerId/displayName/modelId，TUI 标记 provider 已保存、合并该模型后直接进入 default profile 的认证方式；此后从认证页 Esc 只能返回 picker，不能回到确认页重放 add。`saving-provider` 是不可导航的 side-effect in-flight 状态，Enter/Esc 均为显示“正在保存，请稍候”的 no-op，只有精确 control result 能推进；失败才返回确认页修改。普通向导登录显式 `setDefault:true`，登录桥仅在该严格 boolean 为 true 时追加 `--set-default`，省略值的旧带参数接口保持非默认兼容语义；向导 `models.use` 也必须发送 `setDefault:true`，使 profile/provider/model 在 store 重开后可恢复。正式 `provider.control` 对 `models.add/remove/use` 使用 exact result schema：add/use 必须含 boolean `setDefault`，remove 含 providerId/modelId；真实 StdioClient/fake stdio child 负责验证三类 Java 结果不会触发 ProtocolViolation。失败返回确认页继续修改。TUI transport failure 是保留的可见终态，不得被后续一般 `closed` 覆盖或触发自动退出；只展示隐私安全摘要并等待用户按 `Ctrl+C` 退出，绝不展示 Java stderr 正文。probe由用户显式触发，逐次通过 `NetworkPurpose.PROVIDER_AUTH_PROBE`/`NetworkAccessPort`，single attempt、redirect NEVER、默认5秒/最大30秒总 deadline、64 KiB body且可取消。logout先把 profile fence为 REVOKING、拒绝新 lease、取消并 drain 同进程 active runs、清 cache/secret holder，再事务删除本地 secret；无法收敛不得假报成功，并始终提示不等于 Provider revoke。
+profile优先级固定显式→default→env→legacy，已配置层失效不回退。带参数 `/connect`、
+`/auth`、`/models` 与 headless `auth/providers/models` 继续由 CLI/TUI/stdio 共用 Application Service，
+作为高级/脚本兼容接口。普通 TUI 首次连接不再暴露该内部模型：production stdio 的
+`initialized.modelConfigured` 只在持久默认 Provider/model 与同 Provider 默认 credential 均可用时为 true；
+false 时 TUI 自动打开 `ModelSetupState`，先收集 OpenAI-compatible HTTPS Base URL 与模型名，再在同一
+紧凑页面接收 API Key 并实时显示前三位/后四位的脱敏预览。原始字节不进入 React state；Enter 后只通过
+一次性 Java `auth login --api-key-stdin` 子进程保存并清零缓冲。配置期间不显示 transcript/composer 大边框；已配置用户直接进入 Composer，后续 `/connect` 复用同一表单。
+
+普通路径内部固定 `codej-custom/default` 与 `CodeJ Custom`，严格
+`provider.control/providers.configure` 只允许 `baseUrl/modelId` 两个非秘密字段；Java 固定 compatible
+Chat Completions variant、空 Header 与保守 timeout，以 generation CAS 幂等新增或替换同一 definition，
+并用新模型重建持久默认选择。重复配置不累积 Provider，结果只投影
+`providerId/displayName/modelId`，Base URL 与 API Key 均不回传。Provider picker、Anthropic/OpenRouter、
+服务名称、稳定 ID、Profile、STORE/ENV、确认页、credential 刷新和模型二次选择均不再出现在普通叙事。
+首次配置的原始 API Key 只短暂存在于 TUI 字节缓冲、一次性 Java stdin 与受限 credential store；不进入
+React state、Agent stdio、argv、Session、日志或错误。Ink 实时只渲染前三位、固定上限圆点和后四位；
+交接后调用方缓冲清零，stdin flush 后写入缓冲清零，任何摘要均不持久化。带参数 STORE 登录继续使用 Java masked Console。
+首次必填表单不能用 Esc 绕过；带参数 Provider/Auth/Models 能力和 logout fence 保持兼容。
 
 legacy properties继续最低优先级可读；`auth migrate-legacy`只显式 copy、验证新 store，旧文件 bytes永不自动修改。完整字段、CLI语法、TUI状态机、错误/事件、测试清单、E2E阈值和 Batch A-C见 ADR-070。实现 Commit `f0e274f` 后的未提交工作树回归修复已完成 restricted store、共享 service、CLI/TUI/stdio、masked Console `/connect`、三类 Spring AI factory 与 Run scope、probe、logout lease fence/drain 和 strict `modelOverrides` 的最终对账：真实安装版共享根 `providers/auth/models` exit 0 且根 ACL 不变、auth protected 仅 owner；production stdio initialize/shutdown exit 0 且 stderr 0；临时 home ENV/STORE 全生命周期全部 exit 0、metadata secret 0、logout residue 0；全部 Provider 子命令 help exit 0；本轮 correctness closeout 聚焦 Java 53/53、非 clean Maven verify 1028 tests/13 skips/0 failures/errors（171 个 Surefire XML 独立汇总）、strict aggregate Javadoc 0 warning、完整 TUI 11 files/194 tests；clean verify 因用户现有 codej PID 17212 锁定 domain JAR 在 clean 阶段失败，未终止该进程，因此不宣称 clean 全量通过。模型 deadline/cancel 可中断 Publisher 创建前阻塞并 dispose 永不终止的 Publisher；Print/TUI transport 已收敛到唯一终态并加入非交互 watchdog。真正空 home/profiles 的 production stdio 在 1 秒内形成唯一 `configuration_required`，Print 给出 `/connect` 或 `codej auth login` 指引；`provider_error` 保持独立的服务调用故障提示。本机真实入口存在 ignored legacy Provider 配置，故 `codej --print "只回复OK" --timeout 2s` 约 9324ms 后 exit 1、恰好一次 `cc-java: run timed out`、新增 Java/Node residue 0，只是 deadline + Surface grace + shutdown 收敛证据，不是空配置证据；TUI failure 保留行为不变。由于至少两个 distinct provider 的真实 BYOK E2E 与 remote model sync 仍缺失，`MODEL-13` 不得提升到 L2；Capability Level 无变化，S15 G6 与 Stage Exit 保持 OPEN。
 
@@ -1443,8 +1473,9 @@ DEFAULT 中 Read=Allow、Workspace Write/Process=Ask、Network/System=Deny；PLA
 隐式放行。
 
 stdio v0 增加 `approval.requested` Event 与 `approval.resolve` Command。事件只暴露
-随机 `approvalId`、Tool 序号、Tool 名称和固定 Effect，不序列化原始参数。React/Ink
-只渲染请求并把 Y/N 映射为 `allow_once/deny`；Java 仍是最终权限和 Tool 执行权威。
+随机 `approvalId`、Tool 序号、Tool 名称、固定 Effect 和副作用类型专用的有界安全预览；
+文件、命令与受控网络查询预览不能混用。React/Ink 只渲染请求并把 Y/A/N 映射为
+`allow_once/allow_session/deny`；Java 仍是最终权限和 Tool 执行权威。
 Run 取消、shutdown、EOF 或 Handler close 都会按 Deny 释放等待者，过期或不匹配 ID
 不能批准其他调用。首个 Fake Write Tool 不访问文件系统，只用于证明未批准不执行、
 Allow Once 只执行当前调用。真实 Patch/Write 由 19.8 节加入；Command 预览和执行仍在
@@ -1523,7 +1554,7 @@ S08 G0 已由 ADR-045 完成授权机制研究，G1 已由 ADR-046 冻结逐字�
 scalar/object/list/delete 语义、Instructions 发现/范围/不支持 import、Slash/doctor 最小语义与可证伪实验；G2 已由
 ADR-047 冻结 Domain/Core/Application/Adapter 的有效配置、provenance、诊断、Command Intent/Event、严格 duplicate-key
 parser、last-known-good 刷新和 G3/G4 切片。Workspace 内 Instructions 继续由 `WorkspaceGuard` 验证；位于 Workspace
-外的固定 user Instructions root 必须由独立 user-root guard 验证，绝不将其误用为 WorkspaceGuard 输入。G3-C/D 的受限实现使用 sealed Session patch 从当前内存 overlay 复制所有非目标字段，经 `SettingsResolver`、`RuntimeSettingsApplier`、LKG CAS 与 RuntimeScope 原子替换后才提交；取消、active、无效模型/mode、CAS 或 Scope/internal 失败均保留旧 overlay/LKG/scope。`/model` 仅接受启动时配置的单一模型名，Provider discovery/多模型注册延期；`/permissions` 只接受 `DEFAULT`、`PLAN`、`ACCEPT_EDITS`，query 返回当前 Runtime mode 与仅 Settings-derived STARTUP rules 的无 selector provenance，并在无 LKG 时返回 `BASELINE/runtime-baseline`。显式 `/compact` 先执行 C1/C2，并且即使预算已满足仍可在既有 C3/C4 Gate 下尝试摘要；成功候选仅在 Canonical 前缀未变化时一次性安装给下一 Run 的首个模型请求，绝不覆盖整个 Run 或改变自动 S07 reduction。`/context` 只投影 latest `ContextUsageView` 的数值/枚举白名单，不可用时返回固定 code。React/Ink 输入 `/` 即展示固定命令面板，方向键选择且由 Tab/Enter 补全；help/context/doctor/permissions 的成功结果只按已验证白名单字段和本地固定标签渲染。这些路径不触发 fixed-source refresh/discovery、文件 I/O、Provider/Tool、JSONL 或 Checkpoint 写入；不得让项目文本、Settings 或 Slash Command 绕过 S05 Permission Pipeline、S06 Recovery Gate、WorkspaceGuard、独立 user-root guard 或 Hard Denial。G3-E 的多行/历史/补全/steering 已按 8,192/100/32/100 的固定上限实现；规则编辑与 Provider discovery/多模型注册继续延期。
+外的固定 user Instructions root 必须由独立 user-root guard 验证，绝不将其误用为 WorkspaceGuard 输入。G3-C/D 的受限实现使用 sealed Session patch 从当前内存 overlay 复制所有非目标字段，经 `SettingsResolver`、`RuntimeSettingsApplier`、LKG CAS 与 RuntimeScope 原子替换后才提交；取消、active、无效模型/mode/selection、CAS 或 Scope/internal 失败均保留旧 overlay/LKG/scope。`/model` 仅接受启动时配置的单一模型名，Provider discovery/多模型注册延期；`/permissions query` 返回当前 Runtime mode/reviewer/selection 与仅 Settings-derived STARTUP rules 的无 selector provenance，并在无 LKG 时返回 `BASELINE/runtime-baseline`。裸 `/permissions` 由 React/Ink 打开三项 picker；stdio 接受封闭 `selection=PLAN|ASK|AUTO`，旧 `mode DEFAULT|PLAN|ACCEPT_EDITS` 继续兼容。显式 `/compact` 先执行 C1/C2，并且即使预算已满足仍可在既有 C3/C4 Gate 下尝试摘要；成功候选仅在 Canonical 前缀未变化时一次性安装给下一 Run 的首个模型请求，绝不覆盖整个 Run 或改变自动 S07 reduction。`/context` 只投影 latest `ContextUsageView` 的数值/枚举白名单，不可用时返回固定 code。React/Ink 输入 `/` 即展示固定命令面板，方向键选择且由 Tab/Enter 补全；help/context/doctor/permissions 的成功结果只按已验证白名单字段和本地固定标签渲染。这些路径不触发 fixed-source refresh/discovery、文件 I/O、JSONL 或 Checkpoint 写入；只有 `AUTO` 的下一 Run 可在既有 Permission/Hook 之后调用无 Tool reviewer，且不得绕过 S05 Permission Pipeline、S06 Recovery Gate、WorkspaceGuard、独立 user-root guard 或 Hard Denial。G3-E 的多行/历史/补全/steering 已按 8,192/100/32/100 的固定上限实现；规则编辑与 Provider discovery/多模型注册继续延期。
 
 ## 21. Trust Boundary 与安全
 

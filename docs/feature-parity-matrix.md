@@ -4,7 +4,7 @@
 >
 > 参考版本：R2026.03
 >
-> 最后更新：2026-08-14
+> 最后更新：2026-08-17
 >
 > 当前代码状态：S01-S07 已 Accepted；S07 的 Canonical Transcript/Projection、条件式 C1-C4、文件记忆
 > M1-M5、ready-only 零等待预取、内部 Usage View 与 latest-only Recovery Analytics 已在离线 Fake、Demo、
@@ -17,7 +17,7 @@
 > filter/prefix、Permission、Trust 与单次断线恢复的 Tool 主链并通过真实 Transport/Headless E2E，
 > G0-G6 Accepted；`MCP-01`～`07` 为 L2，`MCP-09`～`11` 为 L1，`MCP-08` 仍为 L0；
 > rules 编辑、Provider discovery/多模型注册、S13 尚未覆盖的 JVM 内 HTTP 强制网络边界、native Windows file/network、Auto 与供应链安全仍有差距。S11 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、Demo 与能力对账均通过，Stage Exit Accepted；
-> `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2、`PLUGIN-04` 为 L1。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit；`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit，状态为 Accepted；S14 已在实现 Commit `dff814c1bb5a659979e007061e6d10a0a9ff6e82` 上完成 Commit-scoped G0-G6，Stage Exit 为 Accepted with documented deviations。当前 `SEC-02/03/04/05/06/07/12`、`EVAL-04` 为 L2，`SEC-08/CFG-07/HOOK-10` 为 L1，`PERM-05/SEC-11` 保持 L0；S14 退出不整体提升 Capability 等级。
+> `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2、`PLUGIN-04` 为 L1。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit；`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit，状态为 Accepted；S14 已在实现 Commit `dff814c1bb5a659979e007061e6d10a0a9ff6e82` 上完成 Commit-scoped G0-G6，Stage Exit 为 Accepted with documented deviations。S15 新增 `PERM-05` 的 Headless/stdio/TUI 受限自动复核生产接线：三项 selection、有界请求、空 Tool 模型回合、严格 once/deny、失败关闭与 picker E2E 已由离线 Fake 覆盖，达到 L1；真实 Provider 的误放行率、语义上下文质量、延迟、成本与 A/B Eval 尚未完成。当前 `SEC-02/03/04/05/06/07/12`、`EVAL-04` 为 L2，`SEC-08/CFG-07/HOOK-10/PERM-05` 为 L1，`SEC-11` 保持 L0；S14 退出不整体提升 Capability 等级。
 
 ## 1. 文档目的
 
@@ -167,10 +167,10 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | 纳入追踪的 Capability ID | 198 |
 | 当前阶段 | S15 Independent Innovation `IN_PROGRESS`（实现 Commit `f0e274f779143164e0859961437a53acd220e7bd` 完整包含 TOOL-18 L2 与 MODEL-13 L1） |
 | Stage Exit | S01-S14 Accepted；TOOL-18 与 MODEL-13 实现切片已完成 Commit-scoped G6 对账，S15 整体仍 `OPEN`，不得由两项切片进展推断 Stage Accepted |
-| 当前等级 | 151 项为 L2，38 项为 L1，9 项为 L0 |
+| 当前等级 | 151 项为 L2，39 项为 L1，8 项为 L0 |
 | 默认最终目标 | 198 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 57.24%（198 项加权、按各 Feature 目标等级计算；MODEL-13 从 L0 提升至 L1，使总权重增加 1/594） |
-| 下一步 | MODEL-13 L1 实现切片已在 Commit `f0e274f779143164e0859961437a53acd220e7bd` 完成 G6；补齐至少两个 distinct Provider 的真实 BYOK text stream、Tool call、cancel 与 auth-negative 证据后，才评估 L2，并继续完成 S15 L4 创新 A/B Eval |
+| 当前能力覆盖 | 57.41%（198 项加权、按各 Feature 目标等级计算；PERM-05 从 L0 提升至 L1，使总权重增加 1/594） |
+| 下一步 | 补齐 PERM-05 真实 Provider 的对抗性误放行、语义上下文质量、延迟、成本与 A/B Eval；同时补齐至少两个 distinct Provider 的真实 BYOK text stream、Tool call、cancel 与 auth-negative 证据，并完成 S15 L4 创新评测 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
 
@@ -337,7 +337,7 @@ Stage 完成项。
 | PERM-02 | Manual / Default | 副作用默认询问 | L1 | S04 | REF-04/AUTH-01 |
 | PERM-03 | Plan Mode | S04 固定安全模式 → S05 可配置策略 | L2 | S04/S05 | REF-04/AUTH-01 |
 | PERM-04 | Accept Edits | Workspace Write 自动批准 | L2 | S05 | REF-04 |
-| PERM-05 | Auto Mode | 尚未生产接入；确定性 gate 仅为未接线设计骨架 | L0 | S13/S15 | REF-04 |
+| PERM-05 | Auto Mode | `Plan / Ask for approval / Approve for me` 三项选择经 stdio/TUI 接入；Headless 复用现有 Provider Gateway 的有界、无 Tool自动复核，严格 ALLOW_ONCE/DENY、失败关闭、Run-owned circuit 与共享取消；仍缺真实 Provider 误放行、语义质量、成本/延迟 A/B Eval | L1 | S15 | REF-04 |
 | PERM-06 | Allow / Ask / Deny | 声明性规则 | L2 | S05/S08 | REF-04 |
 | PERM-07 | Allow Once / Session | 范围化审批缓存 | L2 | S04/S05 | REF-04/AUTH-01 |
 | PERM-08 | Protected Paths | 不可写路径 | L2 | S05/S13 | REF-04 |

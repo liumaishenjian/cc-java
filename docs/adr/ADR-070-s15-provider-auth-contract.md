@@ -206,50 +206,55 @@ secretId/path/base URL/header/endpoint/raw failure。退出码：0成功、2输�
 拒绝、6 timeout/cancel、7 logout drain失败。Provider仍被 profile/default/active selection引用时 remove
 拒绝且不级联删 credential。
 
-TUI 实际交互契约（Batch B C 端向导）：
+TUI 实际交互契约（Batch B 的首次连接收敛）：
 
 ```text
+首次 codej 启动
+  → Java initialized 投影 modelConfigured
+  → false：自动打开“配置 CodeJ 模型”
+  → API Base URL → 模型名称 → Java masked Console 输入 API Key
+  → 保存 default Provider/profile/model → 完成
+  → true：直接进入 Composer
+
 /connect
-  → 同时请求 models.list 与 auth.list
-  → 连接模型服务（Anthropic / OpenRouter / 已保存 custom / 添加自定义服务（高级））
-  → 未连接：认证方式 → Java masked Console 或 ENV 名称 → credential 刷新 → 模型选择 → 完成
-  → 已连接：选择模型 / 更新凭证 / 退出登录（高级，二次确认）
-/connect <provider> <profile>
-  → IDLE→PAUSE_INK→JAVA_INHERITED_TTY→MASKED_CONSOLE→SAVED|FAILED|CANCELLED|TIMED_OUT
-  → 成功后 auth.list 刷新
-/connect <provider> <profile> env <ENV_NAME>
-  → 只把经白名单校验的变量名称交给一次性 Java；Node 不读取变量值
+  → 在空闲态打开同一个最小表单，用于重新配置
+/connect <provider> <profile> [env <ENV_NAME>]
+  → 继续保留为高级/脚本兼容接口
 ```
 
-普通向导固定使用合法 ID `default`：其含义是“当前内置 Provider 的默认个人连接”，与第 5 节既有
-`Provider default profile` 优先级和已有 `default` 合法 ID 契约一致。选择 `personal` 会把产品概念重新暴露
-给首次用户，且无法从现有本机状态确定它一定存在；因此不采用。显式 profile 仍保留在带参数 `/connect`、
-`auth` 与 `models` 高级/脚本接口中。
+普通产品路径只暴露两个非秘密字段和一次遮罩 Key 输入，不再展示 Provider picker、Anthropic/OpenRouter、
+Profile、STORE/ENV、服务名称、稳定 ID、确认页或二次模型选择。Provider ID 固定为
+`codej-custom`、profile 固定为 `default`、显示名固定为 `CodeJ Custom`，类型固定
+`OPENAI_COMPATIBLE`，API variant 固定 `OPENAI_CHAT_COMPLETIONS`，Header 为空且 timeout 使用应用层
+保守常量。显式 profile、built-in Provider、ENV、logout、probe 和 models 命令仍保留在带参数 CLI/Slash
+高级接口，不进入首次用户叙事。
 
-无参数 `/connect` 使用 TUI 本地 generation 状态机，并与独立 Provider 命令使用不相交的 controlId
-namespace。每代只保留当前 generation 的常量大小两条腿：预先分配并精确绑定一个 `models.list`
-controlId 与一个 `auth.list` controlId，任意顺序结算后聚合成同一面板；实现不保留 fenced 历史 ID Set。
-旧代 `/connect` 响应由 namespace + generation 直接丢弃；重复与迟到响应也不得改写当前面板。每条腿
-无论成功或失败都只结算一次，失败只显示固定安全错误；另一条腿继续收敛，最终不得永久显示“刷新中”。
-独立 `/auth list`、`/models list` 和登录成功后的刷新使用独立 namespace，并把 sequence + intent 精确
-绑定进 controlId；响应据此直接归属单结果展示，不进入 `/connect` 聚合，也无需 independent pending registry。
-无参数向导首屏只展示中文标题、三个 Provider 入口以及“已连接/当前使用/加载中”等消费级状态；不得展示
-Providers/Models/Credential profiles、profile/refKind/localStatus/controlId 或 CLI 参数清单。两条加载腿局部结算，
-不能覆盖用户已进入的步骤。自定义服务使用有界分步状态机收集名称、稳定 ID、HTTPS Base URL 与初始模型，
-经严格 `provider.control/providers.add` 只发送这四个非秘密字段；kind 固定为 `OPENAI_COMPATIBLE`、API variant 固定为
-`OPENAI_CHAT_COMPLETIONS`，TUI 不能提供 Header、Secret、timeout 或任意 kind。Java Handler 构造应用服务的
-`AddProviderRequest`，后者复用 `ProviderDefinition` 与 `ProviderAuthApplicationService.addProvider` 的 ID、显示名、
-HTTPS URI、模型、重复、generation CAS 和 restricted-file store 安全校验。成功结果只投影
-`providerId/displayName/modelId`，随后标记 Provider 已保存、合并模型目录并直接进入该 Provider 的认证方式；保存中的 Enter/Esc 均为带“正在保存，请稍候”提示的 no-op，只有精确结果可推进，失败才返回确认页修改。成功后从认证页 Esc 只能返回 picker，不能返回确认页重放 `providers.add`。
-Provider picker 固定先放 built-in，再从安全 models/profiles 投影中提取最多 32 个 custom ID，去重并按 code point 稳定排序，最后才放“添加自定义服务（高级）”；移动和 Enter 共用一个纯 helper。选择已有 custom 时进入 connected management 或 auth，不重复 add。
-模型目录为空时给出 `codej models add --help`，不虚构远程模型。
+`initialized.modelConfigured` 仅在持久默认 Provider/model 与同 Provider 的默认 credential 都处于
+`AVAILABLE_LOCAL` 时为 true；STORE 文件丢失、ENV 值为空或本机状态不可安全读取时均为 false。
+首次必填表单的 Esc 只能从模型字段返回 URL 字段，不能绕过配置进入可提交 Composer；用户仍可用
+Ctrl+C 退出程序。已配置用户启动时不额外发送 models/auth 聚合请求，也不出现配置面板。
+
+最小表单使用有界 `ModelSetupState`：URL 必须是不含账号、query、fragment 的 absolute HTTPS URI，
+模型名受 code point/UTF-8/control-character 上限约束。提交只发送严格的
+`provider.control/providers.configure {baseUrl,modelId}`；协议拒绝 API Key、Header、Provider ID、
+profile、timeout 与其他字段。Java 应用服务以 generation CAS 幂等新增或替换固定 definition，同时用新模型
+重建持久默认选择，因此重复 `/connect` 不累积 Provider。成功结果仍只投影
+`providerId/displayName/modelId`，不得回传 Base URL。
+
+配置态使用独立的紧凑布局，不复用聊天 transcript 与 composer 边框。首次配置的 API Key 由 Ink
+在当前页面接收为有界可打印 ASCII 字节，实时只投影前三位、最多八个圆点与后四位（例如
+`sk-••••a9K2`）；原始字节不进入 React state，而由短生命周期缓冲持有。Enter 后通过从已验证
+`ChildProcessSpec` 派生的一次性 Java `auth login --api-key-stdin` 子进程保存，调用方缓冲在交接后立即
+清零，写入缓冲在 flush 后清零。原始值不进入 Agent stdio、argv、Session、日志与错误，脱敏摘要也不持久化。
+登录固定保存 `codej-custom/default` 并设为默认；成功后不再执行 credential 刷新和模型二次选择，
+直接回到 CodeJ。带参数 `/connect` 与 `auth/models` 的旧高级行为保持兼容，但不再作为普通用户入口。
 
 一次性 Java 进程只从已验证的启动 `ChildProcessSpec` 派生：固定 executable/cwd/env/JVM 前缀、唯一
 `CcJavaCliMain`、唯一且位于末尾的 `--stdio`，派生时只保留主类及其 JVM 前缀并固定追加 `auth login`；`shell=false`、
-`stdio=inherit`。STORE 模式要求真实 TTY，Java `Console.readPassword` 遮蔽输入；Console 或
+首次配置使用独立 pipe stdin、继承 stdout，stderr 保持有界诊断；带参数 STORE 模式仍继承真实 TTY，Java `Console.readPassword` 遮蔽输入；Console 或
 `readPassword` 返回 null 时稳定返回 typed failure。TUI 暂停输入并关闭 raw mode，所有 spawn error/exit/
 timeout/cancel 竞争只能结算一次，终端也只恢复一次；timeout、cancel、TUI terminate 都终止子进程。
-Agent Run 中或已有登录时拒绝新登录。向导普通连接请求严格携带 `setDefault:true`，一次性 CLI bridge 仅在该值为 true 时追加 `--set-default`；省略该可选值的带参数旧接口继续保持其明确的非默认兼容语义。login 不自动 probe，也不得把 key 放入 JS、Agent stdio、argv 或输出。
+Agent Run 中或已有登录时拒绝新登录。向导普通连接请求严格携带 `setDefault:true`，一次性 CLI bridge 仅在该值为 true 时追加 `--set-default`；省略该可选值的带参数旧接口继续保持其明确的非默认兼容语义。login 不自动 probe；Key 不得进入 Agent stdio、argv、Session、日志或输出。
 
 stdio transport failure 必须保持为可见终态，不得随后被一般 `closed` 状态覆盖，也不得自动退出 TUI。
 界面只保留隐私安全的失败摘要并等待用户按 `Ctrl+C` 退出；Java stderr 正文、堆栈、Provider 原文与

@@ -40,5 +40,13 @@ public enum PermissionReason {
     /** Permission Hook 在 ASK 收敛前明确拒绝。 */
     HOOK_DENIED,
     /** 可信 Permission Hook 在 ASK 收敛前明确允许。 */
-    HOOK_ALLOWED
+    HOOK_ALLOWED,
+    /** 自动审查仅允许当前调用，不创建 Session Grant。 */
+    AUTO_REVIEW_ALLOW_ONCE,
+    /** 自动审查严格拒绝当前调用。 */
+    AUTO_REVIEW_DENY,
+    /** 自动审查 Provider/解析/内部失败后安全拒绝。 */
+    AUTO_REVIEW_FAILED_CLOSED,
+    /** 自动审查连续 non-allow 达阈值后跳过同批未开始调用。 */
+    AUTO_REVIEW_CIRCUIT_STOP
 }

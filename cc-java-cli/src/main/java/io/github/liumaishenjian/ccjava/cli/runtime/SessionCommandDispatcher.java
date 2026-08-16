@@ -192,6 +192,8 @@ public final class SessionCommandDispatcher {
             case SessionCommandIntent.PermissionsOperation.Query ignored -> permissionsView(commandId, sessionId);
             case SessionCommandIntent.PermissionsOperation.ModeChange change -> applyPatch(commandId, sessionId,
                     new SessionSettingsPatch.PermissionModeChange(change.mode()), cancellationToken);
+            case SessionCommandIntent.PermissionsOperation.SelectionChange change -> applyPatch(commandId, sessionId,
+                    new SessionSettingsPatch.PermissionSelectionChange(change.selection()), cancellationToken);
         };
     }
 
@@ -252,13 +254,37 @@ public final class SessionCommandDispatcher {
             List<SessionCommandEvent.PermissionRuleProvenance> rules = settings.permissionRules().stream()
                     .map(this::safeRule).toList();
             return success(SessionCommandKind.PERMISSIONS, commandId, sessionId,
-                    new SessionCommandEvent.PermissionsPayload(runtimeConfiguration.permissionMode().name(),
-                            provenance.map(value -> value.sourceId().kind().name()).orElse("BASELINE"),
+                    permissionsPayload(runtimeConfiguration, provenance.map(value -> value.sourceId().kind().name()).orElse("BASELINE"),
                             provenance.map(value -> value.sourceId().safeId()).orElse("runtime-baseline"),
-                            provenance.map(value -> value.validationStatus().name()).orElse("BASELINE"), rules.size(), rules));
+                            provenance.map(value -> value.validationStatus().name()).orElse("BASELINE"), rules));
         }).orElseGet(() -> success(SessionCommandKind.PERMISSIONS, commandId, sessionId,
-                new SessionCommandEvent.PermissionsPayload(runtimeConfiguration.permissionMode().name(), "BASELINE",
-                        "runtime-baseline", "BASELINE", 0, List.of())));
+                permissionsPayload(runtimeConfiguration, "BASELINE", "runtime-baseline", "BASELINE", List.of())));
+    }
+
+    private static SessionCommandEvent.PermissionsPayload permissionsPayload(
+            io.github.liumaishenjian.ccjava.domain.settings.RuntimeConfiguration configuration,
+            String modeSourceKind, String modeSafeSourceId, String modeValidationStatus,
+            List<SessionCommandEvent.PermissionRuleProvenance> rules) {
+        String selection = selectionFor(configuration);
+        return new SessionCommandEvent.PermissionsPayload(configuration.permissionMode().name(),
+                configuration.approvalReviewer().name(), selection, modeSourceKind, modeSafeSourceId,
+                modeValidationStatus, rules.size(), rules);
+    }
+
+    /**
+     * 将运行时有效 mode/reviewer 投影为 Surface 选择；兼容 ACCEPT_EDITS 仅暴露 ADVANCED。
+     */
+    private static String selectionFor(io.github.liumaishenjian.ccjava.domain.settings.RuntimeConfiguration configuration) {
+        if (configuration.permissionMode() == io.github.liumaishenjian.ccjava.domain.PermissionMode.ACCEPT_EDITS
+                && configuration.approvalReviewer() == io.github.liumaishenjian.ccjava.domain.ApprovalReviewer.USER) {
+            return "ADVANCED";
+        }
+        return java.util.Arrays.stream(io.github.liumaishenjian.ccjava.domain.PermissionSelection.values())
+                .filter(value -> value.mode() == configuration.permissionMode()
+                        && value.reviewer() == configuration.approvalReviewer())
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("permission selection 不可投影"))
+                .name();
     }
 
     private SessionCommandEvent.PermissionRuleProvenance safeRule(EffectivePermissionRule rule) {

@@ -31,6 +31,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * last-known-good 进程快照决定下一 Run，active Run 时拒绝切换。本服务不创建或调用 ModelGateway。</p>
  */
 public final class ProviderAuthApplicationService {
+    /** CodeJ 首次连接向导隐藏使用的稳定 Provider ID。 */
+    public static final String CODEJ_CUSTOM_PROVIDER_ID = "codej-custom";
     private final ProviderDefinitionStore definitions;
     private final CredentialStore credentials;
     private final LegacyCredentialMigrationService migration;
@@ -145,6 +147,50 @@ public final class ProviderAuthApplicationService {
         addProvider(definition, cancellation);
         return new ProviderAddedSummary(
                 definition.providerId(), definition.displayName(), definition.defaultModelId());
+    }
+
+    /**
+     * 幂等保存 CodeJ 唯一的 OpenAI-compatible 自定义连接。
+     *
+     * <p>Surface 只提供 Base URL 与模型名；Provider/Profile/默认选择均由应用层固定。
+     * 该方法不接收也不处理 API Key，secret 仍由独立的 masked login 进程保存。</p>
+     *
+     * @param request 首次连接表单中的非秘密字段
+     * @param cancellation 取消令牌
+     * @return 不含 endpoint 的安全结果
+     */
+    public ProviderAddedSummary configureCodejProvider(
+            ConfigureProviderRequest request, CancellationToken cancellation) {
+        Objects.requireNonNull(request, "request 不能为空");
+        if (runActive.get()) throw failure(ProviderAuthException.Code.AUTH_TRANSACTION_CONFLICT);
+        ProviderDefinition definition = new ProviderDefinition(
+                CODEJ_CUSTOM_PROVIDER_ID, ProviderDefinition.Kind.OPENAI_COMPATIBLE, "CodeJ Custom",
+                java.net.URI.create(request.baseUrl()), ProviderDefinition.ApiVariant.OPENAI_CHAT_COMPLETIONS,
+                List.of(request.modelId()), request.modelId(), Map.of(),
+                java.time.Duration.ofSeconds(10), java.time.Duration.ofSeconds(300));
+        ProviderDefinitionStore.Snapshot current = definitions.snapshot(cancellation);
+        definitions.configure(definition, current.generation(), cancellation);
+        return new ProviderAddedSummary(
+                definition.providerId(), definition.displayName(), definition.defaultModelId());
+    }
+
+    /**
+     * 判断下一次 Run 是否已有可用的默认模型与本机 credential。
+     *
+     * <p>检查完全离线，不读取 secret value；STORE 文件不存在或 ENV 值为空时返回 false，
+     * 让首次启动重新进入连接表单。</p>
+     *
+     * @param cancellation 读取本地状态时使用的取消令牌
+     * @return 默认模型与同 Provider 默认 profile 都可用时为 true
+     */
+    public boolean hasUsableDefaultSelection(CancellationToken cancellation) {
+        Optional<ProviderDefinitionStore.DefaultSelection> selected =
+                definitions.snapshot(cancellation).defaultSelection();
+        if (selected.isEmpty()) return false;
+        String providerId = selected.orElseThrow().providerId();
+        return listProfiles(Optional.of(providerId), cancellation).stream()
+                .anyMatch(profile -> profile.providerDefault()
+                        && profile.status() == ProviderAuthStatusCode.AVAILABLE_LOCAL);
     }
 
     /**
@@ -524,6 +570,20 @@ public final class ProviderAuthApplicationService {
         public AddProviderRequest {
             Objects.requireNonNull(providerId, "providerId 不能为空");
             Objects.requireNonNull(displayName, "displayName 不能为空");
+            Objects.requireNonNull(baseUrl, "baseUrl 不能为空");
+            Objects.requireNonNull(modelId, "modelId 不能为空");
+        }
+    }
+
+    /**
+     * CodeJ 首次连接表单的最小非秘密输入。
+     *
+     * @param baseUrl OpenAI-compatible absolute HTTPS 服务根地址
+     * @param modelId 默认模型标识
+     */
+    public record ConfigureProviderRequest(String baseUrl, String modelId) {
+        /** 完整 URL 与模型约束继续由 ProviderDefinition 权威校验。 */
+        public ConfigureProviderRequest {
             Objects.requireNonNull(baseUrl, "baseUrl 不能为空");
             Objects.requireNonNull(modelId, "modelId 不能为空");
         }

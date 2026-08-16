@@ -4,6 +4,8 @@ import io.github.liumaishenjian.ccjava.core.AgentIdGenerator;
 import io.github.liumaishenjian.ccjava.core.AgentRuntime;
 import io.github.liumaishenjian.ccjava.core.AgentTool;
 import io.github.liumaishenjian.ccjava.core.ApprovalHandler;
+import io.github.liumaishenjian.ccjava.core.ApprovalReviewGateway;
+import io.github.liumaishenjian.ccjava.core.AutoReviewCoordinator;
 import io.github.liumaishenjian.ccjava.core.ContextPreparationService;
 import io.github.liumaishenjian.ccjava.core.DefaultContextAssembler;
 import io.github.liumaishenjian.ccjava.core.DefaultHardDenialPolicy;
@@ -16,6 +18,7 @@ import io.github.liumaishenjian.ccjava.core.PermissionPolicy;
 import io.github.liumaishenjian.ccjava.core.ToolExecutionPipeline;
 import io.github.liumaishenjian.ccjava.core.ToolRegistry;
 import io.github.liumaishenjian.ccjava.core.instructions.InstructionContextService;
+import io.github.liumaishenjian.ccjava.model.springai.ModelGatewayApprovalReviewGateway;
 import io.github.liumaishenjian.ccjava.core.hook.HookCoordinator;
 import io.github.liumaishenjian.ccjava.cli.session.FileCheckpointCoordinator;
 import io.github.liumaishenjian.ccjava.cli.session.FileSessionStore;
@@ -107,8 +110,10 @@ final class HeadlessRuntimeScope {
                 new DefaultPermissionSelectorResolver(),
                 new DefaultHardDenialPolicy(new WorkspaceWriteHardDenial(workspaceGuard)),
                 permissionState);
+        ApprovalReviewGateway reviewGateway = new ModelGatewayApprovalReviewGateway(gateway);
         ToolExecutionPipeline pipeline = new ToolExecutionPipeline(
-                registry, policy, approvals, permissionState, lifecycle, sessions, checkpoints, hooks, skills);
+                registry, policy, approvals, permissionState, lifecycle, sessions, checkpoints, hooks, skills,
+                checkedConfiguration.approvalReviewer(), new AutoReviewCoordinator(reviewGateway));
         return new HeadlessRuntimeScope(new AgentRuntime(
                 sessions, ids, gateway, new DefaultContextAssembler(), registry, pipeline, lifecycle, sessions,
                 contextPreparation, memoryContext, instructionContext, hooks, skills, plugins, pluginHooks),
