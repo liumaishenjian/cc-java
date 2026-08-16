@@ -223,7 +223,7 @@
     }
   </style>
 </head>
-<body data-matrix-digest="d6a4cfad3c44" data-state-digest="6c967d96b11d" data-code-digest="d13029b6fb1c">
+<body data-matrix-digest="d6a4cfad3c44" data-state-digest="d5c36527b20f" data-code-digest="d13029b6fb1c">
   <main class="shell">
     <section class="hero">
       <p class="eyebrow">Reference-driven Java Agent Runtime</p>
@@ -330,13 +330,13 @@
         </div>
       </div>
       <dl class="evidence-grid">
-        <div class="evidence-item"><dt>Last change</dt><dd>维护者已选择 Apache-2.0，并把 Maven/TUI/manifest 统一为正式 0.1.0；首个 tag workflow 31927341615 因 Node executable 多结果拼接与 Linux 误用 mvnw.cmd 失败，未创建公开 Release。corrective 已改为单一 Node executable、平台 Maven Wrapper 与跨平台 resolver 路径；Capability Level 无变化，S15 保持 IN_PROGRESS/OPEN。</dd></div>
+        <div class="evidence-item"><dt>Last change</dt><dd>首个 tag workflow 31927341615 在发布前暴露跨平台脚本缺陷且未创建 Release；corrective workflow 31927683009 已在 GitHub-hosted Ubuntu/Windows 完成自包含打包与 artifact 上传。正式 tag 发布尚待最终执行；Capability Level 无变化，S15 保持 IN_PROGRESS/OPEN。</dd></div>
         <div class="evidence-item"><dt>Evidence stage</dt><dd><code>S15</code></dd></div>
         <div class="evidence-item"><dt>Evidence class</dt><dd><code>COMMIT_VERIFIED</code></dd></div>
         <div class="evidence-item"><dt>Code commit</dt><dd><code>f0e274f779143164e0859961437a53acd220e7bd</code></dd></div>
         <div class="evidence-item"><dt>Standard command</dt><dd><code>./mvnw.cmd clean verify；./mvnw.cmd -DskipTests -Dmaven.javadoc.failOnWarnings=true javadoc:aggregate；npm --prefix cc-java-tui run check；pwsh -NoProfile -File ./scripts/TestCodejDevLauncher.ps1；pwsh -NoProfile -File ./scripts/TestBuildRelease.ps1；pwsh -NoProfile -File ./scripts/TestInstallDistribution.ps1；真实安装 E2E；真实 stdio E2E；真实 temp home E2E；java scripts/ProgressDashboard.java；java scripts/ProgressDashboard.java --check；java scripts/ProgressDashboard.java --self-test</code></dd></div>
-        <div class="evidence-item"><dt>Result</dt><dd>实现 Commit f0e274f779143164e0859961437a53acd220e7bd 已完成 TOOL-18 L2 与 MODEL-13 L1 commit-scoped 对账；其后工作树完成 Provider/Auth correctness closeout与 S14 可安装发行 corrective。正式 0.1.0 Maven verify BUILD SUCCESS，169 个 Surefire XML 独立汇总为 1012 tests/32 skips/0 failures/0 errors；TUI 11 files/194 tests、release self-test、Apache-2.0 public gate、Windows 自包含安装与篡改拒绝均通过。首个 tag workflow 31927341615 真实暴露 Node path 与 Linux Maven Wrapper 缺陷并在 Release 前失败，现已修复且等待重新验证。Capability 无变化；S15 因双 Provider 在线证据与 L4 Eval 未完成保持 OPEN。</dd></div>
-        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix d6a4cfad3c44</code><br><code>state 6c967d96b11d</code><br><code>code/build d13029b6fb1c</code></dd></div>
+        <div class="evidence-item"><dt>Result</dt><dd>实现 Commit f0e274f779143164e0859961437a53acd220e7bd 已完成 TOOL-18 L2 与 MODEL-13 L1 commit-scoped 对账；其后工作树完成 Provider/Auth correctness closeout与 S14 可安装发行 corrective。正式 0.1.0 Maven verify 为 1012 tests/32 skips/0 failures/0 errors，TUI 194/194；本地 release/install self-test 与 Apache-2.0 public gate通过。首个 tag workflow 31927341615 在 Release 前失败；corrective workflow 31927683009 已在 GitHub-hosted Ubuntu/Windows 完成自包含打包与 artifact 上传。正式 tag Release 尚待执行。Capability 无变化；S15 因双 Provider 在线证据与 L4 Eval 未完成保持 OPEN。</dd></div>
+        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix d6a4cfad3c44</code><br><code>state d5c36527b20f</code><br><code>code/build d13029b6fb1c</code></dd></div>
       </dl>
     </section>
 

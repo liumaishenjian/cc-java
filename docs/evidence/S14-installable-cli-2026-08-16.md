@@ -34,11 +34,14 @@ Node executable；清除 `JAVA_HOME` 且 PATH 不含 Java/Node 后仍从安装�
 均把多个 Node Application executable 拼成一个路径；Linux 还实际暴露 `BuildRelease.ps1` 固定调用
 `mvnw.cmd`。因此该 run 不计 PASS，也没有公开 artifact。corrective 改为只选首个 Node executable、
 按平台选择 Maven Wrapper，并把 Maven resolver 的 artifact path 从 Windows-only 扩展为 Unix 绝对路径；
-修复后的远端 run 仍需重新对账。
+corrective workflow `31927683009` 随后通过：GitHub-hosted Ubuntu 1m47s、Windows 3m29s，
+两端均完成 bundled Java/Node、固定平台 archive 和 artifact 上传；手动 workflow 的 Release job
+按设计跳过。运行仅留下 upload-artifact v4 的 Node 20 弃用警告，正式 workflow 已升级为官方
+upload-artifact v7 / download-artifact v8，仍需随 tag 进行最终发布对账。
 
 ## 未计为通过
 
-- GitHub Actions Windows/Linux 自包含运行时矩阵尚未成功；
+- GitHub Actions Windows/Linux 自包含运行时矩阵已成功，但正式 tag 发布尚未完成；
 - 维护者已选择 Apache-2.0；显式 public release gate 本地验证通过，corrective tag CI 结果待对账；
 - tag 已创建，但没有 GitHub Release、网站下载端点或 N-1 artifact；
 - 没有 macOS、签名、撤销、透明日志或自动后台更新。
