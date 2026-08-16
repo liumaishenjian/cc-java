@@ -19,8 +19,10 @@ public final class OpenRouterProviderGatewayFactory implements ProviderGatewayFa
         try {
             OpenAiCompatibleSettings settings = new OpenAiCompatibleSettings(
                     configuration.baseUri().toString(), new String(key), configuration.modelId());
-            return new SpringAiModelGateway(new OpenAiCompatibleModelFactory().create(
-                    settings, configuration.staticHeaders(), configuration.requestTimeout()), configuration.modelId());
+            var resource = new OpenAiCompatibleModelFactory().createResource(
+                    settings, configuration.staticHeaders(), configuration.requestTimeout());
+            return new CloseableModelGateway(
+                    new SpringAiModelGateway(resource.chatModel(), configuration.modelId()), resource);
         } finally {
             Arrays.fill(key, '\0');
         }

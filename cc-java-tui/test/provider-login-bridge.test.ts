@@ -19,6 +19,7 @@ const STORE: ProviderLoginRequest = {
   profileId: 'default',
   secretSource: 'store',
 };
+const DEFAULT_STORE: ProviderLoginRequest = {...STORE, setDefault: true};
 
 class FakeChild extends EventEmitter {
   readonly kill = vi.fn(() => true);
@@ -64,6 +65,27 @@ describe('ProviderLoginBridge', () => {
     expect(tty.resume).toHaveBeenCalledTimes(1);
     expect(tty.setRawMode.mock.calls).toEqual([[false], [true]]);
     expect(bridge.active()).toBe(false);
+  });
+
+  it('仅在显式 setDefault=true 时追加持久默认参数，旧请求保持兼容', async () => {
+    const defaultChild = new FakeChild();
+    const defaultSpawn = spawnFixture(defaultChild);
+    const bridge = new ProviderLoginBridge(SPEC, {spawnProcess: defaultSpawn, terminal: terminal()});
+    const result = bridge.login(DEFAULT_STORE);
+    defaultChild.emit('exit', 0, null);
+    await result;
+    expect(defaultSpawn.mock.calls[0]?.[1]).toEqual([
+      '-cp', 'fixed-classpath', MAIN, 'auth', 'login',
+      '--provider', 'anthropic', '--profile', 'default', '--set-default',
+    ]);
+
+    const legacyChild = new FakeChild();
+    const legacySpawn = spawnFixture(legacyChild);
+    const legacy = new ProviderLoginBridge(SPEC, {spawnProcess: legacySpawn, terminal: terminal()});
+    const legacyResult = legacy.login(STORE);
+    legacyChild.emit('exit', 0, null);
+    await legacyResult;
+    expect(legacySpawn.mock.calls[0]?.[1]).not.toContain('--set-default');
   });
 
   it('spawn 同步失败也只恢复一次终端并返回 typed failed', async () => {
@@ -138,7 +160,9 @@ describe('ProviderLoginBridge', () => {
     const spawnProcess = spawnFixture(new FakeChild());
     const bridge = new ProviderLoginBridge(SPEC, {spawnProcess, terminal: terminal(false)});
 
-    await expect(bridge.login(STORE)).rejects.toThrow('需要可交互 TTY');
+    await expect(bridge.login(STORE)).rejects.toThrow(
+      'STORE 登录需要可交互 TTY；可改用 /connect <provider> <profile> env <ENV_NAME>',
+    );
     expect(spawnProcess).not.toHaveBeenCalled();
     await expect(bridge.login({...STORE, secretSource: 'env', environmentName: 'bad-name'}))
       .rejects.toThrow('ENV name 无效');

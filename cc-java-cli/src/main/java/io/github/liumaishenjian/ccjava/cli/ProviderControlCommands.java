@@ -46,7 +46,7 @@ final class ProviderControlCommands {
         return new Models(service, out, err);
     }
 
-    @Command(name = "providers", description = "管理本机非秘密 Provider definition",
+    @Command(mixinStandardHelpOptions = true,name = "providers", description = "管理本机非秘密 Provider definition",
             subcommands = {ProvidersList.class, ProvidersAdd.class, ProvidersRemove.class})
     static final class Providers implements Callable<Integer> {
         final ProviderAuthApplicationService service; final PrintWriter out; final PrintWriter err;
@@ -56,7 +56,7 @@ final class ProviderControlCommands {
         @Override public Integer call() { return 2; }
     }
 
-    @Command(name = "list", description = "列出本机 Provider catalog")
+    @Command(mixinStandardHelpOptions = true,name = "list", description = "列出本机 Provider catalog")
     static final class ProvidersList implements Callable<Integer> {
         @picocli.CommandLine.ParentCommand Providers parent;
         @Option(names="--json") boolean json;
@@ -73,7 +73,7 @@ final class ProviderControlCommands {
         }); }
     }
 
-    @Command(name = "add", description = "新增 OpenAI-compatible Provider")
+    @Command(mixinStandardHelpOptions = true,name = "add", description = "新增 OpenAI-compatible Provider")
     static final class ProvidersAdd implements Callable<Integer> {
         @picocli.CommandLine.ParentCommand Providers parent;
         @Option(names="--id",required=true) String id;
@@ -96,7 +96,7 @@ final class ProviderControlCommands {
         }); }
     }
 
-    @Command(name = "remove", description = "删除 custom Provider")
+    @Command(mixinStandardHelpOptions = true,name = "remove", description = "删除 custom Provider")
     static final class ProvidersRemove implements Callable<Integer> {
         @picocli.CommandLine.ParentCommand Providers parent;
         @Option(names="--id",required=true) String id;
@@ -108,7 +108,7 @@ final class ProviderControlCommands {
         }); }
     }
 
-    @Command(name="auth",description="管理本机 Provider credential",
+    @Command(mixinStandardHelpOptions = true,name="auth",description="管理本机 Provider credential",
             subcommands={AuthLogin.class,AuthList.class,AuthStatus.class,AuthProbe.class,AuthLogout.class,AuthMigrate.class})
     static final class Auth implements Callable<Integer> {
         final ProviderAuthApplicationService service; final InputStream input; final PrintWriter out; final PrintWriter err;
@@ -118,7 +118,7 @@ final class ProviderControlCommands {
         @Override public Integer call(){return 2;}
     }
 
-    @Command(name="login",description="创建或替换 credential profile")
+    @Command(mixinStandardHelpOptions = true,name="login",description="创建或替换 credential profile")
     static final class AuthLogin implements Callable<Integer> {
         @picocli.CommandLine.ParentCommand Auth parent;
         @Option(names="--provider",required=true) String provider;
@@ -143,7 +143,7 @@ final class ProviderControlCommands {
         });}
     }
 
-    @Command(name="list",description="列出本机 credential metadata")
+    @Command(mixinStandardHelpOptions = true,name="list",description="列出本机 credential metadata")
     static final class AuthList implements Callable<Integer> {
         @picocli.CommandLine.ParentCommand Auth parent;
         @Option(names="--provider") String provider;
@@ -159,7 +159,7 @@ final class ProviderControlCommands {
         });}
     }
 
-    @Command(name="status",description="读取单个 credential 本机状态")
+    @Command(mixinStandardHelpOptions = true,name="status",description="读取单个 credential 本机状态")
     static final class AuthStatus implements Callable<Integer> {
         @picocli.CommandLine.ParentCommand Auth parent;
         @Option(names="--provider",required=true) String provider;
@@ -172,7 +172,7 @@ final class ProviderControlCommands {
         });}
     }
 
-    @Command(name="probe",description="显式验证 Provider credential（Batch C）")
+    @Command(mixinStandardHelpOptions = true,name="probe",description="显式验证 Provider credential（Batch C）")
     static final class AuthProbe implements Callable<Integer> {
         @picocli.CommandLine.ParentCommand Auth parent;
         @Option(names="--provider",required=true) String provider;
@@ -197,7 +197,7 @@ final class ProviderControlCommands {
         });}
     }
 
-    @Command(name="logout",description="删除本机 credential；不会远端 revoke")
+    @Command(mixinStandardHelpOptions = true,name="logout",description="删除本机 credential；不会远端 revoke")
     static final class AuthLogout implements Callable<Integer> {
         @picocli.CommandLine.ParentCommand Auth parent;
         @Option(names="--provider",required=true) String provider;
@@ -212,7 +212,7 @@ final class ProviderControlCommands {
         });}
     }
 
-    @Command(name="migrate-legacy",description="显式复制固定 legacy properties")
+    @Command(mixinStandardHelpOptions = true,name="migrate-legacy",description="显式复制固定 legacy properties")
     static final class AuthMigrate implements Callable<Integer> {
         @picocli.CommandLine.ParentCommand Auth parent;
         @Option(names="--provider",required=true) String provider;
@@ -224,7 +224,7 @@ final class ProviderControlCommands {
         });}
     }
 
-    @Command(name="models",description="列出、维护并选择本地模型",
+    @Command(mixinStandardHelpOptions = true,name="models",description="列出、维护并选择本地模型",
             subcommands={ModelsList.class,ModelsAdd.class,ModelsRemove.class,ModelsUse.class})
     static final class Models implements Callable<Integer> {
         final ProviderAuthApplicationService service;final PrintWriter out;final PrintWriter err;
@@ -232,7 +232,7 @@ final class ProviderControlCommands {
         @Override public Integer call(){return 2;}
     }
 
-    @Command(name="list",description="列出本地 catalog 模型")
+    @Command(mixinStandardHelpOptions = true,name="list",description="列出本地 catalog 模型")
     static final class ModelsList implements Callable<Integer> {
         @picocli.CommandLine.ParentCommand Models parent;
         @Option(names="--provider")String provider;
@@ -245,7 +245,7 @@ final class ProviderControlCommands {
         });}
     }
 
-    @Command(name="add",description="给 built-in Provider 增加模型 overlay")
+    @Command(mixinStandardHelpOptions = true,name="add",description="给 built-in Provider 增加模型 overlay")
     static final class ModelsAdd implements Callable<Integer> {
         @picocli.CommandLine.ParentCommand Models parent;
         @Option(names="--provider",required=true)String provider;
@@ -257,7 +257,7 @@ final class ProviderControlCommands {
         });}
     }
 
-    @Command(name="remove",description="从 built-in Provider 隐藏模型 overlay")
+    @Command(mixinStandardHelpOptions = true,name="remove",description="从 built-in Provider 隐藏模型 overlay")
     static final class ModelsRemove implements Callable<Integer> {
         @picocli.CommandLine.ParentCommand Models parent;
         @Option(names="--provider",required=true)String provider;
@@ -268,7 +268,7 @@ final class ProviderControlCommands {
         });}
     }
 
-    @Command(name="use",description="持久化默认 provider/model；可同时指定下一 Run profile")
+    @Command(mixinStandardHelpOptions = true,name="use",description="持久化默认 provider/model；可同时指定下一 Run profile")
     static final class ModelsUse implements Callable<Integer> {
         @picocli.CommandLine.ParentCommand Models parent;
         @Option(names="--provider",required=true)String provider;

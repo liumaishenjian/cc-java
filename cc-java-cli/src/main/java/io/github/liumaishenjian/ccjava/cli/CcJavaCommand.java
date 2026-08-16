@@ -33,7 +33,7 @@ import java.util.concurrent.Callable;
 @Command(
         name = "cc-java",
         mixinStandardHelpOptions = true,
-        version = "cc-java 0.1.0-SNAPSHOT",
+        version = "cc-java 0.1.0",
         description = "Java Headless coding-agent runtime")
 final class CcJavaCommand implements Callable<Integer> {
 

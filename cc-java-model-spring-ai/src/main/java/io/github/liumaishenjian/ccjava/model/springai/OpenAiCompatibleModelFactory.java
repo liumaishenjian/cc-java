@@ -4,6 +4,8 @@ import io.github.liumaishenjian.ccjava.model.springai.config.OpenAiCompatibleSet
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.openai.setup.OpenAiSetup;
+import io.micrometer.observation.ObservationRegistry;
 
 import java.net.URI;
 import java.time.Duration;
@@ -33,7 +35,7 @@ public final class OpenAiCompatibleModelFactory {
      * @return Spring AI OpenAI ChatModel
      */
     public ChatModel create(OpenAiCompatibleSettings settings) {
-        return create(settings, java.util.Map.of(), Duration.ofMinutes(30));
+        return createResource(settings, java.util.Map.of(), Duration.ofMinutes(30)).chatModel();
     }
 
     /**
@@ -46,19 +48,64 @@ public final class OpenAiCompatibleModelFactory {
      */
     public ChatModel create(OpenAiCompatibleSettings settings, java.util.Map<String, String> staticHeaders,
                             Duration requestTimeout) {
+        return createResource(settings, staticHeaders, requestTimeout).chatModel();
+    }
+
+    /**
+     * 创建由调用方显式关闭的模型资源。
+     *
+     * <p>生产 Composition 必须使用本入口，确保 Spring AI 内部同步与异步 OpenAI Client
+     * 都有明确所有者；只需短生命周期测试兼容的调用方可继续使用 {@link #create}。</p>
+     *
+     * @param settings 已校验且字符串表示脱敏的本地设置
+     * @param staticHeaders 随请求发送的非认证静态 Header
+     * @param requestTimeout 单次 Provider 请求的超时时间
+     * @return 模型及底层 HTTP Client 的关闭资源
+     */
+    public OpenAiCompatibleModelResource createResource(
+            OpenAiCompatibleSettings settings,
+            java.util.Map<String, String> staticHeaders,
+            Duration requestTimeout) {
         Objects.requireNonNull(settings, "settings 不能为空");
+        java.util.Map<String, String> headers = java.util.Map.copyOf(
+                Objects.requireNonNull(staticHeaders, "staticHeaders 不能为空"));
+        Duration timeout = Objects.requireNonNull(requestTimeout, "requestTimeout 不能为空");
         OpenAiChatOptions options = OpenAiChatOptions.builder()
                 .baseUrl(chatApiBaseUrl(settings.baseUrl()))
                 .apiKey(settings.apiKey())
                 .model(settings.model())
-                .customHeaders(java.util.Map.copyOf(Objects.requireNonNull(staticHeaders, "staticHeaders 不能为空")))
-                .timeout(Objects.requireNonNull(requestTimeout, "requestTimeout 不能为空"))
+                .customHeaders(headers)
+                .timeout(timeout)
                 .streamUsage(true)
                 .maxRetries(0)
                 .build();
-        return OpenAiChatModel.builder()
-                .options(options)
-                .build();
+        String baseUrl = options.getBaseUrl();
+        String apiKey = options.getApiKey();
+        var syncClient = OpenAiSetup.setupSyncClient(
+                baseUrl, apiKey, options.getCredential(), options.getMicrosoftDeploymentName(),
+                options.getMicrosoftFoundryServiceVersion(), options.getOrganizationId(),
+                options.isMicrosoftFoundry(), options.isGitHubModels(), options.getModel(), timeout, 0,
+                options.getProxy(), headers, ObservationRegistry.NOOP, null, java.util.List.of());
+        var asyncClient = OpenAiSetup.setupAsyncClient(
+                baseUrl, apiKey, options.getCredential(), options.getMicrosoftDeploymentName(),
+                options.getMicrosoftFoundryServiceVersion(), options.getOrganizationId(),
+                options.isMicrosoftFoundry(), options.isGitHubModels(), options.getModel(), timeout, 0,
+                options.getProxy(), headers, ObservationRegistry.NOOP, null, java.util.List.of());
+        try {
+            ChatModel model = OpenAiChatModel.builder()
+                    .openAiClient(syncClient)
+                    .openAiClientAsync(asyncClient)
+                    .options(options)
+                    .build();
+            return new OpenAiCompatibleModelResource(model, syncClient, asyncClient);
+        } catch (RuntimeException | Error failure) {
+            try {
+                asyncClient.close();
+            } finally {
+                syncClient.close();
+            }
+            throw failure;
+        }
     }
 
     /**

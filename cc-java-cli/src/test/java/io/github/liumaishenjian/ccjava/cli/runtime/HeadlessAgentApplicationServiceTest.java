@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Test;
 class HeadlessAgentApplicationServiceTest {
 
     @Test
-    void closeCanRetryAfterUncooperativeRunMissesFirstDeadline() throws Exception {
+    void closeForceReleasesUncooperativeModelWorkerAfterBoundedDeadline() throws Exception {
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         ModelGateway uncooperative = request -> {
@@ -40,15 +40,15 @@ class HeadlessAgentApplicationServiceTest {
         Thread run = Thread.startVirtualThread(() -> application.run(request, AgentEventSink.noop()));
         assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
 
-        assertThatThrownBy(application::close)
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("活动 Run");
-        assertThat(application.activeRun()).isPresent();
+        long started = System.nanoTime();
+        application.close();
+        assertThat(java.time.Duration.ofNanos(System.nanoTime() - started))
+                .isLessThan(java.time.Duration.ofSeconds(6));
+        assertThat(application.activeRun()).isEmpty();
 
         release.countDown();
         run.join(TimeUnit.SECONDS.toMillis(2));
         assertThat(run.isAlive()).isFalse();
-        application.close();
         application.close();
         assertThat(application.activeRun()).isEmpty();
         assertThatThrownBy(() -> application.run(request, AgentEventSink.noop()))

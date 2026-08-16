@@ -28,5 +28,7 @@ public enum ModelFailureCategory {
     /** Provider 完成数据缺失、矛盾或无法解析。 */
     INVALID_RESPONSE,
     /** 无法安全细分的 Provider 错误。 */
-    PROVIDER_ERROR
+    PROVIDER_ERROR,
+    /** 本地 Provider profile 或模型选择尚未配置。 */
+    CONFIGURATION_REQUIRED
 }

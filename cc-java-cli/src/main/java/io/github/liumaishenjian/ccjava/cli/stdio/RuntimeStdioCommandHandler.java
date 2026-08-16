@@ -977,6 +977,19 @@ public final class RuntimeStdioCommandHandler
         String code = "OK";
         try {
             switch (intent) {
+                case "providers.add" -> {
+                    var added = providerAuth.addCompatibleProvider(
+                            new io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService
+                                    .AddProviderRequest(
+                                    requiredArgument(arguments, "providerId"),
+                                    requiredArgument(arguments, "displayName"),
+                                    requiredArgument(arguments, "baseUrl"),
+                                    requiredArgument(arguments, "modelId")),
+                            CancellationToken.none());
+                    result.put("providerId", added.providerId());
+                    result.put("displayName", added.displayName());
+                    result.put("modelId", added.modelId());
+                }
                 case "auth.list" -> {
                     ArrayNode profiles = codec.arrayNode();
                     providerAuth.listProfiles(Optional.empty(), CancellationToken.none()).forEach(value -> {

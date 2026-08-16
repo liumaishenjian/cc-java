@@ -1,5 +1,6 @@
 import {
   spawn,
+  spawnSync,
   type ChildProcess,
   type ChildProcessWithoutNullStreams,
   type SpawnOptions,
@@ -29,6 +30,10 @@ export interface StdioClientOptions {
   readonly shutdownTimeoutMs?: number;
   readonly cancelTimeoutMs?: number;
   readonly providerLoginTimeoutMs?: number;
+  /** 仅供确定性生命周期测试注入 Windows 进程树终止结果。 */
+  readonly windowsTreeKiller?: (pid: number) => boolean;
+  /** 仅供确定性跨平台测试覆盖当前平台判断。 */
+  readonly platform?: NodeJS.Platform;
 }
 
 export interface ProviderLoginRequest {
@@ -36,6 +41,8 @@ export interface ProviderLoginRequest {
   readonly profileId: string;
   readonly secretSource: 'store' | 'env';
   readonly environmentName?: string;
+  /** 仅显式 true 时把 profile 持久设为该 Provider 默认；省略保持旧接口的非默认语义。 */
+  readonly setDefault?: boolean;
 }
 
 export interface ProviderLoginResult {
@@ -109,7 +116,7 @@ export class ProviderLoginBridge {
     const args = providerLoginArguments(this.#spec.args, request);
     const terminal = this.#terminal;
     if (request.secretSource === 'store' && terminal.isTTY !== true) {
-      throw new Error('STORE 登录需要可交互 TTY；可改用 /connect provider profile ENV_NAME');
+      throw new Error('STORE 登录需要可交互 TTY；可改用 /connect <provider> <profile> env <ENV_NAME>');
     }
     this.#loginClaimed = true;
     this.#cancelled = false;
@@ -184,6 +191,8 @@ export class StdioClient {
   readonly #cancelTimeoutMs: number;
   readonly #loginSpec: ChildProcessSpec;
   readonly #providerLoginTimeoutMs: number;
+  readonly #windowsTreeKiller: (pid: number) => boolean;
+  readonly #platform: NodeJS.Platform;
   #loginBridge: ProviderLoginBridge | undefined;
   #pending = Buffer.alloc(0);
   #nextCommandSequence = 1;
@@ -191,7 +200,9 @@ export class StdioClient {
   #nextRequestNumber = 1;
   #sessionId: string | undefined;
   #activeRunId: string | undefined;
-  #closed = false;
+  #transportClosed = false;
+  #processExited = false;
+  #treeTerminationRequested = false;
   #shutdownRequested = false;
   #failureEmitted = false;
   #cancelTimer: NodeJS.Timeout | undefined;
@@ -213,6 +224,8 @@ export class StdioClient {
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? 2_000;
     this.#loginSpec = spec;
     this.#providerLoginTimeoutMs = options.providerLoginTimeoutMs ?? 300_000;
+    this.#windowsTreeKiller = options.windowsTreeKiller ?? killWindowsProcessTree;
+    this.#platform = options.platform ?? process.platform;
     this.#child = spawn(spec.executable, [...spec.args], {
       cwd: spec.cwd,
       env: spec.env ?? process.env,
@@ -224,6 +237,11 @@ export class StdioClient {
     this.#child.stderr.on('data', (chunk: Buffer) => {
       this.#stderrBytes += chunk.length;
     });
+    this.#child.stdin.on('error', () => {
+      if (!this.#processExited && !this.#shutdownRequested) {
+        this.#fail('Java 子进程 stdin 连接失败');
+      }
+    });
     this.#child.once('error', error => {
       const code = 'code' in error && typeof error.code === 'string'
         ? error.code
@@ -231,13 +249,14 @@ export class StdioClient {
       this.#fail(`Java 子进程启动失败：${code}`);
     });
     this.#child.once('exit', (code, signal) => {
+      this.#processExited = true;
+      this.#transportClosed = true;
       this.#clearCancelTimer();
       if (this.#pending.length > 0) {
         this.#emitFailure('Java stdout 以不完整协议行结束');
       } else if (!this.#shutdownRequested && !this.#failureEmitted) {
         this.#emitFailure(unexpectedExitMessage(code, signal, this.#stderrBytes));
       }
-      this.#closed = true;
       this.#pendingSessionCommands.clear();
       this.#pendingProviderControls.clear();
       this.#pendingRunStartRequestId = undefined;
@@ -352,7 +371,7 @@ export class StdioClient {
   /** 发送不含 secret 的 Provider/Auth 本地控制命令。 */
   public providerControl(
     controlId: string,
-    intent: 'auth.list' | 'auth.probe' | 'auth.logout' | 'models.list' | 'models.use' | 'models.add' | 'models.remove',
+    intent: 'providers.add' | 'auth.list' | 'auth.probe' | 'auth.logout' | 'models.list' | 'models.use' | 'models.add' | 'models.remove',
     arguments_: Readonly<Record<string, unknown>>,
   ): string {
     if (this.#sessionId === undefined) throw new Error('Session 尚未初始化');
@@ -457,7 +476,7 @@ export class StdioClient {
     const requestId = this.#send('run.cancel', {}, this.#sessionId, this.#activeRunId);
     this.#clearCancelTimer();
     this.#cancelTimer = setTimeout(() => {
-      if (this.#activeRunId !== undefined && !this.#closed) {
+      if (this.#activeRunId !== undefined && !this.#transportClosed) {
         this.#fail('Java 子进程未在取消期限内结束当前 Run');
       }
     }, this.#cancelTimeoutMs);
@@ -484,28 +503,63 @@ export class StdioClient {
   }
 
   public async shutdown(): Promise<void> {
-    if (this.#closed) {
-      return;
-    }
+    if (this.#processExited) return;
     this.#clearCancelTimer();
-    this.#send('shutdown', {}, this.#sessionId);
-    this.#shutdownRequested = true;
-    this.#child.stdin.end();
-    if (await this.#waitForExit(this.#shutdownTimeoutMs)) {
-      return;
+    if (!this.#shutdownRequested && !this.#transportClosed) {
+      this.#send('shutdown', {}, this.#sessionId);
+      this.#shutdownRequested = true;
+      this.#child.stdin.end();
     }
+    await this.#awaitExitOrTerminate();
+  }
+
+  /**
+   * Print 在收到 Java 权威 Run terminal 后关闭 stdin，以 EOF 结束协议循环。
+   *
+   * <p>该路径不发送额外 shutdown 命令：先给 Java 一个短 grace 自然退出，超时后再可靠
+   * 终止直接子进程并等待 exit。交互 TUI 继续使用 {@link shutdown} 的 graceful 协议。</p>
+   */
+  public async closePrintTransport(): Promise<void> {
+    if (this.#processExited) return;
+    this.#clearCancelTimer();
+    this.#shutdownRequested = true;
+    if (!this.#transportClosed && !this.#child.stdin.destroyed) {
+      this.#child.stdin.end();
+      if (await this.#waitForExit(this.#shutdownTimeoutMs)) return;
+    }
+    await this.#terminateAndAwaitExit();
+  }
+
+  async #awaitExitOrTerminate(): Promise<void> {
+    if (await this.#waitForExit(this.#shutdownTimeoutMs)) return;
+    await this.#terminateAndAwaitExit();
+  }
+
+  async #terminateAndAwaitExit(): Promise<void> {
     this.terminate();
+    if (await this.#waitForExit(this.#shutdownTimeoutMs)) return;
+    this.#child.kill('SIGKILL');
     if (!await this.#waitForExit(this.#shutdownTimeoutMs)) {
-      throw new Error('Java 子进程在强制终止后仍未退出');
+      throw new Error('Java 子进程在进程树终止和直接强制终止后仍未退出');
     }
   }
 
   public terminate(): void {
     this.#loginBridge?.cancel();
-    if (!this.#closed) {
+    if (!this.#processExited && !this.#treeTerminationRequested) {
       this.#shutdownRequested = true;
-      this.#child.kill();
+      this.#treeTerminationRequested = true;
+      this.#killChildTree();
     }
+  }
+
+  #killChildTree(): void {
+    const pid = this.#child.pid;
+    if (this.#platform === 'win32' && pid !== undefined
+      && this.#windowsTreeKiller(pid)) {
+      return;
+    }
+    this.#child.kill('SIGKILL');
   }
 
   /**
@@ -516,10 +570,17 @@ export class StdioClient {
   }
 
   /**
-   * 判断底层 Java 子进程是否已经触发 exit。
+   * 判断协议 Transport 是否已经不可继续读写；该状态不代表子进程已经退出。
    */
   public isClosed(): boolean {
-    return this.#closed;
+    return this.#transportClosed;
+  }
+
+  /**
+   * 判断底层 Java 子进程是否已报告 exit/exitCode/signalCode。
+   */
+  public hasProcessExited(): boolean {
+    return this.#processExited;
   }
 
   #send(
@@ -556,7 +617,7 @@ export class StdioClient {
   }
 
   #write(command: ProtocolCommand): void {
-    if (this.#closed || !this.#child.stdin.writable) {
+    if (this.#transportClosed || !this.#child.stdin.writable) {
       throw new Error('Java 子进程连接已关闭');
     }
     const encoded = encodeCommand(command);
@@ -568,7 +629,7 @@ export class StdioClient {
   }
 
   #acceptStdout(chunk: Buffer): void {
-    if (this.#closed) {
+    if (this.#transportClosed) {
       return;
     }
     this.#pending = Buffer.concat([this.#pending, chunk]);
@@ -701,20 +762,19 @@ export class StdioClient {
   }
 
   #fail(message: string): void {
-    if (this.#closed || this.#failureEmitted) {
-      return;
-    }
-    this.#closed = true;
+    if (this.#failureEmitted) return;
+    this.#transportClosed = true;
     this.#shutdownRequested = true;
     this.#clearCancelTimer();
     this.#pendingSessionCommands.clear();
+    this.#pendingProviderControls.clear();
     this.#pendingRunStartRequestId = undefined;
     this.#pendingSteeringRequests.clear();
     this.#pendingFileSuggestions.clear();
     this.#completedFileSuggestionIds.clear();
     this.#issuedSessionCommandIds.clear();
     this.#emitFailure(message);
-    this.#child.kill();
+    this.terminate();
   }
 
   #emitFailure(message: string): void {
@@ -733,20 +793,36 @@ export class StdioClient {
   }
 
   async #waitForExit(timeoutMs: number): Promise<boolean> {
-    if (this.#closed) {
+    if (this.#processExited || this.#child.exitCode !== null || this.#child.signalCode !== null) {
+      this.#processExited = true;
       return true;
     }
     return await new Promise<boolean>(resolve => {
-      const onExit = () => {
+      let settled = false;
+      const finish = (exited: boolean) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
-        resolve(true);
+        this.#child.off('exit', onExit);
+        resolve(exited);
+      };
+      const onExit = () => {
+        this.#processExited = true;
+        finish(true);
       };
       const timer = setTimeout(() => {
-        this.#child.off('exit', onExit);
-        resolve(this.#closed);
+        const exited = this.#processExited
+          || this.#child.exitCode !== null
+          || this.#child.signalCode !== null;
+        if (exited) this.#processExited = true;
+        finish(exited);
       }, timeoutMs);
       timer.unref();
       this.#child.once('exit', onExit);
+      if (this.#processExited || this.#child.exitCode !== null || this.#child.signalCode !== null) {
+        this.#processExited = true;
+        finish(true);
+      }
     });
   }
 }
@@ -814,6 +890,9 @@ function providerLoginArguments(base: readonly string[], request: ProviderLoginR
   if (!PROVIDER_ID.test(request.providerId) || !PROVIDER_ID.test(request.profileId)) {
     throw new Error('Provider/profile ID 无效');
   }
+  if (request.setDefault !== undefined && typeof request.setDefault !== 'boolean') {
+    throw new Error('setDefault 必须是 boolean');
+  }
   const mainIndex = base.indexOf(JAVA_MAIN_CLASS);
   const fixed = base.slice(0, mainIndex + 1);
   const control = ['auth', 'login', '--provider', request.providerId, '--profile', request.profileId];
@@ -825,7 +904,17 @@ function providerLoginArguments(base: readonly string[], request: ProviderLoginR
     }
     control.push('--from-env', request.environmentName);
   }
+  if (request.setDefault === true) control.push('--set-default');
   return [...fixed, ...control];
+}
+
+function killWindowsProcessTree(pid: number): boolean {
+  const result = spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
+    windowsHide: true,
+    stdio: 'ignore',
+    timeout: 1_000,
+  });
+  return result.error === undefined && result.status === 0;
 }
 
 function unexpectedExitMessage(

@@ -94,20 +94,26 @@ public final class HeadlessAgentApplicationService implements AgentApplicationSe
         }
         long deadline = saturatedDeadline(timeout);
         synchronized (monitor) {
-            while (running && System.nanoTime() < deadline) {
+            while ((running || session.hasPendingRunResources()) && System.nanoTime() < deadline) {
                 waitBounded(deadline);
             }
-            if (!running) {
+            if (!running && !session.hasPendingRunResources()) {
                 return true;
             }
         }
         session.cancelActive();
         long cancellationDeadline = saturatedDeadline(Duration.ofMillis(250));
         synchronized (monitor) {
-            while (running && System.nanoTime() < cancellationDeadline) {
+            while ((running || session.hasPendingRunResources()) && System.nanoTime() < cancellationDeadline) {
                 waitBounded(cancellationDeadline);
             }
-            return !running;
+            if (!running && !session.hasPendingRunResources()) {
+                return true;
+            }
+        }
+        session.forceCloseModelResources();
+        synchronized (monitor) {
+            return !running && !session.hasPendingRunResources();
         }
     }
 

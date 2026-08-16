@@ -108,7 +108,8 @@ public final class SpringAiModelGateway implements StreamingModelGateway {
         AtomicBoolean emittedUserText = new AtomicBoolean();
         CompletableFuture<Void> terminal = new CompletableFuture<>();
 
-        var rawResponses = chatModel.stream(promptMapper.map(request, model))
+        java.time.Duration remaining = remainingRequestTimeout(cancellation);
+        var rawResponses = chatModel.stream(promptMapper.map(request, model, remaining))
                 .doOnNext(response -> {
                     receivedResponse.set(true);
                     if (hasProviderOutput(response)) {
@@ -185,6 +186,25 @@ public final class SpringAiModelGateway implements StreamingModelGateway {
                 receivedProviderOutput.get(),
                 emittedUserText.get(),
                 startedNanos);
+    }
+
+    /**
+     * 把 Provider 单请求上限绑定到当前 Run 剩余预算。
+     *
+     * <p>未绑定 deadline 的测试/兼容调用返回 {@code null}，沿用 ChatModel factory 的默认 timeout；
+     * 已到期时先拒绝调用，避免用零值触发 SDK 的“无限”或非法配置语义。</p>
+     */
+    private static java.time.Duration remainingRequestTimeout(CancellationToken cancellation)
+            throws ModelGatewayException {
+        Optional<java.time.Duration> remaining = cancellation.remainingTime();
+        if (remaining.isEmpty()) {
+            return null;
+        }
+        java.time.Duration value = remaining.orElseThrow();
+        if (value.isZero() || value.isNegative()) {
+            throw new ModelGatewayException(CANCELLED, "Model request deadline reached");
+        }
+        return value;
     }
 
     private static boolean hasProviderOutput(ChatResponse response) {

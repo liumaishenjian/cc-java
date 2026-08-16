@@ -18,4 +18,5 @@ data/
 cc-java-tui/node_modules/
 cc-java-tui/dist/
 cc-java-tui/coverage/
+/node_modules/
 

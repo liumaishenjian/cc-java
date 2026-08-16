@@ -107,8 +107,11 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private final TelemetryExporter telemetryExporter;
     private final LatestContextUsageCollector contextUsage;
     private final AutoCloseable memoryResource;
+    private AutoCloseable modelResource = () -> { };
     private final Object lifecycleMonitor = new Object();
     private volatile ActiveRun activeRun;
+    private final java.util.concurrent.ConcurrentMap<AgentRuntime, RunId> drainingModelRuntimes =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private volatile AgentEventSink runEventSink;
     private volatile boolean closed;
     private final io.github.liumaishenjian.ccjava.core.InMemorySessionPermissionState permissionState;
@@ -259,6 +262,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 null,
                 true);
         diagnosticResource = provider.diagnostics();
+        modelResource = provider.modelResource();
         try {
             settingsApplication = SettingsApplicationService.production(this, instructionLayout.userHome());
             settingsApplication.refresh(io.github.liumaishenjian.ccjava.core.CancellationToken.none());
@@ -274,8 +278,10 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         if (!settings.model().equals(options.model())) {
             throw new IllegalArgumentException("Provider 与 Runtime 模型配置不一致");
         }
-        org.springframework.ai.chat.model.ChatModel chatModel =
-                new OpenAiCompatibleModelFactory().create(settings);
+        io.github.liumaishenjian.ccjava.model.springai.OpenAiCompatibleModelResource modelResource =
+                new OpenAiCompatibleModelFactory().createResource(
+                        settings, java.util.Map.of(), options.timeout());
+        org.springframework.ai.chat.model.ChatModel chatModel = modelResource.chatModel();
         ModelDiagnostics diagnostics = ModelDiagnostics.open(
                 options.diagnosticMode(), options.diagnosticDirectory());
         ModelGateway provider = new RetryingModelGateway(
@@ -302,7 +308,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                         new SpringAiContextSummarizer(chatModel, settings.model()),
                         usage == null ? io.github.liumaishenjian.ccjava.core.ContextUsageObserver.noop() : usage))
                 .orElseGet(ContextPreparationService::noop);
-        return new ProviderComponents(gateway, preparation, usage, diagnostics);
+        return new ProviderComponents(gateway, preparation, usage, diagnostics, modelResource);
     }
 
     /**
@@ -776,7 +782,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         io.github.liumaishenjian.ccjava.core.RunScopedModelGateway.RunScope modelRun = null;
         try {
             if (configuredGateway instanceof io.github.liumaishenjian.ccjava.core.RunScopedModelGateway runScoped) {
-                modelRun = runScoped.openRun();
+                modelRun = runScoped.openRun(request.limits().maxDuration());
                 modelRun.bindCancellation(this::cancelActive);
             }
             return captured.scope().runtime().run(captured.sessionId(), request);
@@ -787,6 +793,11 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 }
             } finally {
                 synchronized (lifecycleMonitor) {
+                    AgentRuntime runtime = captured.scope().runtime();
+                    if (runtime.hasInFlightModelWork()) {
+                        drainingModelRuntimes.put(runtime, captured.runId());
+                    }
+                    drainingModelRuntimes.keySet().removeIf(candidate -> !candidate.hasInFlightModelWork());
                     if (activeRun == captured) {
                         activeRun = null;
                         runEventSink = null;
@@ -811,8 +822,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     /**
      * 请求取消当前活动 Run。
      *
-     * <p>取消只设置 Core 的协作式令牌；模型流由 Provider Adapter 观察该令牌，
-     * 调用线程仍负责等待 Runtime 返回唯一终态。</p>
+     * <p>取消只设置 Core 的协作式令牌；Runtime 会中断独立模型工作线程，Provider Adapter 同时
+     * dispose 流订阅并受 request timeout 约束。调用线程只等待 Runtime 返回唯一终态。</p>
      *
      * @return 确实命中活动 Run 时为 {@code true}
      */
@@ -1596,7 +1607,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             ModelGateway gateway,
             ContextPreparationService contextPreparation,
             LatestContextUsageCollector contextUsage,
-            ModelDiagnostics diagnostics) {
+            ModelDiagnostics diagnostics,
+            AutoCloseable modelResource) {
     }
 
     private record ContextComponents(
@@ -1827,7 +1839,39 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
      */
     public Optional<RunId> activeRunId() {
         synchronized (lifecycleMonitor) {
-            return activeRun == null ? Optional.empty() : Optional.ofNullable(activeRun.runId());
+            if (activeRun != null) {
+                return Optional.ofNullable(activeRun.runId());
+            }
+            drainingModelRuntimes.keySet().removeIf(runtime -> !runtime.hasInFlightModelWork());
+            return drainingModelRuntimes.values().stream().findFirst();
+        }
+    }
+
+    /**
+     * 返回当前是否仍有活动 Run 或忽略取消、尚未退出的模型工作线程。
+     *
+     * @return Session 仍持有待 drain 的 Run/模型资源时为 {@code true}
+     */
+    public boolean hasPendingRunResources() {
+        synchronized (lifecycleMonitor) {
+            drainingModelRuntimes.keySet().removeIf(runtime -> !runtime.hasInFlightModelWork());
+            return activeRun != null || !drainingModelRuntimes.isEmpty();
+        }
+    }
+
+    /**
+     * 关闭底层 Provider I/O，并解除已经形成唯一终态但仍不合作的模型 worker。
+     *
+     * <p>该入口只供 Application shutdown 的最终有界收口调用。活动 Run 仍先协作式取消；
+     * Provider resource 关闭后，迟到 worker 不再阻塞 Session/JVM 退出，也不能改写已结束 Run。</p>
+     */
+    public void forceCloseModelResources() {
+        cancelActive();
+        closeMemory(modelResource);
+        synchronized (lifecycleMonitor) {
+            drainingModelRuntimes.keySet().forEach(AgentRuntime::abandonInFlightModelWork);
+            drainingModelRuntimes.clear();
+            lifecycleMonitor.notifyAll();
         }
     }
 
@@ -1854,7 +1898,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             if (closed) {
                 return;
             }
-            if (activeRun != null) {
+            drainingModelRuntimes.keySet().removeIf(runtime -> !runtime.hasInFlightModelWork());
+            if (activeRun != null || !drainingModelRuntimes.isEmpty()) {
                 throw new IllegalStateException("存在活动 Run 时不能关闭 Session");
             }
             closed = true;
@@ -1876,6 +1921,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 }
             }
             closeMemory(memoryResource);
+            closeMemory(modelResource);
             closeMemory(webSearchResource);
             if (agentSupervisor != null) agentSupervisor.close();
             if (childTaskJournal != null) childTaskJournal.close();

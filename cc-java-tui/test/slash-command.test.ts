@@ -43,7 +43,8 @@ describe('parseSlashCommand', () => {
       kind: 'provider-control', command: {intent: 'auth', arguments: {
         action: 'probe', providerId: 'anthropic', profileId: 'personal', modelId: 'claude-sonnet',
       }},
-    });    expect(parseSlashCommand('/auth logout anthropic personal confirm')).toEqual({
+    });
+    expect(parseSlashCommand('/auth logout anthropic personal confirm')).toEqual({
       kind: 'provider-control', command: {intent: 'auth', arguments: {
         action: 'logout', providerId: 'anthropic', profileId: 'personal', confirmed: true,
       }},
@@ -55,12 +56,12 @@ describe('parseSlashCommand', () => {
     });
     expect(parseSlashCommand('/models add anthropic claude-opus default')).toEqual({
       kind: 'provider-control', command: {intent: 'models', arguments: {
-        action: 'add', providerId: 'anthropic', modelId: 'claude-opus', providerDefault: true,
+        action: 'add', providerId: 'anthropic', modelId: 'claude-opus', setDefault: true,
       }},
     });
     expect(parseSlashCommand('/models add anthropic claude-sonnet')).toEqual({
       kind: 'provider-control', command: {intent: 'models', arguments: {
-        action: 'add', providerId: 'anthropic', modelId: 'claude-sonnet', providerDefault: false,
+        action: 'add', providerId: 'anthropic', modelId: 'claude-sonnet', setDefault: false,
       }},
     });
     expect(parseSlashCommand('/models remove anthropic claude-sonnet')).toEqual({
@@ -85,6 +86,9 @@ describe('parseSlashCommand', () => {
   it('keeps ordinary prompts out of the command path and rejects invalid inputs', () => {
     expect(parseSlashCommand('explain this repository')).toEqual({kind: 'not-command'});
     expect(parseSlashCommand('/unknown')).toEqual({kind: 'skill', name: 'unknown', arguments: ''});
+    expect(parseSlashCommand('/unknown-skill keep these args')).toEqual({
+      kind: 'skill', name: 'unknown-skill', arguments: 'keep these args',
+    });
     expect(parseSlashCommand('/doctor extra').kind).toBe('invalid');
     expect(parseSlashCommand(`/compact ${Array.from({length: 17}, () => 'anchor').join(' ')}`).kind).toBe('invalid');
     expect(parseSlashCommand(`/compact ${'x'.repeat(513)}`).kind).toBe('invalid');
@@ -106,6 +110,29 @@ describe('parseSlashCommand', () => {
     expect(parseSlashCommand('/models remove anthropic model extra').kind).toBe('invalid');
   });
 
+  it('在 Skill 入口前保护封闭命令的一次拼写错误且不受参数影响', () => {
+    for (const [input, suggestion] of [
+      ['/connet', '/connect'],
+      ['/conect', '/connect'],
+      ['/conenct', '/connect'],
+      ['/connest', '/connect'],
+      ['/modles', '/models'],
+      ['/modles ignored arguments', '/models'],
+      ['/taks task-a', '/task'],
+      ['/hlep', '/help'],
+    ] as const) {
+      expect(parseSlashCommand(input)).toEqual({
+        kind: 'invalid', message: `未知 Slash 命令；你是否想输入 ${suggestion}？`,
+      });
+    }
+
+    expect(parseSlashCommand('/connext')).toEqual({kind: 'invalid', message: '未知 Slash 命令'});
+    expect(parseSlashCommand('/contect ignored arguments')).toEqual({kind: 'invalid', message: '未知 Slash 命令'});
+    expect(parseSlashCommand('/deploy-check')).toEqual({kind: 'skill', name: 'deploy-check', arguments: ''});
+    expect(parseSlashCommand('/go')).toEqual({kind: 'skill', name: 'go', arguments: ''});
+    expect(parseSlashCommand('/bad_name').kind).toBe('invalid');
+  });
+
   it('renders fixed local status without server-provided text', () => {
     expect(renderSlashResult('compact', 'rejected', 'not_available'))
       .toBe('/compact 未执行：当前版本尚未提供');
@@ -115,10 +142,19 @@ describe('parseSlashCommand', () => {
   it('renders discoverable usage and structured safe command projections', () => {
     expect(slashCommandUsage('/context')).toContain('查看上下文用量');
     expect(slashCommandUsage('/permissions mode PLAN')).toBe('/permissions mode PLAN');
-    expect(renderSlashResult('help', 'succeeded', 'ok', {commands: [
+    const help = renderSlashResult('help', 'succeeded', 'ok', {commands: [
       {intent: 'help', support: 'available'},
       {intent: 'clear', support: 'available'},
-    ]})).toContain('/help — 查看命令与可用状态　[可用]');
+      {intent: 'not-a-command', support: 'available'},
+      {intent: 'doctor', support: 'unexpected'},
+      'invalid-entry',
+    ]});
+    expect(help).toContain('/help — 查看命令与可用状态　[可用]');
+    expect(help).toContain('/connect [provider profile [env ENV_NAME]]');
+    expect(help).toContain('/auth list | probe');
+    expect(help).toContain('/models [provider] | use');
+    expect(help).not.toContain('/not-a-command');
+    expect(help).not.toContain('/doctor — 查看安全诊断');
     expect(renderSlashResult('context', 'succeeded', 'ok', {
       systemTokens: 10, transcriptTokens: 20, toolTokens: 30, memoryTokens: 40,
       totalTokens: 100, availableInputTokens: 256000, freeTokens: 255900,

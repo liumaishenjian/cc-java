@@ -385,7 +385,26 @@ class SpringAiModelGatewayTest {
     }
 
     @Test
-    void cancellationDisposesTheProviderSubscription() throws Exception {
+    void propagatesRunRemainingBudgetIntoPromptRequestTimeout() throws Exception {
+        RecordingChatModel model = new RecordingChatModel(
+                Flux.just(response("answer", "stop", null)));
+        SpringAiModelGateway gateway = new SpringAiModelGateway(model, "test-model");
+        CancellationToken bounded = new CancellationToken() {
+            @Override public boolean isCancellationRequested() { return false; }
+            @Override public Registration onCancellation(Runnable action) { return () -> { }; }
+            @Override public java.util.Optional<Duration> remainingTime() {
+                return java.util.Optional.of(Duration.ofMillis(321));
+            }
+        };
+
+        gateway.complete(request(List.of()), ignored -> { }, bounded);
+
+        OpenAiChatOptions options = (OpenAiChatOptions) model.prompt().getOptions();
+        assertThat(options.getTimeout()).isEqualTo(Duration.ofMillis(321));
+    }
+
+    @Test
+    void cancellationDisposesNeverTerminatingProviderPublisher() throws Exception {
         AtomicBoolean disposed = new AtomicBoolean();
         RecordingChatModel model = new RecordingChatModel(
                 Flux.<ChatResponse>never().doOnCancel(() -> disposed.set(true)));

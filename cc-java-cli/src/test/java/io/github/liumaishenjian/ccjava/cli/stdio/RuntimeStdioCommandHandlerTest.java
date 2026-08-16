@@ -505,6 +505,47 @@ class RuntimeStdioCommandHandlerTest {
     }
 
     @Test
+    void blockingModelDeadlineEmitsOneFailedTerminalAndAcceptsTheNextRun() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        AtomicInteger calls = new AtomicInteger();
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            if (calls.incrementAndGet() == 1) {
+                try {
+                    new CountDownLatch(1).await();
+                } catch (InterruptedException expected) {
+                    Thread.currentThread().interrupt();
+                    throw new io.github.liumaishenjian.ccjava.core.ModelGatewayException(
+                            io.github.liumaishenjian.ccjava.core.ModelGatewayException.FailureKind.CANCELLED,
+                            "fixed interrupted model");
+                }
+            }
+            return ModelTurn.text("recovered");
+        }, testOptions(Duration.ofMillis(80)))) {
+            StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                    events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+            handler.handle(codec.decodeCommand("{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(runStart("timeout-request", sessionId, 2, "timeout prompt")), emitter);
+            awaitAnyTerminal(events);
+            assertThat(events.stream().filter(RuntimeStdioCommandHandlerTest::isTerminal).toList())
+                    .singleElement().satisfies(terminal -> {
+                        assertThat(terminal.type()).isEqualTo("run.failed");
+                        assertThat(terminal.payload().get("stopReason").stringValue())
+                                .isEqualTo("time_limit_reached");
+                    });
+
+            handler.handle(codec.decodeCommand(runStart("recovery-request", sessionId, 3, "next prompt")), emitter);
+            awaitTerminalCount(events, 2);
+        }
+        assertThat(events.stream().filter(RuntimeStdioCommandHandlerTest::isTerminal).toList())
+                .hasSize(2).last().satisfies(terminal -> {
+                    assertThat(terminal.type()).isEqualTo("run.completed");
+                    assertThat(terminal.payload().get("finalText").stringValue()).isEqualTo("recovered");
+                });
+    }
+
+    @Test
     void queuesSteeringUntilTheCurrentRunHasReachedItsTerminalBoundary() throws Exception {
         StdioProtocolCodec codec = new StdioProtocolCodec();
         CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
@@ -1192,6 +1233,44 @@ class RuntimeStdioCommandHandlerTest {
                 .formatted(requestId, sessionId, sequence, commandId, intent, arguments);
     }
 
+    @Test
+    void emptyProviderProfilesProduceImmediateStdioTerminalWithSafeConfigurationSummary() throws Exception {
+        Path home = Files.createDirectory(temporaryRoot.resolve("empty-provider-home"));
+        Path repository = Files.createDirectory(temporaryRoot.resolve("empty-provider-repository"));
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+
+        java.util.concurrent.atomic.AtomicReference<io.github.liumaishenjian.ccjava.core.AgentEventSink>
+                runtimeEvents = new java.util.concurrent.atomic.AtomicReference<>(
+                        io.github.liumaishenjian.ccjava.core.AgentEventSink.noop());
+        try (var auth = io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthRuntimeResources.open(
+                home, repository, java.util.Map.of());
+             var application = new io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeSession(
+                     auth.modelGateway(), envelope -> runtimeEvents.get().publish(envelope),
+                     new io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeOptions(
+                             repository, "provider-not-configured", Duration.ofSeconds(5)));
+             var handler = new RuntimeStdioCommandHandler(application, auth.service())) {
+            runtimeEvents.set(handler);
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"missing-init\","
+                            + "\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            long started = System.nanoTime();
+            handler.handle(codec.decodeCommand(runStart(
+                    "missing-run", sessionId, 2, "weather")), emitter);
+
+            CapturedEvent terminal = awaitAnyTerminal(events);
+            assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(1));
+            assertThat(terminal.type()).isEqualTo("run.failed");
+            assertThat(terminal.payload().get("stopReason").stringValue()).isEqualTo("model_error");
+            assertThat(terminal.payload().at("/modelFailure/category").stringValue())
+                    .isEqualTo("configuration_required");
+            assertThat(events.stream().filter(RuntimeStdioCommandHandlerTest::isTerminal)).hasSize(1);
+        }
+    }
+
     private static boolean isTerminal(CapturedEvent event) {
         return event.type().equals("run.completed")
                 || event.type().equals("run.failed")
@@ -1245,6 +1324,87 @@ class RuntimeStdioCommandHandlerTest {
             Thread.sleep(10);
         }
         throw new AssertionError("未收到 stdio Run 终态事件");
+    }
+
+    @Test
+    void providerControlAddsCompatibleProviderThroughApplicationServiceAndListsItsModel() throws Exception {
+        Path home = Files.createDirectory(temporaryRoot.resolve("provider-add-home"));
+        Path repository = Files.createDirectory(temporaryRoot.resolve("provider-add-repository"));
+        var credentials = new io.github.liumaishenjian.ccjava.cli.auth.RestrictedFileCredentialStore(home);
+        var definitions = new io.github.liumaishenjian.ccjava.cli.provider.ProviderDefinitionStore(home);
+        var migration = new io.github.liumaishenjian.ccjava.cli.auth.LegacyCredentialMigrationService(
+                new io.github.liumaishenjian.ccjava.cli.auth.LegacyProviderConfigurationReader(repository),
+                definitions, credentials);
+        var service = new io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService(
+                definitions, credentials, migration, java.util.Map.of());
+        var application = new io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeSession(
+                ignored -> ModelTurn.text("unused"), io.github.liumaishenjian.ccjava.core.AgentEventSink.noop(),
+                testOptions());
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(application, service)) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\","
+                            + "\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(providerControl(sessionId, 2, "provider-add", "providers.add",
+                    "{\"providerId\":\"team\",\"displayName\":\"Team Gateway\","
+                            + "\"baseUrl\":\"https://gateway.example/v1\",\"modelId\":\"model-x\"}")), emitter);
+            handler.handle(codec.decodeCommand(providerControl(sessionId, 3, "models", "models.list",
+                    "{\"providerId\":\"team\"}")), emitter);
+
+            assertThat(service.listModels(Optional.of("team"), io.github.liumaishenjian.ccjava.core.CancellationToken.none()))
+                    .extracting(io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService
+                            .ModelSummary::modelId).containsExactly("model-x");
+            CapturedEvent added = events.stream().filter(event -> event.type().equals("provider.control.result")
+                    && event.payload().get("intent").stringValue().equals("providers.add")).findFirst().orElseThrow();
+            assertThat(added.payload().get("result").properties().stream()
+                    .map(java.util.Map.Entry::getKey).toList())
+                    .containsExactlyInAnyOrder("providerId", "displayName", "modelId");
+            assertThat(added.payload().toString()).doesNotContain("gateway.example");
+            assertThat(Files.exists(home.resolve(".cc-java/providers.v1.json"))).isTrue();
+        }
+    }
+
+    @Test
+    void providerControlRejectsInvalidOrDuplicateProviderWithoutChangingStore() throws Exception {
+        Path home = Files.createDirectory(temporaryRoot.resolve("provider-reject-home"));
+        Path repository = Files.createDirectory(temporaryRoot.resolve("provider-reject-repository"));
+        var credentials = new io.github.liumaishenjian.ccjava.cli.auth.RestrictedFileCredentialStore(home);
+        var definitions = new io.github.liumaishenjian.ccjava.cli.provider.ProviderDefinitionStore(home);
+        var service = new io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService(
+                definitions, credentials, new io.github.liumaishenjian.ccjava.cli.auth.LegacyCredentialMigrationService(
+                new io.github.liumaishenjian.ccjava.cli.auth.LegacyProviderConfigurationReader(repository),
+                definitions, credentials), java.util.Map.of());
+        service.addCompatibleProvider(new io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService
+                .AddProviderRequest("team", "Team", "https://gateway.example/v1", "model-x"),
+                io.github.liumaishenjian.ccjava.core.CancellationToken.none());
+        long generation = definitions.snapshot(io.github.liumaishenjian.ccjava.core.CancellationToken.none()).generation();
+        var application = new io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeSession(
+                ignored -> ModelTurn.text("unused"), io.github.liumaishenjian.ccjava.core.AgentEventSink.noop(),
+                testOptions());
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(application, service)) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\","
+                            + "\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(providerControl(sessionId, 2, "http", "providers.add",
+                    "{\"providerId\":\"plain\",\"displayName\":\"Plain\","
+                            + "\"baseUrl\":\"http://gateway.example/v1\",\"modelId\":\"m\"}")), emitter);
+            handler.handle(codec.decodeCommand(providerControl(sessionId, 3, "duplicate", "providers.add",
+                    "{\"providerId\":\"team\",\"displayName\":\"Other\","
+                            + "\"baseUrl\":\"https://other.example/v1\",\"modelId\":\"m\"}")), emitter);
+        }
+        assertThat(definitions.snapshot(io.github.liumaishenjian.ccjava.core.CancellationToken.none()).generation()).isEqualTo(generation);
+        assertThat(events.stream().filter(event -> event.type().equals("provider.control.result"))
+                .map(event -> event.payload().get("status").stringValue())).containsExactly("rejected", "rejected");
     }
 
     @Test

@@ -71,6 +71,60 @@ class ProviderAuthApplicationServiceTest {
     }
 
     @Test
+    void compatibleProviderAddFailsClosedDuringActiveRunAndWritesOnlyAfterRunEnds() throws Exception {
+        Fixture fixture = fixture(Map.of());
+        var request = new ProviderAuthApplicationService.AddProviderRequest(
+                "team-gateway", "Team Gateway", "https://gateway.example/v1", "model-x");
+
+        try (ProviderAuthApplicationService.RunSelection ignored = fixture.service.beginRun()) {
+            assertThatThrownBy(() -> fixture.service.addCompatibleProvider(request, CancellationToken.none()))
+                    .isInstanceOfSatisfying(ProviderAuthException.class, failure ->
+                            assertThat(failure.code()).isEqualTo(
+                                    ProviderAuthException.Code.AUTH_TRANSACTION_CONFLICT));
+            assertThat(fixture.service.listProviders(CancellationToken.none()))
+                    .extracting(ProviderAuthApplicationService.ProviderSummary::providerId)
+                    .doesNotContain("team-gateway");
+            assertThat(Files.exists(fixture.home().resolve(".cc-java/providers.v1.json"))).isFalse();
+        }
+
+        fixture.service.addCompatibleProvider(request, CancellationToken.none());
+        assertThat(fixture.service.listProviders(CancellationToken.none()))
+                .extracting(ProviderAuthApplicationService.ProviderSummary::providerId)
+                .contains("team-gateway");
+        assertThat(Files.exists(fixture.home().resolve(".cc-java/providers.v1.json"))).isTrue();
+    }
+
+    @Test
+    void customProviderProfileAndModelSelectionPersistAcrossReopen() throws Exception {
+        Map<String, String> environment = Map.of("CC_TEAM_GATEWAY_TOKEN", "fixture-token-value");
+        Fixture fixture = fixture(environment);
+        fixture.service.addCompatibleProvider(new ProviderAuthApplicationService.AddProviderRequest(
+                "team-gateway", "Team Gateway", "https://gateway.example/v1", "model-x"),
+                CancellationToken.none());
+        fixture.service.login(new ProviderAuthApplicationService.LoginRequest(
+                "team-gateway", "default", ProviderAuthApplicationService.RefKind.ENV,
+                "CC_TEAM_GATEWAY_TOKEN", true), null, CancellationToken.none());
+        fixture.service.selectModel(new ProviderAuthApplicationService.ModelSelectionRequest(
+                "team-gateway", "model-x", Optional.of("default"), true), CancellationToken.none());
+
+        var providers = fixture.service.listProviders(CancellationToken.none());
+        var profiles = fixture.service.listProfiles(Optional.of("team-gateway"), CancellationToken.none());
+        var models = fixture.service.listModels(Optional.of("team-gateway"), CancellationToken.none());
+        ProviderAuthApplicationService reopened = reopen(fixture, environment);
+
+        assertThat(reopened.effectiveSelection()).get().satisfies(selection -> {
+            assertThat(selection.providerId()).isEqualTo("team-gateway");
+            assertThat(selection.profileId()).isEqualTo("default");
+            assertThat(selection.modelId()).isEqualTo("model-x");
+        });
+        assertThat(reopened.listProviders(CancellationToken.none())).containsExactlyElementsOf(providers);
+        assertThat(reopened.listProfiles(Optional.of("team-gateway"), CancellationToken.none()))
+                .containsExactlyElementsOf(profiles);
+        assertThat(reopened.listModels(Optional.of("team-gateway"), CancellationToken.none()))
+                .containsExactlyElementsOf(models);
+    }
+
+    @Test
     void modelSelectionIsLkgAndRefusesChangesDuringActiveRun() throws Exception {
         Fixture fixture = fixture(Map.of("CC_TEST_ENV", "value"));
         fixture.service.login(new ProviderAuthApplicationService.LoginRequest("anthropic", "personal",

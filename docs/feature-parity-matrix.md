@@ -304,7 +304,7 @@ Stage 完成项。
 | MODEL-10 | Rate Limit / Retry | ModelGatewayException typed Retry-After 已由 Adapter 解析并由 production ProviderRouter 在每请求 fresh shared deadline/cancel/attempt/cost budget 内有界消费；第三方 SDK 完整控制仍是 gap | L2 | S14 | REF-01/AUTH-01 |
 | MODEL-11 | Cost Budget | Provider Usage + 可信版本化价格才计算 ModelCost；Router 支持保守 attempt cost unit 上限，未知价格不伪造，精确执行中 token/cost 结算仍缺 | L2 | S14 | REF-01/AUTH-01 |
 | MODEL-12 | Capability Detection | configured/observed/effective 三层保守 snapshot；Unknown 不视为支持 | L2 | S14 | REF-02/AUTH-01/CODEX-0.147 |
-| MODEL-13 | Provider Auth / Credential Profiles | 已实现本地直连 BYOK：非秘密 ProviderDefinition 与 CredentialProfile/SecretRef 分离；OpenAI-compatible、Anthropic、OpenRouter；user-level restricted-file store、env/store、显式 profile>default>env>legacy、CLI/TUI 共用 service、local status/显式 probe、logout active-run fence、非破坏迁移；禁止 secret durable/argv/evidence 与 silent rotation/failover，OAuth 仅留官方扩展；实现 Commit `f0e274f779143164e0859961437a53acd220e7bd` 已完成 L1 commit-scoped G6，G5 仅有离线 Demo，双 Provider 在线证据仍缺失 | L1 | S15 | AUTH-01/CODEX-0.147/OPENCODE-DOC-20260813/OPENCLAW-DOC-20260813 |
+| MODEL-13 | Provider Auth / Credential Profiles | 已实现本地直连 BYOK：非秘密 ProviderDefinition 与 CredentialProfile/SecretRef 分离；OpenAI-compatible、Anthropic、OpenRouter；user-level restricted-file store、env/store、显式 profile>default>env>legacy、CLI/TUI/stdio 共用 service、严格四字段 `providers.add`、local status/显式 probe、logout active-run fence、非破坏迁移；无参数 `/connect` 为消费级 Ink 向导，普通路径隐藏 profile 并固定 `default`；自定义 compatible 逐步填写名称/ID/HTTPS URL/模型并保存后，均复用 Java masked Console/ENV 名称直接认证和选择模型；普通向导 login/models.use 显式持久默认并经 store 重开验证，已有 custom 有界稳定排序重现，保存 in-flight 锁定重复导航；`models.add/remove/use` exact result 已经真实 StdioClient child 验证；带参数命令保持高级兼容；禁止 secret durable/argv/evidence 与 silent rotation/failover，OAuth 仅留官方扩展；实现 Commit `f0e274f779143164e0859961437a53acd220e7bd` 已完成 L1 commit-scoped G6，G5 仅有离线 Demo，双 Provider 在线证据仍缺失 | L1 | S15 | AUTH-01/CODEX-0.147/OPENCODE-DOC-20260813/OPENCLAW-DOC-20260813 |
 
 ## 10. Tool System 对照
 
@@ -506,11 +506,11 @@ Stage 完成项。
 | EVAL-03 | Agent Success Metrics | 12 seed×5 production surface suite 从 AgentRunResult、模型收到的 ToolResult、事件和 stable envelope 聚合 completion/wall-clock/violations/modelTurns/toolCalls/stopReason；60/60 完成、0 violation，usage/cache/cost 仍如实 unknown，不升 L3 | L2 | S14 | REF-01/AUTH-01 |
 | EVAL-04 | Security Eval | WSL2/bwrap 与 Docker 的 file/network/env/secret 攻击回归 | L2 | S13 | REF-01 |
 | DIST-01 | Runnable Jar | 基础发行 | L0 | S04 | REF-02 |
-| DIST-02 | Windows/Linux Launcher | app-dir Windows cmd/Linux sh launcher + 本地 staging candidate | L2 | S14 | REF-02 |
+| DIST-02 | Windows/Linux Launcher | 产品 launcher 默认进入编译 Ink TUI，支持 Print/Provider control；CI 平台包携带 Java 21/Node 22，Windows 安装生命周期实测 | L2 | S14 | REF-02 |
 | DIST-03 | Java SDK | public `ProductionHarnessFactory.openSdk` 复用同一 Application；control API 覆盖 Export/Retention/Migration/Index/Governance | L2 | S14 | REF-03/AUTH-01 |
 | DIST-04 | Headless Protocol | `--stdio-v1` 使用 strict codec/state，覆盖 initialize、关联/序列/幂等、run/event/cancel/terminal/drain 与 Session control | L2 | S14 | REF-02/AUTH-01/CODEX-0.147 |
 | DIST-05 | Daemon/API | 独立 `--daemon` loopback entry、single ownership、高熵 token、stable v1 handler、bounded ingress/egress、disconnect fence 与 drain/stop | L2 | S14 | REF-02/AUTH-01 |
-| DIST-06 | Version/Update | manifest/checksum/SBOM/compatibility policy、staging install/upgrade rollback；License 未决不公开 Release | L2 | S14 | REF-02/AUTH-01/CODEX-0.147 |
+| DIST-06 | Version/Update | 固定平台 archive、checksum/SBOM、versions/current/LKG、install/update/uninstall 与 tag workflow；Apache-2.0 已解除许可证门禁，首发结果待对账 | L2 | S14 | REF-02/AUTH-01/CODEX-0.147 |
 
 ## 21. 各 Stage 的完成定义
 

@@ -37,6 +37,7 @@ final class ModelFailureFormatter {
             case INCOMPLETE_STREAM -> "模型输出流未完整结束";
             case INVALID_RESPONSE -> "模型服务返回了无效响应";
             case PROVIDER_ERROR -> "模型服务调用失败";
+            case CONFIGURATION_REQUIRED -> "尚未配置 Provider profile 或模型选择";
         };
         String status = summary.statusClass()
                 .map(ModelFailureFormatter::statusText)
@@ -51,6 +52,7 @@ final class ModelFailureFormatter {
             case AUTHENTICATION_FAILED -> "；请检查 Provider 凭证或权限";
             case INVALID_REQUEST -> "；请检查模型与请求配置";
             case INVALID_RESPONSE, PROVIDER_ERROR -> "；请检查 Provider 状态";
+            case CONFIGURATION_REQUIRED -> "；请运行 /connect 或 codej auth login";
         };
         return base + status + attempts + action;
     }

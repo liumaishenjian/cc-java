@@ -1,5 +1,7 @@
 package io.github.liumaishenjian.ccjava.core;
 
+import java.time.Duration;
+
 /**
  * 在 Agent Run 边界冻结底层模型 route 的 Gateway。
  *
@@ -13,6 +15,20 @@ public interface RunScopedModelGateway extends ModelGateway {
      * @return 当前 Run 持有的 route 与 credential lease
      */
     RunScope openRun();
+
+    /**
+     * 在当前线程对应的 Run 开始前冻结 route，并把 Provider request timeout 收窄到 Run 预算。
+     *
+     * <p>兼容实现可忽略该提示并走旧入口；会在 Run 边界创建 HTTP client 的 Provider 实现必须覆盖，
+     * 使底层单请求上限不超过 Run 总预算。</p>
+     *
+     * @param maxDuration 当前 Run 的正墙钟预算
+     * @return 当前 Run 持有的 route 与 credential lease
+     */
+    default RunScope openRun(Duration maxDuration) {
+        java.util.Objects.requireNonNull(maxDuration, "maxDuration 不能为空");
+        return openRun();
+    }
 
     /** Run 持有的 route/credential lease。 */
     interface RunScope extends AutoCloseable {

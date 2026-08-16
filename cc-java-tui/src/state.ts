@@ -13,7 +13,8 @@ export type ModelFailureCategory =
   | 'network_error'
   | 'incomplete_stream'
   | 'invalid_response'
-  | 'provider_error';
+  | 'provider_error'
+  | 'configuration_required';
 
 export interface ModelFailureView {
   readonly category: ModelFailureCategory;

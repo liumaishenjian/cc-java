@@ -36,19 +36,31 @@ final class SpringAiPromptMapper {
     private static final String SKILL_CONTEXT_ENVELOPE_VERSION = "cc-java-skill-context-v1";
 
     Prompt map(ModelRequest request, String model) {
+        return map(request, model, null);
+    }
+
+    /**
+     * 映射请求并可选地把单次 Provider timeout 收窄到当前 Run 剩余预算。
+     *
+     * <p>Prompt 级 options 会覆盖 ChatModel 默认 options；因此 deadline 必须在这里重新注入，
+     * 否则 factory 上配置的 timeout 会在每个模型回合被丢弃。</p>
+     */
+    Prompt map(ModelRequest request, String model, java.time.Duration requestTimeout) {
         Objects.requireNonNull(request, "request 不能为空");
         List<Message> messages = request.messages().stream().map(this::mapMessage).toList();
         List<ToolCallback> callbacks = request.toolDefinitions().stream()
                 .map(DefinitionOnlyToolCallback::new)
                 .map(ToolCallback.class::cast)
                 .toList();
-        OpenAiChatOptions options = OpenAiChatOptions.builder()
+        OpenAiChatOptions.Builder builder = OpenAiChatOptions.builder()
                 .model(Objects.requireNonNull(model, "model 不能为空"))
                 .toolCallbacks(callbacks)
                 .streamUsage(true)
-                .parallelToolCalls(true)
-                .build();
-        return new Prompt(messages, options);
+                .parallelToolCalls(true);
+        if (requestTimeout != null) {
+            builder.timeout(requestTimeout);
+        }
+        return new Prompt(messages, builder.build());
     }
 
     private Message mapMessage(AgentMessage message) {

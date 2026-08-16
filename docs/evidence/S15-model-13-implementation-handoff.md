@@ -232,9 +232,10 @@ subagent/worktree，未 commit/push、未运行 Docker。
   spawn error/exit、timeout/exit、cancel/exit 与并发 claim 均有独立测试；timeout/cancel 会 kill，raw mode/
   pause 只恢复一次。Java `Console.readPassword` 返回 null 也通过可注入 reader 证明稳定抛出
   `AUTH_SECRET_INPUT_REQUIRED`。`StdioClient` 延迟创建桥，避免普通 fake stdio 测试被 Java-spec 校验破坏。
-- `/connect` 无参现在同时请求 `models.list` 与 `auth.list` 并展示 STORE/ENV 可操作格式；
-  `/connect provider profile` 直接进入 Java masked Console；ENV 模式只传合法 ENV name；成功后刷新
-  `auth.list`；Agent Run 中或并发登录明确拒绝。Key 不进入 JS/Agent stdio/argv/output。
+- `/connect` 无参同时请求 `models.list` 与 `auth.list`，但当前消费级向导只展示简短连接状态与逐步选择；
+  STORE/ENV/legacy 等高级格式只在 `/help`、带参数命令或用户主动进入高级项时展示。`/connect provider profile`
+  直接进入 Java masked Console；ENV 模式只传合法 ENV name；成功后刷新 `auth.list`；Agent Run 中或并发
+  登录明确拒绝。Key 不进入 JS/Agent stdio/argv/output。
 - `RestrictedFileSecurity.samePrincipal` 移除 username suffix/case-insensitive 匹配，只接受
   `UserPrincipal.equals` 可证明身份，否则 fail closed。补同叶不同域、短叶、大小写伪造拒绝测试，以及
   Windows 真实 owner/ACL round-trip E2E。

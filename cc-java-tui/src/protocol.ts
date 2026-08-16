@@ -440,7 +440,8 @@ function validateSteeringDiscarded(
 }
 
 const PROVIDER_CONTROL_INTENTS = new Set([
-  'auth.list', 'auth.probe', 'auth.logout', 'models.list', 'models.use',
+  'providers.add', 'auth.list', 'auth.probe', 'auth.logout',
+  'models.list', 'models.add', 'models.remove', 'models.use',
 ]);
 
 function validateProviderControlResult(
@@ -462,7 +463,14 @@ function validateProviderControlResult(
     return;
   }
   const result = payload.result;
-  if (payload.intent === 'auth.list') {
+  if (payload.intent === 'providers.add') {
+    if (!hasExactFields(result, new Set(['providerId', 'displayName', 'modelId']))
+      || !isProviderId(result.providerId)
+      || !isProviderDisplayName(result.displayName)
+      || !isProviderModelId(result.modelId)) {
+      throw new ProtocolViolation('provider.control provider 投影无效');
+    }
+  } else if (payload.intent === 'auth.list') {
     if (!hasExactFields(result, new Set(['profiles'])) || !Array.isArray(result.profiles) || result.profiles.length > 256) {
       throw new ProtocolViolation('provider.control profile 投影无效');
     }
@@ -482,8 +490,23 @@ function validateProviderControlResult(
         || item.modelId.length < 1 || item.modelId.length > 256 || typeof item.providerDefault !== 'boolean')) {
       throw new ProtocolViolation('provider.control model 投影无效');
     }
+  } else if (payload.intent === 'models.add') {
+    if (!hasExactFields(result, new Set(['providerId', 'modelId', 'setDefault']))
+      || !isProviderId(result.providerId) || !isProviderModelId(result.modelId)
+      || typeof result.setDefault !== 'boolean') {
+      throw new ProtocolViolation('provider.control model add 投影无效');
+    }
+  } else if (payload.intent === 'models.remove') {
+    if (!hasExactFields(result, new Set(['providerId', 'modelId']))
+      || !isProviderId(result.providerId) || !isProviderModelId(result.modelId)) {
+      throw new ProtocolViolation('provider.control model remove 投影无效');
+    }
   } else if (payload.intent === 'models.use') {
-    if (!hasExactFields(result, new Set(['providerId', 'profileId', 'modelId']))) throw new ProtocolViolation('provider.control selection 投影无效');
+    if (!hasExactFields(result, new Set(['providerId', 'profileId', 'modelId', 'setDefault']))
+      || !isProviderId(result.providerId) || !isProviderId(result.profileId)
+      || !isProviderModelId(result.modelId) || typeof result.setDefault !== 'boolean') {
+      throw new ProtocolViolation('provider.control selection 投影无效');
+    }
   } else if (payload.intent === 'auth.probe') {
     if (!hasExactFields(result, new Set(['providerId', 'profileId', 'modelId', 'outcome', 'probedAt']))) throw new ProtocolViolation('provider.control probe 投影无效');
   } else if (!hasExactFields(result, new Set(['providerId', 'profileId', 'remoteRevoked'])) || result.remoteRevoked !== false) {
@@ -624,6 +647,22 @@ function hasExactFields(value: Readonly<Record<string, unknown>>, fields: Readon
 
 function nonNegativeSafeIntegers(value: Readonly<Record<string, unknown>>, fields: readonly string[]): boolean {
   return fields.every(field => Number.isSafeInteger(value[field]) && (value[field] as number) >= 0);
+}
+
+function isProviderId(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-z0-9][a-z0-9-]{0,62}$/u.test(value);
+}
+
+function isProviderDisplayName(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() === value && value.length > 0
+    && Array.from(value).length <= 80 && Buffer.byteLength(value, 'utf8') <= 256
+    && !/[\u0000-\u001f\u007f]/u.test(value);
+}
+
+function isProviderModelId(value: unknown): value is string {
+  return typeof value === 'string' && value.trim() === value && value.length > 0
+    && Array.from(value).length <= 256 && Buffer.byteLength(value, 'utf8') <= 1_024
+    && !/[\u0000-\u001f\u007f]/u.test(value);
 }
 
 function isBoundedProjectionEnum(value: unknown): value is string {
@@ -864,6 +903,7 @@ const MODEL_FAILURE_CATEGORIES = new Set([
   'incomplete_stream',
   'invalid_response',
   'provider_error',
+  'configuration_required',
 ]);
 
 function validateOptionalModelFailure(

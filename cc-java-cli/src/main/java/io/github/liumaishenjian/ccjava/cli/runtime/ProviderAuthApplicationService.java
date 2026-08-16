@@ -123,6 +123,31 @@ public final class ProviderAuthApplicationService {
     }
 
     /**
+     * 以固定 OpenAI-compatible Chat Completions 契约新增自定义 Provider。
+     *
+     * <p>该入口供不可信 Surface 使用，因此 Surface 只能提供四个非秘密字段；协议类别、API 变体、
+     * Header 与 timeout 均由应用服务固定。实际 ID、显示名、HTTPS URI、模型、重复定义、文件安全和
+     * generation CAS 继续复用 {@link ProviderDefinition} 与 {@link #addProvider(ProviderDefinition, CancellationToken)}，
+     * 不在 stdio/TUI 建立较弱校验。</p>
+     *
+     * @param request 自定义 Provider 的四字段请求
+     * @param cancellation 取消令牌
+     * @return 仅含安全展示字段的新增结果
+     */
+    public ProviderAddedSummary addCompatibleProvider(AddProviderRequest request, CancellationToken cancellation) {
+        Objects.requireNonNull(request, "request 不能为空");
+        if (runActive.get()) throw failure(ProviderAuthException.Code.AUTH_TRANSACTION_CONFLICT);
+        ProviderDefinition definition = new ProviderDefinition(
+                request.providerId(), ProviderDefinition.Kind.OPENAI_COMPATIBLE, request.displayName(),
+                java.net.URI.create(request.baseUrl()), ProviderDefinition.ApiVariant.OPENAI_CHAT_COMPLETIONS,
+                List.of(request.modelId()), request.modelId(), Map.of(),
+                java.time.Duration.ofSeconds(10), java.time.Duration.ofSeconds(300));
+        addProvider(definition, cancellation);
+        return new ProviderAddedSummary(
+                definition.providerId(), definition.displayName(), definition.defaultModelId());
+    }
+
+    /**
      * 以当前 generation CAS 给 built-in Provider 增加模型 overlay。
      *
      * @param providerId Provider 标识
@@ -390,8 +415,20 @@ public final class ProviderAuthApplicationService {
         var credentialSnapshot = credentials.snapshot(CancellationToken.none());
         return definitionSnapshot.defaultSelection().flatMap(value -> {
             String profile = credentialSnapshot.providerDefaults().get(value.providerId());
-            return profile == null ? Optional.empty() : Optional.of(new ProviderSelectionSnapshot(
-                    value.providerId(), profile, value.modelId()));
+            if (profile == null) return Optional.empty();
+            CredentialProfile credential = credentialSnapshot.find(value.providerId(), profile)
+                    .orElseThrow(() -> failure(ProviderAuthException.Code.AUTH_PROFILE_UNKNOWN));
+            ProviderAuthStatusCode status = localStatus(credential);
+            if (status != ProviderAuthStatusCode.AVAILABLE_LOCAL) {
+                throw switch (status) {
+                    case MISSING_SECRET -> failure(ProviderAuthException.Code.AUTH_SECRET_UNAVAILABLE);
+                    case INSECURE_STORE -> failure(ProviderAuthException.Code.AUTH_STORE_INSECURE);
+                    case CORRUPT_STORE -> failure(ProviderAuthException.Code.AUTH_STORE_CORRUPT);
+                    case REVOKED_IN_PROCESS -> failure(ProviderAuthException.Code.AUTH_TRANSACTION_CONFLICT);
+                    default -> failure(ProviderAuthException.Code.AUTH_SECRET_UNAVAILABLE);
+                };
+            }
+            return Optional.of(new ProviderSelectionSnapshot(value.providerId(), profile, value.modelId()));
         });
     }
     private ProviderAuthStatusCode localStatus(CredentialProfile profile) {
@@ -474,6 +511,33 @@ public final class ProviderAuthApplicationService {
         /** secret 在使用时从环境变量解析。 */
         ENV
     }
+    /**
+     * 不可信 Surface 新增 compatible Provider 的最小请求。
+     *
+     * @param providerId 稳定 Provider 标识
+     * @param displayName 用户可见名称
+     * @param baseUrl absolute HTTPS 服务根地址
+     * @param modelId 初始且默认的模型标识
+     */
+    public record AddProviderRequest(String providerId, String displayName, String baseUrl, String modelId) {
+        /** 只做空值所有权检查；完整字段约束由 ProviderDefinition 权威执行。 */
+        public AddProviderRequest {
+            Objects.requireNonNull(providerId, "providerId 不能为空");
+            Objects.requireNonNull(displayName, "displayName 不能为空");
+            Objects.requireNonNull(baseUrl, "baseUrl 不能为空");
+            Objects.requireNonNull(modelId, "modelId 不能为空");
+        }
+    }
+
+    /**
+     * 新增 Provider 的非秘密安全投影。
+     *
+     * @param providerId 已保存的稳定 Provider 标识
+     * @param displayName 已保存的用户可见名称
+     * @param modelId 已保存的初始默认模型
+     */
+    public record ProviderAddedSummary(String providerId, String displayName, String modelId) { }
+
     /**
      * login 输入；禁止携带 raw secret。
      *

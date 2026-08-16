@@ -38,9 +38,11 @@ JDK 21、PowerShell 7。普通 Demo 不需要 Provider 密钥或外网。真实 
 pwsh -NoProfile -File .\scripts\BuildRelease.ps1 -SkipBuild
 pwsh -NoProfile -File .\scripts\TestBuildRelease.ps1
 .\target\release\codej.cmd --help
+pwsh -NoProfile -File .\scripts\PackageDistribution.ps1 -Version 0.1.0-rc.1 -Platform windows-x64 -SkipBuild -SkipTuiBuild
+pwsh -NoProfile -File .\scripts\TestInstallDistribution.ps1
 ```
 
-观察：生成 app-dir、Windows/Linux launcher、release manifest、SHA256SUMS、SBOM；SBOM component 从每个 JAR 唯一 Maven `pom.properties` 或 Maven resolver 的确定性 artifact metadata 提取 group/artifact/version 并生成 purl，resolver 坐标以 JAR SHA-256 绑定，缺失或歧义 Fail Closed，绝不猜文件名。自测明确断言 picocli 4.7.7、Spring AI Anthropic 2.0.0、Anthropic Java 2.40.1 与 cc-java 0.1.0-SNAPSHOT，并复验 component 非空、全部 checksum 与输出路径越界负例；manifest 明确 `publicReleaseAllowed=false`。升级使用 staging/rollback；本 Demo 不 commit、push 或公开发布。
+观察：生成产品 app-dir、编译 Ink TUI、production npm dependencies、Windows/Linux launcher、release manifest、SHA256SUMS 与 SBOM；无参数 `codej` 进入 TUI，`--print` 和 Provider control 复用唯一 Java Runtime。Windows 固定 ZIP 经过外部 checksum 后安装到 `versions/<version>`，原子切换 current，shim 的 version/doctor、篡改拒绝与卸载均通过。默认 candidate manifest 保持 `publicReleaseAllowed=false`；只有显式 `-PublicRelease` 且 Apache-2.0 `LICENSE` 存在时才为 true。
 
 ## 5. Commit-scoped 退出复验
 

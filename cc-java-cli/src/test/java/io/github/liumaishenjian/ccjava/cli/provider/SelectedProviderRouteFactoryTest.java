@@ -13,7 +13,11 @@ import java.nio.file.*;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** selected route 只创建单 route，并在 Run 边界冻结 selection/lease 的集成契约。 */
 class SelectedProviderRouteFactoryTest {
@@ -42,6 +46,93 @@ class SelectedProviderRouteFactoryTest {
         assertThat(leases.activeCount("anthropic","personal")).isZero();
         assertThat(closes).hasValue(1);
     }
+
+    @Test void missingSelectionBecomesFastPrivacySafeModelFailureAndScopeCanReopen() throws Exception {
+        Path home=Files.createDirectory(temporary.resolve("missing-home"));
+        ProviderDefinitionStore definitions=new ProviderDefinitionStore(home);
+        FakeStore store=new FakeStore(); CredentialLeaseRegistry leases=new CredentialLeaseRegistry();
+        AtomicInteger calls=new AtomicInteger(),closes=new AtomicInteger();
+        ProviderGatewayFactoryRegistry registry=new ProviderGatewayFactoryRegistry(List.of(
+                passthrough(ProviderGatewayKind.ANTHROPIC,calls,closes),
+                passthrough(ProviderGatewayKind.OPENAI_COMPATIBLE,calls,closes),
+                passthrough(ProviderGatewayKind.OPENROUTER,calls,closes)));
+        var routes=new SelectedProviderRouteFactory(definitions,new CredentialResolver(store,Map.of()),leases,registry);
+        var gateway=routes.lazyGateway(Optional::<ProviderSelectionSnapshot>empty);
+        ModelRequest request=new ModelRequest(new io.github.liumaishenjian.ccjava.domain.SessionId("session"),
+                new io.github.liumaishenjian.ccjava.domain.RunId("run"),1,List.of(),List.of());
+
+        for (int attempt=0;attempt<2;attempt++) {
+            long started=System.nanoTime();
+            try(var run=gateway.openRun(java.time.Duration.ofSeconds(1))) {
+                assertThatThrownBy(()->gateway.complete(request))
+                        .isInstanceOfSatisfying(io.github.liumaishenjian.ccjava.core.ModelGatewayException.class,
+                                failure->assertThat(failure.getMessage())
+                                        .isEqualTo("Provider configuration unavailable")
+                                        .doesNotContain("MODEL_SELECTION_AMBIGUOUS"));
+            }
+            assertThat(java.time.Duration.ofNanos(System.nanoTime()-started)).isLessThan(java.time.Duration.ofSeconds(1));
+        }
+        assertThat(calls).hasValue(0);
+        assertThat(leases.activeCount("anthropic","personal")).isZero();
+    }
+
+    @Test void concurrentRunsKeepIndependentRoutesVisibleToInheritedModelWorkers() throws Exception {
+        Path home=Files.createDirectory(temporary.resolve("concurrent-home"));
+        ProviderDefinitionStore definitions=new ProviderDefinitionStore(home);
+        FakeStore store=new FakeStore(); CredentialLeaseRegistry leases=new CredentialLeaseRegistry();
+        CountDownLatch bothEntered=new CountDownLatch(2), release=new CountDownLatch(1);
+        List<String> observed=java.util.Collections.synchronizedList(new ArrayList<>());
+        ProviderGatewayFactory factory=new ProviderGatewayFactory(){
+            @Override public ProviderGatewayKind kind(){return ProviderGatewayKind.ANTHROPIC;}
+            @Override public ModelGateway create(ProviderGatewayConfiguration configuration){
+                String model=configuration.modelId();
+                return request->{
+                    observed.add(model+":"+request.runId().value());
+                    bothEntered.countDown();
+                    try {
+                        if(!bothEntered.await(2,TimeUnit.SECONDS)||!release.await(2,TimeUnit.SECONDS))
+                            throw new AssertionError("concurrent route timeout");
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw new AssertionError(interrupted);
+                    }
+                    return ModelTurn.text(model);
+                };
+            }
+        };
+        ProviderGatewayFactoryRegistry registry=new ProviderGatewayFactoryRegistry(List.of(factory,
+                passthrough(ProviderGatewayKind.OPENAI_COMPATIBLE,new AtomicInteger(),new AtomicInteger()),
+                passthrough(ProviderGatewayKind.OPENROUTER,new AtomicInteger(),new AtomicInteger())));
+        var routes=new SelectedProviderRouteFactory(definitions,new CredentialResolver(store,Map.of("CC_TEST","route-test-secret")),leases,registry);
+        String model=definitions.snapshot(CancellationToken.none()).catalog().require("anthropic").defaultModelId();
+        var gateway=routes.lazyGateway(()->Optional.of(new ProviderSelectionSnapshot("anthropic","personal",model)));
+        AtomicReference<Throwable> failure=new AtomicReference<>();
+        Runnable first=()->runConcurrent(gateway,"run-a",failure);
+        Runnable second=()->runConcurrent(gateway,"run-b",failure);
+        Thread a=Thread.ofPlatform().start(first), b=Thread.ofPlatform().start(second);
+        assertThat(bothEntered.await(2,TimeUnit.SECONDS)).isTrue();
+        assertThat(leases.activeCount("anthropic","personal")).isEqualTo(2);
+        release.countDown(); a.join(2_000); b.join(2_000);
+        assertThat(failure.get()).isNull();
+        assertThat(observed).containsExactlyInAnyOrder(model+":run-a",model+":run-b");
+        assertThat(leases.activeCount("anthropic","personal")).isZero();
+    }
+
+    private static void runConcurrent(io.github.liumaishenjian.ccjava.core.RunScopedModelGateway gateway,
+                                      String runId,AtomicReference<Throwable> failure){
+        try(var run=gateway.openRun(java.time.Duration.ofSeconds(2))){
+            AtomicReference<ModelTurn> result=new AtomicReference<>();
+            Thread worker=Thread.ofVirtual().start(()->{
+                try{result.set(gateway.complete(new ModelRequest(
+                        new io.github.liumaishenjian.ccjava.domain.SessionId("session"),
+                        new io.github.liumaishenjian.ccjava.domain.RunId(runId),1,List.of(),List.of())));}
+                catch(Throwable thrown){failure.compareAndSet(null,thrown);}
+            });
+            worker.join(2_000);
+            assertThat(result.get()).isNotNull();
+        }catch(Throwable thrown){failure.compareAndSet(null,thrown);}
+    }
+
     private static ProviderGatewayFactory passthrough(ProviderGatewayKind kind,AtomicInteger calls,AtomicInteger closes){
         return new ProviderGatewayFactory(){public ProviderGatewayKind kind(){return kind;}public ModelGateway create(ProviderGatewayConfiguration c){return new FakeGateway(calls,closes);}};
     }

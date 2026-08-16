@@ -45,7 +45,8 @@ public record ModelFailureSummary(
         if ((category == ModelFailureCategory.NETWORK_ERROR
                 || category == ModelFailureCategory.INCOMPLETE_STREAM
                 || category == ModelFailureCategory.INVALID_RESPONSE
-                || category == ModelFailureCategory.PROVIDER_ERROR)
+                || category == ModelFailureCategory.PROVIDER_ERROR
+                || category == ModelFailureCategory.CONFIGURATION_REQUIRED)
                 && statusClass.isPresent()) {
             throw new IllegalArgumentException("非 HTTP 分类不能携带状态组");
         }

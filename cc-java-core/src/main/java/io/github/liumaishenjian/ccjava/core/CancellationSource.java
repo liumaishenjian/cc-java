@@ -1,6 +1,8 @@
 package io.github.liumaishenjian.ccjava.core;
 
+import java.time.Duration;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -16,12 +18,40 @@ public final class CancellationSource {
 
     private final AtomicBoolean cancelled = new AtomicBoolean();
     private final CopyOnWriteArrayList<Runnable> callbacks = new CopyOnWriteArrayList<>();
+    private final long deadlineNanos;
     private final CancellationToken token = new SourceToken();
 
     /**
-     * 创建尚未取消且没有监听器的取消源。
+     * 创建尚未取消且没有 deadline 的取消源。
      */
     public CancellationSource() {
+        deadlineNanos = Long.MAX_VALUE;
+    }
+
+    /**
+     * 创建绑定单调时钟 deadline 的取消源。
+     *
+     * <p>该 deadline 只负责向下游暴露不断缩短的剩余预算；实际到期触发仍由
+     * {@code AgentRuntime} 的 deadline 任务调用 {@link #cancel()}，从而保留 timeout 与用户取消的
+     * 首胜终态语义。</p>
+     *
+     * @param maxDuration 从创建时刻开始计算的正墙钟预算
+     */
+    public CancellationSource(Duration maxDuration) {
+        Objects.requireNonNull(maxDuration, "maxDuration 不能为空");
+        if (maxDuration.isNegative() || maxDuration.isZero()) {
+            throw new IllegalArgumentException("maxDuration 必须大于 0");
+        }
+        long now = System.nanoTime();
+        long nanos;
+        try {
+            nanos = maxDuration.toNanos();
+        } catch (ArithmeticException overflow) {
+            nanos = Long.MAX_VALUE;
+        }
+        deadlineNanos = nanos == Long.MAX_VALUE || Long.MAX_VALUE - now < nanos
+                ? Long.MAX_VALUE
+                : now + nanos;
     }
 
     /**
@@ -43,7 +73,11 @@ public final class CancellationSource {
             return false;
         }
         for (Runnable callback : callbacks) {
-            callback.run();
+            try {
+                callback.run();
+            } catch (RuntimeException ignored) {
+                // 取消已经线性化；单个 Adapter 清理失败不能阻止其余订阅者收到通知。
+            }
         }
         callbacks.clear();
         return true;
@@ -59,15 +93,32 @@ public final class CancellationSource {
         public Registration onCancellation(Runnable action) {
             Objects.requireNonNull(action, "action 不能为空");
             if (cancelled.get()) {
-                action.run();
+                runCancellationAction(action);
                 return () -> {
                 };
             }
             callbacks.add(action);
             if (cancelled.get() && callbacks.remove(action)) {
-                action.run();
+                runCancellationAction(action);
             }
             return () -> callbacks.remove(action);
+        }
+
+        private void runCancellationAction(Runnable action) {
+            try {
+                action.run();
+            } catch (RuntimeException ignored) {
+                // 注册竞争发生在已取消状态时也保持取消 API 不向 Runtime 泄漏 Adapter 清理异常。
+            }
+        }
+
+        @Override
+        public Optional<Duration> remainingTime() {
+            if (deadlineNanos == Long.MAX_VALUE) {
+                return Optional.empty();
+            }
+            long remaining = deadlineNanos - System.nanoTime();
+            return Optional.of(remaining <= 0 ? Duration.ZERO : Duration.ofNanos(remaining));
         }
     }
 }

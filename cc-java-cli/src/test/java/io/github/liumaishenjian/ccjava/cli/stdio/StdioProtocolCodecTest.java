@@ -178,6 +178,34 @@ class StdioProtocolCodecTest {
     }
 
     @Test
+    void providerControlAddProviderAcceptsOnlyExactBoundedFourFields() throws Exception {
+        assertThat(codec.decodeCommand("""
+                {"version":0,"type":"provider.control","requestId":"p-add","sessionId":"session-1",
+                 "sequence":2,"payload":{"controlId":"add-1","intent":"providers.add",
+                 "arguments":{"providerId":"team","displayName":"Team Gateway",
+                 "baseUrl":"https://gateway.example/v1","modelId":"model-x"}}}
+                """).payload().get("intent").stringValue()).isEqualTo("providers.add");
+        assertProtocolError("""
+                {"version":0,"type":"provider.control","requestId":"p-add","sessionId":"session-1",
+                 "sequence":2,"payload":{"controlId":"add-1","intent":"providers.add",
+                 "arguments":{"providerId":"team","displayName":"Team Gateway",
+                 "baseUrl":"https://gateway.example/v1","modelId":"model-x","headers":{}}}}
+                """, "UNKNOWN_FIELD");
+        assertProtocolError("""
+                {"version":0,"type":"provider.control","requestId":"p-add","sessionId":"session-1",
+                 "sequence":2,"payload":{"controlId":"add-1","intent":"providers.add",
+                 "arguments":{"providerId":"team","displayName":"bad\\nname",
+                 "baseUrl":"https://gateway.example/v1","modelId":"model-x"}}}
+                """, "INVALID_ARGUMENT");
+        assertProtocolError("""
+                {"version":0,"type":"provider.control","requestId":"p-add","sessionId":"session-1",
+                 "sequence":2,"payload":{"controlId":"add-1","intent":"providers.add",
+                 "arguments":{"providerId":"team","displayName":"Team Gateway",
+                 "baseUrl":"https://gateway.example/v1","modelId":"%s"}}}
+                """.formatted("x".repeat(257)), "INVALID_ARGUMENT");
+    }
+
+    @Test
     void encodesEventWithoutNullOptionalIds() throws Exception {
         ObjectNode payload = codec.objectNode();
         payload.put("protocolVersion", 0);

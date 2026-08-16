@@ -8,10 +8,18 @@ let inputAssembly;
 const mode = process.argv[2] ?? 'normal';
 
 const reader = readline.createInterface({input: process.stdin, crlfDelay: Infinity});
+if (mode === 'time-limit-ignore-shutdown' || mode === 'bad-sequence-stay-alive'
+  || mode === 'protocol-error-stay-alive' || mode === 'initialize-protocol-failure') {
+  setInterval(() => {}, 1_000);
+}
 reader.on('line', line => {
   if (Buffer.byteLength(`${line}\n`, 'utf8') >= 64 * 1024) process.exit(23);
   let command = JSON.parse(line);
   if (command.type === 'initialize') {
+    if (mode === 'initialize-protocol-failure') {
+      process.stdout.write('{invalid-json}\n');
+      return;
+    }
     sessionId = 'session-1';
     emit('initialized', command.requestId, {protocolVersion: 0}, sessionId);
   } else if (command.type === 'file.suggest') {
@@ -106,15 +114,20 @@ reader.on('line', line => {
     if (mode === 'crash') {
       process.exit(17);
     }
-    if (mode === 'ignore-cancel' || mode.startsWith('steering')) {
+    if (mode === 'ignore-cancel' || mode === 'never-terminal' || mode.startsWith('steering')) {
       return;
     }
-    if (mode === 'bad-sequence') {
+    if (mode === 'bad-sequence' || mode === 'bad-sequence-stay-alive') {
       eventSequence++;
       emit('model.text.delta', command.requestId, {text: 'bad'}, sessionId, activeRunId);
       return;
     }
-    if (mode === 'time-limit') {
+    if (mode === 'protocol-error-stay-alive') {
+      emit('protocol.error', command.requestId, {code: 'RUN_REJECTED'}, sessionId, activeRunId);
+      activeRunId = undefined;
+      return;
+    }
+    if (mode === 'time-limit' || mode === 'time-limit-ignore-shutdown') {
       emit(
         'run.failed',
         command.requestId,
@@ -130,6 +143,26 @@ reader.on('line', line => {
         'run.failed',
         command.requestId,
         {stopReason: 'output_limit_reached'},
+        sessionId,
+        activeRunId,
+      );
+      activeRunId = undefined;
+      return;
+    }
+    if (mode === 'provider-configuration-required' || mode === 'provider-error') {
+      emit(
+        'run.failed',
+        command.requestId,
+        {
+          stopReason: 'model_error',
+          modelTurns: 1,
+          toolCalls: 0,
+          modelFailure: {
+            category: mode === 'provider-error' ? 'provider_error' : 'configuration_required',
+            attempts: 1,
+            receivedOutput: false,
+          },
+        },
         sessionId,
         activeRunId,
       );
@@ -225,6 +258,31 @@ reader.on('line', line => {
         worktreeDisposition: null,
       }, sessionId);
     }
+  } else if (command.type === 'provider.control') {
+    if (mode !== 'provider-model-results') {
+      emit('provider.control.result', command.requestId, {
+        controlId: command.payload.controlId,
+        intent: command.payload.intent,
+        status: 'rejected',
+        code: 'INVALID_ARGUMENT',
+        result: {},
+      }, sessionId);
+      return;
+    }
+    const results = {
+      'models.add': {providerId: 'anthropic', modelId: 'model-added', setDefault: true},
+      'models.remove': {providerId: 'anthropic', modelId: 'model-removed'},
+      'models.use': {providerId: 'anthropic', profileId: 'default', modelId: 'model-used', setDefault: true},
+    };
+    const result = results[command.payload.intent];
+    if (result === undefined) process.exit(31);
+    emit('provider.control.result', command.requestId, {
+      controlId: command.payload.controlId,
+      intent: command.payload.intent,
+      status: 'succeeded',
+      code: 'OK',
+      result,
+    }, sessionId);
   } else if (command.type === 'session.command') {
     if (mode === 'command-delay') {
       return;
@@ -258,7 +316,7 @@ reader.on('line', line => {
     }
   } else if (command.type === 'shutdown') {
     clearTimeout(timer);
-    if (mode === 'ignore-shutdown') {
+    if (mode === 'ignore-shutdown' || mode === 'time-limit-ignore-shutdown') {
       return;
     }
     process.stdout.write('', () => process.exit(0));

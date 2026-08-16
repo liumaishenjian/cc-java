@@ -1,6 +1,6 @@
 # ADR-070：S15 本地直连 Provider Definition 与 Credential Profile 契约
 
-- Status: Implemented and Commit-verified at L1（未达到 L2）
+- Status: Implemented at L1；Commit `f0e274f` 后工作树回归修复已完成最终验证但尚未提交（未达到 L2）
 - Date: 2026-08-14
 - Stage: S15 Independent Innovation（OPEN）
 - Feature ID: `MODEL-13`
@@ -134,10 +134,21 @@ credential；tracked 仓库不创建真实文件或非空示例，测试/evidenc
 非普通文件、root escape及平台可查时 hard-link count>1；创建前验证最近存在父目录 realpath，打开后
 复核 file key/identity，竞态不确定 fail closed。
 
-Unix 目录 owner=current/mode `0700`、文件 owner=current/mode `0600`；Windows DACL 必须拒绝
-Everyone/Users/Authenticated Users 读写，只保留当前用户和必要系统管理员主体。ACL view 不可用或
-无法证明时 STORE login fail closed；ENV profile仍可用。错误只含固定 code/逻辑对象/修复动作，禁止
-绝对路径、ACL dump、JSON片段和 cause message。
+`.cc-java` 是 Session、Settings、Provider/Auth 等能力共用的兼容容器，不是 credential 专属目录。Windows
+上的 `user.home` owner 可能是 `SYSTEM`，不能作为当前主体；`expectedOwner` 必须由当前 `user.name` 经该
+文件系统的 `UserPrincipalLookupService` 解析，并以 `UserPrincipal.equals`（Windows 对应 SID 身份）验证，
+不得使用 home owner 或 principal 名称字符串猜测。共享根只验证 path、identity、link/reparse 及可证明的
+当前用户访问边界，不要求 owner-only；既有根目录上的额外只读 principal 不得阻断 Provider/Auth 首次启动。
+实现绝不为了收紧 Provider/Auth 而自动修改真实用户 `.cc-java` 根 ACL。身份无法解析、path/identity 不匹配
+或 link/reparse 仍 fail closed。
+
+owner-only 边界从 `auth` 子目录和实际 Provider 文件开始：`auth` 及其 `profiles.v1.json`、`secrets/*`、
+`.lock`、`.txn.v1.json`、所有 credential file、同目录 temp、lock 与 txn 都必须 owner-only；实际
+`providers.v1.json` 文件及其同目录 temp/lock/txn 也必须 owner-only。Unix 对这些目录要求
+owner=current/mode `0700`、文件要求 owner=current/mode `0600`；Windows DACL 必须拒绝
+Everyone/Users/Authenticated Users 读写，只保留当前用户和必要系统管理员主体。`auth` 或具体文件上
+出现多余 principal、ACL view 不可用或无法证明时 STORE login fail closed；ENV profile仍可用。错误只含
+固定 code/逻辑对象/修复动作，禁止绝对路径、ACL dump、JSON片段和 cause message。
 
 providers/auth各用固定 lock；auth writer 获取 `.lock` exclusive `FileChannel` lock，默认等待5秒并响应
 cancel。进程内锁先于进程间锁且顺序固定。写入同目录 owner-only random temp，严格序列化、force、
@@ -195,12 +206,14 @@ secretId/path/base URL/header/endpoint/raw failure。退出码：0成功、2输�
 拒绝、6 timeout/cancel、7 logout drain失败。Provider仍被 profile/default/active selection引用时 remove
 拒绝且不级联删 credential。
 
-TUI 实际交互契约（Batch B 安全降级）：
+TUI 实际交互契约（Batch B C 端向导）：
 
 ```text
 /connect
   → 同时请求 models.list 与 auth.list
-  → 展示内置/custom Provider、已有 profile 与可操作格式
+  → 连接模型服务（Anthropic / OpenRouter / 已保存 custom / 添加自定义服务（高级））
+  → 未连接：认证方式 → Java masked Console 或 ENV 名称 → credential 刷新 → 模型选择 → 完成
+  → 已连接：选择模型 / 更新凭证 / 退出登录（高级，二次确认）
 /connect <provider> <profile>
   → IDLE→PAUSE_INK→JAVA_INHERITED_TTY→MASKED_CONSOLE→SAVED|FAILED|CANCELLED|TIMED_OUT
   → 成功后 auth.list 刷新
@@ -208,15 +221,58 @@ TUI 实际交互契约（Batch B 安全降级）：
   → 只把经白名单校验的变量名称交给一次性 Java；Node 不读取变量值
 ```
 
+普通向导固定使用合法 ID `default`：其含义是“当前内置 Provider 的默认个人连接”，与第 5 节既有
+`Provider default profile` 优先级和已有 `default` 合法 ID 契约一致。选择 `personal` 会把产品概念重新暴露
+给首次用户，且无法从现有本机状态确定它一定存在；因此不采用。显式 profile 仍保留在带参数 `/connect`、
+`auth` 与 `models` 高级/脚本接口中。
+
+无参数 `/connect` 使用 TUI 本地 generation 状态机，并与独立 Provider 命令使用不相交的 controlId
+namespace。每代只保留当前 generation 的常量大小两条腿：预先分配并精确绑定一个 `models.list`
+controlId 与一个 `auth.list` controlId，任意顺序结算后聚合成同一面板；实现不保留 fenced 历史 ID Set。
+旧代 `/connect` 响应由 namespace + generation 直接丢弃；重复与迟到响应也不得改写当前面板。每条腿
+无论成功或失败都只结算一次，失败只显示固定安全错误；另一条腿继续收敛，最终不得永久显示“刷新中”。
+独立 `/auth list`、`/models list` 和登录成功后的刷新使用独立 namespace，并把 sequence + intent 精确
+绑定进 controlId；响应据此直接归属单结果展示，不进入 `/connect` 聚合，也无需 independent pending registry。
+无参数向导首屏只展示中文标题、三个 Provider 入口以及“已连接/当前使用/加载中”等消费级状态；不得展示
+Providers/Models/Credential profiles、profile/refKind/localStatus/controlId 或 CLI 参数清单。两条加载腿局部结算，
+不能覆盖用户已进入的步骤。自定义服务使用有界分步状态机收集名称、稳定 ID、HTTPS Base URL 与初始模型，
+经严格 `provider.control/providers.add` 只发送这四个非秘密字段；kind 固定为 `OPENAI_COMPATIBLE`、API variant 固定为
+`OPENAI_CHAT_COMPLETIONS`，TUI 不能提供 Header、Secret、timeout 或任意 kind。Java Handler 构造应用服务的
+`AddProviderRequest`，后者复用 `ProviderDefinition` 与 `ProviderAuthApplicationService.addProvider` 的 ID、显示名、
+HTTPS URI、模型、重复、generation CAS 和 restricted-file store 安全校验。成功结果只投影
+`providerId/displayName/modelId`，随后标记 Provider 已保存、合并模型目录并直接进入该 Provider 的认证方式；保存中的 Enter/Esc 均为带“正在保存，请稍候”提示的 no-op，只有精确结果可推进，失败才返回确认页修改。成功后从认证页 Esc 只能返回 picker，不能返回确认页重放 `providers.add`。
+Provider picker 固定先放 built-in，再从安全 models/profiles 投影中提取最多 32 个 custom ID，去重并按 code point 稳定排序，最后才放“添加自定义服务（高级）”；移动和 Enter 共用一个纯 helper。选择已有 custom 时进入 connected management 或 auth，不重复 add。
+模型目录为空时给出 `codej models add --help`，不虚构远程模型。
+
 一次性 Java 进程只从已验证的启动 `ChildProcessSpec` 派生：固定 executable/cwd/env/JVM 前缀、唯一
 `CcJavaCliMain`、唯一且位于末尾的 `--stdio`，派生时只保留主类及其 JVM 前缀并固定追加 `auth login`；`shell=false`、
 `stdio=inherit`。STORE 模式要求真实 TTY，Java `Console.readPassword` 遮蔽输入；Console 或
 `readPassword` 返回 null 时稳定返回 typed failure。TUI 暂停输入并关闭 raw mode，所有 spawn error/exit/
 timeout/cancel 竞争只能结算一次，终端也只恢复一次；timeout、cancel、TUI terminate 都终止子进程。
-Agent Run 中或已有登录时拒绝新登录。login 不自动 probe，也不得把 key 放入 JS、Agent stdio、argv 或输出。
+Agent Run 中或已有登录时拒绝新登录。向导普通连接请求严格携带 `setDefault:true`，一次性 CLI bridge 仅在该值为 true 时追加 `--set-default`；省略该可选值的带参数旧接口继续保持其明确的非默认兼容语义。login 不自动 probe，也不得把 key 放入 JS、Agent stdio、argv 或输出。
+
+stdio transport failure 必须保持为可见终态，不得随后被一般 `closed` 状态覆盖，也不得自动退出 TUI。
+界面只保留隐私安全的失败摘要并等待用户按 `Ctrl+C` 退出；Java stderr 正文、堆栈、Provider 原文与
+底层 cause message均不得展示。ready 初始界面只直接显示简洁的 `/help` 与 `/connect` 入口；无参数
+`/connect` 进入消费级向导，以简短状态和逐步选择完成连接，不展示 STORE/ENV/legacy 的开发者指引。
+`/help`、带参数 `/connect`/`/auth`/`/models`，或用户主动进入自定义服务等高级项时，才展示对应高级
+命令和迁移入口。模型请求首个文本/Tool 事件前显示等待阶段；timeout/failure 后展示 Runtime 白名单
+摘要并回到可输入状态，不能要求用户猜入口或重启 TUI。
+
+封闭 Slash 命令在进入通用 `/skill-name` 入口前执行有界的一次编辑 typo 保护：只接受单字符
+插入、删除、替换或相邻换位，短名称不参与保护。唯一候选只返回本地 invalid 建议，不自动纠正；
+多个候选必须返回不带建议的通用“未知 Slash 命令”，且与无候选明确区分，不能回落为 Skill。
+因此 `/connet`、`/conect`、`/conenct` 不得调用 Skill、Run、Session/Task/Provider 控制或任何由
+这些执行路径触发的 Hook；正确 `/connect` 继续进入 Provider 控制面，远离内置命令的合法 Skill 保持原义。
+
+Ink vertical layout 固定为三段：header 不收缩；transcript、notice、ready/help/checkpoint 组成唯一可裁剪的
+中间区并从底部保留最新 Run/审批；Composer border、输入投影与光标状态位于中间区之外且
+`flexShrink=0`。Slash/file completion 只能使用 Composer 之后的剩余行，并以围绕当前选中项的有界窗口
+裁剪；即使短窗口、长历史、Credential notice 和大量候选同时存在，也不得把 Composer 或光标挤出
+viewport。Resize 只改变 Ink/Composer projection，不改变 Session、Run 或输入正文。
 
 `/auth list` 为零网络本地读取；logout成功必须提示“仅删除本机 credential，未在 Provider侧 revoke”。
-active Run时 `/models` 返回 `RUN_ACTIVE`，不得中途切换。
+向导 `models.use` 精确发送 `setDefault:true`；正式 stdio 成功结果中 `models.add={providerId,modelId,setDefault:boolean}`、`models.remove={providerId,modelId}`、`models.use={providerId,profileId,modelId,setDefault:boolean}`，均拒绝多余/缺失字段。active Run 时 `providers.add` 与 `/models` 均以既有 `AUTH_TRANSACTION_CONFLICT` fail closed 且不得写 store。
 
 原设计的 Java stdin `auth.secret.submit` raw frame 因 G3 尚无法证明 ingress 完全不记录而不启用；当前继承
 终端的一次性 Java masked Console 是 ADR 要求的 fail-closed fallback。不得退回 `--api-key-stdin` 管道，
@@ -265,6 +321,17 @@ privacy-safe lastProbe；该应用层网络控制不是 OS Sandbox。
 active Run通过既有唯一 terminal结束并使用 privacy-safe `AUTH_REVOKED`，不能追加第二终态。logout不发远端
 revoke，必须提示用户到 Provider控制台轮换/删除 key。
 
+普通模型 Run 的 deadline/取消同样必须跨越阻塞 Gateway 边界：Core 在独立可中断的 daemon virtual worker
+调用 Gateway，`CancellationToken` 暴露单调剩余预算，Spring AI Prompt request timeout、legacy OpenAI-compatible
+HTTP Client 与 Run scope Provider timeout 都收窄到该预算；取消会 dispose 已建立但永不终止的 Publisher。
+Spring AI `ChatModel` 不具备关闭所有权，因此 Provider composition 显式持有并幂等关闭底层同步/异步 Client。
+Run terminal 后仍忽略中断的 worker 只在短 drain 后被再次中断并解除进程存活所有权，迟到结果不得改写 Session
+或产生第二 terminal。阻塞调用、publisher、用户取消和 deadline 竞争只由 Runtime 首胜原因产生一个 terminal。
+Provider/selection/profile/secret 缺失或无效不得在 Surface 启动失败或永久等待；Run route 以隐私安全 typed model
+failure 快速收敛，Print/stdio/TUI 随后恢复各自正常终止或输入状态。共享 selected gateway 的 route scope 使用可继承、
+按调用上下文隔离的 run 绑定，使父/子 Runtime 并发时各自的模型 worker 只能看到所属 route；单全局槽和普通
+ThreadLocal 分别会拒绝并行 run或使 worker 看不到 route，均不采用。
+
 ## 8. Legacy 非破坏迁移
 
 旧 properties/env loader保留为最低优先级 ephemeral compatibility；启动不自动复制、创建或删除 secret。
@@ -306,7 +373,7 @@ operationId、validated IDs、status、count、duration bucket、timestamp；不
 | G1 | `MODEL-13` 三 Provider、ENV/STORE，以及无 Gateway rotation/OAuth 的范围已固定 | PASSED |
 | G2 | 本 ADR package/type/format/state/race/privacy 契约已完成 review | PASSED |
 | G3 | store/service/CLI/TUI/factories/Router composition 与中文 Javadoc 已在本地实现 | PASSED |
-| G4 | clean verify、TUI/launcher、fault/security/loopback/logout race/secret scan 与普通测试零网络证据已完成 | PASSED |
+| G4 | correctness closeout 覆盖持久默认、正式 models result 协议、真实 StdioClient child、custom 重开排序、保存竞态与 active-run add gate。聚焦 Java 53/53、TUI 11 files 194/194、非 clean Maven verify 1028 tests/13 skips、strict Javadoc 0 warning；clean 因用户既有 codej PID 17212 锁定 domain JAR 在 clean 阶段失败并如实记录。Capability Level 不变 | PASSED_WITH_RECORDED_CLEAN_BLOCKER |
 | G5 | 离线 Demo 与负例已完成；尚缺至少两个 distinct Provider 的真实 BYOK text stream、Tool call、cancel、auth-negative E2E | PARTIAL |
 | G6 | 实现 Commit `f0e274f779143164e0859961437a53acd220e7bd` 已绑定；`MODEL-13` L1 的文档/Demo/Gap/矩阵已完成 commit-scoped 对账 | PASSED_AT_L1 |
 

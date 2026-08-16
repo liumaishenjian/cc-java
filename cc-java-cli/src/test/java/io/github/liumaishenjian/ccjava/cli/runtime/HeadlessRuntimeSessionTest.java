@@ -140,6 +140,26 @@ class HeadlessRuntimeSessionTest {
     }
 
     @Test
+    void passesRunBudgetToRunScopedGatewayAndClosesItAfterDeadline() {
+        RecordingRunScopedGateway gateway = new RecordingRunScopedGateway();
+        gateway.blockUntilInterrupted = true;
+        CopyOnWriteArrayList<AgentEventEnvelope> events = new CopyOnWriteArrayList<>();
+
+        try (HeadlessRuntimeSession application = new HeadlessRuntimeSession(
+                gateway, events::add,
+                testOptions(temporaryWorkspace, Duration.ofMillis(80)))) {
+            application.open();
+            AgentRunResult result = application.run("deadline route");
+            assertThat(result.stopReason()).isEqualTo(StopReason.TIME_LIMIT_REACHED);
+        }
+
+        assertThat(gateway.lastRunBudget).hasValue(Duration.ofMillis(80));
+        assertThat(gateway.closes).hasValue(1);
+        assertThat(events).filteredOn(envelope -> envelope.event() instanceof LifecycleEvent.RunFinished)
+                .hasSize(1);
+    }
+
+    @Test
     void opensBindsAndClosesRunScopedGatewayForEveryRunAndAllTerminalPaths() {
         RecordingRunScopedGateway gateway = new RecordingRunScopedGateway();
 
@@ -1898,14 +1918,23 @@ class HeadlessRuntimeSessionTest {
         private final ThreadLocal<Boolean> open = new ThreadLocal<>();
         private volatile boolean failNext;
         private volatile boolean failCloseNext;
+        private volatile boolean blockUntilInterrupted;
+        private final AtomicReference<Duration> lastRunBudget = new AtomicReference<>();
+        private final java.util.concurrent.atomic.AtomicBoolean runScopeOpen =
+                new java.util.concurrent.atomic.AtomicBoolean();
 
         @Override
         public RunScope openRun() {
-            if (open.get() != null) {
+            return openRun(Duration.ofMinutes(30));
+        }
+
+        @Override
+        public RunScope openRun(Duration runBudget) {
+            lastRunBudget.set(runBudget);
+            if (!runScopeOpen.compareAndSet(false, true)) {
                 throw new IllegalStateException("scope already open");
             }
             opens.incrementAndGet();
-            open.set(Boolean.TRUE);
             return new RunScope() {
                 private boolean closed;
 
@@ -1922,7 +1951,7 @@ class HeadlessRuntimeSessionTest {
                     }
                     closed = true;
                     closes.incrementAndGet();
-                    open.remove();
+                    runScopeOpen.set(false);
                     if (failCloseNext) {
                         failCloseNext = false;
                         throw new IllegalStateException("scope close failed");
@@ -1933,10 +1962,20 @@ class HeadlessRuntimeSessionTest {
 
         @Override
         public ModelTurn complete(ModelRequest request) throws io.github.liumaishenjian.ccjava.core.ModelGatewayException {
-            if (open.get() == null) {
+            if (!runScopeOpen.get()) {
                 throw new AssertionError("模型调用发生在 RunScope 之外");
             }
             calls.incrementAndGet();
+            if (blockUntilInterrupted) {
+                try {
+                    new CountDownLatch(1).await();
+                } catch (InterruptedException expected) {
+                    Thread.currentThread().interrupt();
+                    throw new io.github.liumaishenjian.ccjava.core.ModelGatewayException(
+                            io.github.liumaishenjian.ccjava.core.ModelGatewayException.FailureKind.CANCELLED,
+                            "fixed interrupted gateway");
+                }
+            }
             if (failNext) {
                 failNext = false;
                 throw new io.github.liumaishenjian.ccjava.core.ModelGatewayException(

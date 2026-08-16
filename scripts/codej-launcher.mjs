@@ -1,0 +1,171 @@
+#!/usr/bin/env node
+import {spawnSync} from 'node:child_process';
+import {existsSync, readFileSync} from 'node:fs';
+import {dirname, isAbsolute, join, resolve} from 'node:path';
+import process from 'node:process';
+import {fileURLToPath} from 'node:url';
+
+const installationRoot = dirname(fileURLToPath(import.meta.url));
+const mainClass = 'io.github.liumaishenjian.ccjava.cli.CcJavaCliMain';
+const contextDefaults = ['--context-maximum-input-tokens', '256000',
+  '--context-reserved-output-tokens', '8192', '--context-safety-margin-tokens', '4096'];
+
+main();
+
+function main() {
+  const args = process.argv.slice(2);
+  if (args.length === 1 && args[0] === '--help') return printHelp();
+  if (args.length === 1 && args[0] === '--version') return printVersion();
+  if (args.length === 1 && args[0] === 'doctor') return doctor();
+  if (args.length === 1 && args[0] === 'update') return manageInstallation(false);
+  if (args.length === 1 && args[0] === 'uninstall') return manageInstallation(true);
+
+  const java = resolveJava();
+  if (isJavaControlCommand(args) || isHeadlessCommand(args)) {
+    return exitWith(run(java, javaCommand(args), {...process.env, CC_JAVA_REPOSITORY_ROOT: installationRoot}));
+  }
+
+  const parsed = parseAgentArguments(args);
+  const childArgs = ['-Dfile.encoding=UTF-8', '-cp', join(installationRoot, 'app', '*'), mainClass,
+    '--workspace', parsed.workspace, '--timeout', parsed.timeout, ...contextDefaults, ...parsed.forwarded,
+    '--stdio'];
+  const childCommand = Buffer.from(JSON.stringify([java, ...childArgs]), 'utf8').toString('base64');
+  const tuiArgs = [join(installationRoot, 'tui', 'dist', 'src', 'index.js'),
+    '--child-command-base64', childCommand];
+  if (parsed.prompt !== undefined) tuiArgs.push('--prompt', parsed.prompt);
+  const environment = {...process.env, CC_JAVA_REPOSITORY_ROOT: installationRoot};
+  delete environment.CC_JAVA_SPIKE_COMMAND_BASE64;
+  delete environment.CC_JAVA_SPIKE_PROMPT_BASE64;
+  return exitWith(run(process.execPath, tuiArgs, environment));
+}
+
+function parseAgentArguments(args) {
+  let workspace = process.cwd();
+  let timeout = '5m';
+  let prompt;
+  const forwarded = [];
+  const valueOptions = new Set(['--workspace', '--model', '--timeout', '--resume', '--fork',
+    '--permission-mode', '--model-diagnostics', '--model-diagnostics-dir', '--execution-backend',
+    '--execution-shell', '--context-maximum-input-tokens', '--context-reserved-output-tokens',
+    '--context-safety-margin-tokens']);
+  const flags = new Set(['--continue']);
+  for (let index = 0; index < args.length; index++) {
+    const current = args[index];
+    if (current === '--print') {
+      prompt = requiredValue(args, ++index, current);
+      continue;
+    }
+    const [name, inline] = splitOption(current);
+    if (valueOptions.has(name)) {
+      const value = inline ?? requiredValue(args, ++index, name);
+      if (name === '--workspace') workspace = isAbsolute(value) ? resolve(value) : resolve(process.cwd(), value);
+      else if (name === '--timeout') timeout = value;
+      else if (name.startsWith('--context-')) replaceDefaultContext(name, value);
+      else forwarded.push(name, value);
+      continue;
+    }
+    if (flags.has(current)) {
+      forwarded.push(current);
+      continue;
+    }
+    fail(`未知参数：${current}`);
+  }
+  return {workspace, timeout, prompt, forwarded};
+}
+
+function replaceDefaultContext(name, value) {
+  const position = contextDefaults.indexOf(name);
+  contextDefaults[position + 1] = value;
+}
+
+function requiredValue(args, index, option) {
+  const value = args[index];
+  if (value === undefined || value.length === 0 || value === '--') fail(`参数 ${option} 缺少值`);
+  return value;
+}
+
+function splitOption(value) {
+  const position = value.indexOf('=');
+  return position < 0 ? [value, undefined] : [value.slice(0, position), value.slice(position + 1)];
+}
+
+function isJavaControlCommand(args) {
+  return args.length > 0 && ['providers', 'auth', 'models'].includes(args[0]);
+}
+
+function isHeadlessCommand(args) {
+  return args.some(value => ['--stdio', '--stdio-v1', '--daemon', '--extension-status',
+    '--trust-project-extensions'].includes(value));
+}
+
+function javaCommand(args) {
+  return ['-Dfile.encoding=UTF-8', '-cp', join(installationRoot, 'app', '*'), mainClass, ...args];
+}
+
+function resolveJava() {
+  if (process.env.CODEJ_JAVA) return process.env.CODEJ_JAVA;
+  const bundled = process.platform === 'win32'
+    ? join(installationRoot, 'runtime', 'java', 'bin', 'java.exe')
+    : join(installationRoot, 'runtime', 'java', 'bin', 'java');
+  if (existsSync(bundled)) return bundled;
+  if (process.env.JAVA_HOME) return join(process.env.JAVA_HOME, 'bin', process.platform === 'win32' ? 'java.exe' : 'java');
+  return 'java';
+}
+
+function run(executable, args, environment = process.env) {
+  const result = spawnSync(executable, args, {cwd: process.cwd(), env: environment, stdio: 'inherit', windowsHide: true});
+  if (result.error) fail(`无法启动 ${executable}：${result.error.message}`);
+  return result.status ?? 1;
+}
+
+function doctor() {
+  const required = [join(installationRoot, 'app', 'cc-java-cli.jar'),
+    join(installationRoot, 'tui', 'dist', 'src', 'index.js')];
+  const missing = required.filter(path => !existsSync(path));
+  process.stdout.write(`codej installation: ${installationRoot}\n`);
+  process.stdout.write(`node: ${process.version} (${Number(process.versions.node.split('.')[0]) >= 22 ? 'ok' : 'requires 22+'})\n`);
+  process.stdout.write(`java: ${resolveJava()}\n`);
+  process.stdout.write(`files: ${missing.length === 0 ? 'ok' : `missing ${missing.join(', ')}`}\n`);
+  return exitWith(missing.length === 0 ? 0 : 1);
+}
+
+function manageInstallation(uninstall) {
+  if (process.platform === 'win32') {
+    const args = ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+      join(installationRoot, 'install.ps1')];
+    if (uninstall) args.push('-Uninstall');
+    return exitWith(run('powershell.exe', args));
+  }
+  return exitWith(run('sh', [join(installationRoot, 'install.sh'), ...(uninstall ? ['--uninstall'] : [])]));
+}
+
+function printVersion() {
+  try {
+    const manifest = JSON.parse(readFileSync(join(installationRoot, 'release-manifest.json'), 'utf8'));
+    process.stdout.write(`codej ${manifest.version}\n`);
+  } catch {
+    process.stdout.write('codej unknown\n');
+  }
+}
+
+function printHelp() {
+  process.stdout.write(`codej - Java-powered coding agent CLI
+
+用法：
+  codej [--workspace <path>] [--model <name>]
+  codej --print <prompt> [--workspace <path>] [--model <name>]
+  codej auth|providers|models <command>
+  codej doctor | update | uninstall | --version | --help
+
+默认进入交互式终端；--print 用于脚本和 CI。
+`);
+}
+
+function exitWith(code) {
+  process.exitCode = code;
+}
+
+function fail(message) {
+  process.stderr.write(`codej: ${message}\n`);
+  process.exit(2);
+}

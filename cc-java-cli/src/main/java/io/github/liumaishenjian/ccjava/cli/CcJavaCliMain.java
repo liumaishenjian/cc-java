@@ -84,7 +84,7 @@ public final class CcJavaCliMain {
         return root.execute(args);
     }
 
-    @picocli.CommandLine.Command(name = "cc-java")
+    @picocli.CommandLine.Command(name = "cc-java", mixinStandardHelpOptions = true)
     private static final class ProviderControlRoot implements java.util.concurrent.Callable<Integer> {
         @Override public Integer call() { return 2; }
     }

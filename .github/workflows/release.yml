@@ -1,0 +1,103 @@
+name: Build codej distributions
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: SemVer without a leading v
+        required: true
+        default: 0.1.0-rc.1
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+          - os: ubuntu-latest
+            platform: linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: cc-java-tui/package-lock.json
+      - name: Resolve version
+        shell: pwsh
+        run: |
+          $version = if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            '${{ inputs.version }}'
+          } else {
+            '${{ github.ref_name }}'.Substring(1)
+          }
+          if ($version -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$') {
+            throw 'Tag/input must contain a SemVer version'
+          }
+          "CODEJ_VERSION=$version" >> $env:GITHUB_ENV
+      - name: Build Java and TUI
+        shell: pwsh
+        run: |
+          ./mvnw -DskipTests package
+          npm --prefix cc-java-tui ci --ignore-scripts --no-audit --no-fund
+          npm --prefix cc-java-tui run build
+      - name: Create bundled runtimes
+        shell: pwsh
+        run: |
+          jlink --add-modules ALL-MODULE-PATH --strip-debug --no-header-files --no-man-pages --compress=zip-6 --output target/runtime-java
+          $node = (Get-Command node -CommandType Application).Source
+          $nodeRoot = if ('${{ matrix.platform }}' -eq 'windows-x64') {
+            Split-Path -Parent $node
+          } else {
+            Split-Path -Parent (Split-Path -Parent $node)
+          }
+          "CODEJ_NODE_ROOT=$nodeRoot" >> $env:GITHUB_ENV
+      - name: Package installable archive
+        shell: pwsh
+        run: |
+          $public = '${{ github.event_name }}' -eq 'push'
+          ./scripts/PackageDistribution.ps1 -Version $env:CODEJ_VERSION -Platform '${{ matrix.platform }}' -JavaRuntimeDirectory target/runtime-java -NodeRuntimeDirectory $env:CODEJ_NODE_ROOT -SkipBuild -SkipTuiBuild -PublicRelease:$public
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codej-${{ matrix.platform }}
+          path: |
+            target/distributions/codej-${{ matrix.platform }}.*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce public-release license gate
+        shell: pwsh
+        run: |
+          if (-not (Test-Path -LiteralPath LICENSE -PathType Leaf)) {
+            throw 'Public Release is blocked until the maintainer commits a LICENSE'
+          }
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Publish immutable release inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp scripts/install.sh artifacts/install.sh
+          cp scripts/install.ps1 artifacts/install.ps1
+          gh release create "$GITHUB_REF_NAME" artifacts/* --verify-tag --generate-notes --title "codej ${GITHUB_REF_NAME#v}"

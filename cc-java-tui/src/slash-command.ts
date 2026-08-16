@@ -41,9 +41,12 @@ const MAX_ARGUMENT_CHARS = 256;
 const MAX_COMPACT_ANCHORS = 16;
 const MAX_COMPACT_ANCHOR_CODE_POINTS = 512;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/u;
-const COMMANDS = new Set<SlashIntent>([
+const COMMAND_NAMES: readonly SlashIntent[] = [
   'help', 'clear', 'compact', 'context', 'doctor', 'model', 'connect', 'auth', 'models', 'permissions', 'resume',
-]);
+];
+const COMMANDS = new Set<SlashIntent>(COMMAND_NAMES);
+const TYPO_PROTECTED_COMMANDS: readonly string[] = [...COMMAND_NAMES, 'task'];
+const MIN_SHORT_TYPO_LENGTH = 4;
 
 const COMMAND_USAGE: Readonly<Record<SlashIntent, string>> = {
   help: '/help — 查看命令与可用状态',
@@ -52,7 +55,7 @@ const COMMAND_USAGE: Readonly<Record<SlashIntent, string>> = {
   context: '/context — 查看上下文用量',
   doctor: '/doctor — 查看安全诊断',
   model: '/model <name> — 切换到已配置模型',
-  connect: '/connect [provider profile [env ENV_NAME]] — 在 TUI 内连接 Provider；STORE secret 由 Java 遮蔽读取',
+  connect: '/connect [provider profile [env ENV_NAME]] — 查看 Provider/profile/model 状态与 STORE/ENV/legacy 指引，或连接 Provider',
   auth: '/auth list | probe <provider> <profile> [model] | logout <provider> <profile> confirm — 管理本机 credential',
   models: '/models [provider] | use <provider> <model> [profile] | add <provider> <model> [default] | remove <provider> <model> — 本地模型选择',
   permissions: '/permissions [query|mode MODE] — 查看或切换权限模式',
@@ -71,6 +74,13 @@ export function parseSlashCommand(input: string): SlashParseResult {
   if (rawName === 'models') return parseModelsCommand(values);
   if (rawName === undefined || rawName.length === 0 || !COMMANDS.has(rawName as SlashIntent)) {
     if (/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(rawName ?? '') && (rawName?.length ?? 0) <= 64) {
+      const typoMatch = protectedCommandTypoMatch(rawName ?? '');
+      if (typoMatch.kind === 'unique') {
+        return {kind: 'invalid', message: `未知 Slash 命令；你是否想输入 /${typoMatch.suggestion}？`};
+      }
+      if (typoMatch.kind === 'ambiguous') {
+        return {kind: 'invalid', message: '未知 Slash 命令'};
+      }
       const arguments_ = values.join(' ');
       return Array.from(arguments_).length <= 8_192
         ? {kind: 'skill', name: rawName ?? '', arguments: arguments_}
@@ -143,18 +153,17 @@ function renderSuccessfulResult(
   intent: string,
   result: Readonly<Record<string, unknown>>,
 ): string {
-  if (intent === 'help' && Array.isArray(result.commands)) {
-    const supportLabels: Readonly<Record<string, string>> = {
+  if (intent === 'help' && isUnknownArray(result.commands)) {
+    const supportLabels: Readonly<Record<HelpCommandSupport, string>> = {
       available: '可用', deferred: '延期', not_available: '不可用',
     };
-    const lines = result.commands.flatMap(item => {
-      if (!isRecord(item) || typeof item.intent !== 'string' || typeof item.support !== 'string') {
-        return [];
-      }
-      const usage = COMMAND_USAGE[item.intent as SlashIntent] ?? `/${item.intent}`;
-      return [`${usage}　[${supportLabels[item.support] ?? '未知'}]`];
-    });
-    return ['Slash 命令', ...lines].join('\n');
+    const commands = result.commands.filter(isHelpCommandEntry);
+    const lines = commands.map(item =>
+      `${COMMAND_USAGE[item.intent]}　[${supportLabels[item.support]}]`);
+    const providerLines = (['connect', 'auth', 'models'] as const)
+      .filter(intent_ => !commands.some(item => item.intent === intent_))
+      .map(intent_ => `${COMMAND_USAGE[intent_]}　[可用]`);
+    return ['Slash 命令', ...lines, ...providerLines].join('\n');
   }
   if (intent === 'context') {
     return [
@@ -206,6 +215,44 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+type HelpCommandSupport = 'available' | 'deferred' | 'not_available';
+
+interface HelpCommandEntry {
+  readonly intent: SlashIntent;
+  readonly support: HelpCommandSupport;
+}
+
+function isUnknownArray(value: unknown): value is readonly unknown[] {
+  return Array.isArray(value);
+}
+
+function isHelpCommandEntry(value: unknown): value is HelpCommandEntry {
+  return isRecord(value)
+    && isSlashIntent(value.intent)
+    && (value.support === 'available'
+      || value.support === 'deferred'
+      || value.support === 'not_available');
+}
+
+function isSlashIntent(value: unknown): value is SlashIntent {
+  switch (value) {
+    case 'help':
+    case 'clear':
+    case 'compact':
+    case 'context':
+    case 'doctor':
+    case 'model':
+    case 'connect':
+    case 'auth':
+    case 'models':
+    case 'permissions':
+    case 'resume':
+      return true;
+    default:
+      return false;
+  }
+}
+
 function parseTaskCommand(values: readonly string[]): SlashParseResult {
   const [action, taskId, timeout] = values;
   if (!['wait', 'cancel', 'keep', 'remove'].includes(action ?? '')
@@ -233,7 +280,7 @@ function parseConnectCommand(values: readonly string[]): SlashParseResult {
   }
   const [providerId, profileId, source, environmentName] = values;
   if (!validId(providerId) || !validId(profileId)) {
-    return {kind: 'invalid', message: '/connect [provider profile [env ENV_NAME]]'};
+    return {kind: 'invalid', message: '/connect [provider profile [env ENV_NAME]]；ENV_NAME 必须匹配 [A-Z][A-Z0-9_]{0,127}'};
   }
   if (values.length === 2) {
     return {kind: 'provider-control', command: {intent: 'connect', arguments: {
@@ -245,7 +292,7 @@ function parseConnectCommand(values: readonly string[]): SlashParseResult {
       action: 'login', providerId, profileId, secretSource: 'env', environmentName,
     }}};
   }
-  return {kind: 'invalid', message: '/connect [provider profile [env ENV_NAME]]'};
+  return {kind: 'invalid', message: '/connect [provider profile [env ENV_NAME]]；ENV_NAME 必须匹配 [A-Z][A-Z0-9_]{0,127}'};
 }
 
 function parseAuthCommand(values: readonly string[]): SlashParseResult {
@@ -282,7 +329,7 @@ function parseModelsCommand(values: readonly string[]): SlashParseResult {
     && validId(providerId) && validModelId(modelId)
     && (option === undefined || option === 'default')) {
     return {kind: 'provider-control', command: {intent: 'models', arguments: {
-      action, providerId, modelId, providerDefault: option === 'default',
+      action, providerId, modelId, setDefault: option === 'default',
     }}};
   }
   if (action === 'remove' && values.length === 3
@@ -292,6 +339,70 @@ function parseModelsCommand(values: readonly string[]): SlashParseResult {
     }}};
   }
   return {kind: 'invalid', message: '/models [provider]、use <provider> <model> [profile]、add <provider> <model> [default] 或 remove <provider> <model>'};
+}
+
+type ProtectedCommandTypoMatch =
+  | {readonly kind: 'none'}
+  | {readonly kind: 'unique'; readonly suggestion: string}
+  | {readonly kind: 'ambiguous'};
+
+/**
+ * 只保护封闭命令的一次局部拼写错误，不做一般模糊匹配或自动执行。
+ *
+ * <p>候选固定且数量有界；仅接受单字符插入、删除、替换或一次相邻换位。长度不足四个
+ * 字符的输入不参与保护，避免把短 Skill 名误判为内置命令。唯一候选才建议；多个候选
+ * 必须与无候选分开表达，以免歧义输入回落为 Skill。</p>
+ */
+function protectedCommandTypoMatch(
+  name: string,
+  protectedCommands: readonly string[] = TYPO_PROTECTED_COMMANDS,
+): ProtectedCommandTypoMatch {
+  if (Array.from(name).length < MIN_SHORT_TYPO_LENGTH) return {kind: 'none'};
+  const candidates = protectedCommands.filter(candidate => isSingleCommandEdit(name, candidate));
+  const [suggestion] = candidates;
+  if (suggestion === undefined) return {kind: 'none'};
+  return candidates.length === 1
+    ? {kind: 'unique', suggestion}
+    : {kind: 'ambiguous'};
+}
+
+function isSingleCommandEdit(input: string, candidate: string): boolean {
+  const left = Array.from(input);
+  const right = Array.from(candidate);
+  const lengthDifference = left.length - right.length;
+  if (Math.abs(lengthDifference) > 1 || (left.length === right.length && left.length === 0)) return false;
+
+  if (left.length === right.length) {
+    const mismatches: number[] = [];
+    for (let index = 0; index < left.length; index++) {
+      if (left[index] !== right[index]) mismatches.push(index);
+      if (mismatches.length > 2) return false;
+    }
+    if (mismatches.length === 1) return true;
+    const [firstMismatch, secondMismatch] = mismatches;
+    return firstMismatch !== undefined && secondMismatch !== undefined
+      && secondMismatch === firstMismatch + 1
+      && left[firstMismatch] === right[secondMismatch]
+      && left[secondMismatch] === right[firstMismatch];
+  }
+
+  const longer = left.length > right.length ? left : right;
+  const shorter = left.length > right.length ? right : left;
+  let longerIndex = 0;
+  let shorterIndex = 0;
+  let skipped = false;
+  while (longerIndex < longer.length && shorterIndex < shorter.length) {
+    if (longer[longerIndex] === shorter[shorterIndex]) {
+      longerIndex++;
+      shorterIndex++;
+    } else if (!skipped) {
+      skipped = true;
+      longerIndex++;
+    } else {
+      return false;
+    }
+  }
+  return true;
 }
 
 function validId(value: string | undefined): value is string {

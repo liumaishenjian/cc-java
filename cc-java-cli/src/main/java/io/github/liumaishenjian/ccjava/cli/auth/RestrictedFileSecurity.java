@@ -18,7 +18,6 @@ import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.DosFileAttributes;
-import java.nio.file.attribute.FileOwnerAttributeView;
 import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFileAttributes;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -32,9 +31,12 @@ import java.util.Set;
 /**
  * Provider/Auth 用户级文件共用的 owner、权限、链接与 identity 安全边界。
  *
- * <p>可信 home 在构造时解析一次；后续目标只能位于其固定 {@code .cc-java} 子树。既有对象
- * 只验证而不自动修复权限。读取在打开前后复核父目录和文件 identity；写入仅使用同目录随机
- * 临时文件、force、重读验证和原子替换。任何平台证明缺失均固定失败且不包含路径或 ACL。</p>
+ * <p>可信 home 在构造时解析一次；后续目标只能位于其固定 {@code .cc-java} 子树。
+ * {@code .cc-java} 本身是兼容既有 Settings、Session 等内容的共享容器，只验证路径、owner、
+ * link/reparse 与 identity，不要求 owner-only；其下 auth、文件、锁、事务和临时对象仍必须
+ * owner-only。既有对象只验证而不自动修复权限。读取在打开前后复核父目录和文件 identity；
+ * 写入仅使用同目录随机临时文件、force、重读验证和原子替换。任何平台证明缺失均固定失败且
+ * 不包含路径或 ACL。</p>
  */
 public final class RestrictedFileSecurity {
     private static final Set<java.nio.file.attribute.PosixFilePermission> DIRECTORY_MODE =
@@ -52,6 +54,11 @@ public final class RestrictedFileSecurity {
     /**
      * 从 Composition Root 已解析的 user home 创建生产安全边界。
      *
+     * <p>{@code user.name} 是 Composition Root/JVM 启动身份输入，不直接充当 ACL 身份证明；
+     * 构造器必须再通过目标文件系统的 principal lookup 将其解析为 Provider 可比较的身份。
+     * 可信 home 只作为固定路径锚点，不把其 owner 当成登录用户；Windows 上 home 可由 SYSTEM
+     * 持有，而 {@code .cc-java}、auth 和凭证文件仍必须由当前进程用户持有。</p>
+     *
      * @param userHome 已解析且必须安全存在的用户主目录
      */
     public RestrictedFileSecurity(Path userHome) {
@@ -65,9 +72,12 @@ public final class RestrictedFileSecurity {
             Path logicalHome = userHome.toAbsolutePath().normalize();
             this.trustedHome = logicalHome.toRealPath();
             if (!Files.isDirectory(trustedHome, LinkOption.NOFOLLOW_LINKS)) throw unsafe();
-            this.expectedOwner = owner(trustedHome);
+            String userName = System.getProperty("user.name");
+            if (userName == null || userName.isBlank()) throw unsafe();
+            this.expectedOwner = access.lookupPrincipalByName(trustedHome, userName);
+            if (expectedOwner == null) throw unsafe();
             this.root = trustedHome.resolve(".cc-java").normalize();
-        } catch (IOException failure) {
+        } catch (IOException | RuntimeException failure) {
             throw unsafe();
         }
     }
@@ -87,22 +97,22 @@ public final class RestrictedFileSecurity {
     public void ensureDirectory(Path directory) {
         Path target = child(directory);
         try {
-            DirectoryIdentity homeBefore = directoryIdentity(trustedHome, false);
+            DirectoryIdentity homeBefore = storeDirectoryIdentity(trustedHome);
             Path current = root;
             int relativeNames = root.relativize(target).getNameCount();
             for (int index = -1; index < relativeNames; index++) {
                 if (index >= 0) current = current.resolve(root.relativize(target).getName(index));
                 if (!Files.exists(current, LinkOption.NOFOLLOW_LINKS)) {
                     Path parent = current.getParent();
-                    DirectoryIdentity parentBefore = directoryIdentity(parent, parent.startsWith(root));
+                    DirectoryIdentity parentBefore = storeDirectoryIdentity(parent);
                     Files.createDirectory(current, creationAttributes(true));
                     applyOwnerOnly(current, true);
-                    if (!parentBefore.same(directoryIdentity(parent, parent.startsWith(root)))) throw unsafe();
+                    if (!parentBefore.same(storeDirectoryIdentity(parent))) throw unsafe();
                     forceDirectory(parent);
                 }
                 verifyDirectory(current);
             }
-            if (!homeBefore.same(directoryIdentity(trustedHome, false))) throw unsafe();
+            if (!homeBefore.same(storeDirectoryIdentity(trustedHome))) throw unsafe();
         } catch (IOException | RuntimeException failure) {
             throw asSecurity(failure);
         }
@@ -118,10 +128,10 @@ public final class RestrictedFileSecurity {
         ensureDirectory(target.getParent());
         try {
             if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
-                DirectoryIdentity parentBefore = directoryIdentity(target.getParent(), true);
+                DirectoryIdentity parentBefore = storeDirectoryIdentity(target.getParent());
                 Files.createFile(target, creationAttributes(false));
                 applyOwnerOnly(target, false);
-                if (!parentBefore.same(directoryIdentity(target.getParent(), true))) throw unsafe();
+                if (!parentBefore.same(storeDirectoryIdentity(target.getParent()))) throw unsafe();
                 forceDirectory(target.getParent());
             }
             fileIdentity(target);
@@ -157,7 +167,7 @@ public final class RestrictedFileSecurity {
     public byte[] read(Path file, int maximumBytes) {
         Path target = child(file);
         try {
-            DirectoryIdentity parentBefore = directoryIdentity(target.getParent(), true);
+            DirectoryIdentity parentBefore = storeDirectoryIdentity(target.getParent());
             FileIdentity before = fileIdentity(target);
             if (before.size() < 1 || before.size() > maximumBytes) throw unsafe();
             byte[] result;
@@ -175,7 +185,7 @@ public final class RestrictedFileSecurity {
             }
             FileIdentity after = fileIdentity(target);
             if (!before.same(after)
-                    || !parentBefore.same(directoryIdentity(target.getParent(), true))
+                    || !parentBefore.same(storeDirectoryIdentity(target.getParent()))
                     || result.length != after.size()) {
                 Arrays.fill(result, (byte) 0);
                 throw unsafe();
@@ -205,7 +215,7 @@ public final class RestrictedFileSecurity {
         if (bytes.length < 1 || bytes.length > maximumBytes) throw unsafe();
         ensureDirectory(fixedTarget.getParent());
         try {
-            DirectoryIdentity parentBefore = directoryIdentity(fixedTarget.getParent(), true);
+            DirectoryIdentity parentBefore = storeDirectoryIdentity(fixedTarget.getParent());
             Files.createFile(fixedTemporary, creationAttributes(false));
             applyOwnerOnly(fixedTemporary, false);
             try (FileChannel channel = FileChannel.open(fixedTemporary, StandardOpenOption.WRITE)) {
@@ -220,7 +230,7 @@ public final class RestrictedFileSecurity {
             } finally {
                 Arrays.fill(reread, (byte) 0);
             }
-            if (!parentBefore.same(directoryIdentity(fixedTarget.getParent(), true))) throw unsafe();
+            if (!parentBefore.same(storeDirectoryIdentity(fixedTarget.getParent()))) throw unsafe();
             mover.move(fixedTemporary, fixedTarget);
             fileIdentity(fixedTarget);
             forceDirectory(fixedTarget.getParent());
@@ -252,10 +262,10 @@ public final class RestrictedFileSecurity {
         Path target = child(file);
         try {
             if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) return;
-            DirectoryIdentity parent = directoryIdentity(target.getParent(), true);
+            DirectoryIdentity parent = storeDirectoryIdentity(target.getParent());
             fileIdentity(target);
             Files.delete(target);
-            if (!parent.same(directoryIdentity(target.getParent(), true))) throw unsafe();
+            if (!parent.same(storeDirectoryIdentity(target.getParent()))) throw unsafe();
             forceDirectory(target.getParent());
         } catch (IOException | RuntimeException failure) {
             throw asSecurity(failure);
@@ -271,12 +281,12 @@ public final class RestrictedFileSecurity {
     public List<Path> list(Path directory) {
         Path target = child(directory);
         try {
-            DirectoryIdentity before = directoryIdentity(target, true);
+            DirectoryIdentity before = storeDirectoryIdentity(target);
             List<Path> values;
             try (var stream = Files.list(target)) {
                 values = stream.map(Path::toAbsolutePath).map(Path::normalize).toList();
             }
-            if (!before.same(directoryIdentity(target, true))) throw unsafe();
+            if (!before.same(storeDirectoryIdentity(target))) throw unsafe();
             for (Path value : values) if (!value.getParent().equals(target)) throw unsafe();
             return values;
         } catch (IOException | RuntimeException failure) {
@@ -291,7 +301,17 @@ public final class RestrictedFileSecurity {
     }
 
     private void verifyDirectory(Path directory) throws IOException {
-        directoryIdentity(directory, true);
+        storeDirectoryIdentity(directory);
+    }
+
+    /**
+     * 按 store 层级选择目录权限边界：可信 home 与共享 {@code .cc-java} 根只验证身份，
+     * 根的任意后代都必须 owner-only。
+     */
+    private DirectoryIdentity storeDirectoryIdentity(Path directory) throws IOException {
+        Path logical = directory.toAbsolutePath().normalize();
+        boolean restricted = logical.startsWith(root) && !logical.equals(root);
+        return directoryIdentity(logical, restricted);
     }
 
     private DirectoryIdentity directoryIdentity(Path directory, boolean restricted) throws IOException {
@@ -302,6 +322,7 @@ public final class RestrictedFileSecurity {
         Path noFollow = access.noFollowRealPath(directory).toAbsolutePath().normalize();
         Path followed = access.realPath(directory).toAbsolutePath().normalize();
         if (!logical.equals(noFollow) || !logical.equals(followed)) throw unsafe();
+        if (!logical.equals(trustedHome)) verifyOwner(directory);
         if (restricted) verifyPermissions(directory, true);
         return new DirectoryIdentity(identity(attributes), followed);
     }
@@ -361,6 +382,16 @@ public final class RestrictedFileSecurity {
                 .setPrincipal(expectedOwner).setPermissions(OWNER_PERMISSIONS).build()));
     }
 
+    private void verifyOwner(Path path) throws IOException {
+        PosixFileAttributeView posix = access.posix(path);
+        if (posix != null) {
+            if (!expectedOwner.equals(posix.readAttributes().owner())) throw unsafe();
+            return;
+        }
+        AclFileAttributeView acl = access.acl(path);
+        if (acl == null || !samePrincipal(expectedOwner, acl.getOwner())) throw unsafe();
+    }
+
     private void verifyPermissions(Path path, boolean directory) throws IOException {
         PosixFileAttributeView posix = access.posix(path);
         if (posix != null) {
@@ -391,13 +422,6 @@ public final class RestrictedFileSecurity {
      */
     static boolean samePrincipal(UserPrincipal expected, UserPrincipal actual) {
         return expected != null && actual != null && expected.equals(actual);
-    }
-
-    private static UserPrincipal owner(Path path) throws IOException {
-        FileOwnerAttributeView view = Files.getFileAttributeView(
-                path, FileOwnerAttributeView.class, LinkOption.NOFOLLOW_LINKS);
-        if (view == null || view.getOwner() == null) throw unsafe();
-        return view.getOwner();
     }
 
     private static void forceDirectory(Path directory) {
@@ -463,6 +487,7 @@ public final class RestrictedFileSecurity {
         Number linkCount(Path path) throws IOException;
         PosixFileAttributeView posix(Path path);
         AclFileAttributeView acl(Path path);
+        UserPrincipal lookupPrincipalByName(Path path, String name) throws IOException;
     }
 
     private static final class NioPlatformAccess implements PlatformAccess {
@@ -490,6 +515,9 @@ public final class RestrictedFileSecurity {
         }
         @Override public AclFileAttributeView acl(Path path) {
             return Files.getFileAttributeView(path, AclFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
+        }
+        @Override public UserPrincipal lookupPrincipalByName(Path path, String name) throws IOException {
+            return path.getFileSystem().getUserPrincipalLookupService().lookupPrincipalByName(name);
         }
     }
 

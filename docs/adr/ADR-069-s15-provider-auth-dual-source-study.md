@@ -25,7 +25,7 @@ Provider/Auth。因此新增独立 `MODEL-13`，不冒用既有 Feature ID。
 | --- | --- | --- |
 | Claude 本地授权快照 | `AUTH-SRC-2026-07-29-A`；Revision/License/再发布权仍 `Unknown` | auth source、secure-storage/fallback、login/logout、cache invalidation、model selection |
 | Codex 本地公开快照 | `0.147.0`；commit `be6e8eac...`；Apache-2.0 | CLI login/logout、file/keyring store、auth manager、provider config、model selection |
-| OpenCode 官方文档 | <https://opencode.ai/docs/providers>、<https://opencode.ai/docs/cli/> | `/connect`、用户级 auth、Provider config 与 credential 分离、`/models`、headless auth |
+| OpenCode 官方公开文档/源码 | <https://opencode.ai/v2/docs/providers>；`dev` 分支公开 TUI `app.tsx` 与 provider dialog（2026-08-15 访问，精确 revision `Unknown`） | `/connect` 选择 integration/auth method 后选择模型；Provider picker 区分常用/其他/已连接，API Key/OAuth 由专门认证步骤处理 |
 | OpenClaw 官方文档 | <https://docs.openclaw.ai/gateway/authentication> | profile/status/probe/session pin、SecretRef、logout 与 revoke 区分 |
 
 没有复制或逐行翻译参考函数体、注释、错误文案、私有类型名、文件布局或常量；没有把参考
@@ -41,6 +41,7 @@ Provider/Auth。因此新增独立 `MODEL-13`，不冒用既有 Feature ID。
    credential 分离。
 2. custom Provider 可以配置兼容协议、URL 与模型；`/models` 负责模型选择。
 3. `auth login`、`auth list`、`auth logout` 为无 TUI 环境提供对等入口。
+4. 公开 TUI 机制把 `/connect` 事件路由到 Provider picker；picker 先呈现 integration 与连接状态，再进入该 Provider 的认证方式，完成后由模型选择承接。该结论只抽象公开行为，不复制其文案、类型、组件布局或实现常量；`dev` 漂移且精确 revision 未固定，因此标记为 `Documented/Inferred`，不作为测试 Golden Output。
 
 ### 2.2 OpenClaw
 

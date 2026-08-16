@@ -109,9 +109,14 @@ public final class ProviderAuthRuntimeResources implements AutoCloseable {
 
         @Override
         public RunScope openRun() {
+            return openRun(java.time.Duration.ofMinutes(30));
+        }
+
+        @Override
+        public RunScope openRun(java.time.Duration maxDuration) {
             ProviderAuthApplicationService.RunSelection selection = service.beginRun();
             try {
-                RunScope route = delegate.openRun();
+                RunScope route = delegate.openRun(maxDuration);
                 return new RunScope() {
                     private final java.util.concurrent.atomic.AtomicBoolean closed =
                             new java.util.concurrent.atomic.AtomicBoolean();

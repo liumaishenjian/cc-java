@@ -653,6 +653,67 @@ class AgentRuntimeTest {
     }
 
     @Test
+    void cancellationCallbacksAreFailureIsolatedAndRunKeepsOneTerminal() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        StreamingModelGateway blocking = (request, observer, cancellation) -> {
+            cancellation.onCancellation(() -> { throw new IllegalStateException("callback failure"); });
+            entered.countDown();
+            try {
+                new CountDownLatch(1).await();
+            } catch (InterruptedException expected) {
+                Thread.currentThread().interrupt();
+                throw new ModelGatewayException(ModelGatewayException.FailureKind.CANCELLED, "interrupted");
+            }
+            throw new AssertionError("unreachable");
+        };
+        Harness harness = newHarness(blocking);
+        CompletableFuture<AgentRunResult> running = CompletableFuture.supplyAsync(
+                () -> harness.run("callback isolation", AgentLimits.DEFAULT));
+        assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
+        RunId runId = harness.events().envelopes().stream()
+                .filter(envelope -> envelope.event() instanceof LifecycleEvent.RunStarted)
+                .findFirst().orElseThrow().runId().orElseThrow();
+
+        assertThat(harness.runtime().cancel(harness.session().id(), runId)).isTrue();
+        AgentRunResult result = running.get(2, TimeUnit.SECONDS);
+
+        assertThat(result.stopReason()).isEqualTo(StopReason.USER_CANCELLED);
+        assertThat(harness.events().envelopes())
+                .filteredOn(envelope -> envelope.event() instanceof LifecycleEvent.RunFinished)
+                .singleElement();
+    }
+
+    @Test
+    void deadlineReturnsEvenWhenBlockingGatewayIgnoresCancellationCallback() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch interrupted = new CountDownLatch(1);
+        ModelGateway blocking = request -> {
+            entered.countDown();
+            try {
+                new CountDownLatch(1).await();
+                throw new AssertionError("阻塞 Gateway 不应自行返回");
+            } catch (InterruptedException expected) {
+                interrupted.countDown();
+                Thread.currentThread().interrupt();
+                throw new ModelGatewayException(
+                        ModelGatewayException.FailureKind.CANCELLED, "Blocking gateway interrupted");
+            }
+        };
+        Harness harness = newHarness(blocking);
+
+        AgentRunResult result = harness.run(
+                "阻塞调用 deadline",
+                new AgentLimits(16, 32, Duration.ofMillis(50)));
+
+        assertThat(entered.getCount()).isZero();
+        assertThat(interrupted.await(2, TimeUnit.SECONDS)).isTrue();
+        assertThat(result.stopReason()).isEqualTo(StopReason.TIME_LIMIT_REACHED);
+        assertThat(harness.events().envelopes())
+                .filteredOn(envelope -> envelope.event() instanceof LifecycleEvent.RunFinished)
+                .singleElement();
+    }
+
+    @Test
     void wallClockDeadlineCancelsModelAndSuppressesLateDelta() {
         CountDownLatch modelStarted = new CountDownLatch(1);
         CountDownLatch cancellationObserved = new CountDownLatch(1);

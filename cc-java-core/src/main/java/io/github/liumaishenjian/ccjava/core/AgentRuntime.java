@@ -69,6 +69,7 @@ public final class AgentRuntime {
     private final PluginRunHooks pluginHooks;
     private final io.github.liumaishenjian.ccjava.core.subagent.ParallelToolBatchExecutor parallelToolBatch;
     private final ConcurrentMap<SessionId, ActiveRun> activeRuns = new ConcurrentHashMap<>();
+    private final java.util.Set<Thread> modelWorkers = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     /**
      * 创建显式 Agent Runtime。
@@ -469,7 +470,7 @@ public final class AgentRuntime {
         session.ensureRunnable();
         RunId runId = Objects.requireNonNull(idGenerator.newRunId(), "newRunId 返回 null");
         AgentRunState state = new AgentRunState(sessionId, runId, request.limits());
-        CancellationSource cancellation = new CancellationSource();
+        CancellationSource cancellation = new CancellationSource(request.limits().maxDuration());
 
         HookAggregateResult promptHook = hooks.evaluate(
                 new HookInvocation(
@@ -612,6 +613,32 @@ public final class AgentRuntime {
         return activeRun != null
                 && activeRun.runId().equals(runId)
                 && activeRun.requestStop(StopReason.USER_CANCELLED);
+    }
+
+    /**
+     * 返回是否仍有忽略取消的模型调用工作线程尚未退出。
+     *
+     * <p>Run 可以在 deadline 后先形成唯一终态，但 Session/Application 关闭必须继续把仍持有
+     * Provider 资源的工作线程视为未 drain，避免提前关闭后丢失可重试清理语义。</p>
+     *
+     * @return 至少一个模型工作线程仍存活时为 {@code true}
+     */
+    public boolean hasInFlightModelWork() {
+        return !modelWorkers.isEmpty();
+    }
+
+    /**
+     * 在宿主关闭期限耗尽后解除对不合作模型 worker 的进程存活所有权。
+     *
+     * <p>先再次中断所有 worker，再从 drain 集合移除。模型 worker 使用 daemon virtual thread，
+     * 因此不会阻止 JVM 退出；调用方必须同时关闭底层 Provider Client。迟到结果仍因原 Run
+     * CancellationToken 已取消而不能形成第二终态或写入 Session。</p>
+     */
+    public void abandonInFlightModelWork() {
+        for (Thread worker : modelWorkers) {
+            worker.interrupt();
+        }
+        modelWorkers.clear();
     }
 
     private AgentRunResult executeLoop(
@@ -782,7 +809,62 @@ public final class AgentRuntime {
         session.appendAssistant(assistant);
     }
 
+    /**
+     * 在独立虚拟线程执行可能阻塞在创建 Publisher 之前的模型调用。
+     *
+     * <p>Run 线程只等待一个可由 CancellationToken 结算的 Future；timeout、Ctrl+C 或 logout 会先
+     * cancel(true) 中断底层调用，再让 Agent Loop 产生唯一终态。Provider/SDK 若完全忽略线程中断，
+     * Runtime 仍能按 deadline 返回，但 Adapter 还必须依靠自己的 request timeout 和 close 释放 I/O。</p>
+     */
     private ModelTurn completeModelTurn(
+            AgentSession session,
+            RunId runId,
+            int turnNumber,
+            ModelRequest modelRequest,
+            CancellationSource cancellation) throws ModelGatewayException {
+        java.util.concurrent.FutureTask<ModelTurn> task = new java.util.concurrent.FutureTask<>(
+                () -> invokeModelTurn(session, runId, turnNumber, modelRequest, cancellation));
+        Thread worker = Thread.ofVirtual()
+                .name("cc-java-model-turn-" + runId.value() + "-" + turnNumber)
+                .unstarted(() -> {
+                    try {
+                        task.run();
+                    } finally {
+                        modelWorkers.remove(Thread.currentThread());
+                    }
+                });
+        modelWorkers.add(worker);
+        try (CancellationToken.Registration ignored = cancellation.token().onCancellation(
+                () -> task.cancel(true))) {
+            worker.start();
+            try {
+                return task.get();
+            } catch (java.util.concurrent.CancellationException cancelled) {
+                throw new ModelGatewayException(
+                        ModelGatewayException.FailureKind.CANCELLED, "Model request cancelled");
+            } catch (InterruptedException interrupted) {
+                task.cancel(true);
+                Thread.currentThread().interrupt();
+                throw new ModelGatewayException(
+                        ModelGatewayException.FailureKind.CANCELLED, "Model request interrupted", interrupted);
+            } catch (java.util.concurrent.ExecutionException failed) {
+                Throwable cause = failed.getCause();
+                if (cause instanceof ModelGatewayException modelFailure) {
+                    throw modelFailure;
+                }
+                if (cause instanceof RuntimeException runtimeFailure) {
+                    throw runtimeFailure;
+                }
+                if (cause instanceof Error error) {
+                    throw error;
+                }
+                throw new ModelGatewayException(
+                        ModelGatewayException.FailureKind.PERMANENT, "Model request failed", cause);
+            }
+        }
+    }
+
+    private ModelTurn invokeModelTurn(
             AgentSession session,
             RunId runId,
             int turnNumber,

@@ -23,7 +23,9 @@ import java.util.Objects;
  * Java Headless 各运行模式的生产装配器。
  *
  * <p>所有用户可见诊断都是不含 API Key、端点、Prompt 和 Provider 原始响应的稳定文本。
- * Print 通过 Shutdown Hook 尽力把进程中断传播到 Core；stdio 的取消仍由协议命令驱动。</p>
+ * Print 通过 Shutdown Hook 把进程中断传播到 Core；Core 会用可中断模型工作线程和 Provider
+ * request timeout 保证 Run deadline 收敛。stdio/TUI 的取消仍由协议命令驱动，所有 Surface 只消费
+ * Runtime 发布的唯一终态。</p>
  *
  * @since 0.1.0
  */
@@ -98,7 +100,11 @@ final class DefaultCliModeRunner implements CliModeRunner {
             }
         } catch (ProviderConfigurationException exception) {
             errorOutput.println(
-                    "cc-java: provider configuration invalid (" + exception.code() + ")");
+                    "cc-java: provider configuration invalid (" + exception.code() + "); run /connect or codej auth login");
+            return CliExitCode.USAGE_OR_CONFIGURATION;
+        } catch (io.github.liumaishenjian.ccjava.cli.auth.ProviderAuthException exception) {
+            errorOutput.println("cc-java: provider/auth not ready (" + exception.code()
+                    + "); run /connect or codej auth login");
             return CliExitCode.USAGE_OR_CONFIGURATION;
         } catch (WorkspaceConfigurationException exception) {
             errorOutput.println("cc-java: workspace is not an accessible directory");
@@ -131,11 +137,15 @@ final class DefaultCliModeRunner implements CliModeRunner {
             StdioProtocolServer.ExitReason reason;
             try (var auth = io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthRuntimeResources.open(
                     userHome, repositoryRoot, environment)) {
+                java.util.concurrent.atomic.AtomicReference<io.github.liumaishenjian.ccjava.core.AgentEventSink>
+                        runtimeEvents = new java.util.concurrent.atomic.AtomicReference<>(
+                                io.github.liumaishenjian.ccjava.core.AgentEventSink.noop());
                 HeadlessRuntimeSession application = selectedSession(auth, prepared, overrides,
-                        io.github.liumaishenjian.ccjava.core.AgentEventSink.noop(),
+                        envelope -> runtimeEvents.get().publish(envelope),
                         (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
                                 io.github.liumaishenjian.ccjava.domain.ApprovalResponse.deny());
                 try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(application, auth.service())) {
+                    runtimeEvents.set(handler);
                     reason = new StdioProtocolServer(input, output, handler).run();
                 }
             }
@@ -144,7 +154,11 @@ final class DefaultCliModeRunner implements CliModeRunner {
                     : CliExitCode.SUCCESS;
         } catch (ProviderConfigurationException exception) {
             errorOutput.println(
-                    "cc-java: provider configuration invalid (" + exception.code() + ")");
+                    "cc-java: provider configuration invalid (" + exception.code() + "); run /connect or codej auth login");
+            return CliExitCode.USAGE_OR_CONFIGURATION;
+        } catch (io.github.liumaishenjian.ccjava.cli.auth.ProviderAuthException exception) {
+            errorOutput.println("cc-java: provider/auth not ready (" + exception.code()
+                    + "); run /connect or codej auth login");
             return CliExitCode.USAGE_OR_CONFIGURATION;
         } catch (WorkspaceConfigurationException exception) {
             errorOutput.println("cc-java: workspace is not an accessible directory");
@@ -221,22 +235,24 @@ final class DefaultCliModeRunner implements CliModeRunner {
             io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthRuntimeResources auth,
             PreparedRun prepared, CliOverrides overrides, io.github.liumaishenjian.ccjava.core.AgentEventSink events,
             io.github.liumaishenjian.ccjava.core.ApprovalHandler approvals) {
-        if (auth.service().effectiveSelection().isPresent()) {
-            var selected = auth.service().effectiveSelection().orElseThrow();
+        java.util.Optional<io.github.liumaishenjian.ccjava.domain.model.ProviderSelectionSnapshot> selection;
+        try {
+            selection = auth.service().effectiveSelection();
+        } catch (io.github.liumaishenjian.ccjava.cli.auth.ProviderAuthException invalidSelection) {
+            selection = java.util.Optional.empty();
+        }
+        if (selection.isPresent() || prepared.settings() == null) {
+            String model = selection.map(
+                    io.github.liumaishenjian.ccjava.domain.model.ProviderSelectionSnapshot::modelId)
+                    .orElse("provider-not-configured");
             HeadlessRuntimeOptions options = new HeadlessRuntimeOptions(
-                    prepared.workspace(), selected.modelId(), overrides.timeout(), overrides.permissionMode(),
+                    prepared.workspace(), model, overrides.timeout(), overrides.permissionMode(),
                     java.util.List.of(), overrides.sessionOpenRequest(), SessionStorage.defaultRoot(),
                     overrides.contextPreparation(), overrides.diagnosticMode(), overrides.diagnosticDirectory(),
                     overrides.executionBackend(), overrides.executionShell());
             return HeadlessRuntimeSession.production(auth.modelGateway(), events, options, approvals);
         }
-        OpenAiCompatibleSettings legacy = prepared.settings();
-        if (legacy == null) {
-            legacy = settingsLoader.load(repositoryRoot);
-            if (overrides.model().isPresent()) legacy = legacy.withModel(overrides.model().orElseThrow());
-            prepared = new PreparedRun(prepared.workspace(), legacy);
-        }
-        return new HeadlessRuntimeSession(legacy, events, runtimeOptions(prepared, overrides), approvals);
+        return new HeadlessRuntimeSession(prepared.settings(), events, runtimeOptions(prepared, overrides), approvals);
     }
     private HeadlessRuntimeOptions runtimeOptions(PreparedRun prepared, CliOverrides overrides) {
         return new HeadlessRuntimeOptions(

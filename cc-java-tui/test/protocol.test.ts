@@ -33,6 +33,46 @@ describe('decodeEvent', () => {
     expect(() => decodeEvent(JSON.stringify({...completed, runId: undefined}), 2)).toThrowError(/runId/);
   });
 
+  it('严格接受 providers.add 非秘密投影并拒绝 endpoint 或控制字', () => {
+    const base = {
+      version: 0, type: 'provider.control.result', requestId: 'provider-add', sessionId: 'session-1', sequence: 1,
+      payload: {controlId: 'tui-connect:1:action:provider', intent: 'providers.add', status: 'succeeded', code: 'OK',
+        result: {providerId: 'team', displayName: 'Team Gateway', modelId: 'model-x'}},
+    };
+    expect(decodeEvent(JSON.stringify(base), 1).payload.result).toEqual(base.payload.result);
+    expect(() => decodeEvent(JSON.stringify({...base, payload: {...base.payload,
+      result: {...base.payload.result, baseUrl: 'https://private.example'}}}), 1)).toThrowError(/provider/);
+    expect(() => decodeEvent(JSON.stringify({...base, payload: {...base.payload,
+      result: {...base.payload.result, displayName: 'bad\nname'}}}), 1)).toThrowError(/provider/);
+  });
+
+  it.each([
+    ['models.add', {providerId: 'anthropic', modelId: 'model-x', setDefault: true}],
+    ['models.remove', {providerId: 'anthropic', modelId: 'model-x'}],
+    ['models.use', {providerId: 'anthropic', profileId: 'default', modelId: 'model-x', setDefault: true}],
+  ])('严格接受 %s 正式结果投影并拒绝多余字段', (intent, result) => {
+    const event = {
+      version: 0, type: 'provider.control.result', requestId: `request-${intent}`,
+      sessionId: 'session-1', sequence: 1,
+      payload: {controlId: `control-${intent}`, intent, status: 'succeeded', code: 'OK', result},
+    };
+    expect(decodeEvent(JSON.stringify(event), 1).payload.result).toEqual(result);
+    expect(() => decodeEvent(JSON.stringify({...event, payload: {...event.payload,
+      result: {...result, unexpected: true}}}), 1)).toThrowError(/provider\.control/);
+  });
+
+  it('拒绝 models.add/use 非 boolean setDefault', () => {
+    for (const intent of ['models.add', 'models.use']) {
+      const result = intent === 'models.use'
+        ? {providerId: 'anthropic', profileId: 'default', modelId: 'm', setDefault: 'true'}
+        : {providerId: 'anthropic', modelId: 'm', setDefault: 'true'};
+      expect(() => decodeEvent(JSON.stringify({
+        version: 0, type: 'provider.control.result', requestId: 'request', sessionId: 'session-1', sequence: 1,
+        payload: {controlId: 'control', intent, status: 'succeeded', code: 'OK', result},
+      }), 1)).toThrowError(/provider\.control/);
+    }
+  });
+
   it('拒绝乱序事件', () => {
     expect(() => decodeEvent(JSON.stringify({
       version: 0,

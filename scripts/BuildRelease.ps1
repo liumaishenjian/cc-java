@@ -1,11 +1,23 @@
 [CmdletBinding()]
 param(
     [string]$OutputDirectory = "target/release",
-    [switch]$SkipBuild
+    [string]$Version = "0.1.0",
+    [ValidateSet('windows-x64', 'linux-x64')]
+    [string]$Platform = $(if ($IsWindows) { 'windows-x64' } else { 'linux-x64' }),
+    [string]$JavaRuntimeDirectory,
+    [string]$NodeRuntimeDirectory,
+    [switch]$PublicRelease,
+    [switch]$SkipBuild,
+    [switch]$SkipTuiBuild
 )
 
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
+$versionPattern = '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$'
+if ($Version -notmatch $versionPattern) { throw 'Version must be a SemVer value' }
+if ($PublicRelease -and -not (Test-Path -LiteralPath (Join-Path $root 'LICENSE') -PathType Leaf)) {
+    throw 'Public release requires a maintainer-approved LICENSE'
+}
 $releaseRoot = [IO.Path]::GetFullPath((Join-Path $root 'target/release'))
 $out = if ([IO.Path]::IsPathRooted($OutputDirectory)) {
     [IO.Path]::GetFullPath($OutputDirectory)
@@ -29,7 +41,16 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) { throw 'Maven package failed' }
 }
 
-$cli = Join-Path $root 'cc-java-cli/target/cc-java-cli-0.1.0-SNAPSHOT.jar'
+$tuiRoot = Join-Path $root 'cc-java-tui'
+if (-not $SkipTuiBuild) {
+    $npm = if ($IsWindows) { 'npm.cmd' } else { 'npm' }
+    & $npm --prefix $tuiRoot run build
+    if ($LASTEXITCODE -ne 0) { throw 'TUI build failed' }
+}
+$tuiEntry = Join-Path $tuiRoot 'dist/src/index.js'
+if (-not (Test-Path -LiteralPath $tuiEntry -PathType Leaf)) { throw 'Compiled TUI entry missing' }
+
+$cli = Join-Path $root 'cc-java-cli/target/cc-java-cli-0.1.0.jar'
 if (-not (Test-Path -LiteralPath $cli -PathType Leaf)) { throw 'CLI JAR missing' }
 $runtimeDependencies = Join-Path $root 'cc-java-cli/target/release-dependency'
 Remove-Item -LiteralPath $runtimeDependencies -Recurse -Force -ErrorAction SilentlyContinue
@@ -99,6 +120,42 @@ Copy-Item -LiteralPath $cli -Destination (Join-Path $staging 'app/cc-java-cli.ja
 Copy-Item -Path (Join-Path $runtimeDependencies '*.jar') -Destination (Join-Path $staging 'app')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'codej-release.cmd') -Destination (Join-Path $staging 'codej.cmd')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'codej-release.sh') -Destination (Join-Path $staging 'codej')
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'codej-launcher.mjs') -Destination (Join-Path $staging 'codej-launcher.mjs')
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'install.ps1') -Destination (Join-Path $staging 'install.ps1')
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'install.sh') -Destination (Join-Path $staging 'install.sh')
+
+# 生产 TUI 运行编译后的 JavaScript；tsx、TypeScript、Vitest 与测试源码不进入发行物。
+$stagingTui = Join-Path $staging 'tui'
+New-Item -ItemType Directory -Path (Join-Path $stagingTui 'dist') -Force | Out-Null
+Copy-Item -LiteralPath (Join-Path $tuiRoot 'dist/src') -Destination (Join-Path $stagingTui 'dist/src') -Recurse
+Copy-Item -LiteralPath (Join-Path $tuiRoot 'package.json') -Destination $stagingTui
+Copy-Item -LiteralPath (Join-Path $tuiRoot 'package-lock.json') -Destination $stagingTui
+$npm = if ($IsWindows) { 'npm.cmd' } else { 'npm' }
+& $npm --prefix $stagingTui ci --omit=dev --ignore-scripts --no-audit --no-fund
+if ($LASTEXITCODE -ne 0) { throw 'Production TUI dependency installation failed' }
+
+if (-not [string]::IsNullOrWhiteSpace($JavaRuntimeDirectory)) {
+    $source = [IO.Path]::GetFullPath($JavaRuntimeDirectory)
+    if (-not (Test-Path -LiteralPath $source -PathType Container)) { throw 'Java runtime directory missing' }
+    New-Item -ItemType Directory -Path (Join-Path $staging 'runtime') -Force | Out-Null
+    Copy-Item -LiteralPath $source -Destination (Join-Path $staging 'runtime/java') -Recurse
+}
+if (-not [string]::IsNullOrWhiteSpace($NodeRuntimeDirectory)) {
+    $source = [IO.Path]::GetFullPath($NodeRuntimeDirectory)
+    $nodeBinary = if ($Platform -eq 'windows-x64') {
+        Join-Path $source 'node.exe'
+    } else {
+        Join-Path $source 'bin/node'
+    }
+    if (-not (Test-Path -LiteralPath $nodeBinary -PathType Leaf)) { throw 'Node runtime executable missing' }
+    $nodeTarget = if ($Platform -eq 'windows-x64') {
+        Join-Path $staging 'runtime/node'
+    } else {
+        Join-Path $staging 'runtime/node/bin'
+    }
+    New-Item -ItemType Directory -Path $nodeTarget -Force | Out-Null
+    Copy-Item -LiteralPath $nodeBinary -Destination $nodeTarget
+}
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 function Read-UniqueProperty([string[]]$Lines, [string]$Name, [string]$JarName) {
@@ -163,6 +220,21 @@ foreach ($jar in (Get-ChildItem -LiteralPath (Join-Path $staging 'app') -Filter 
 if ($componentList.Count -eq 0 -or $null -eq $cliCoordinate) {
     throw 'Release SBOM requires non-empty components and the CLI Maven coordinate'
 }
+$nodeLock = Get-Content -LiteralPath (Join-Path $stagingTui 'package-lock.json') -Raw |
+    ConvertFrom-Json -Depth 100 -AsHashtable
+foreach ($packageName in @('ink', 'marked', 'react')) {
+    $package = $nodeLock['packages']["node_modules/$packageName"]
+    if ($null -eq $package -or [string]::IsNullOrWhiteSpace($package.version)) {
+        throw "TUI dependency metadata missing: $packageName"
+    }
+    $componentList.Add([ordered]@{
+        type = 'library'
+        group = ''
+        name = $packageName
+        version = $package.version
+        purl = "pkg:npm/$([Uri]::EscapeDataString($packageName))@$([Uri]::EscapeDataString($package.version))"
+    })
+}
 $sbom = [ordered]@{
     bomFormat = 'CycloneDX'
     specVersion = '1.6'
@@ -186,11 +258,19 @@ $artifactFiles = Get-ChildItem -LiteralPath $staging -File -Recurse |
     Sort-Object FullName
 $manifest = [ordered]@{
     schema = 'cc-java-release-manifest-v1'
-    version = '0.1.0-SNAPSHOT'
-    compatibility = [ordered]@{ protocolMajors=@(0,1); sessionExportMajor=1; minimumJava=21 }
+    version = $Version
+    platform = $Platform
+    product = 'codej'
+    entrypoint = $(if ($Platform -eq 'windows-x64') { 'codej.cmd' } else { 'codej' })
+    compatibility = [ordered]@{
+        protocolMajors=@(0,1)
+        sessionExportMajor=1
+        minimumJava=21
+        minimumNode=22
+    }
     # 当前尚未写 manifest 与 SHA256SUMS，因此最终总数需加二。
     artifacts = $artifactFiles.Count + 2
-    publicReleaseAllowed = $false
+    publicReleaseAllowed = [bool]$PublicRelease
 }
 $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $staging 'release-manifest.json') -Encoding utf8NoBOM
 

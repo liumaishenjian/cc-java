@@ -88,6 +88,28 @@ class DefaultCliModeRunnerTest {
     }
 
     @Test
+    void printsConfigurationRecoveryGuidanceForMissingProviderSelection() {
+        StringWriter errors = new StringWriter();
+        ModelFailureSummary summary = ModelFailureSummary.firstAttempt(
+                ModelFailureCategory.CONFIGURATION_REQUIRED, Optional.empty(), false);
+
+        int exit = DefaultCliModeRunner.exitCode(
+                AgentRunResult.stopped(
+                        new SessionId("session-1"),
+                        new RunId("run-1"),
+                        StopReason.MODEL_ERROR,
+                        Optional.of(summary),
+                        1,
+                        0),
+                new PrintWriter(errors, true));
+
+        assertThat(exit).isEqualTo(CliExitCode.RUNTIME_FAILURE);
+        assertThat(errors.toString())
+                .contains("尚未配置 Provider profile 或模型选择；请运行 /connect 或 codej auth login")
+                .doesNotContain("apiKey", "baseUrl", "http");
+    }
+
+    @Test
     void rejectsMissingWorkspaceBeforeReadingProviderConfiguration() {
         StringWriter errors = new StringWriter();
         DefaultCliModeRunner runner = new DefaultCliModeRunner(

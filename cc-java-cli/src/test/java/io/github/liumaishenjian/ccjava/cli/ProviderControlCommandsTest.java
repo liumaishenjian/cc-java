@@ -25,6 +25,39 @@ class ProviderControlCommandsTest {
     @TempDir Path temporary;
 
     @Test
+    void everyProviderControlHelpBypassesRequiredValidationAndHasNoPersistentSideEffect() throws Exception {
+        Fixture fixture = fixture("");
+        PersistentCounts before = fixture.persistentCounts();
+        String[][] commands = {
+                {"providers", "--help"},
+                {"providers", "list", "--help"},
+                {"providers", "add", "--help"},
+                {"providers", "remove", "--help"},
+                {"auth", "--help"},
+                {"auth", "login", "--help"},
+                {"auth", "list", "--help"},
+                {"auth", "status", "--help"},
+                {"auth", "probe", "--help"},
+                {"auth", "logout", "--help"},
+                {"auth", "migrate-legacy", "--help"},
+                {"models", "--help"},
+                {"models", "list", "--help"},
+                {"models", "add", "--help"},
+                {"models", "remove", "--help"},
+                {"models", "use", "--help"}
+        };
+
+        for (String[] command : commands) {
+            Invocation invocation = fixture.execute(command);
+            assertThat(invocation.exit()).as(String.join(" ", command)).isZero();
+            assertThat(invocation.all()).as(String.join(" ", command))
+                    .contains("Usage:")
+                    .doesNotContain("Missing required");
+            assertThat(fixture.persistentCounts()).as(String.join(" ", command)).isEqualTo(before);
+        }
+    }
+
+    @Test
     void cliLoginListModelsAndLogoutHaveStableJsonAndNoSecretLeak() throws Exception {
         Fixture fixture=fixture("stdin-secret-sentinel\r\n");
         Invocation login=fixture.execute("auth","login","--provider","anthropic","--profile","personal",
@@ -93,6 +126,34 @@ class ProviderControlCommandsTest {
     }
 
     @Test
+    void applicationAddCompatibleProviderReusesDefinitionAndStoreValidation() throws Exception {
+        Fixture fixture = fixture("");
+        var added = fixture.service().addCompatibleProvider(
+                new ProviderAuthApplicationService.AddProviderRequest(
+                        "team", "Team Gateway", "https://gateway.example/v1", "model-x"),
+                CancellationToken.none());
+        assertThat(added).extracting(
+                ProviderAuthApplicationService.ProviderAddedSummary::providerId,
+                ProviderAuthApplicationService.ProviderAddedSummary::displayName,
+                ProviderAuthApplicationService.ProviderAddedSummary::modelId)
+                .containsExactly("team", "Team Gateway", "model-x");
+        assertThat(service(fixture.home(), fixture.repository()).listModels(java.util.Optional.of("team"),
+                CancellationToken.none())).extracting(ProviderAuthApplicationService.ModelSummary::modelId)
+                .containsExactly("model-x");
+        long generation = new ProviderDefinitionStore(fixture.home()).snapshot(CancellationToken.none()).generation();
+        assertThatThrownBy(() -> fixture.service().addCompatibleProvider(
+                new ProviderAuthApplicationService.AddProviderRequest(
+                        "plain", "Plain", "http://gateway.example/v1", "model-y"), CancellationToken.none()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> fixture.service().addCompatibleProvider(
+                new ProviderAuthApplicationService.AddProviderRequest(
+                        "team", "Duplicate", "https://duplicate.example/v1", "model-y"), CancellationToken.none()))
+                .isInstanceOf(io.github.liumaishenjian.ccjava.cli.auth.ProviderAuthException.class);
+        assertThat(new ProviderDefinitionStore(fixture.home()).snapshot(CancellationToken.none()).generation())
+                .isEqualTo(generation);
+    }
+
+    @Test
     void providersJsonNeverDisplaysUriOrHeaders() throws Exception {
         Fixture fixture=fixture("");
         assertThat(fixture.execute("providers","add","--id","team","--kind","openai-compatible",
@@ -130,6 +191,13 @@ class ProviderControlCommandsTest {
         Invocation execute(String...args){StringWriter out=new StringWriter(),err=new StringWriter();
             int exit=CcJavaCliMain.executeProviderControl(args,service,new ByteArrayInputStream(stdin),
                     new PrintWriter(out,true),new PrintWriter(err,true));return new Invocation(exit,out.toString(),err.toString());}
+        PersistentCounts persistentCounts(){
+            return new PersistentCounts(
+                    service.listProviders(CancellationToken.none()).size(),
+                    service.listProfiles(java.util.Optional.empty(),CancellationToken.none()).size(),
+                    service.listModels(java.util.Optional.empty(),CancellationToken.none()).size());
+        }
     }
+    private record PersistentCounts(int providers,int credentials,int models) { }
     private record Invocation(int exit,String stdout,String stderr){String all(){return stdout+stderr;}}
 }

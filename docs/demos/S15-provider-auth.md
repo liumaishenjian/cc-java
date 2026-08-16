@@ -52,10 +52,23 @@ codej auth logout --provider anthropic --profile s15-demo --yes
 
 ## TUI 流程
 
-启动 TUI 后可使用：
+启动 TUI 后，普通用户输入 `/connect`：
 
 ```text
-/connect
+连接模型服务
+→ 选择 Anthropic 或 OpenRouter
+→ 选择“粘贴 API Key（推荐）”或“使用环境变量（高级）”
+→ 登录成功后选择模型
+→ 看到“已连接 / 已选择 / 可以开始对话”
+```
+
+API Key 由一次性 Java masked Console 读取，Ink/Node 不接触 secret；ENV 页面只输入变量名称。已连接 Provider
+再次进入会看到“选择模型 / 更新凭证 / 退出登录（高级）”，logout 必须二次确认。自定义 OpenAI-compatible
+服务在“添加自定义服务（高级）”中依次输入名称、稳定 ID、HTTPS Base URL、模型并确认；保存中会显示“正在保存，请稍候”，Enter/Esc 不会离开或重复提交。保存成功后立即进入相同的 masked API Key/ENV、credential 刷新、模型选择与完成页。重新打开 `/connect` 时，已有 custom 会以“自定义 · <id>”稳定排序显示，选择它会直接进入管理或认证，不重复新增。普通向导登录与模型选择均持久设为默认，重启后仍可恢复。
+
+以下带参数命令继续作为高级/脚本接口：
+
+```text
 /connect anthropic s15-demo env CC_JAVA_S15_DEMO_API_KEY
 /auth list
 /auth probe anthropic s15-demo claude-sonnet-4-6
@@ -66,7 +79,7 @@ codej auth logout --provider anthropic --profile s15-demo --yes
 /auth logout anthropic s15-demo confirm
 ```
 
-`/auth probe` 与 CLI `auth probe` 一样是显式联网操作。STORE 登录只说明为继承终端的 masked Console：
+`/auth probe` 与 CLI `auth probe` 一样是显式联网操作。STORE 登录继续使用继承终端的 masked Console：
 
 ```text
 /connect anthropic s15-store-demo
@@ -79,15 +92,21 @@ codej auth logout --provider anthropic --profile s15-demo --yes
 | `providers list` | 只展示非秘密 Provider catalog，不展示 credential |
 | `auth login --from-env` | 只持久化示例环境变量名称引用，不把环境变量值写入 profile metadata |
 | `auth list/status` | 只展示 provider、profile、引用类型和本地状态；环境变量未设置时可安全报告 `MISSING_SECRET` |
-| `models list/add/remove/use` | 只维护本地模型目录与选择；不做 remote discovery，不联网 |
+| `models list/add/remove/use` | 只维护本地模型目录与选择；向导 use 持久设为默认并可在 store 重开后恢复；不做 remote discovery，不联网 |
 | 显式 `auth probe` / `/auth probe` | 最多按受控 probe 契约访问所选 Provider；不回显 key、认证 Header、响应正文或 endpoint 细节 |
 | STORE `/connect` | 使用继承终端的 masked Console |
+| Windows `user.home` owner 为 `SYSTEM` | `expectedOwner` 由当前 `user.name` 经文件系统 `UserPrincipalLookupService` 解析，并以 `UserPrincipal.equals` / SID 身份验证；禁止使用 home owner 或字符串猜测 |
+| 既有共享 `.cc-java` 根含额外只读 principal | `providers/auth/models` 继续 exit 0；根 ACL 不变，不自动收紧真实用户根 |
+| `auth`、credential/file/temp/lock/txn 或实际 `providers.v1.json` 含多余 principal | fail closed；受保护对象只允许 owner |
+| TUI transport failure | 保留隐私安全摘要，不被 `closed` 覆盖、不自动退出；等待 `Ctrl+C`，不展示 stderr 正文 |
 | `logout --yes` / TUI confirm | 删除本地 profile；不宣称已远端 revoke |
 
 任何错误输出都应保持结构化且隐私安全，不包含 API key、环境变量值、认证 Header、Provider 响应正文、完整 URI、秘密文件路径或堆栈。
 
 ## 已有验证与事实边界
 
-2026-08-14 已通过离线临时安装 E2E：在仓库 ignored 的临时 UserHome 中安装并运行 `codej`，只创建指向明显虚构环境变量名称的 ENV metadata，完成 `providers list`、`auth login --from-env`、`auth list/status`、`models list` 与 `logout --yes`；全部 exit 0，缺失环境变量值稳定报告 `MISSING_SECRET`，logout 后 profile 数为 0。该 E2E 没有执行 probe 或模型网络请求。
+2026-08-14 已通过最终本地/安装形态回归：真实安装版共享根上的 `providers`、`auth`、`models` 均 exit 0，根 ACL 前后不变，受保护 `auth` 对象仅 owner 可访问；production stdio `initialize`/`shutdown` exit 0 且 stderr 0。仓库 ignored 的临时 home 中，ENV 与 STORE 两条全生命周期全部 exit 0，metadata secret 命中 0，logout residue 0；所有 Provider 子命令 help 均 exit 0。该回归没有执行 probe 或模型网络请求，不构成真实 Provider 在线证据。
+
+本轮验证为：聚焦 Java **53/53**；非 clean Maven verify **1028 tests / 13 skips / 0 failures / 0 errors**（171 个 Surefire XML 独立汇总）；strict aggregate Javadoc **0 warning**；完整 TUI check **11 files、194/194**。Maven `clean verify` 在删除 `cc-java-domain` JAR 时因用户现有 codej PID 17212 锁定失败，未终止该进程，因此不宣称 clean 全量通过。真正空 home/profiles 的 production stdio 在 **1 秒内**形成唯一 `configuration_required`，Print 给出 `/connect` 或 `codej auth login` 指引；`provider_error` 使用独立的服务故障提示。本机存在 ignored legacy Provider 配置，真实 `codej --print "只回复OK" --timeout 2s` 约 **9324ms** 后 exit 1，恰好一次 `cc-java: run timed out`，新增 Java/Node residue 0；它只证明 deadline/watchdog/关闭收敛，不是空配置证据。TUI transport failure 的保留行为仍通过。
 
 至少两个 distinct Provider 的真实在线 BYOK E2E 尚未执行，因此没有双 Provider 的 text stream、Tool call、cancel 与 auth-negative 在线证据。`MODEL-13` 保持 **L1**，不得提升到 L2；S15 Stage Exit 保持 **OPEN**。

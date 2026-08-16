@@ -287,6 +287,7 @@ public final class StdioProtocolCodec {
         }
         ObjectNode arguments = (ObjectNode) rawArguments;
         Set<String> allowed = switch (intent) {
+            case "providers.add" -> Set.of("providerId", "displayName", "baseUrl", "modelId");
             case "auth.list" -> Set.of();
             case "auth.probe" -> Set.of("providerId", "profileId", "modelId");
             case "auth.logout" -> Set.of("providerId", "profileId", "confirmed");
@@ -303,10 +304,16 @@ public final class StdioProtocolCodec {
         if (intent.equals("auth.list") && !arguments.isEmpty()) {
             throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "auth.list 不接受参数");
         }
+        boolean providerAdd = intent.equals("providers.add");
         boolean modelMutation = intent.equals("models.add") || intent.equals("models.remove");
         validateOptionalControlText(arguments, "providerId", requestId,
-                intent.equals("auth.probe") || intent.equals("auth.logout")
+                providerAdd || intent.equals("auth.probe") || intent.equals("auth.logout")
                         || intent.equals("models.use") || modelMutation);
+        if (providerAdd) {
+            validateProviderAddText(arguments, "displayName", requestId, 80, 256);
+            validateProviderAddText(arguments, "baseUrl", requestId, 2_048, 4_096);
+            validateProviderAddText(arguments, "modelId", requestId, 256, 1_024);
+        }
         validateOptionalControlText(arguments, "profileId", requestId,
                 intent.equals("auth.probe") || intent.equals("auth.logout"));
         validateOptionalControlText(arguments, "modelId", requestId,
@@ -322,6 +329,23 @@ public final class StdioProtocolCodec {
             if (confirmed == null || !confirmed.isBoolean() || !confirmed.booleanValue()) {
                 throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "logout 需要显式确认");
             }
+        }
+    }
+
+    /** 校验 providers.add 自由文本的 code point、UTF-8 byte 与控制字符上限。 */
+    private void validateProviderAddText(ObjectNode arguments, String field, String requestId,
+                                         int maximumCodePoints, int maximumBytes)
+            throws StdioProtocolException {
+        JsonNode value = arguments.get(field);
+        if (value == null || !value.isString()) {
+            throw new StdioProtocolException("INVALID_ARGUMENT", requestId, field + " 缺失");
+        }
+        String text = value.stringValue();
+        if (text.isBlank() || !text.equals(text.strip())
+                || text.codePointCount(0, text.length()) > maximumCodePoints
+                || text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > maximumBytes
+                || text.codePoints().anyMatch(Character::isISOControl)) {
+            throw new StdioProtocolException("INVALID_ARGUMENT", requestId, field + " 非法");
         }
     }
 

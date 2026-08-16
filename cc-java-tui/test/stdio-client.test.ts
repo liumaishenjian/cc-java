@@ -1,5 +1,5 @@
 import {fileURLToPath} from 'node:url';
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it, vi} from 'vitest';
 import {StdioClient} from '../src/stdio-client.js';
 import type {ProtocolEvent} from '../src/protocol.js';
 
@@ -142,6 +142,38 @@ describe('StdioClient', () => {
       ['task.status', 'task-a', 'cancelled'],
       ['task.worktree', 'task-a', 'kept'],
       ['task.worktree', 'task-a', 'removed'],
+    ]);
+    await client.shutdown();
+  });
+
+  it('真实 StdioClient 接受 models.add/remove/use 的 Java 正式结果而不触发协议失败', async () => {
+    const client = createClient('provider-model-results');
+    const events: ProtocolEvent[] = [];
+    const failures: string[] = [];
+    client.onEvent(event => events.push(event));
+    client.onFailure(message => failures.push(message));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+
+    client.providerControl('model-add', 'models.add', {
+      providerId: 'anthropic', modelId: 'model-added', setDefault: true,
+    });
+    client.providerControl('model-remove', 'models.remove', {
+      providerId: 'anthropic', modelId: 'model-removed',
+    });
+    client.providerControl('model-use', 'models.use', {
+      providerId: 'anthropic', profileId: 'default', modelId: 'model-used', setDefault: true,
+    });
+    await waitFor(() => events.filter(event => event.type === 'provider.control.result').length === 3);
+
+    expect(failures).toEqual([]);
+    expect(client.isClosed()).toBe(false);
+    expect(events.filter(event => event.type === 'provider.control.result').map(event => [
+      event.payload.intent, event.payload.result,
+    ])).toEqual([
+      ['models.add', {providerId: 'anthropic', modelId: 'model-added', setDefault: true}],
+      ['models.remove', {providerId: 'anthropic', modelId: 'model-removed'}],
+      ['models.use', {providerId: 'anthropic', profileId: 'default', modelId: 'model-used', setDefault: true}],
     ]);
     await client.shutdown();
   });
@@ -388,6 +420,37 @@ describe('StdioClient', () => {
     expect(failures[0]).toContain('sequence');
   });
 
+  it('协议失败关闭 transport 不能伪装进程退出，Print 清理最终等待真实 exit', async () => {
+    const treeKiller = vi.fn(() => true);
+    const client = createClient('bad-sequence-stay-alive', {
+      platform: 'win32', windowsTreeKiller: treeKiller,
+    });
+    const pid = client.processId();
+    const failures: string[] = [];
+    const events: ProtocolEvent[] = [];
+    client.onFailure(message => failures.push(message));
+    client.onEvent(event => events.push(event));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+
+    client.startRun('先协议失败');
+    await waitFor(() => failures.length === 1);
+
+    expect(client.isClosed()).toBe(true);
+    expect(client.hasProcessExited()).toBe(false);
+    expect(pid).toBeDefined();
+    expect(isProcessAlive(pid!)).toBe(true);
+    const started = performance.now();
+
+    await client.closePrintTransport();
+
+    expect(performance.now() - started).toBeGreaterThanOrEqual(75);
+    expect(treeKiller).toHaveBeenCalledTimes(1);
+    expect(failures).toHaveLength(1);
+    expect(client.hasProcessExited()).toBe(true);
+    expect(isProcessAlive(pid!)).toBe(false);
+  });
+
   it('子进程意外崩溃转成传输失败并报告退出', async () => {
     const client = createClient('crash');
     const failures: string[] = [];
@@ -408,6 +471,61 @@ describe('StdioClient', () => {
       'Java 子进程意外退出（exit=17，stderr=0 bytes）',
     ]);
     expect(client.isClosed()).toBe(true);
+  });
+
+  it('Print terminal 后关闭 stdin，Java 通过 EOF 自然退出', async () => {
+    const client = createClient();
+    const pid = client.processId();
+    const events: ProtocolEvent[] = [];
+    client.onEvent(event => events.push(event));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+    client.startRun('自然退出');
+    await waitFor(() => events.some(event => event.type === 'run.completed'));
+
+    await client.closePrintTransport();
+
+    expect(client.isClosed()).toBe(true);
+    expect(pid).toBeDefined();
+    expect(isProcessAlive(pid!)).toBe(false);
+  });
+
+  it('Print Java 忽略 stdin EOF 时强制终止并等待实际退出', async () => {
+    const client = createClient('time-limit-ignore-shutdown');
+    const pid = client.processId();
+    const events: ProtocolEvent[] = [];
+    client.onEvent(event => events.push(event));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+    client.startRun('强制退出');
+    await waitFor(() => events.some(event => event.type === 'run.failed'));
+
+    await client.closePrintTransport();
+
+    expect(client.isClosed()).toBe(true);
+    expect(pid).toBeDefined();
+    expect(isProcessAlive(pid!)).toBe(false);
+  });
+
+  it('Windows taskkill 失败时回退 child.kill 并等待 exit', async () => {
+    const treeKiller = vi.fn(() => false);
+    const client = createClient('time-limit-ignore-shutdown', {
+      platform: 'win32', windowsTreeKiller: treeKiller,
+    });
+    const pid = client.processId();
+    const events: ProtocolEvent[] = [];
+    client.onEvent(event => events.push(event));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+    client.startRun('taskkill fallback');
+    await waitFor(() => events.some(event => event.type === 'run.failed'));
+
+    await client.closePrintTransport();
+
+    expect(treeKiller).toHaveBeenCalledWith(pid);
+    expect(client.isClosed()).toBe(true);
+    expect(pid).toBeDefined();
+    expect(isProcessAlive(pid!)).toBe(false);
   });
 
   it('shutdown 超时后强制终止并等待子进程实际退出', async () => {
@@ -446,12 +564,15 @@ describe('StdioClient', () => {
   });
 });
 
-function createClient(mode = 'normal'): StdioClient {
+function createClient(
+  mode = 'normal',
+  options: {platform?: NodeJS.Platform; windowsTreeKiller?: (pid: number) => boolean} = {},
+): StdioClient {
   return new StdioClient({
     executable: process.execPath,
     args: [fixture, mode],
     cwd: process.cwd(),
-  }, {shutdownTimeoutMs: 100, cancelTimeoutMs: 100});
+  }, {shutdownTimeoutMs: 100, cancelTimeoutMs: 100, ...options});
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {
