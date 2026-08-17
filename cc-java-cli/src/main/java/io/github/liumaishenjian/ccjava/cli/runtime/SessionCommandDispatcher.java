@@ -209,7 +209,9 @@ public final class SessionCommandDispatcher {
                 ? SessionCommandKind.MODEL_CHANGE : SessionCommandKind.PERMISSIONS;
         return runtime.patchSessionSettings(patch, cancellationToken)
                 .<SessionCommandResult>map(result -> result.published()
-                        ? success(kind, commandId, sessionId, new SessionCommandEvent.EmptyPayload())
+                        ? kind == SessionCommandKind.PERMISSIONS
+                                ? permissionsView(commandId, sessionId)
+                                : success(kind, commandId, sessionId, new SessionCommandEvent.EmptyPayload())
                         : mappedPatchFailure(kind, commandId, sessionId, result))
                 .orElseGet(() -> rejected(kind, commandId, sessionId, SessionCommandResultCode.NOT_AVAILABLE));
     }

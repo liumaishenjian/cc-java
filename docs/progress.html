@@ -223,7 +223,7 @@
     }
   </style>
 </head>
-<body data-matrix-digest="667979e4196e" data-state-digest="18befba89864" data-code-digest="4dddc24270ef">
+<body data-matrix-digest="667979e4196e" data-state-digest="0034f4dcaaa0" data-code-digest="7b2cc395bd56">
   <main class="shell">
     <section class="hero">
       <p class="eyebrow">Reference-driven Java Agent Runtime</p>
@@ -330,13 +330,13 @@
         </div>
       </div>
       <dl class="evidence-grid">
-        <div class="evidence-item"><dt>Last change</dt><dd>PERM-05 完成 Plan/Ask for approval/Approve for me 三项产品选择、Headless final-ASK-only 自动复核、严格 once/deny、共享取消、Run-owned circuit、stdio 三字段投影与 React/Ink picker；完整 clean verify 1058 tests/32 skips、TUI 195/195、严格 Javadoc、launcher/release/install E2E 通过。PERM-05 从 L0 提升到 L1；真实 Provider 误放行、语义质量、延迟、成本与 A/B Eval 仍缺，S15 保持 IN_PROGRESS/OPEN。</dd></div>
+        <div class="evidence-item"><dt>Last change</dt><dd>修复权限 picker 成功变更后返回空投影导致 TUI 将 session.command.result 判为无效并断开连接；权限变更现在返回最新安全投影，并新增 stdio 回归断言。PERM-05 能力等级不变；真实 Provider 误放行、语义质量、延迟、成本与 A/B Eval 仍缺，S15 保持 IN_PROGRESS/OPEN。</dd></div>
         <div class="evidence-item"><dt>Evidence stage</dt><dd><code>S15</code></dd></div>
         <div class="evidence-item"><dt>Evidence class</dt><dd><code>COMMIT_VERIFIED</code></dd></div>
         <div class="evidence-item"><dt>Code commit</dt><dd><code>e2f23a7af7292ca2231fbb16a3d4cdc94ebf71bd</code></dd></div>
         <div class="evidence-item"><dt>Standard command</dt><dd><code>./mvnw.cmd clean verify；./mvnw.cmd &quot;-DskipTests&quot; &quot;-Dmaven.javadoc.failOnWarnings=true&quot; javadoc:aggregate；npm --prefix cc-java-tui run check；pwsh -NoProfile -File ./scripts/TestCodejDevLauncher.ps1；pwsh -NoProfile -File ./scripts/TestBuildRelease.ps1；pwsh -NoProfile -File ./scripts/PackageDistribution.ps1 -Version 0.1.0 -Platform windows-x64 -SkipBuild -SkipTuiBuild；pwsh -NoProfile -File ./scripts/TestInstallDistribution.ps1；java scripts/ProgressDashboard.java；java scripts/ProgressDashboard.java --check；java scripts/ProgressDashboard.java --self-test</code></dd></div>
         <div class="evidence-item"><dt>Result</dt><dd>当前工作树完成既有 Provider/Auth/首次配置改进及 PERM-05 L1 三选与受限 Auto Review；完整 clean verify 的 175 份 Surefire XML 汇总为 1058 tests/32 skips/0 failures/errors，TUI 13 files 195/195，严格 aggregate Javadoc 0 warning，launcher 60 assertions、release 77 Maven components/4804 checksums、Windows 安装生命周期通过。真实 Provider 自动复核质量与 S15 L4 Eval 仍缺。</dd></div>
-        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix 667979e4196e</code><br><code>state 18befba89864</code><br><code>code/build 4dddc24270ef</code></dd></div>
+        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix 667979e4196e</code><br><code>state 0034f4dcaaa0</code><br><code>code/build 7b2cc395bd56</code></dd></div>
       </dl>
     </section>
 

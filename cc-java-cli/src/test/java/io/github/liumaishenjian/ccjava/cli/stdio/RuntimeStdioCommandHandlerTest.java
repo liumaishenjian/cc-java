@@ -1274,6 +1274,11 @@ class RuntimeStdioCommandHandlerTest {
                 commandId + "-request", sessionId, sequence, commandId, "permissions", arguments)),
                 (type, requestId, eventSessionId, runId, payload) ->
                         events.add(new CapturedEvent(type, eventSessionId, runId, payload.deepCopy())));
+        CapturedEvent mutation = events.stream()
+                .filter(event -> event.type().equals("session.command.result"))
+                .filter(event -> event.payload().get("commandId").stringValue().equals(commandId))
+                .findFirst().orElseThrow();
+        assertThat(mutation.payload().at("/result/effectiveSelection").stringValue()).isEqualTo(expectedSelection);
         String queryId = commandId + "-query";
         handler.handle(codec.decodeCommand(sessionCommand(
                 queryId + "-request", sessionId, sequence + 1, queryId, "permissions", "{}")),
