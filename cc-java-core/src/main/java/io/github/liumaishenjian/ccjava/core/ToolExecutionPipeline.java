@@ -61,6 +61,8 @@ public final class ToolExecutionPipeline {
     private final SkillRunCoordinator skills;
     private final ApprovalReviewer reviewer;
     private final AutoReviewCoordinator autoReview;
+    /** 可选的 Plan Gate；为空表示保持非 Plan Runtime 的既有语义。 */
+    private PlanModeCoordinator planMode;
 
     /**
      * 创建 Tool 执行管线。
@@ -240,6 +242,7 @@ public final class ToolExecutionPipeline {
         this.skills = Objects.requireNonNull(skills, "skills 不能为空");
         this.reviewer = ApprovalReviewer.USER;
         this.autoReview = null;
+        this.planMode = null;
     }
 
     /**
@@ -284,6 +287,32 @@ public final class ToolExecutionPipeline {
         this.reviewer = Objects.requireNonNull(reviewer, "reviewer 不能为空");
         this.autoReview = reviewer == ApprovalReviewer.AUTO_REVIEW
                 ? Objects.requireNonNull(autoReview, "autoReview 不能为空") : autoReview;
+        this.planMode = null;
+    }
+
+    /**
+     * 创建绑定当前 Plan Gate 的 Tool 管线。Plan Gate 位于所有副作用前，
+     * 但获准调用仍完整经过本管线的 Hook、Permission、Approval、Journal 和 Checkpoint。
+     *
+     * @param registry Tool 注册表
+     * @param permissionGate 权限策略
+     * @param approvalHandler 审批适配器
+     * @param permissionState Session 权限状态
+     * @param lifecycle 生命周期分发器
+     * @param sessionJournal Session journal
+     * @param checkpoints 写 Tool checkpoint
+     * @param hooks Hook 协调器
+     * @param skills Skill scope
+     * @param planMode 当前 Plan Gate
+     */
+    public ToolExecutionPipeline(
+            ToolRegistry registry, PermissionGate permissionGate, ApprovalHandler approvalHandler,
+            SessionPermissionState permissionState, LifecycleDispatcher lifecycle,
+            SessionJournal sessionJournal, CheckpointCoordinator checkpoints, HookCoordinator hooks,
+            SkillRunCoordinator skills, PlanModeCoordinator planMode) {
+        this(registry, permissionGate, approvalHandler, permissionState, lifecycle, sessionJournal,
+                checkpoints, hooks, skills, ApprovalReviewer.USER, null);
+        this.planMode = Objects.requireNonNull(planMode, "planMode 不能为空");
     }
 
     /**
@@ -430,6 +459,15 @@ public final class ToolExecutionPipeline {
                     cancellationToken);
         }
 
+        ToolDefinition definition = tool.definition();
+        if (planMode != null && isPlanSideEffect(definition.effect()) && !planAllows()) {
+            return resolveWithoutExecution(session, runId, ordinal,
+                    ToolResult.failure(call.id(), call.name(),
+                            ToolError.of(ToolErrorCode.PLAN_GATE_BLOCKED,
+                                    "Plan 尚未批准或没有活动步骤")),
+                    ToolResolutionReason.PLAN_GATE_BLOCKED, cancellationToken);
+        }
+
         HookAggregateResult preTool = hooks.evaluate(
                 new HookInvocation(
                         HookEventKind.PRE_TOOL,
@@ -455,7 +493,6 @@ public final class ToolExecutionPipeline {
         }
 
         lifecycle.dispatch(session, runId, new LifecycleEvent.BeforeTool(ordinal, call));
-        ToolDefinition definition = tool.definition();
         LifecycleEvent.PermissionCallSummary permissionCall = permissionCall(call, definition);
         lifecycle.dispatch(
                 session,
@@ -571,6 +608,17 @@ public final class ToolExecutionPipeline {
         return finish(session, runId, ordinal, result, cancellationToken);
     }
 
+    private static boolean isPlanSideEffect(io.github.liumaishenjian.ccjava.domain.ToolEffect effect) {
+        return effect != io.github.liumaishenjian.ccjava.domain.ToolEffect.READ_WORKSPACE;
+    }
+
+    private boolean planAllows() {
+        io.github.liumaishenjian.ccjava.domain.PlanExecutionState state = planMode.state();
+        if (!state.sideEffectsAllowed() || state.activeStep() == null) return false;
+        io.github.liumaishenjian.ccjava.domain.PlanStep step = planMode.document().steps().get(state.activeStep() - 1);
+        return step.expectedDigest().equals(state.workspaceDigest());
+    }
+
     private static PermissionOutcome policyFailureOutcome(
             ToolCall call,
             ToolDefinition definition) {
@@ -653,17 +701,23 @@ public final class ToolExecutionPipeline {
         if (hookOutcome.decision() != PermissionDecision.ASK) {
             return hookOutcome;
         }
+        // AUTO_REVIEW 不弹出交互面板，但仍记录一次审批请求生命周期，
+        // 使审查尝试与 USER reviewer 共享可观察的 Permission 边界。
         lifecycle.dispatch(
                 session,
                 runId,
                 new LifecycleEvent.ApprovalRequested(
                         permissionCall,
                         permissionSummary(hookOutcome, true)));
-        AutoReviewDecision decision = autoReview.reviewFinalAsk(
+        ApprovalReviewRequest reviewRequest = approvalReviewRequest(
+                session, runId, call, definition, hookOutcome);
+        AutoReviewDecision decision = autoReview.reviewAuto(
                 hookOutcome,
-                approvalReviewRequest(session, runId, call, definition, hookOutcome),
+                reviewRequest,
                 cancellationToken,
                 scope.circuit());
+        // Auto 模式没有交互审批提示；classifier 是内部受限回合，fast path 与
+        // classifier allow 都只留下唯一 PermissionDecided 生命周期。
         if (decision.stopAfterCurrentDeny()) {
             scope.requestStopAfterBatch();
         }
@@ -792,7 +846,9 @@ public final class ToolExecutionPipeline {
                     initial.selector());
             case ALLOW_SESSION -> {
                 var scope = response.scope().orElseThrow();
-                if (!scope.equals(initial.selector()) || scope.toolWide()) {
+                if (!scope.equals(initial.selector())
+                        || (scope.toolWide() && !(scope.toolName().equals("web_search")
+                        && scope.source() == io.github.liumaishenjian.ccjava.domain.ToolSource.BUILT_IN))) {
                     throw new IllegalArgumentException("Session approval scope 与请求不匹配");
                 }
                 permissionState.grant(session.id(), scope);

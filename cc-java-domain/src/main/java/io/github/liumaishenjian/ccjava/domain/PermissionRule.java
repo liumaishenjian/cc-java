@@ -24,7 +24,9 @@ public record PermissionRule(
         source = Objects.requireNonNull(source, "source 不能为空");
         behavior = Objects.requireNonNull(behavior, "behavior 不能为空");
         selector = Objects.requireNonNull(selector, "selector 不能为空");
-        if (source == PermissionRuleSource.SESSION && selector.toolWide()) {
+        if (source == PermissionRuleSource.SESSION && selector.toolWide()
+                && !(selector.toolName().equals("web_search")
+                && selector.source() == ToolSource.BUILT_IN)) {
             throw new IllegalArgumentException("SESSION 规则必须限定具体 selector");
         }
     }

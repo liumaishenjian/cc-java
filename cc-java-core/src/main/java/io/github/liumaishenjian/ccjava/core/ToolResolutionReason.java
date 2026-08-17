@@ -21,6 +21,9 @@ public enum ToolResolutionReason {
     /** Pre Tool Hook 在 Permission 前明确阻断。 */
     HOOK_BLOCKED,
 
+    /** Plan 尚未批准、步骤未领取或摘要冲突。 */
+    PLAN_GATE_BLOCKED,
+
     /** 当前 Run 的 Skill allowlist 隐藏了该 Tool。 */
     SKILL_SCOPE_DENIED
 }

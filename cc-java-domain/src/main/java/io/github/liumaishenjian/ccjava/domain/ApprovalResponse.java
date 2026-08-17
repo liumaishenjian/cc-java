@@ -32,7 +32,10 @@ public record ApprovalResponse(Action action, Optional<PermissionSelector> scope
         if ((action == Action.ALLOW_SESSION) != scope.isPresent()) {
             throw new IllegalArgumentException("只有 ALLOW_SESSION 必须携带 scope");
         }
-        if (scope.filter(PermissionSelector::toolWide).isPresent()) {
+        if (scope.filter(PermissionSelector::toolWide)
+                .filter(value -> !(value.toolName().equals("web_search")
+                        && value.source() == ToolSource.BUILT_IN))
+                .isPresent()) {
             throw new IllegalArgumentException("Session approval scope 必须具体");
         }
     }

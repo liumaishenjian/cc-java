@@ -9,8 +9,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.tsx",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "vitest run --exclude test/real-java-plan-e2e.test.ts",
+    "test:watch": "vitest --exclude test/real-java-plan-e2e.test.ts",
+    "test:real-java": "vitest run test/real-java-plan-e2e.test.ts",
     "check": "npm run build && npm test"
   },
   "dependencies": {

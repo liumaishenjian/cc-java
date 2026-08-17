@@ -14,6 +14,11 @@ import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
 import io.github.liumaishenjian.ccjava.domain.SessionSpec;
 import io.github.liumaishenjian.ccjava.domain.StopReason;
+import io.github.liumaishenjian.ccjava.domain.PlanApprovalGate;
+import io.github.liumaishenjian.ccjava.domain.PlanDocument;
+import io.github.liumaishenjian.ccjava.domain.PlanExecutionState;
+import io.github.liumaishenjian.ccjava.domain.PlanStatus;
+import io.github.liumaishenjian.ccjava.domain.PlanStep;
 import io.github.liumaishenjian.ccjava.domain.ToolCall;
 import io.github.liumaishenjian.ccjava.domain.ToolEffect;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
@@ -29,6 +34,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Map;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -42,6 +49,58 @@ class FileSessionStoreTest {
 
     @TempDir
     Path temporaryRoot;
+
+    @Test
+    void planSnapshotReopensAndInstallsSessionOwnedPlanWithoutReplay() throws IOException {
+        Path workspace = workspace("plan-reopen");
+        Path root = storeRoot("plan-reopen");
+        SessionId id;
+        PlanDocument document = new PlanDocument("plan-durable", "safe change", List.of(
+                new PlanStep(1, "step", "detail", "digest-a")), PlanStatus.APPROVED, "digest-a");
+        PlanExecutionState state = new PlanExecutionState(document.id(), PlanApprovalGate.APPROVED,
+                1, null, PlanStatus.APPROVED, "digest-a");
+        try (FileSessionStore store = store(root, workspace, 1)) {
+            id = store.create(SPEC).id();
+            store.planSnapshot(id, document, state);
+            store.close(id);
+        }
+        try (FileSessionStore reopened = store(root, workspace, 2)) {
+            SessionOpenResult result = reopened.open(
+                    new SessionOpenRequest(SessionOpenMode.RESUME, Optional.of(id)), SPEC);
+            assertThat(result.session().plan()).isPresent();
+            assertThat(result.session().plan().orElseThrow().state()).isEqualTo(state);
+            assertThat(result.session().plan().orElseThrow().document()).isEqualTo(document);
+            assertThat(result.session().hasActiveRun()).isFalse();
+        }
+    }
+
+    @Test
+    void activePlanStepRequiresRecoveryChoiceAndDoesNotReplay() throws IOException {
+        Path workspace = workspace("plan-active");
+        Path root = storeRoot("plan-active");
+        SessionId id;
+        PlanDocument document = new PlanDocument("plan-active", "safe change", List.of(
+                new PlanStep(1, "step", "detail", "digest-a")), PlanStatus.EXECUTING, "digest-a");
+        PlanExecutionState state = new PlanExecutionState(document.id(), PlanApprovalGate.APPROVED,
+                null, 1, PlanStatus.EXECUTING, "digest-a");
+        try (FileSessionStore store = store(root, workspace, 1)) {
+            id = store.create(SPEC).id();
+            store.planSnapshot(id, document, state);
+            store.close(id);
+        }
+        try (FileSessionStore reopened = store(root, workspace, 2)) {
+            assertThatThrownBy(() -> reopened.open(
+                    new SessionOpenRequest(SessionOpenMode.RESUME, Optional.of(id)), SPEC))
+                    .isInstanceOf(SessionOpenException.class)
+                    .extracting(error -> ((SessionOpenException) error).code())
+                    .isEqualTo("RECOVERY_REQUIRED");
+            SessionOpenResult inspect = reopened.open(
+                    new SessionOpenRequest(SessionOpenMode.INSPECT, Optional.of(id)), SPEC);
+            assertThat(inspect.issues()).extracting(issue -> issue.kind())
+                    .contains(SessionRecoveryIssueKind.PLAN_ACTIVE_STEP_RECOVERY);
+            assertThat(inspect.session().plan()).isPresent();
+        }
+    }
 
     @Test
     void roundTripsResolvedAndCompletedResultsWithoutTokenRecords() throws IOException {

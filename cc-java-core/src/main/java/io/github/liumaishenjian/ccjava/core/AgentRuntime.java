@@ -67,6 +67,7 @@ public final class AgentRuntime {
     private final SkillRunCoordinator skills;
     private final PluginRunCoordinator plugins;
     private final PluginRunHooks pluginHooks;
+    private final FinalAssistantHandler finalAssistantHandler;
     private final io.github.liumaishenjian.ccjava.core.subagent.ParallelToolBatchExecutor parallelToolBatch;
     private final ConcurrentMap<SessionId, ActiveRun> activeRuns = new ConcurrentHashMap<>();
     private final java.util.Set<Thread> modelWorkers = java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -426,6 +427,34 @@ public final class AgentRuntime {
             SkillRunCoordinator skills,
             PluginRunCoordinator plugins,
             PluginRunHooks pluginHooks) {
+        this(sessionStore, idGenerator, modelGateway, contextAssembler, toolRegistry, toolPipeline, lifecycle,
+                sessionJournal, contextPreparation, memoryContext, instructionContext, hooks, skills, plugins,
+                pluginHooks, FinalAssistantHandler.acceptAll());
+    }
+
+    /**
+     * 创建带最终 Assistant 确定性处理器的完整 Runtime。
+     *
+     * <p>该接缝只供需要在 RunFinished 前验证结构化模型终态的宿主使用；Tool Loop、Context、
+     * Session 和取消仍由本 Runtime 唯一拥有。</p>
+     */
+    public AgentRuntime(
+            SessionStore sessionStore,
+            AgentIdGenerator idGenerator,
+            ModelGateway modelGateway,
+            ContextAssembler contextAssembler,
+            ToolRegistry toolRegistry,
+            ToolExecutionPipeline toolPipeline,
+            LifecycleDispatcher lifecycle,
+            SessionJournal sessionJournal,
+            ContextPreparationService contextPreparation,
+            MemoryContextService memoryContext,
+            InstructionContextService instructionContext,
+            HookCoordinator hooks,
+            SkillRunCoordinator skills,
+            PluginRunCoordinator plugins,
+            PluginRunHooks pluginHooks,
+            FinalAssistantHandler finalAssistantHandler) {
         this.sessionStore = Objects.requireNonNull(sessionStore, "sessionStore 不能为空");
         this.idGenerator = Objects.requireNonNull(idGenerator, "idGenerator 不能为空");
         this.modelGateway = Objects.requireNonNull(modelGateway, "modelGateway 不能为空");
@@ -447,6 +476,7 @@ public final class AgentRuntime {
         this.skills = Objects.requireNonNull(skills, "skills 不能为空");
         this.plugins = Objects.requireNonNull(plugins, "plugins 不能为空");
         this.pluginHooks = Objects.requireNonNull(pluginHooks, "pluginHooks 不能为空");
+        this.finalAssistantHandler = Objects.requireNonNull(finalAssistantHandler, "finalAssistantHandler 不能为空");
         this.parallelToolBatch = new io.github.liumaishenjian.ccjava.core.subagent.ParallelToolBatchExecutor(
                 toolRegistry, toolPipeline,
                 java.util.Set.of("read_file", "list_files", "search_text", "git_status", "git_diff"), 4);
@@ -751,6 +781,9 @@ public final class AgentRuntime {
                     return state.stop(StopReason.INVALID_MODEL_RESPONSE);
                 }
                 if (calls.isEmpty()) {
+                    if (!finalAssistantHandler.handle(session.id(), runId, assistant)) {
+                        return state.stop(StopReason.INVALID_MODEL_RESPONSE);
+                    }
                     appendAssistant(session, runId, assistant);
                     return state.complete(assistant.text());
                 }

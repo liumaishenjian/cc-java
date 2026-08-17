@@ -19,6 +19,7 @@ import io.github.liumaishenjian.ccjava.domain.MemoryProjectionItem;
 import io.github.liumaishenjian.ccjava.domain.ModelRequest;
 import io.github.liumaishenjian.ccjava.domain.ModelTurn;
 import io.github.liumaishenjian.ccjava.domain.RunStatus;
+import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.domain.SessionSpec;
 import io.github.liumaishenjian.ccjava.domain.StopReason;
 import io.github.liumaishenjian.ccjava.domain.SummaryCandidate;
@@ -49,6 +50,30 @@ class AgentRuntimeContextIntegrationTest {
     private static final String SYSTEM = "system";
     private static final MemoryCatalogRevision MEMORY_REVISION =
             new MemoryCatalogRevision("a".repeat(64));
+
+    @Test
+    void explicitCompactionUsesRealProjectionAt258kBoundaryBeforeOverflow() {
+        SequentialAgentIdGenerator ids = new SequentialAgentIdGenerator();
+        AgentSession session = AgentSession.create(new io.github.liumaishenjian.ccjava.domain.SessionId("compact-258k"),
+                SessionSpec.of(SYSTEM));
+        RunId runId = new RunId("compact-258k-run");
+        ContextPreparationService preparation = new ContextPreparationService(
+                new ContextPreparationConfig(new ContextCapacity("model-258k", 258_000, 1_000, 1_000),
+                        40, 0, 1_000, 120),
+                (request, cancellation) -> Optional.of(candidate(request, "bounded summary")));
+        ModelRequest canonical = new ModelRequest(session.id(), runId, 1,
+                List.of(new SystemMessage(SYSTEM), new UserMessage("x".repeat(300_000))), List.of());
+
+        ContextPreparationService.ExplicitCompactResult result = preparation.compact(
+                canonical, List.of(), CancellationToken.none());
+
+        assertThat(result.status()).isEqualTo(ContextPreparationService.ExplicitCompactStatus.ADOPTED);
+        assertThat(result.projection()).hasValueSatisfying(projection -> {
+            assertThat(projection.messages()).anyMatch(io.github.liumaishenjian.ccjava.domain.ContextSummaryMessage.class::isInstance);
+            assertThat(new CodePointContextTokenEstimator().estimate(projection.messages(),
+                    new ContextCapacity("model-258k", 258_000, 1_000, 1_000)).fits()).isTrue();
+        });
+    }
 
     @Test
     void readyMemoryIsInjectedBeforeCurrentUserWithoutMutatingCanonicalState() {

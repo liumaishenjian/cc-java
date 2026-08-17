@@ -21,6 +21,10 @@
 > ADR-049 进一步加入提交前 Workspace-safe 文件快照、JSONL Resume/Fork、确定性 Base64 文件信封、原始协议路径候选与 TUI mention 格式化；实现 Commit `5910a8f` 上完整 Reactor 52/173/45/158/261（Spring 2 skipped）、TUI 128/128 与 launcher 59/59 已通过，`CLI-13`/`CTX-19` 达到 L2。
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
+>
+> Plan gate 当前为 S15 的 L1 内存切片：真实 Headless PLAN Run 复用唯一 AgentRuntime/ModelGateway/Context Projection/Pipeline，只发布五个有界 Workspace read/search Tool；最终 Assistant 在追加前由 Java 严格解析、规范化为 Session-owned `PlanDocument` 并发布 `plan.proposed`，畸形提案失败关闭。既有显式 Plan 命令保持兼容，`plan-step-begin` 只在显式批准后按 bounded workspaceDigest 原子领取步骤；258k Context compaction 有独立证据，但 durable checkpoint/restart 与真实 Provider proposal Eval 尚未实现，保持 documented gap。
+>
+> PERM-05 Eval 采用默认离线 registered-seed harness：只聚合 typed decision、failure kind、latency、usage-derived cost、gateway/fast-path/circuit counters，不保存 Prompt、模型输出、原始 Tool args、文件正文或 Secret。真实 Provider suite 必须显式 opt-in；环境变量或凭证缺失时结构化报告为 `SKIPPED`，普通 CI 不受影响，且只断言安全阈值而不依赖固定自然语言。
 
 ## 1. 设计目标
 
@@ -649,10 +653,11 @@ Workspace-relative 目标。同名同参数 Tool 变更来源后不会复用 Gra
 
 `PLAN`：
 
-- 允许普通读取；
-- 拒绝 Patch；
-- S05 拒绝 Shell；
-- Agent 最终只能给出分析和计划。
+- 真实 Headless planning Run 复用现有 AgentRuntime 与 Context Projection，但 Registry 只发布 `list_files/read_file/search_text/git_status/git_diff`；
+- Patch、Write、Shell、Web、MCP/Plugin、Skill/Subagent 与其他扩展 Tool 在模型请求中不可见，模型请求这些名称只得到结构化 unknown-tool 结果且执行次数为零；
+- 最终 Assistant 必须是精确 `{objective,steps[{title,detail}]}` JSON；Java 在追加 Assistant 前严格校验、生成 plan ID/ordinal/digest/status，并安装为同一 Session 的 `PlanDocument`；
+- 畸形、超限或附加执行字段以 `INVALID_MODEL_RESPONSE` 失败关闭，不产生 Plan proposal；
+- 规范提案通过 `PlanProposalEvent` 与 stdio `plan.proposed` 投影给 TUI，显式批准前仍不允许任何副作用。
 
 `ACCEPT_EDITS`：
 

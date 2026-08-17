@@ -34,7 +34,32 @@ public record SessionCommandEvent(SessionCommandKind kind, CommandId commandId, 
 
     /** 命令 Event 的封闭白名单 payload。 */
     public sealed interface SessionCommandPayload permits EmptyPayload, HelpPayload, ContextPayload, DoctorPayload,
-            PermissionsPayload, ResumePayload { }
+            PermissionsPayload, ResumePayload, PlanPayload { }
+
+    /** 项目计划的有界状态投影；不包含工具参数或 Transcript。 */
+    public record PlanPayload(String planId, String status, String approvalGate, Integer nextStep,
+                              Integer activeStep, String objective, List<PlanStepView> steps,
+                              String workspaceDigest) implements SessionCommandPayload {
+        public PlanPayload {
+            planId = boundedSafeId(planId);
+            status = boundedEnum(status, "status");
+            approvalGate = boundedEnum(approvalGate, "approvalGate");
+            objective = boundedText(objective, "objective", 8_000);
+            workspaceDigest = boundedSafeId(workspaceDigest);
+            steps = List.copyOf(Objects.requireNonNull(steps, "steps 不能为空"));
+            if (steps.size() > 128) throw new IllegalArgumentException("steps 过多");
+        }
+    }
+
+    /** 单个计划步骤的安全展示。 */
+    public record PlanStepView(int ordinal, String title, String detail, String expectedDigest) {
+        public PlanStepView {
+            if (ordinal < 1) throw new IllegalArgumentException("ordinal 非法");
+            title = boundedText(title, "title", 200);
+            detail = boundedText(detail, "detail", 8_000);
+            expectedDigest = boundedSafeId(expectedDigest);
+        }
+    }
 
     /** 无额外数据的安全确认。 */
     public record EmptyPayload() implements SessionCommandPayload { }
@@ -304,6 +329,12 @@ public record SessionCommandEvent(SessionCommandKind kind, CommandId commandId, 
         if (value == null || value.length() > 128 || !value.matches("session-[A-Za-z0-9-]+")) {
             throw new IllegalArgumentException(name + " 非法");
         }
+        return value;
+    }
+
+    private static String boundedText(String value, String name, int max) {
+        if (value == null || value.isBlank() || value.length() > max
+                || value.chars().anyMatch(Character::isISOControl)) throw new IllegalArgumentException(name + " 非法");
         return value;
     }
 

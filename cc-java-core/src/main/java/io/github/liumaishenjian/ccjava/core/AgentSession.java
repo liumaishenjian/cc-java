@@ -7,6 +7,7 @@ import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
 import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
 import io.github.liumaishenjian.ccjava.domain.SessionSpec;
+import io.github.liumaishenjian.ccjava.domain.PlanStep;
 import io.github.liumaishenjian.ccjava.domain.ToolCall;
 import io.github.liumaishenjian.ccjava.domain.ToolResultMessage;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
@@ -42,6 +43,8 @@ public final class AgentSession {
     private RunId activeRunId;
     private boolean closed;
     private boolean fenced;
+    /** Session-owned Plan 状态；不得由 Surface dispatcher 复制持有。 */
+    private PlanModeCoordinator plan;
 
     AgentSession(SessionId id, SessionSpec spec) {
         this.id = Objects.requireNonNull(id, "id 不能为空");
@@ -73,6 +76,8 @@ public final class AgentSession {
         AgentSession session = new AgentSession(snapshot.sessionId(), snapshot.spec());
         session.runIds.addAll(snapshot.runIds());
         session.fenced = !snapshot.issues().isEmpty();
+        snapshot.plan().ifPresent(projection ->
+                session.plan = PlanModeCoordinator.restore(projection.document(), projection.state()));
         for (AgentMessage message : snapshot.messages()) {
             if (message instanceof UserMessage) {
                 session.messages.add(message);
@@ -149,6 +154,95 @@ public final class AgentSession {
      */
     public boolean hasActiveRun() {
         return activeRunId != null;
+    }
+
+    public synchronized Optional<PlanModeCoordinator> plan() { return Optional.ofNullable(plan); }
+
+    public synchronized Optional<PlanModeCoordinator> createPlan(PlanModeCoordinator value) {
+        ensureOpen();
+        if (activeRunId != null) return Optional.empty();
+        plan = Objects.requireNonNull(value, "plan 不能为空");
+        return Optional.of(plan);
+    }
+
+    /**
+     * 在当前 Plan Run 仍活动时安装由该 Run 规范化的提案。
+     *
+     * <p>该入口只改变 Session-owned Plan 状态，不追加消息或建立第二份 transcript；调用方必须
+     * 精确匹配活动 Run，因而迟到模型结果不能覆盖后续 Run 的计划。</p>
+     *
+     * @param runId 当前活动的 Plan Run
+     * @param value 已严格验证的计划协调器
+     * @return Run 匹配且安装成功时为当前计划
+     */
+    public synchronized Optional<PlanModeCoordinator> createPlanDuringRun(
+            RunId runId, PlanModeCoordinator value) {
+        ensureOpen();
+        if (!Objects.requireNonNull(runId, "runId 不能为空").equals(activeRunId)) return Optional.empty();
+        plan = Objects.requireNonNull(value, "plan 不能为空");
+        return Optional.of(plan);
+    }
+
+    public synchronized Optional<PlanModeCoordinator> approvePlan(String digest) {
+        if (plan == null) return Optional.empty();
+        plan.approve(digest); return Optional.of(plan);
+    }
+    public synchronized Optional<PlanModeCoordinator> rejectPlan() {
+        if (plan == null) return Optional.empty();
+        plan.reject(); return Optional.of(plan);
+    }
+    public synchronized Optional<PlanStep> beginPlanStep(String digest) {
+        return plan == null ? Optional.empty() : plan.beginNext(digest);
+    }
+    public synchronized Optional<PlanModeCoordinator> completePlanStep(String digest) {
+        if (plan == null) return Optional.empty();
+        plan.completeStep(digest); return Optional.of(plan);
+    }
+
+    /** 为 Plan Pipeline 调用追加唯一 Assistant Tool Call，确保 Tool Result 能绑定规范历史。 */
+    public synchronized void appendPlanToolCall(RunId runId, ToolCall call) {
+        ensureActiveRun();
+        if (!Objects.requireNonNull(runId, "runId 不能为空").equals(activeRunId)) {
+            throw new IllegalStateException("Plan Tool Call 不属于当前 Run");
+        }
+        appendAssistant(AssistantMessage.tools(List.of(Objects.requireNonNull(call, "call 不能为空"))));
+    }
+
+    /** 为 Plan Pipeline 调用追加 Tool Result，保持规范历史 ID 配对。 */
+    public synchronized void appendPlanToolResult(RunId runId, io.github.liumaishenjian.ccjava.domain.ToolResult result) {
+        ensureActiveRun();
+        if (!Objects.requireNonNull(runId, "runId 不能为空").equals(activeRunId)) {
+            throw new IllegalStateException("Plan Tool Result 不属于当前 Run");
+        }
+        appendToolResult(new ToolResultMessage(Objects.requireNonNull(result, "result 不能为空")));
+    }
+
+    /** 执行当前已批准 Plan 的剩余步骤；Session fence 或恢复问题时不得调用此入口。 */
+    public synchronized Optional<PlanModeCoordinator> executePlan(
+            PlanStepExecutor executor, CancellationToken cancellationToken, int maxSteps) {
+        ensureOpen();
+        if (fenced) return Optional.empty();
+        if (plan == null) return Optional.empty();
+        if (plan.state().nextStep() == null || plan.state().approvalGate()
+                != io.github.liumaishenjian.ccjava.domain.PlanApprovalGate.APPROVED) return Optional.of(plan);
+        RunId executionRun = new RunId("plan-execute-" + id.value());
+        beginRun(executionRun, new UserMessage("Plan execution"));
+        try {
+            plan.executeAll(executor, cancellationToken, maxSteps);
+            return Optional.of(plan);
+        } finally {
+            endRun(executionRun);
+        }
+    }
+
+    /**
+     * 旧版无参数兼容入口显式失败，避免静默 no-op。
+     *
+     * @throws IllegalArgumentException 缺少完成后的工作区摘要
+     */
+    @Deprecated
+    public synchronized Optional<PlanModeCoordinator> completePlanStep() {
+        throw new IllegalArgumentException("completePlanStep 必须携带 workspaceDigest");
     }
 
     void ensureRunnable() {

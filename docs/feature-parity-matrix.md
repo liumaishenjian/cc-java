@@ -17,7 +17,7 @@
 > filter/prefix、Permission、Trust 与单次断线恢复的 Tool 主链并通过真实 Transport/Headless E2E，
 > G0-G6 Accepted；`MCP-01`～`07` 为 L2，`MCP-09`～`11` 为 L1，`MCP-08` 仍为 L0；
 > rules 编辑、Provider discovery/多模型注册、S13 尚未覆盖的 JVM 内 HTTP 强制网络边界、native Windows file/network、Auto 与供应链安全仍有差距。S11 已在实现 Commit `71278431dd1e5c7c4e279b44f43e084755502a5d` 上完成 Commit-scoped G0-G6，量化、Demo 与能力对账均通过，Stage Exit Accepted；
-> `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2、`PLUGIN-04` 为 L1。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit；`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit，状态为 Accepted；S14 已在实现 Commit `dff814c1bb5a659979e007061e6d10a0a9ff6e82` 上完成 Commit-scoped G0-G6，Stage Exit 为 Accepted with documented deviations。S15 新增 `PERM-05` 的 Headless/stdio/TUI 受限自动复核生产接线：三项 selection、有界请求、空 Tool 模型回合、严格 once/deny、失败关闭与 picker E2E 已由离线 Fake 覆盖，达到 L1；真实 Provider 的误放行率、语义上下文质量、延迟、成本与 A/B Eval 尚未完成。当前 `SEC-02/03/04/05/06/07/12`、`EVAL-04` 为 L2，`SEC-08/CFG-07/HOOK-10/PERM-05` 为 L1，`SEC-11` 保持 L0；S14 退出不整体提升 Capability 等级。
+> `SKILL-01..07`、`CTX-14`、`PLUGIN-01..03` 为 L2、`PLUGIN-04` 为 L1。S12 已在实现 Commit `cfbe0282b37a93e38256c3d2d6f22ed2207975a5` 上完成 Commit-scoped G0-G6 与 Stage Exit；`SUB-01..05/07..10`、`CTX-15`、`HOOK-08`、`TOOL-15` 为 L2，`SUB-06/HOOK-11` 为 L1。S13 已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit，状态为 Accepted；S14 已在实现 Commit `dff814c1bb5a659979e007061e6d10a0a9ff6e82` 上完成 Commit-scoped G0-G6，Stage Exit 为 Accepted with documented deviations。S15 新增 `PERM-05` 的 Headless/stdio/TUI 受限自动复核生产接线：三项 selection、有界请求、空 Tool 模型回合、严格 once/deny、失败关闭与 picker E2E 已由离线 Fake 覆盖，达到 L1；真实 Provider 的误放行率、语义上下文质量、延迟、成本与 A/B Eval 尚未完成。当前 `SEC-02/03/04/05/06/07/12`、`EVAL-04` 为 L2，`SEC-08/CFG-07/HOOK-10/PERM-05/PLAN-01` 为 L1，`SEC-11` 保持 L0；S14 退出不整体提升 Capability 等级。
 
 ## 1. 文档目的
 
@@ -164,12 +164,12 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 
 | 指标 | R2026.03 当前值 |
 | --- | --- |
-| 纳入追踪的 Capability ID | 198 |
+| 纳入追踪的 Capability ID | 199 |
 | 当前阶段 | S15 Independent Innovation `IN_PROGRESS`（实现 Commit `f0e274f779143164e0859961437a53acd220e7bd` 完整包含 TOOL-18 L2 与 MODEL-13 L1） |
 | Stage Exit | S01-S14 Accepted；TOOL-18 与 MODEL-13 实现切片已完成 Commit-scoped G6 对账，S15 整体仍 `OPEN`，不得由两项切片进展推断 Stage Accepted |
-| 当前等级 | 151 项为 L2，39 项为 L1，8 项为 L0 |
-| 默认最终目标 | 198 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 57.41%（198 项加权、按各 Feature 目标等级计算；PERM-05 从 L0 提升至 L1，使总权重增加 1/594） |
+| 当前等级 | 151 项为 L2，40 项为 L1，8 项为 L0 |
+| 默认最终目标 | 199 项达到 L3，或存在明确 `Accepted Deviation` |
+| 当前能力覆盖 | 57.29%（199 项加权、按各 Feature 目标等级计算；PLAN-01 为 S15 L1 内存切片，不因新增条目宣称 L4 创新收益） |
 | 下一步 | 补齐 PERM-05 真实 Provider 的对抗性误放行、语义上下文质量、延迟、成本与 A/B Eval；同时补齐至少两个 distinct Provider 的真实 BYOK text stream、Tool call、cancel 与 auth-negative 证据，并完成 S15 L4 创新评测 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
@@ -337,7 +337,7 @@ Stage 完成项。
 | PERM-02 | Manual / Default | 副作用默认询问 | L1 | S04 | REF-04/AUTH-01 |
 | PERM-03 | Plan Mode | S04 固定安全模式 → S05 可配置策略 | L2 | S04/S05 | REF-04/AUTH-01 |
 | PERM-04 | Accept Edits | Workspace Write 自动批准 | L2 | S05 | REF-04 |
-| PERM-05 | Auto Mode | `Plan / Ask for approval / Approve for me` 三项选择经 stdio/TUI 接入；Headless 复用现有 Provider Gateway 的有界、无 Tool自动复核，严格 ALLOW_ONCE/DENY、失败关闭、Run-owned circuit 与共享取消；仍缺真实 Provider 误放行、语义质量、成本/延迟 A/B Eval | L1 | S15 | REF-04 |
+| PERM-05 | Auto Mode | `Plan / Ask for approval / Approve for me` 三项选择经 stdio/TUI 接入；Headless 复用现有 Provider Gateway 的有界、无 Tool 自动复核，严格 ALLOW_ONCE/DENY、失败关闭、Run-owned circuit 与共享取消；离线 registered-seed Eval 已覆盖 safe read/web、untrusted network、prompt injection、malformed/timeout/exception、deny/allow、latency/cost counters 与 stop，真实 Provider 仍需显式 opt-in 且缺凭证 fail-closed SKIPPED；`AutoReviewProviderEvalTest` 已验证结构化隐私安全报告 | L1 | S15 | REF-04 |
 | PERM-06 | Allow / Ask / Deny | 声明性规则 | L2 | S05/S08 | REF-04 |
 | PERM-07 | Allow Once / Session | 范围化审批缓存 | L2 | S04/S05 | REF-04/AUTH-01 |
 | PERM-08 | Protected Paths | 不可写路径 | L2 | S05/S13 | REF-04 |
@@ -346,6 +346,7 @@ Stage 完成项。
 | PERM-11 | Denial Tracking | 重复拒绝降级 | L2 | S05/S14 | REF-01/04 |
 | PERM-12 | Project/User/Managed Scope | user/project/local Settings 来源与 Session overlay；Managed Policy 延期 S13 | L2 | S08/S13 | REF-04 |
 | PERM-13 | Print Mode Policy | 无交互时确定性处理 ASK | L2 | S05 | REF-04 |
+| PLAN-01 | In-memory Plan Step Gate | S15 真实 Headless PLAN Run 复用唯一 AgentRuntime/ModelGateway/Context Projection/Pipeline，只发布五个 bounded Workspace read/search Tool；最终 Assistant 在追加前由 Java 严格解析、规范化为 Session-owned `PlanDocument`，stdio/TUI 消费 `plan.proposed`；写/命令/扩展 Tool 不可见且执行为零，畸形/超限提案失败关闭。既有显式命令兼容，`plan-step-begin` 仍仅在显式批准、无活动 Run且 workspace digest 一致时原子领取步骤；Fake/Parser/TUI protocol 测试与 ADR-074 | L1 | S15 | REF-01/AUTH-01 |
 
 ## 12. Lifecycle / Hooks 对照
 
@@ -762,7 +763,7 @@ ADR-061/062 在双源边界内冻结范围与架构；实现 Commit `cfbe0282b37
 ADR-063/064 冻结的范围已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776a5ec2bf3` 上完成 Commit-scoped G0-G6 与 Stage Exit，状态为 Accepted。只确认以下由固定证据证明的等级：
 
 - `SEC-02/03/04/05`：L1→L2；`SEC-06/07/12`、`EVAL-04`：L0→L2；
-- `SEC-08`：L0→L1；`PERM-05`、`CFG-07` 因未生产接入保持 L0；`HOOK-10` 保持 L1；
+- `SEC-08`：L0→L1；`PERM-05` 已完成受限生产接入保持 L1，`CFG-07` 因缺少多平台管理员部署证据保持 L1；`HOOK-10` 保持 L1；
 - `PERM-08`、`PERM-09`、`PERM-12`、`SEC-09` 各自保持 L2 并做组合回归；`SEC-11` 保持 L0。
 
 完成条件：
@@ -785,7 +786,7 @@ ADR-063/064 冻结的范围已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776
 
 ### S15：Independent Innovation
 
-状态：`IN_PROGRESS`，Stage Exit `OPEN`。ADR-067/068 已完成 TOOL-18 OpenCode 固定公开 revision 研究与独立 Java 契约；`cc-java-tools-web`、Headless production composition、真实 JDK loopback、Permission/NetworkAccess/JSON-RPC/JSON/SSE/cancel/隐私矩阵与 Demo 形成工作树 G0-G5 verified，使 `TOOL-18 L0 → L2`。2026-08-12 真实 Exa hosted MCP smoke 和安装版 `codej --print` 杭州天气 E2E 均通过，Tool started/completed 各一次且 Call ID 匹配。该工具是参考差距补齐，不是 L4 创新收益证据；不支持 WebFetch/任意 URL，NetworkAccessPort 也不是 OS Sandbox。完整 S15 仍须完成创新 A/B Eval、收益/成本/安全阈值和 commit-scoped G6。
+状态：`IN_PROGRESS`，Stage Exit `OPEN`。ADR-067/068 已完成 TOOL-18 OpenCode 固定公开 revision 研究与独立 Java 契约；`cc-java-tools-web`、Headless production composition、真实 JDK loopback、Permission/NetworkAccess/JSON-RPC/JSON/SSE/cancel/隐私矩阵与 Demo 形成工作树 G0-G5 verified，使 `TOOL-18 L0 → L2`。2026-08-12 真实 Exa hosted MCP smoke 和安装版 `codej --print` 杭州天气 E2E 均通过，Tool started/completed 各一次且 Call ID 匹配。该工具是参考差距补齐，不是 L4 创新收益证据；不支持 WebFetch/任意 URL，NetworkAccessPort 也不是 OS Sandbox。完整 S15 仍须完成创新 A/B Eval、收益/成本/安全阈值和 commit-scoped G6。当前已补充 `PLAN-01` 的 L1 内存 Plan Run + 步骤 Gate：选择 PLAN 后，真实 Headless Runtime 复用唯一 AgentRuntime、ModelGateway、Context Projection 与 Pipeline 进行只读多回合探索，只向模型发布五个 bounded Workspace read/search Tool；最终 Assistant 在 Canonical 追加前由 Java 严格解析、生成 Runtime-owned ID/ordinal/digest/status，并安装为同一 Session 的 `PlanDocument`，stdio/TUI 消费有界 `plan.proposed`。写/命令/网络/扩展 Tool 不可见且执行次数为零，畸形/未知字段/超限提案以 `INVALID_MODEL_RESPONSE` 失败关闭；现有显式 Plan 命令保持兼容，`plan-step-begin` 仍只在显式批准、无活动 Run 且摘要一致时领取步骤。[ADR-074](./adr/ADR-074-s15-plan-step-gate.md)、`HeadlessRuntimeSessionTest`、`PlanProposalParserTest`、`PlanModeCoordinatorTest` 与 TUI protocol 测试提供证据。S07 的 258k Context compaction 证据仍由 `AgentRuntimeContextIntegrationTest#explicitCompactionUsesRealProjectionAt258kBoundaryBeforeOverflow` 覆盖；Plan durable checkpoint/restart、自动执行编排和真实 Provider proposal Eval 尚未实现，仍是明确 gap，不宣称持久化、重启恢复或 L4 收益。
 
 ADR-069/070 冻结的 `MODEL-13` Provider/Auth 受控双源研究与契约已绑定实现 Commit `f0e274f779143164e0859961437a53acd220e7bd`：本地直连 BYOK，不建设官方中转 Gateway；ProviderDefinition 与多 CredentialProfile/SecretRef 分离，覆盖 OpenAI-compatible、Anthropic、OpenRouter，提供 `/connect`、`/auth list/logout`、`/models` 及 headless 对等入口。list/status 零网络，probe 显式有界；profile 优先级为显式→default→env→legacy，logout 对同进程 active run 建 fence/cancel/drain 并明确不等于 Provider revoke。secret 不进入 Domain/Session/log/event/error/argv/evidence；普通文件只能称权限受限存储；不实现 silent rotation/failover、Gateway、SQLite 或通用 OAuth。`MODEL-13` L1 切片已完成 commit-scoped G6；G5 仅有离线 Demo，双 Provider 在线证据仍缺失，不得虚报；S15 Stage Exit 仍为 OPEN。
 

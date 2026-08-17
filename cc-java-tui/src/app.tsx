@@ -31,6 +31,14 @@ import {
   type PermissionPickerState,
 } from './permission-picker.js';
 import {
+  APPROVAL_PICKER_ITEMS,
+  initialApprovalPickerState,
+  moveApprovalPicker,
+  resetApprovalPicker,
+  selectedApprovalDecision,
+  type ApprovalPickerState,
+} from './approval-picker.js';
+import {
   independentProviderControlId,
   isIndependentProviderControlResult,
 } from './provider-control-id.js';
@@ -97,7 +105,7 @@ export interface AgentClient {
   cancelTask?(taskId: string): string;
   keepTaskWorktree?(taskId: string): string;
   removeTaskWorktree?(taskId: string): string;
-  sessionCommand?(commandId: string, intent: 'help' | 'clear' | 'compact' | 'context' | 'doctor' | 'model' | 'permissions' | 'resume', arguments_: Readonly<Record<string, unknown>>): string;
+  sessionCommand?(commandId: string, intent: 'help' | 'clear' | 'compact' | 'context' | 'doctor' | 'model' | 'permissions' | 'resume' | 'plan-status' | 'plan' | 'plan-approve' | 'plan-reject' | 'plan-step-begin' | 'plan-step-complete' | 'plan-execute', arguments_: Readonly<Record<string, unknown>>): string;
   providerControl?(controlId: string, intent: 'providers.configure' | 'providers.add' | 'auth.list' | 'auth.probe' | 'auth.logout' | 'models.list' | 'models.use' | 'models.add' | 'models.remove', arguments_: Readonly<Record<string, unknown>>): string;
   providerLogin?(request: ProviderLoginRequest): Promise<ProviderLoginResult>;
   cancelProviderLogin?(): void;
@@ -184,6 +192,7 @@ export function AgentTui({client}: AgentTuiProps) {
   const [providerLoginActive, setProviderLoginActive] = useState(false);
   const [connectWizard, setConnectWizard] = useState<ModelSetupState | undefined>(undefined);
   const [permissionPicker, setPermissionPicker] = useState<PermissionPickerState | undefined>(undefined);
+  const [approvalPicker, setApprovalPicker] = useState<ApprovalPickerState>(() => initialApprovalPickerState());
   const composerRef = useRef(composer);
   const permissionPickerSubmittedRef = useRef(false);
   const historySessionIdRef = useRef<string | undefined>(undefined);
@@ -207,6 +216,9 @@ export function AgentTui({client}: AgentTuiProps) {
   const pendingApproval = state.runs.findLast(
     run => run.status === 'running',
   )?.pendingApproval;
+  const effectiveApprovalPicker = pendingApproval === undefined
+    ? approvalPicker
+    : resetApprovalPicker(approvalPicker, pendingApproval.approvalId);
   const pendingUndo = state.checkpoints.find(
     item => item.checkpointId === state.pendingUndoCheckpointId,
   );
@@ -331,6 +343,22 @@ export function AgentTui({client}: AgentTuiProps) {
             String(payload.intent), String(payload.status), String(payload.code),
             payload.result as Readonly<Record<string, unknown>>,
           ),
+        });
+      }
+      if (event.type === 'plan.proposed') {
+        const payload = event.payload;
+        const steps = Array.isArray(payload.steps) ? payload.steps : [];
+        dispatch({
+          type: 'slash.notice',
+          message: [
+            `Plan proposal · ${String(payload.status)}`,
+            String(payload.objective),
+            ...steps.map(item => {
+              const step = item as Readonly<Record<string, unknown>>;
+              return `${String(step.ordinal)}. ${String(step.title)} — ${String(step.detail)}`;
+            }),
+            'Review with /plan-status, then use the explicit plan approval command.',
+          ].join('\n'),
         });
       }
       if (event.type === 'steering.discarded' || event.type === 'protocol.error') {
@@ -574,13 +602,16 @@ export function AgentTui({client}: AgentTuiProps) {
       return;
     }
     if (pendingApproval !== undefined) {
-      const decision = approvalDecision(text);
-      if (decision !== undefined && !pendingApproval.submitted) {
+      const picker = effectiveApprovalPicker;
+      if (key.upArrow || key.downArrow) {
+        setApprovalPicker(moveApprovalPicker(picker, key.upArrow ? -1 : 1));
+      } else if (key.return && !pendingApproval.submitted) {
+        const decision = selectedApprovalDecision(picker);
         client.resolveApproval(pendingApproval.approvalId, decision);
-        dispatch({
-          type: 'approval.submitted',
-          approvalId: pendingApproval.approvalId,
-        });
+        setApprovalPicker({...picker, approvalId: pendingApproval.approvalId});
+        dispatch({type: 'approval.submitted', approvalId: pendingApproval.approvalId});
+      } else if (key.escape && !pendingApproval.submitted) {
+        client.cancelRun();
       }
       return;
     }
@@ -823,6 +854,7 @@ export function AgentTui({client}: AgentTuiProps) {
     composerLayout={composerLayout}
     {...(connectWizard === undefined ? {} : {connectWizard})}
     {...(permissionPicker === undefined ? {} : {permissionPicker})}
+    {...(pendingApproval === undefined ? {} : {approvalPicker: effectiveApprovalPicker})}
   />;
 }
 
@@ -837,6 +869,7 @@ export interface AgentViewProps {
   readonly composerLayout?: ComposerLayout;
   readonly connectWizard?: ModelSetupState;
   readonly permissionPicker?: PermissionPickerState;
+  readonly approvalPicker?: ApprovalPickerState;
 }
 
 const MAX_SETUP_CREDENTIAL_BYTES = 16_384;
@@ -863,7 +896,7 @@ export function maskedCredentialPreview(value: readonly number[]): string {
 /**
  * 纯展示组件，使宽字符、窄窗口和各 Run 终态无需真实终端即可验证。
  */
-export function AgentView({state, composer, input = '', columns, rows, composerLayout, connectWizard, permissionPicker}: AgentViewProps) {
+export function AgentView({state, composer, input = '', columns, rows, composerLayout, connectWizard, permissionPicker, approvalPicker}: AgentViewProps) {
   const width = Math.max(20, columns);
   const viewportRows = rows === undefined
     ? undefined
@@ -965,7 +998,7 @@ export function AgentView({state, composer, input = '', columns, rows, composerL
           ))}
           {run.pendingApproval === undefined
             ? null
-            : <ApprovalPrompt approval={run.pendingApproval} />}
+            : <ApprovalPrompt approval={run.pendingApproval} picker={approvalPicker} />}
           {run.status === 'running' && run.tools.length === 0 && run.text.length === 0 ? (
             <Box marginTop={1} marginLeft={2}>
               <Text color="yellow">◌ 等待模型响应…</Text>
@@ -1250,7 +1283,10 @@ function CheckpointRow({
   );
 }
 
-function ApprovalPrompt({approval}: {readonly approval: ApprovalView}) {
+function ApprovalPrompt({approval, picker}: {
+  readonly approval: ApprovalView;
+  readonly picker: ApprovalPickerState | undefined;
+}) {
   const action = approval.effect === 'write_workspace'
     ? '修改 Workspace'
     : approval.effect === 'execute_process'
@@ -1295,11 +1331,16 @@ function ApprovalPrompt({approval}: {readonly approval: ApprovalView}) {
           <Text color="cyan">{approval.query ?? '（查询内容不可安全预览）'}</Text>
         </>
       )}
-      <Text dimColor>
-        {approval.submitted
-          ? '决定已发送，等待 Java 确认'
-          : 'Y 允许本次　A 当前会话允许　N 拒绝　Ctrl+C 取消 Run'}
-      </Text>
+      {approval.submitted
+        ? <Text dimColor>决定已发送，等待 Java 确认</Text>
+        : <>
+          {APPROVAL_PICKER_ITEMS.map((item, index) => (
+            <Text key={item.decision} color={index === (picker?.selectedIndex ?? 0) ? 'cyan' : 'white'}>
+              {index === (picker?.selectedIndex ?? 0) ? '❯ ' : '  '}{item.label}
+            </Text>
+          ))}
+          <Text dimColor>↑/↓ 选择　Enter 确认　Esc 取消当前 Run</Text>
+        </>}
     </Box>
   );
 }

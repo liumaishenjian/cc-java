@@ -313,6 +313,8 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
         ...run,
         text: run.text + String(event.payload.text),
       }));
+    case 'plan.proposed':
+      return {...state, notice: `Plan proposal：${String(event.payload.objective)}`};
     case 'approval.requested':
       return updateCurrentRun(state, event, run => ({
         ...run,

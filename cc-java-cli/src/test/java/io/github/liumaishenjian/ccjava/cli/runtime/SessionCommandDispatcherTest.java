@@ -13,6 +13,9 @@ import io.github.liumaishenjian.ccjava.domain.ModelTurn;
 import io.github.liumaishenjian.ccjava.domain.ApprovalReviewer;
 import io.github.liumaishenjian.ccjava.domain.PermissionMode;
 import io.github.liumaishenjian.ccjava.domain.PermissionSelection;
+import io.github.liumaishenjian.ccjava.domain.PlanStep;
+import io.github.liumaishenjian.ccjava.domain.PlanStepAction;
+import io.github.liumaishenjian.ccjava.domain.JsonObject;
 import io.github.liumaishenjian.ccjava.domain.command.CommandId;
 import io.github.liumaishenjian.ccjava.domain.command.SessionCommandIntent;
 import io.github.liumaishenjian.ccjava.domain.command.SessionCommandResultCode;
@@ -302,6 +305,96 @@ class SessionCommandDispatcherTest {
             assertThat(first.event().status()).isEqualTo(SessionCommandStatus.SUCCEEDED);
             assertThat(repeated).isSameAs(first);
             assertThat(summaries).hasValue(1);
+        }
+    }
+
+    @Test
+    void planStepBeginRequiresApprovalAndReturnsActiveStepProjection() throws Exception {
+        Path workspace = Files.createDirectory(root.resolve("plan-workspace"));
+        try (HeadlessRuntimeSession runtime = runtime(workspace, root.resolve("plan-sessions"))) {
+            runtime.open();
+            SessionCommandDispatcher dispatcher = dispatcher(runtime);
+            String digest = runtime.currentWorkspaceDigest();
+            var plan = new SessionCommandIntent.Plan("objective", List.of(
+                    new SessionCommandIntent.PlanStepInput(1, "inspect", "read", digest)), digest);
+            var created = dispatcher.dispatch(new CommandId("plan-create"), plan, CancellationToken.none());
+            var before = dispatcher.dispatch(new CommandId("plan-begin-before"),
+                    new SessionCommandIntent.PlanStepBegin(digest), CancellationToken.none());
+            assertThat(created.event().status()).isEqualTo(SessionCommandStatus.SUCCEEDED);
+            assertThat(before.event().code()).isEqualTo(SessionCommandResultCode.NOT_AVAILABLE);
+
+            var approved = dispatcher.dispatch(new CommandId("plan-approve"),
+                    new SessionCommandIntent.PlanApprove(digest), CancellationToken.none());
+            var begun = dispatcher.dispatch(new CommandId("plan-begin-after"),
+                    new SessionCommandIntent.PlanStepBegin(digest), CancellationToken.none());
+            assertThat(approved.event().status()).isEqualTo(SessionCommandStatus.SUCCEEDED);
+            assertThat(begun.event().status()).isEqualTo(SessionCommandStatus.SUCCEEDED);
+            var payload = (io.github.liumaishenjian.ccjava.domain.command.SessionCommandEvent.PlanPayload) begun.event().payload();
+            assertThat(payload.activeStep()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void planExecuteRunsTypedReadToolAndDoesNotReplayAfterCompletion() throws Exception {
+        Path workspace = Files.createDirectory(root.resolve("plan-execute-workspace"));
+        try (HeadlessRuntimeSession runtime = runtime(workspace, root.resolve("plan-execute-sessions"))) {
+            runtime.open();
+            SessionCommandDispatcher dispatcher = dispatcher(runtime);
+            String digest = runtime.currentWorkspaceDigest();
+            var created = runtime.createPlan("plan-typed", "status", List.of(
+                    new PlanStep(1, "status", "read", digest,
+                            new PlanStepAction("list_files", JsonObject.empty(), "list files"))), digest);
+            assertThat(created).isPresent();
+            assertThat(dispatcher.dispatch(new CommandId("typed-approve"),
+                    new SessionCommandIntent.PlanApprove(digest), CancellationToken.none()).event().status())
+                    .isEqualTo(SessionCommandStatus.SUCCEEDED);
+            var result = dispatcher.dispatch(new CommandId("typed-execute"),
+                    new SessionCommandIntent.PlanExecute(1), CancellationToken.none());
+            assertThat(result.event().status()).isEqualTo(SessionCommandStatus.SUCCEEDED);
+            var payload = (io.github.liumaishenjian.ccjava.domain.command.SessionCommandEvent.PlanPayload)
+                    result.event().payload();
+            assertThat(payload.status()).isEqualTo("COMPLETED");
+            assertThat(payload.nextStep()).isNull();
+            var repeated = dispatcher.dispatch(new CommandId("typed-execute-again"),
+                    new SessionCommandIntent.PlanExecute(1), CancellationToken.none());
+            assertThat(repeated.event().status()).isEqualTo(SessionCommandStatus.SUCCEEDED);
+            assertThat(((io.github.liumaishenjian.ccjava.domain.command.SessionCommandEvent.PlanPayload)
+                    repeated.event().payload()).status()).isEqualTo("COMPLETED");
+        }
+    }
+
+    @Test
+    void planTypedWriteActionIsDeniedByPermissionPipeline() throws Exception {
+        Path workspace = Files.createDirectory(root.resolve("plan-write-workspace"));
+        try (HeadlessRuntimeSession runtime = runtime(workspace, root.resolve("plan-write-sessions"))) {
+            runtime.open();
+            String digest = runtime.currentWorkspaceDigest();
+            runtime.createPlan("plan-write", "write", List.of(new PlanStep(1, "write", "write",
+                    digest, new PlanStepAction("write_file", JsonObject.empty(), "create file"))), digest);
+            SessionCommandDispatcher dispatcher = dispatcher(runtime);
+            dispatcher.dispatch(new CommandId("write-approve"), new SessionCommandIntent.PlanApprove(digest), CancellationToken.none());
+            var result = dispatcher.dispatch(new CommandId("write-execute"), new SessionCommandIntent.PlanExecute(1), CancellationToken.none());
+            assertThat(result.event().status()).isEqualTo(SessionCommandStatus.SUCCEEDED);
+            assertThat(((io.github.liumaishenjian.ccjava.domain.command.SessionCommandEvent.PlanPayload)
+                    result.event().payload()).status()).isEqualTo("FAILED");
+            assertThat(Files.list(workspace).findAny()).isEmpty();
+        }
+    }
+
+    @Test
+    void planStepBeginRejectsWorkspaceDigestConflict() throws Exception {
+        Path workspace = Files.createDirectory(root.resolve("plan-conflict-workspace"));
+        try (HeadlessRuntimeSession runtime = runtime(workspace, root.resolve("plan-conflict-sessions"))) {
+            runtime.open();
+            SessionCommandDispatcher dispatcher = dispatcher(runtime);
+            String digest = runtime.currentWorkspaceDigest();
+            dispatcher.dispatch(new CommandId("plan-create-conflict"), new SessionCommandIntent.Plan("objective", List.of(
+                    new SessionCommandIntent.PlanStepInput(1, "inspect", "read", digest)), digest), CancellationToken.none());
+            dispatcher.dispatch(new CommandId("plan-approve-conflict"), new SessionCommandIntent.PlanApprove(digest), CancellationToken.none());
+            var conflict = dispatcher.dispatch(new CommandId("plan-begin-conflict"),
+                    new SessionCommandIntent.PlanStepBegin("digest-b"), CancellationToken.none());
+            assertThat(conflict.event().status()).isEqualTo(SessionCommandStatus.REJECTED);
+            assertThat(conflict.event().code()).isEqualTo(SessionCommandResultCode.INVALID_ARGUMENT);
         }
     }
 

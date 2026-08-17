@@ -386,6 +386,10 @@ public final class StdioProtocolCodec {
             case "model" -> Set.of("name");
             case "permissions" -> Set.of("mode", "selection");
             case "resume" -> Set.of("sessionId");
+            case "plan-status", "plan-reject" -> Set.of();
+            case "plan-step-complete", "plan-step-begin", "plan-approve" -> Set.of("workspaceDigest");
+            case "plan-execute" -> Set.of("maxSteps");
+            case "plan" -> Set.of("objective", "workspaceDigest", "steps");
             default -> throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "未知 session.command intent");
         };
         if (arguments.properties().stream().anyMatch(entry -> !allowed.contains(entry.getKey()))) {
@@ -425,6 +429,36 @@ public final class StdioProtocolCodec {
         }
         if (intent.equals("resume") && invalidCommandText(requiredPayloadText(arguments, "sessionId", requestId))) {
             throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "resume sessionId 非法");
+        }
+        if ((intent.equals("plan-approve") || intent.equals("plan-step-begin")
+                || intent.equals("plan-step-complete"))
+                && invalidCommandText(requiredPayloadText(arguments, "workspaceDigest", requestId))) {
+            throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "plan workspaceDigest 非法");
+        }
+        if (intent.equals("plan-execute")) {
+            JsonNode maxSteps = arguments.get("maxSteps");
+            if (maxSteps == null || !maxSteps.isIntegralNumber() || maxSteps.intValue() < 1 || maxSteps.intValue() > 128) {
+                throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "plan maxSteps 非法");
+            }
+        }
+        if (intent.equals("plan")) {
+            if (invalidCommandText(requiredPayloadText(arguments, "objective", requestId))
+                    || invalidCommandText(requiredPayloadText(arguments, "workspaceDigest", requestId))) {
+                throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "plan 文本非法");
+            }
+            JsonNode steps = arguments.get("steps");
+            if (steps == null || !steps.isArray() || steps.isEmpty() || steps.size() > 128) {
+                throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "plan steps 非法");
+            }
+            java.util.Set<Integer> ordinals = new java.util.HashSet<>();
+            for (JsonNode step : steps) {
+                if (!step.isObject() || step.properties().stream().anyMatch(e -> !java.util.Set.of("ordinal", "title", "detail", "expectedDigest").contains(e.getKey())))
+                    throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "plan step 非法");
+                if (!step.get("ordinal").canConvertToInt() || !ordinals.add(step.get("ordinal").intValue())
+                        || invalidCommandText(step.get("title").stringValue()) || invalidCommandText(step.get("detail").stringValue())
+                        || invalidCommandText(step.get("expectedDigest").stringValue()))
+                    throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "plan step 非法");
+            }
         }
     }
 

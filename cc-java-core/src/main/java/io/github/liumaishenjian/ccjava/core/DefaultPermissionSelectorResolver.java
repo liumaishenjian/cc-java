@@ -33,9 +33,11 @@ public final class DefaultPermissionSelectorResolver implements PermissionSelect
         return switch (definition.name()) {
             case "apply_patch", "write_file" -> fileSelector(invocation, definition);
             case "run_command" -> commandSelector(invocation, definition);
+            case "web_search" -> PermissionSelector.toolWide(definition.name(), definition.source());
             default -> PermissionSelector.toolWide(definition.name(), definition.source());
         };
     }
+
 
     private static PermissionSelector fileSelector(
             ToolInvocation invocation,

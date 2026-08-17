@@ -39,6 +39,7 @@ const EVENT_TYPES = new Set([
   'task.terminal',
   'task.worktree',
   'model.text.delta',
+  'plan.proposed',
   'approval.requested',
   'tool.started',
   'tool.output',
@@ -67,6 +68,7 @@ export type EventType =
   | 'task.terminal'
   | 'task.worktree'
   | 'model.text.delta'
+  | 'plan.proposed'
   | 'approval.requested'
   | 'tool.started'
   | 'tool.output'
@@ -225,6 +227,7 @@ function validateEventShape(
     (type === 'run.started'
       || type === 'skill.completed'
       || type === 'model.text.delta'
+      || type === 'plan.proposed'
       || type === 'approval.requested'
       || type === 'tool.started'
       || type === 'tool.output'
@@ -259,6 +262,9 @@ function validateEventShape(
   }
   if (type === 'model.text.delta' && typeof payload.text !== 'string') {
     throw new ProtocolViolation('model.text.delta 缺少文本');
+  }
+  if (type === 'plan.proposed') {
+    validatePlanProposal(payload);
   }
   if (
     type === 'approval.requested'
@@ -315,6 +321,36 @@ function validateEventShape(
     validateOptionalTerminalCount(type, payload, 'toolCalls');
     validateOptionalModelFailure(type, payload);
   }
+}
+
+function validatePlanProposal(payload: Readonly<Record<string, unknown>>): void {
+  if (!hasExactFields(payload, new Set(['planId', 'status', 'objective', 'workspaceDigest', 'steps']))
+    || typeof payload.planId !== 'string'
+    || !/^plan-[A-Za-z0-9_-]{1,123}$/u.test(payload.planId)
+    || payload.status !== 'awaiting_approval'
+    || typeof payload.objective !== 'string'
+    || payload.objective.trim().length === 0
+    || Array.from(payload.objective).length > 8_000
+    || typeof payload.workspaceDigest !== 'string'
+    || !/^[a-f0-9]{64}$/u.test(payload.workspaceDigest)
+    || !Array.isArray(payload.steps)
+    || payload.steps.length < 1
+    || payload.steps.length > 128) {
+    throw new ProtocolViolation('plan.proposed 投影无效');
+  }
+  payload.steps.forEach((item, index) => {
+    if (!isRecord(item)
+      || !hasExactFields(item, new Set(['ordinal', 'title', 'detail']))
+      || item.ordinal !== index + 1
+      || typeof item.title !== 'string'
+      || item.title.trim().length === 0
+      || Array.from(item.title).length > 200
+      || typeof item.detail !== 'string'
+      || item.detail.trim().length === 0
+      || Array.from(item.detail).length > 8_000) {
+      throw new ProtocolViolation('plan.proposed step 无效');
+    }
+  });
 }
 
 function validateTaskEvent(
@@ -516,6 +552,7 @@ function validateProviderControlResult(
 }
 const SESSION_COMMAND_INTENTS = new Set([
   'help', 'clear', 'compact', 'context', 'doctor', 'model', 'permissions', 'resume',
+  'plan-status', 'plan', 'plan-approve', 'plan-step-begin', 'plan-reject', 'plan-step-complete', 'plan-execute',
 ]);
 const SESSION_COMMAND_CODES = new Set([
   'ok', 'active_run', 'invalid_argument', 'unavailable', 'not_available', 'deferred',
@@ -612,6 +649,27 @@ function validateSessionCommandPayload(
         || !isBoundedProjectionEnum(rule.sourceKind) || !isSafeRelativeTarget(rule.safeSourceId)
         || !isBoundedProjectionEnum(rule.operation) || !isBoundedProjectionEnum(rule.validationStatus)) {
         throw new ProtocolViolation('session.command.result permissions 规则投影无效');
+      }
+    }
+    return;
+  }
+  if (intent.startsWith('plan')) {
+    if (!hasExactFields(result, new Set(['planId', 'status', 'approvalGate', 'objective', 'workspaceDigest', 'steps', 'nextStep', 'activeStep']))) {
+      throw new ProtocolViolation('session.command.result plan 投影无效');
+    }
+    if (!isBoundedIdentifier(result.planId) || !isBoundedProjectionEnum(result.status)
+      || !isBoundedProjectionEnum(result.approvalGate) || typeof result.objective !== 'string'
+      || !isSafeRelativeTarget(result.workspaceDigest) || !Array.isArray(result.steps)
+      || result.steps.length < 1 || result.steps.length > 128
+      || (result.nextStep !== null && !Number.isSafeInteger(result.nextStep))
+      || (result.activeStep !== null && !Number.isSafeInteger(result.activeStep))) {
+      throw new ProtocolViolation('session.command.result plan 投影无效');
+    }
+    for (const step of result.steps) {
+      if (!isRecord(step) || !hasExactFields(step, new Set(['ordinal', 'title', 'detail', 'expectedDigest']))
+        || !Number.isSafeInteger(step.ordinal) || typeof step.title !== 'string'
+        || typeof step.detail !== 'string' || !isSafeRelativeTarget(step.expectedDigest)) {
+        throw new ProtocolViolation('session.command.result plan step 投影无效');
       }
     }
     return;

@@ -22,6 +22,9 @@ public enum ToolErrorCode {
     /** 用户 Hook 在 Permission 前明确阻断了调用。 */
     HOOK_BLOCKED,
 
+    /** 当前 Plan 尚未通过审批或没有活动步骤。 */
+    PLAN_GATE_BLOCKED,
+
     /** Tool 实现返回了违反协议的结果。 */
     RESULT_PROTOCOL_VIOLATION,
 

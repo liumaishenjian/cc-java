@@ -15,7 +15,10 @@ import java.util.Objects;
  */
 public sealed interface SessionCommandIntent permits SessionCommandIntent.Help, SessionCommandIntent.Clear,
         SessionCommandIntent.Compact, SessionCommandIntent.Context, SessionCommandIntent.Doctor,
-        SessionCommandIntent.ModelChange, SessionCommandIntent.Permissions, SessionCommandIntent.Resume {
+        SessionCommandIntent.ModelChange, SessionCommandIntent.Permissions, SessionCommandIntent.Resume,
+        SessionCommandIntent.PlanStatus, SessionCommandIntent.Plan, SessionCommandIntent.PlanApprove,
+        SessionCommandIntent.PlanReject, SessionCommandIntent.PlanStepBegin, SessionCommandIntent.PlanStepComplete,
+        SessionCommandIntent.PlanExecute {
     /**
      * 返回封闭命令类别。
      *
@@ -102,6 +105,62 @@ public sealed interface SessionCommandIntent permits SessionCommandIntent.Help, 
      *
      * @param sessionId 仅供后续 S06 recovery-gated adapter 消费的会话标识
      */
+    /** 查询当前项目计划安全投影。 */
+    record PlanStatus() implements SessionCommandIntent {
+        @Override public SessionCommandKind kind() { return SessionCommandKind.PLAN_STATUS; }
+    }
+
+    /** 创建待审批项目计划；步骤只携带受限的意图描述。 */
+    record Plan(String objective, List<PlanStepInput> steps, String workspaceDigest) implements SessionCommandIntent {
+        public Plan {
+            if (invalidText(objective) || steps == null || steps.isEmpty() || steps.size() > 128
+                    || invalidText(workspaceDigest)) throw new IllegalArgumentException("plan 参数非法");
+            steps = List.copyOf(steps);
+        }
+        @Override public SessionCommandKind kind() { return SessionCommandKind.PLAN; }
+    }
+
+    /** 批准当前项目计划并重新校验工作区摘要。 */
+    record PlanApprove(String workspaceDigest) implements SessionCommandIntent {
+        public PlanApprove { if (invalidText(workspaceDigest)) throw new IllegalArgumentException("workspaceDigest 非法"); }
+        @Override public SessionCommandKind kind() { return SessionCommandKind.PLAN_APPROVE; }
+    }
+
+    /** 拒绝当前项目计划。 */
+    record PlanReject() implements SessionCommandIntent {
+        @Override public SessionCommandKind kind() { return SessionCommandKind.PLAN_REJECT; }
+    }
+
+    /** 开始下一个已批准计划步骤，并重新校验有界工作区摘要。 */
+    record PlanStepBegin(String workspaceDigest) implements SessionCommandIntent {
+        public PlanStepBegin { if (invalidText(workspaceDigest)) throw new IllegalArgumentException("workspaceDigest 非法"); }
+        @Override public SessionCommandKind kind() { return SessionCommandKind.PLAN_STEP_BEGIN; }
+    }
+
+    /** 完成当前唯一活动计划步骤，并携带完成后重新观察到的工作区摘要。 */
+    record PlanStepComplete(String workspaceDigest) implements SessionCommandIntent {
+        public PlanStepComplete {
+            if (invalidText(workspaceDigest)) throw new IllegalArgumentException("workspaceDigest 非法");
+        }
+        @Override public SessionCommandKind kind() { return SessionCommandKind.PLAN_STEP_COMPLETE; }
+    }
+
+    /** 执行当前已批准计划；maxSteps 是防止无限执行的显式上限。 */
+    record PlanExecute(int maxSteps) implements SessionCommandIntent {
+        public PlanExecute {
+            if (maxSteps < 1 || maxSteps > 128) throw new IllegalArgumentException("maxSteps 非法");
+        }
+        @Override public SessionCommandKind kind() { return SessionCommandKind.PLAN_EXECUTE; }
+    }
+
+    /** 计划步骤的安全输入投影。 */
+    record PlanStepInput(int ordinal, String title, String detail, String expectedDigest) {
+        public PlanStepInput {
+            if (ordinal < 1 || invalidText(title) || invalidText(detail) || invalidText(expectedDigest))
+                throw new IllegalArgumentException("plan step 参数非法");
+        }
+    }
+
     record Resume(SessionId sessionId) implements SessionCommandIntent {
         /**
          * 验证恢复目标标识。

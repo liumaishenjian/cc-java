@@ -16,6 +16,28 @@ describe('decodeEvent', () => {
     expect(event.payload.text).toBe('你好');
   });
 
+  it('接受严格有界的 Plan proposal 并拒绝额外执行字段', () => {
+    const base = {
+      version: 0,
+      type: 'plan.proposed',
+      requestId: 'req-plan',
+      sessionId: 'session-1',
+      runId: 'run-1',
+      sequence: 1,
+      payload: {
+        planId: 'plan-run-1',
+        status: 'awaiting_approval',
+        objective: 'safe change',
+        workspaceDigest: 'a'.repeat(64),
+        steps: [{ordinal: 1, title: 'inspect', detail: 'read files'}],
+      },
+    };
+    expect(decodeEvent(JSON.stringify(base), 1).payload.objective).toBe('safe change');
+    expect(() => decodeEvent(JSON.stringify({...base, payload: {
+      ...base.payload, steps: [{...base.payload.steps[0], command: 'rm'}],
+    }}), 1)).toThrowError(/plan\.proposed/);
+  });
+
   it('接受 privacy-safe Skill lifecycle 并拒绝参数或正文泄漏', () => {
     const invoked = {
       version: 0, type: 'skill.invoked', requestId: 'req-skill', sessionId: 'session-1', sequence: 1,
@@ -242,6 +264,10 @@ describe('decodeEvent', () => {
           {intent: 'compact', support: 'not_available'}, {intent: 'context', support: 'available'},
           {intent: 'doctor', support: 'available'}, {intent: 'model', support: 'not_available'},
           {intent: 'permissions', support: 'deferred'}, {intent: 'resume', support: 'deferred'},
+          {intent: 'plan-status', support: 'available'}, {intent: 'plan', support: 'available'},
+          {intent: 'plan-approve', support: 'available'}, {intent: 'plan-step-begin', support: 'available'},
+          {intent: 'plan-reject', support: 'available'}, {intent: 'plan-step-complete', support: 'available'},
+          {intent: 'plan-execute', support: 'available'},
         ],
       }},
     };

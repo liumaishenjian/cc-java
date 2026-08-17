@@ -21,5 +21,19 @@ public enum SessionCommandKind {
     /** 查询或变更 Permission。 */
     PERMISSIONS,
     /** 请求恢复指定会话。 */
-    RESUME
+    RESUME,
+    /** 查询当前项目计划。 */
+    PLAN_STATUS,
+    /** 创建或替换待审批项目计划。 */
+    PLAN,
+    /** 批准当前项目计划。 */
+    PLAN_APPROVE,
+    /** 拒绝当前项目计划。 */
+    PLAN_REJECT,
+    /** 开始下一个已批准计划步骤。 */
+    PLAN_STEP_BEGIN,
+    /** 完成当前唯一活动计划步骤。 */
+    PLAN_STEP_COMPLETE,
+    /** 执行当前已批准计划的剩余步骤。 */
+    PLAN_EXECUTE
 }

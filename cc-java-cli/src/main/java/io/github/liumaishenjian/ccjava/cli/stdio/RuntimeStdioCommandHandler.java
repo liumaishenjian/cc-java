@@ -1238,6 +1238,23 @@ public final class RuntimeStdioCommandHandler
                 payload.put("previousSessionId", resume.previousSessionId());
                 payload.put("resumedSessionId", resume.resumedSessionId());
             }
+            case SessionCommandEvent.PlanPayload plan -> {
+                payload.put("planId", plan.planId());
+                payload.put("status", plan.status());
+                payload.put("approvalGate", plan.approvalGate());
+                if (plan.nextStep() != null) payload.put("nextStep", plan.nextStep()); else payload.putNull("nextStep");
+                if (plan.activeStep() != null) payload.put("activeStep", plan.activeStep()); else payload.putNull("activeStep");
+                payload.put("objective", plan.objective());
+                payload.put("workspaceDigest", plan.workspaceDigest());
+                ArrayNode steps = codec.arrayNode();
+                plan.steps().forEach(step -> {
+                    ObjectNode item = codec.objectNode();
+                    item.put("ordinal", step.ordinal()); item.put("title", step.title());
+                    item.put("detail", step.detail()); item.put("expectedDigest", step.expectedDigest());
+                    steps.add(item);
+                });
+                payload.set("steps", steps);
+            }
             case SessionCommandEvent.DoctorPayload doctor -> {
                 payload.put("settingsAvailable", doctor.settingsAvailable());
                 payload.put("settingsRevision", doctor.settingsRevision());
@@ -1288,6 +1305,20 @@ public final class RuntimeStdioCommandHandler
                                     io.github.liumaishenjian.ccjava.domain.PermissionMode.valueOf(
                                             arguments.get("mode").stringValue())));
             case "resume" -> new SessionCommandIntent.Resume(new SessionId(arguments.get("sessionId").stringValue()));
+            case "plan-status" -> new SessionCommandIntent.PlanStatus();
+            case "plan-approve" -> new SessionCommandIntent.PlanApprove(arguments.get("workspaceDigest").stringValue());
+            case "plan-step-begin" -> new SessionCommandIntent.PlanStepBegin(arguments.get("workspaceDigest").stringValue());
+            case "plan-reject" -> new SessionCommandIntent.PlanReject();
+            case "plan-step-complete" -> new SessionCommandIntent.PlanStepComplete(
+                    arguments.get("workspaceDigest").stringValue());
+            case "plan-execute" -> new SessionCommandIntent.PlanExecute(arguments.get("maxSteps").intValue());
+            case "plan" -> new SessionCommandIntent.Plan(
+                    arguments.get("objective").stringValue(),
+                    java.util.stream.StreamSupport.stream(arguments.get("steps").spliterator(), false)
+                            .map(step -> new SessionCommandIntent.PlanStepInput(
+                                    step.get("ordinal").intValue(), step.get("title").stringValue(),
+                                    step.get("detail").stringValue(), step.get("expectedDigest").stringValue())).toList(),
+                    arguments.get("workspaceDigest").stringValue());
             default -> throw protocolError("INVALID_ARGUMENT", command, "未知 session.command intent");
         };
     }
@@ -1311,6 +1342,13 @@ public final class RuntimeStdioCommandHandler
             case MODEL_CHANGE -> "model";
             case PERMISSIONS -> "permissions";
             case RESUME -> "resume";
+            case PLAN_STATUS -> "plan-status";
+            case PLAN -> "plan";
+            case PLAN_APPROVE -> "plan-approve";
+            case PLAN_STEP_BEGIN -> "plan-step-begin";
+            case PLAN_REJECT -> "plan-reject";
+            case PLAN_STEP_COMPLETE -> "plan-step-complete";
+            case PLAN_EXECUTE -> "plan-execute";
         };
     }
 
@@ -1495,11 +1533,25 @@ public final class RuntimeStdioCommandHandler
                         "approval.resolve decision 无效");
             };
         }
-        if (!approvals.resolve(approvalId, decision)) {
-            throw protocolError(
-                    "STALE_APPROVAL",
-                    command,
-                    "审批不存在、已结束或与当前请求不匹配");
+        try {
+            if (!approvals.resolve(approvalId, decision)) {
+                throw protocolError(
+                        "STALE_APPROVAL",
+                        command,
+                        "审批不存在、已结束或与当前请求不匹配");
+            }
+        } catch (StdioProtocolException failure) {
+            throw failure;
+        } catch (RuntimeException failure) {
+            // 审批完成会唤醒后台 Tool 线程；这里不能让该线程的运行时异常
+            // 穿透 stdio 命令循环并把整个 Java 子进程映射为 exit=1。
+            // 将当前请求收敛为一次拒绝，后台 Run 会通过正常的 tool.failed/run.failed
+            // 生命周期结束，连接仍可承载后续 Run。
+            try {
+                approvals.resolve(approvalId, ApprovalResponse.deny());
+            } catch (RuntimeException ignored) {
+                // 该请求可能已经在异常前完成；无论如何不能再次击穿协议循环。
+            }
         }
         return StdioProtocol.Disposition.CONTINUE;
     }
@@ -1543,7 +1595,11 @@ public final class RuntimeStdioCommandHandler
 
     private void executeRun(ActiveRun run, io.github.liumaishenjian.ccjava.domain.UserMessage message) {
         try {
-            application.run(message);
+            if (application.runtimeConfiguration().permissionMode() == PermissionMode.PLAN) {
+                application.runPlan(message.content());
+            } else {
+                application.run(message);
+            }
         } catch (RuntimeException exception) {
             emitUnexpectedFailure(run);
         }
@@ -1637,6 +1693,22 @@ public final class RuntimeStdioCommandHandler
             payload.put("text", delta.text());
             payload.put("turn", delta.turnNumber());
             emit(run, "model.text.delta", payload);
+        } else if (envelope.event() instanceof io.github.liumaishenjian.ccjava.domain.PlanProposalEvent proposal) {
+            ObjectNode payload = codec.objectNode();
+            payload.put("planId", proposal.planId());
+            payload.put("status", proposal.status().name().toLowerCase(Locale.ROOT));
+            payload.put("objective", proposal.objective());
+            payload.put("workspaceDigest", proposal.workspaceDigest());
+            ArrayNode steps = codec.arrayNode();
+            proposal.steps().forEach(step -> {
+                ObjectNode value = codec.objectNode();
+                value.put("ordinal", step.ordinal());
+                value.put("title", step.title());
+                value.put("detail", step.detail());
+                steps.add(value);
+            });
+            payload.set("steps", steps);
+            emit(run, "plan.proposed", payload);
         } else if (envelope.event() instanceof LifecycleEvent.RunFinished finished) {
             emitTerminal(run, finished.result());
         }

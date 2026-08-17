@@ -49,6 +49,169 @@ class AutoReviewCoordinatorTest {
     }
 
     @Test
+    void autoFastPathAllowsRepeatedSafeLocalAndWebCallsWithoutClassifier() {
+        AtomicInteger gatewayCalls = new AtomicInteger();
+        AutoReviewCoordinator coordinator = new AutoReviewCoordinator((request, token) -> {
+            gatewayCalls.incrementAndGet();
+            return ApprovalReviewResult.deny();
+        }, true);
+        try (AutoReviewCircuit circuit = new AutoReviewCircuit(RUN)) {
+            PermissionOutcome read = PermissionOutcome.of(
+                    PermissionDecision.ASK, PermissionReason.EFFECT_DEFAULT,
+                    new PermissionSelector("read_file", ToolSource.BUILT_IN, "src/Main.java"));
+            ApprovalReviewRequest readRequest = new ApprovalReviewRequest(
+                    SESSION, RUN, "read-1", "read_file", ToolEffect.READ_WORKSPACE,
+                    ToolSource.BUILT_IN, true, "读取受控 Workspace 文件");
+            assertThat(coordinator.reviewAuto(read, readRequest, CancellationToken.none(), circuit).status())
+                    .isEqualTo(AutoReviewDecision.Status.ALLOW_ONCE);
+            PermissionOutcome web = PermissionOutcome.of(
+                    PermissionDecision.ASK, PermissionReason.EFFECT_DEFAULT,
+                    PermissionSelector.toolWide("web_search", ToolSource.BUILT_IN));
+            ApprovalReviewRequest webRequest = new ApprovalReviewRequest(
+                    SESSION, RUN, "web-1", "web_search", ToolEffect.NETWORK_OR_REMOTE,
+                    ToolSource.BUILT_IN, false, "访问已配置的受信 Web Search");
+            assertThat(coordinator.reviewAuto(web, webRequest, CancellationToken.none(), circuit).status())
+                    .isEqualTo(AutoReviewDecision.Status.ALLOW_ONCE);
+            assertThat(coordinator.reviewAuto(web, webRequest, CancellationToken.none(), circuit).status())
+                    .isEqualTo(AutoReviewDecision.Status.ALLOW_ONCE);
+            assertThat(gatewayCalls).hasValue(0);
+        }
+    }
+
+    @Test
+    void unconfiguredWebSearchNeverUsesFastPath() {
+        AtomicInteger gatewayCalls = new AtomicInteger();
+        AutoReviewCoordinator coordinator = new AutoReviewCoordinator((request, token) -> {
+            gatewayCalls.incrementAndGet();
+            return ApprovalReviewResult.deny();
+        });
+        PermissionOutcome web = PermissionOutcome.of(
+                PermissionDecision.ASK, PermissionReason.EFFECT_DEFAULT,
+                PermissionSelector.toolWide("web_search", ToolSource.BUILT_IN));
+        ApprovalReviewRequest request = new ApprovalReviewRequest(
+                SESSION, RUN, "web-1", "web_search", ToolEffect.NETWORK_OR_REMOTE,
+                ToolSource.BUILT_IN, false, "未配置的 Web Search");
+        try (AutoReviewCircuit circuit = new AutoReviewCircuit(RUN)) {
+            assertThat(coordinator.reviewAuto(web, request, CancellationToken.none(), circuit).status())
+                    .isEqualTo(AutoReviewDecision.Status.DENY);
+            assertThat(gatewayCalls).hasValue(1);
+        }
+    }
+
+    @Test
+    void untrustedOrUnknownNetworkToolNeverUsesFastPath() {
+        AtomicInteger gatewayCalls = new AtomicInteger();
+        AutoReviewCoordinator coordinator = new AutoReviewCoordinator((request, token) -> {
+            gatewayCalls.incrementAndGet();
+            return ApprovalReviewResult.deny();
+        }, true);
+        try (AutoReviewCircuit circuit = new AutoReviewCircuit(RUN)) {
+            for (ToolSource source : new ToolSource[]{ToolSource.MCP, ToolSource.PLUGIN}) {
+                PermissionOutcome outcome = PermissionOutcome.of(
+                        PermissionDecision.ASK, PermissionReason.EFFECT_DEFAULT,
+                        PermissionSelector.toolWide("web_search", source));
+                ApprovalReviewRequest request = new ApprovalReviewRequest(
+                        SESSION, RUN, "web-" + source, "web_search", ToolEffect.NETWORK_OR_REMOTE,
+                        source, false, "外部来源 Web Search");
+                assertThat(coordinator.reviewAuto(outcome, request, CancellationToken.none(), circuit).status())
+                        .isEqualTo(AutoReviewDecision.Status.DENY);
+            }
+            PermissionOutcome unknown = PermissionOutcome.of(
+                    PermissionDecision.ASK, PermissionReason.EFFECT_DEFAULT,
+                    PermissionSelector.toolWide("unknown_network", ToolSource.BUILT_IN));
+            ApprovalReviewRequest unknownRequest = new ApprovalReviewRequest(
+                    SESSION, RUN, "unknown-1", "unknown_network", ToolEffect.NETWORK_OR_REMOTE,
+                    ToolSource.BUILT_IN, false, "未知网络 Tool");
+            assertThat(coordinator.reviewAuto(unknown, unknownRequest, CancellationToken.none(), circuit).status())
+                    .isEqualTo(AutoReviewDecision.Status.DENY);
+        }
+        assertThat(gatewayCalls).hasValue(3);
+    }
+
+    @Test
+    void scopedConfiguredWebSearchStillUsesClassifier() {
+        AtomicInteger gatewayCalls = new AtomicInteger();
+        AutoReviewCoordinator coordinator = new AutoReviewCoordinator((request, token) -> {
+            gatewayCalls.incrementAndGet();
+            return ApprovalReviewResult.deny();
+        }, true);
+        PermissionOutcome web = PermissionOutcome.of(
+                PermissionDecision.ASK, PermissionReason.EFFECT_DEFAULT,
+                new PermissionSelector("web_search", ToolSource.BUILT_IN, "query-scope"));
+        ApprovalReviewRequest request = new ApprovalReviewRequest(
+                SESSION, RUN, "web-scoped", "web_search", ToolEffect.NETWORK_OR_REMOTE,
+                ToolSource.BUILT_IN, true, "带具体 scope 的 Web Search");
+        try (AutoReviewCircuit circuit = new AutoReviewCircuit(RUN)) {
+            assertThat(coordinator.reviewAuto(web, request, CancellationToken.none(), circuit).status())
+                    .isEqualTo(AutoReviewDecision.Status.DENY);
+        }
+        assertThat(gatewayCalls).hasValue(1);
+    }
+
+    @Test
+    void nonAllowlistedReadReachesClassifier() {
+        AtomicInteger gatewayCalls = new AtomicInteger();
+        AutoReviewCoordinator coordinator = new AutoReviewCoordinator((request, token) -> {
+            gatewayCalls.incrementAndGet();
+            return ApprovalReviewResult.deny();
+        });
+        PermissionOutcome read = PermissionOutcome.of(
+                PermissionDecision.ASK, PermissionReason.EFFECT_DEFAULT,
+                new PermissionSelector("custom_read", ToolSource.BUILT_IN, "scope"));
+        ApprovalReviewRequest request = new ApprovalReviewRequest(
+                SESSION, RUN, "call-1", "custom_read", ToolEffect.READ_WORKSPACE,
+                ToolSource.BUILT_IN, true, "读取受控内容");
+        try (AutoReviewCircuit circuit = new AutoReviewCircuit(RUN)) {
+            assertThat(coordinator.reviewAuto(read, request, CancellationToken.none(), circuit).status())
+                    .isEqualTo(AutoReviewDecision.Status.DENY);
+            assertThat(gatewayCalls).hasValue(1);
+        }
+    }
+
+    @Test
+    void fastPathChecksCancellationAndCircuitBeforeAllowing() {
+        AtomicInteger gatewayCalls = new AtomicInteger();
+        AutoReviewCoordinator coordinator = new AutoReviewCoordinator((request, token) -> {
+            gatewayCalls.incrementAndGet();
+            return ApprovalReviewResult.deny();
+        });
+        PermissionOutcome read = outcome(PermissionDecision.ASK);
+        ApprovalReviewRequest request = new ApprovalReviewRequest(
+                SESSION, RUN, "call-1", "read_file", ToolEffect.READ_WORKSPACE,
+                ToolSource.BUILT_IN, true, "读取受控文件");
+        CancellationSource cancelled = new CancellationSource();
+        cancelled.cancel();
+        try (AutoReviewCircuit circuit = new AutoReviewCircuit(RUN)) {
+            assertThatThrownBy(() -> coordinator.reviewAuto(read, request, cancelled.token(), circuit))
+                    .isInstanceOf(java.util.concurrent.CancellationException.class);
+            assertThat(gatewayCalls).hasValue(0);
+        }
+        AutoReviewCircuit closed = new AutoReviewCircuit(RUN);
+        closed.close();
+        assertThat(coordinator.reviewAuto(read, request, CancellationToken.none(), closed).status())
+                .isEqualTo(AutoReviewDecision.Status.RUN_CLOSED);
+        assertThat(gatewayCalls).hasValue(0);
+    }
+
+    @Test
+    void fastPathAllowResetsCircuitState() {
+        AutoReviewCoordinator coordinator = new AutoReviewCoordinator((request, token) -> ApprovalReviewResult.deny());
+        try (AutoReviewCircuit circuit = new AutoReviewCircuit(RUN)) {
+            assertThat(coordinator.reviewFinalAsk(outcome(PermissionDecision.ASK), request(),
+                    CancellationToken.none(), circuit).status())
+                    .isEqualTo(AutoReviewDecision.Status.DENY);
+            assertThat(circuit.consecutiveFailures()).isOne();
+            ApprovalReviewRequest safe = new ApprovalReviewRequest(
+                    SESSION, RUN, "safe-1", "read_file", ToolEffect.READ_WORKSPACE,
+                    ToolSource.BUILT_IN, true, "读取文件");
+            assertThat(coordinator.reviewAuto(outcome(PermissionDecision.ASK), safe,
+                    CancellationToken.none(), circuit).status())
+                    .isEqualTo(AutoReviewDecision.Status.ALLOW_ONCE);
+            assertThat(circuit.consecutiveFailures()).isZero();
+        }
+    }
+
+    @Test
     void providerTimeoutParseInternalNullAndExceptionFailClosed() {
         for (ApprovalReviewResult.FailureKind kind : new ApprovalReviewResult.FailureKind[]{
                 ApprovalReviewResult.FailureKind.PROVIDER,

@@ -4,6 +4,8 @@ import io.github.liumaishenjian.ccjava.domain.AgentMessage;
 import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
 import io.github.liumaishenjian.ccjava.domain.SessionSpec;
+import io.github.liumaishenjian.ccjava.domain.PlanDocument;
+import io.github.liumaishenjian.ccjava.domain.PlanExecutionState;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -31,7 +33,8 @@ public record SessionRecoverySnapshot(
         List<RunId> runIds,
         Optional<SessionId> parentSessionId,
         List<SessionRecoveryIssue> issues,
-        List<SkillRecoveryRecord> skillRecords) {
+        List<SkillRecoveryRecord> skillRecords,
+        Optional<PlanRecoveryProjection> plan) {
 
     /**
      * 防御性复制恢复数据。
@@ -44,6 +47,14 @@ public record SessionRecoverySnapshot(
         parentSessionId = Objects.requireNonNull(parentSessionId, "parentSessionId 不能为空");
         issues = List.copyOf(Objects.requireNonNull(issues, "issues 不能为空"));
         skillRecords = List.copyOf(Objects.requireNonNull(skillRecords, "skillRecords 不能为空"));
+        plan = Objects.requireNonNull(plan, "plan 不能为空");
+    }
+
+    /** 兼容现有恢复调用，默认没有持久 Plan。 */
+    public SessionRecoverySnapshot(SessionId sessionId, SessionSpec spec, List<AgentMessage> messages,
+            List<RunId> runIds, Optional<SessionId> parentSessionId, List<SessionRecoveryIssue> issues,
+            List<SkillRecoveryRecord> skillRecords) {
+        this(sessionId, spec, messages, runIds, parentSessionId, issues, skillRecords, Optional.empty());
     }
 
     /**
@@ -58,6 +69,6 @@ public record SessionRecoverySnapshot(
      */
     public SessionRecoverySnapshot(SessionId sessionId, SessionSpec spec, List<AgentMessage> messages,
             List<RunId> runIds, Optional<SessionId> parentSessionId, List<SessionRecoveryIssue> issues) {
-        this(sessionId, spec, messages, runIds, parentSessionId, issues, List.of());
+        this(sessionId, spec, messages, runIds, parentSessionId, issues, List.of(), Optional.empty());
     }
 }

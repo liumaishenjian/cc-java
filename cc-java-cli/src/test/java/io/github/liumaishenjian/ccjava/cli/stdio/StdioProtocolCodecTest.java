@@ -182,6 +182,26 @@ class StdioProtocolCodecTest {
     }
 
     @Test
+    void decodesBoundedPlanStepBeginAndRejectsMissingOrOversizedDigest() throws Exception {
+        var command = codec.decodeCommand("""
+                {"version":0,"type":"session.command","requestId":"plan-begin","sessionId":"session-1",
+                 "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"plan-step-begin",
+                 "arguments":{"workspaceDigest":"digest-a"}}}
+                """);
+        assertThat(command.payload().get("intent").stringValue()).isEqualTo("plan-step-begin");
+        assertProtocolError("""
+                {"version":0,"type":"session.command","requestId":"plan-begin","sessionId":"session-1",
+                 "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"plan-step-begin",
+                 "arguments":{}}}
+                """, "INVALID_PAYLOAD");
+        assertProtocolError("""
+                {"version":0,"type":"session.command","requestId":"plan-begin","sessionId":"session-1",
+                 "sequence":2,"payload":{"protocolVersion":0,"commandId":"command-1","intent":"plan-step-begin",
+                 "arguments":{"workspaceDigest":"%s"}}}
+                """.formatted("x".repeat(257)), "INVALID_ARGUMENT");
+    }
+
+    @Test
     void providerControlModelOverlaySchemaIsStrictAndSecretFree() throws Exception {
         assertThat(codec.decodeCommand("""
                 {"version":0,"type":"provider.control","requestId":"p-1","sessionId":"session-1",

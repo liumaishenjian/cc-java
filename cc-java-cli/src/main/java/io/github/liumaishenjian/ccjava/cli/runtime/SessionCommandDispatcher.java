@@ -2,6 +2,11 @@ package io.github.liumaishenjian.ccjava.cli.runtime;
 
 import io.github.liumaishenjian.ccjava.core.CancellationToken;
 import io.github.liumaishenjian.ccjava.domain.ContextUsageView;
+import io.github.liumaishenjian.ccjava.domain.PlanDocument;
+import io.github.liumaishenjian.ccjava.domain.PlanExecutionState;
+import io.github.liumaishenjian.ccjava.domain.PlanStatus;
+import io.github.liumaishenjian.ccjava.domain.PlanStep;
+import io.github.liumaishenjian.ccjava.core.PlanModeCoordinator;
 import io.github.liumaishenjian.ccjava.domain.settings.EffectivePermissionRule;
 import io.github.liumaishenjian.ccjava.domain.settings.SessionSettingsPatch;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
@@ -131,11 +136,86 @@ public final class SessionCommandDispatcher {
                 case SessionCommandIntent.Permissions permissions -> permissions(commandId, sessionId, permissions.operation(),
                         cancellationToken);
                 case SessionCommandIntent.Resume resume -> resume(commandId, sessionId, resume.sessionId(), cancellationToken);
+                case SessionCommandIntent.PlanStatus ignored -> planStatus(commandId, sessionId);
+                case SessionCommandIntent.Plan create -> createPlan(commandId, sessionId, create);
+                case SessionCommandIntent.PlanApprove approve -> planApprove(commandId, sessionId, approve.workspaceDigest());
+                case SessionCommandIntent.PlanReject ignored -> planReject(commandId, sessionId);
+                case SessionCommandIntent.PlanStepBegin begin -> planBegin(commandId, sessionId, begin.workspaceDigest());
+                case SessionCommandIntent.PlanStepComplete complete -> planComplete(commandId, sessionId, complete.workspaceDigest());
+                case SessionCommandIntent.PlanExecute execute -> planExecute(commandId, sessionId, execute.maxSteps(), cancellationToken);
             };
         } catch (RuntimeException ignored) {
             return terminal(intent.kind(), commandId, safeSessionId(), SessionCommandStatus.FAILED,
                     SessionCommandResultCode.INTERNAL_FAILURE, new SessionCommandEvent.EmptyPayload());
         }
+    }
+
+    private SessionCommandResult planStatus(CommandId id, SessionId sid) {
+        return runtime.planStatus()
+                .map(value -> success(SessionCommandKind.PLAN_STATUS, id, sid, planPayload(value.document(), value.state())))
+                .orElseGet(() -> rejected(SessionCommandKind.PLAN_STATUS, id, sid, SessionCommandResultCode.NOT_AVAILABLE));
+    }
+
+    private SessionCommandResult createPlan(CommandId id, SessionId sid, SessionCommandIntent.Plan input) {
+        try {
+            List<PlanStep> steps = input.steps().stream().map(s -> new PlanStep(s.ordinal(), s.title(), s.detail(), s.expectedDigest())).toList();
+                return runtime.createPlan("plan-" + id.value(), input.objective(), steps, input.workspaceDigest())
+                    .map(value -> success(SessionCommandKind.PLAN, id, sid, planPayload(value.document(), value.state())))
+                    .orElseGet(() -> rejected(SessionCommandKind.PLAN, id, sid, SessionCommandResultCode.ACTIVE_RUN));
+        } catch (IllegalArgumentException failure) {
+            return rejected(SessionCommandKind.PLAN, id, sid, SessionCommandResultCode.INVALID_ARGUMENT);
+        }
+    }
+
+    private SessionCommandResult planApprove(CommandId id, SessionId sid, String digest) {
+        return runtime.approvePlan(digest)
+                .map(value -> success(SessionCommandKind.PLAN_APPROVE, id, sid, planPayload(value.document(), value.state())))
+                .orElseGet(() -> rejected(SessionCommandKind.PLAN_APPROVE, id, sid, SessionCommandResultCode.NOT_AVAILABLE));
+    }
+
+    private SessionCommandResult planReject(CommandId id, SessionId sid) {
+        return runtime.rejectPlan()
+                .map(value -> success(SessionCommandKind.PLAN_REJECT, id, sid, planPayload(value.document(), value.state())))
+                .orElseGet(() -> rejected(SessionCommandKind.PLAN_REJECT, id, sid, SessionCommandResultCode.NOT_AVAILABLE));
+    }
+
+    private SessionCommandResult planBegin(CommandId id, SessionId sid, String digest) {
+        var outcome = runtime.beginPlanStep(digest);
+        if (outcome.isEmpty()) return rejected(SessionCommandKind.PLAN_STEP_BEGIN, id, sid, SessionCommandResultCode.NOT_AVAILABLE);
+        var value = outcome.orElseThrow();
+        if (value.step().isEmpty()) return rejected(SessionCommandKind.PLAN_STEP_BEGIN, id, sid,
+                value.state().status() == PlanStatus.DIGEST_CONFLICT ? SessionCommandResultCode.INVALID_ARGUMENT : SessionCommandResultCode.NOT_AVAILABLE);
+        return success(SessionCommandKind.PLAN_STEP_BEGIN, id, sid, planPayload(value.document(), value.state()));
+    }
+
+    private SessionCommandResult planComplete(CommandId id, SessionId sid, String digest) {
+        try {
+            String current = runtime.currentWorkspaceDigest();
+            String checked = digest.equals(current) ? current : "conflict-" + current;
+            return runtime.completePlanStep(checked)
+                    .map(next -> next.state().status() == PlanStatus.DIGEST_CONFLICT
+                            ? rejected(SessionCommandKind.PLAN_STEP_COMPLETE, id, sid, SessionCommandResultCode.INVALID_ARGUMENT)
+                            : success(SessionCommandKind.PLAN_STEP_COMPLETE, id, sid, planPayload(next.document(), next.state())))
+                    .orElseGet(() -> rejected(SessionCommandKind.PLAN_STEP_COMPLETE, id, sid, SessionCommandResultCode.NOT_AVAILABLE));
+        } catch (IllegalArgumentException invalid) {
+            return rejected(SessionCommandKind.PLAN_STEP_COMPLETE, id, sid, SessionCommandResultCode.INVALID_ARGUMENT);
+        }
+    }
+
+    private SessionCommandResult planExecute(CommandId id, SessionId sid, int maxSteps,
+                                              CancellationToken cancellationToken) {
+        return runtime.executePlan(cancellationToken, maxSteps)
+                .map(value -> success(SessionCommandKind.PLAN_EXECUTE, id, sid,
+                        planPayload(value.document(), value.state())))
+                .orElseGet(() -> rejected(SessionCommandKind.PLAN_EXECUTE, id, sid,
+                        SessionCommandResultCode.NOT_AVAILABLE));
+    }
+
+    private static SessionCommandEvent.PlanPayload planPayload(PlanDocument document, PlanExecutionState state) {
+        return new SessionCommandEvent.PlanPayload(document.id(), document.status().name(), state.approvalGate().name(),
+                state.nextStep(), state.activeStep(), document.objective(), document.steps().stream()
+                .map(step -> new SessionCommandEvent.PlanStepView(step.ordinal(), step.title(), step.detail(), step.expectedDigest())).toList(),
+                document.workspaceDigest());
     }
 
     private SessionCommandResult resume(CommandId commandId, SessionId sessionId, SessionId targetId,
@@ -321,6 +401,12 @@ public final class SessionCommandDispatcher {
 
     private static boolean requiresIdle(SessionCommandIntent intent) {
         return intent instanceof SessionCommandIntent.Compact
+                || intent instanceof SessionCommandIntent.Plan
+                || intent instanceof SessionCommandIntent.PlanApprove
+                || intent instanceof SessionCommandIntent.PlanReject
+                || intent instanceof SessionCommandIntent.PlanStepBegin
+                || intent instanceof SessionCommandIntent.PlanStepComplete
+                || intent instanceof SessionCommandIntent.PlanExecute
                 || intent instanceof SessionCommandIntent.ModelChange
                 || intent instanceof SessionCommandIntent.Permissions
                 || intent instanceof SessionCommandIntent.Resume;
@@ -342,7 +428,7 @@ public final class SessionCommandDispatcher {
             case MODEL_CHANGE -> runtime.settingsSnapshot().isPresent()
                     ? SessionCommandEvent.CommandSupport.AVAILABLE : SessionCommandEvent.CommandSupport.NOT_AVAILABLE;
             case PERMISSIONS -> SessionCommandEvent.CommandSupport.AVAILABLE;
-            case RESUME -> SessionCommandEvent.CommandSupport.AVAILABLE;
+            case RESUME, PLAN_STATUS, PLAN, PLAN_APPROVE, PLAN_REJECT, PLAN_STEP_BEGIN, PLAN_STEP_COMPLETE, PLAN_EXECUTE -> SessionCommandEvent.CommandSupport.AVAILABLE;
         };
     }
 

@@ -187,7 +187,7 @@ public final class QueuedStdioEventEmitter
             }
             return;
         }
-        if (type.equals("model.text.delta") || RUN_TERMINALS.contains(type)) {
+        if (type.equals("model.text.delta") || type.equals("plan.proposed") || RUN_TERMINALS.contains(type)) {
             String value = runId.orElseThrow(
                     () -> new IllegalArgumentException(type + " 必须携带 runId"));
             RunEventState state = runStates.get(value);

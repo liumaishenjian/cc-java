@@ -3,6 +3,12 @@ package io.github.liumaishenjian.ccjava.cli.session;
 import io.github.liumaishenjian.ccjava.core.SessionRecoveryIssue;
 import io.github.liumaishenjian.ccjava.core.SessionRecoveryIssueKind;
 import io.github.liumaishenjian.ccjava.core.SessionRecoverySnapshot;
+import io.github.liumaishenjian.ccjava.core.PlanRecoveryProjection;
+import io.github.liumaishenjian.ccjava.domain.PlanApprovalGate;
+import io.github.liumaishenjian.ccjava.domain.PlanDocument;
+import io.github.liumaishenjian.ccjava.domain.PlanExecutionState;
+import io.github.liumaishenjian.ccjava.domain.PlanStatus;
+import io.github.liumaishenjian.ccjava.domain.PlanStep;
 import io.github.liumaishenjian.ccjava.domain.AgentMessage;
 import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
@@ -234,6 +240,29 @@ final class JsonlSessionCodec {
         return root;
     }
 
+    ObjectNode encodePlanSnapshot(long sequence, PlanDocument document, PlanExecutionState state) {
+        if (!document.id().equals(state.planId())) throw invalid("INVALID_RECORD", "Plan ID 不匹配");
+        ObjectNode root = record(sequence, "plan.snapshot");
+        root.put("planId", checkedIdentifier(document.id(), "planId"));
+        root.put("objective", checkedText(document.objective(), "plan.objective"));
+        root.put("status", document.status().name());
+        root.put("workspaceDigest", checkedText(document.workspaceDigest(), "plan.workspaceDigest"));
+        root.put("approvalGate", state.approvalGate().name());
+        if (state.nextStep() == null) root.putNull("nextStep"); else root.put("nextStep", state.nextStep());
+        if (state.activeStep() == null) root.putNull("activeStep"); else root.put("activeStep", state.activeStep());
+        ArrayNode steps = mapper.createArrayNode();
+        document.steps().forEach(step -> {
+            ObjectNode item = mapper.createObjectNode();
+            item.put("ordinal", step.ordinal());
+            item.put("title", checkedText(step.title(), "plan.step.title"));
+            item.put("detail", checkedText(step.detail(), "plan.step.detail"));
+            item.put("expectedDigest", checkedText(step.expectedDigest(), "plan.step.expectedDigest"));
+            steps.add(item);
+        });
+        root.set("steps", steps);
+        return root;
+    }
+
     ObjectNode encodeCheckpointCreated(
             long sequence,
             RunId runId,
@@ -328,6 +357,7 @@ final class JsonlSessionCodec {
         Map<String, SkillInvocationState> skillInvocations = new LinkedHashMap<>();
         Map<String, ToolCallState> calls = new LinkedHashMap<>();
         Map<String, CheckpointRecordState> checkpoints = new LinkedHashMap<>();
+        Optional<PlanRecoveryProjection> plan = Optional.empty();
         Set<String> activeRuns = new HashSet<>();
         SessionId sessionId = null;
         SessionSpec spec = null;
@@ -498,6 +528,32 @@ final class JsonlSessionCodec {
                     }
                     state.completed = true;
                 }
+                case "plan.snapshot" -> {
+                    if (plan.isPresent()) throw invalid("INVALID_RECORD", "Plan snapshot 重复");
+                    String id = requiredText(record, "planId", MAX_IDENTIFIER_CHARS);
+                    String objective = requiredText(record, "objective", MAX_TEXT_CHARS);
+                    PlanStatus status = enumValue(PlanStatus.class, requiredText(record, "status", MAX_IDENTIFIER_CHARS), "status");
+                    String digest = requiredText(record, "workspaceDigest", MAX_TEXT_CHARS);
+                    PlanApprovalGate gate = enumValue(PlanApprovalGate.class, requiredText(record, "approvalGate", MAX_IDENTIFIER_CHARS), "approvalGate");
+                    Integer next = nullablePositive(record, "nextStep");
+                    Integer active = nullablePositive(record, "activeStep");
+                    ArrayNode nodes = requiredArray(record, "steps");
+                    if (nodes.isEmpty() || nodes.size() > 128) throw invalid("LIMIT_EXCEEDED", "Plan steps 数量无效");
+                    List<PlanStep> steps = new ArrayList<>();
+                    for (JsonNode node : nodes) {
+                        if (!node.isObject()) throw invalid("INVALID_RECORD", "Plan step 必须是 Object");
+                        ObjectNode item = (ObjectNode) node;
+                        steps.add(new PlanStep(requiredInt(item, "ordinal"), requiredText(item, "title", 200),
+                                requiredText(item, "detail", MAX_TEXT_CHARS), requiredText(item, "expectedDigest", MAX_TEXT_CHARS)));
+                    }
+                    try {
+                        PlanDocument document = new PlanDocument(id, objective, steps, status, digest);
+                        PlanExecutionState state = new PlanExecutionState(id, gate, next, active, status, digest);
+                        plan = Optional.of(new PlanRecoveryProjection(document, state));
+                    } catch (IllegalArgumentException invalid) {
+                        throw invalid("INVALID_RECORD", "Plan projection 无效");
+                    }
+                }
                 case "checkpoint.created" -> {
                     requireActiveRun(record, activeRuns);
                     int ordinal = requiredPositiveOrdinal(record);
@@ -576,7 +632,8 @@ final class JsonlSessionCodec {
                 runIds,
                 parent,
                 issues,
-                skillRecords);
+                skillRecords,
+                plan);
     }
 
     private List<UserFileAttachment> decodeAttachments(ObjectNode record) {
@@ -729,6 +786,15 @@ final class JsonlSessionCodec {
             checkedText(node.stringValue(), "JSON string");
         }
         return count;
+    }
+
+    private Integer nullablePositive(ObjectNode record, String field) {
+        JsonNode node = record.get(field);
+        if (node == null || node.isNull()) return null;
+        if (!node.isIntegralNumber() || !node.canConvertToInt() || node.intValue() < 1) {
+            throw invalid("INVALID_RECORD", field + " 必须为正整数或 null");
+        }
+        return node.intValue();
     }
 
     private int requiredPositiveOrdinal(ObjectNode record) {

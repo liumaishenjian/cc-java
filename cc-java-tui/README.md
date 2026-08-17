@@ -14,3 +14,14 @@ Java 产物，再拉起本 TUI 和 Java `--stdio` 子进程。`codej --print` �
 Run 结束时，TUI 直接展示 Java 终态中的安全摘要，例如
 `[failed: turn_limit_reached, modelTurns=16, toolCalls=12]`。单个 Tool 的成功状态不能
 替代整个 Run 的终态。
+
+普通 `npm run check` / `npm test` 只运行不依赖 Java 产物的确定性 TUI 测试。跨进程 Java
+Plan E2E 是显式 opt-in，运行前必须设置 `CC_JAVA_TEST_CLASSPATH`，且将
+`cc-java-cli/target/classes` 放在 classpath 首位；缺少变量时专用测试会明确失败，不会
+跳过或假通过：
+
+```powershell
+Set-Location cc-java-tui
+$env:CC_JAVA_TEST_CLASSPATH = "..\cc-java-cli\target\classes;..\cc-java-core\target\classes;..\cc-java-domain\target\classes;<依赖 jars>"
+npm.cmd run test:real-java
+```

@@ -12,9 +12,13 @@ import io.github.liumaishenjian.ccjava.domain.PermissionOutcome;
 import io.github.liumaishenjian.ccjava.domain.PermissionReason;
 import io.github.liumaishenjian.ccjava.domain.PermissionSelector;
 import io.github.liumaishenjian.ccjava.domain.PermissionMode;
+import io.github.liumaishenjian.ccjava.domain.PlanDocument;
+import io.github.liumaishenjian.ccjava.domain.PlanStatus;
+import io.github.liumaishenjian.ccjava.domain.PlanStep;
 import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.domain.SessionSpec;
 import io.github.liumaishenjian.ccjava.domain.ToolCall;
+import io.github.liumaishenjian.ccjava.domain.ToolError;
 import io.github.liumaishenjian.ccjava.domain.ToolDefinition;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
 import io.github.liumaishenjian.ccjava.domain.ToolResultMetadata;
@@ -174,6 +178,46 @@ class ToolExecutionPipelineTest {
         assertThat(executed).isFalse();
         assertThat(permissionChecked).isFalse();
         assertThat(journal.resolutionReasons).containsExactly(ToolResolutionReason.SKILL_SCOPE_DENIED);
+    }
+
+    @Test
+    void planGateDeniesWriteUntilApprovedStepAndThenUsesPipeline() {
+        AtomicBoolean sideEffect = new AtomicBoolean();
+        PlanModeCoordinator plan = new PlanModeCoordinator(new PlanDocument("plan-pipeline", "write",
+                List.of(new PlanStep(1, "write", "approved", "digest-a")), PlanStatus.DRAFT, "digest-a"));
+        PipelineFixture fixture = fixtureWithPlan(fakeWriteTool(sideEffect), plan);
+        ToolResult before = fixture.execute();
+        assertThat(before.status()).isEqualTo(ToolResultStatus.FAILURE);
+        assertThat(before.error()).get().extracting(ToolError::code)
+                .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolErrorCode.PLAN_GATE_BLOCKED);
+        assertThat(sideEffect).isFalse();
+        plan.approve("digest-a");
+        plan.beginNext("digest-a");
+        ToolResult after = fixture.execute();
+        assertThat(after.status()).isEqualTo(ToolResultStatus.SUCCESS);
+        assertThat(sideEffect).isTrue();
+    }
+
+    @Test
+    void planGateRejectsDigestConflictAndKeepsWriteBlocked() {
+        AtomicBoolean sideEffect = new AtomicBoolean();
+        PlanModeCoordinator plan = new PlanModeCoordinator(new PlanDocument("plan-conflict", "write",
+                List.of(new PlanStep(1, "write", "approved", "digest-a")), PlanStatus.DRAFT, "digest-a"));
+        PipelineFixture fixture = fixtureWithPlan(fakeWriteTool(sideEffect), plan);
+        plan.approve("changed");
+        ToolResult result = fixture.execute();
+        assertThat(result.error()).get().extracting(ToolError::code)
+                .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolErrorCode.PLAN_GATE_BLOCKED);
+        assertThat(sideEffect).isFalse();
+    }
+
+    @Test
+    void planGateAllowsOnlyOneActiveStep() {
+        PlanModeCoordinator plan = new PlanModeCoordinator(new PlanDocument("plan-one", "write",
+                List.of(new PlanStep(1, "write", "approved", "digest-a")), PlanStatus.DRAFT, "digest-a"));
+        plan.approve("digest-a");
+        assertThat(plan.beginNext("digest-a")).isPresent();
+        assertThat(plan.beginNext("digest-a")).isEmpty();
     }
 
     @Test
@@ -365,6 +409,21 @@ class ToolExecutionPipelineTest {
                                         definition.name(), definition.source())),
                 (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
                         io.github.liumaishenjian.ccjava.domain.ApprovalResponse.allowOnce());
+    }
+
+    private static PipelineFixture fixtureWithPlan(AgentTool tool, PlanModeCoordinator plan) {
+        RecordingAgentEventSink events = new RecordingAgentEventSink();
+        LifecycleDispatcher lifecycle = new LifecycleDispatcher(CLOCK, events);
+        InMemorySessionStore sessions = new InMemorySessionStore(new SequentialAgentIdGenerator(), lifecycle);
+        AgentSession session = sessions.create(SessionSpec.of("test"));
+        ToolExecutionPipeline pipeline = new ToolExecutionPipeline(
+                new ToolRegistry(List.of(tool)),
+                (ignoredInvocation, definition) -> PermissionOutcome.of(PermissionDecision.ALLOW,
+                        PermissionReason.EFFECT_DEFAULT, PermissionSelector.toolWide(definition.name(), definition.source())),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) -> ApprovalResponse.allowOnce(),
+                new InMemorySessionPermissionState(), lifecycle, SessionJournal.noop(), CheckpointCoordinator.noop(),
+                io.github.liumaishenjian.ccjava.core.hook.HookCoordinator.disabled(), SkillRunCoordinator.disabled(), plan);
+        return new PipelineFixture(pipeline, session, tool.definition().name());
     }
 
     private static PipelineFixture fixture(

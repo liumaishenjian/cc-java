@@ -41,10 +41,13 @@ import java.util.Objects;
 final class HeadlessRuntimeScope {
     private final AgentRuntime runtime;
     private final RuntimeConfiguration configuration;
+    private final ToolExecutionPipeline pipeline;
 
-    private HeadlessRuntimeScope(AgentRuntime runtime, RuntimeConfiguration configuration) {
+    private HeadlessRuntimeScope(AgentRuntime runtime, RuntimeConfiguration configuration,
+                                 ToolExecutionPipeline pipeline) {
         this.runtime = Objects.requireNonNull(runtime, "runtime 不能为空");
         this.configuration = Objects.requireNonNull(configuration, "configuration 不能为空");
+        this.pipeline = Objects.requireNonNull(pipeline, "pipeline 不能为空");
     }
 
     AgentRuntime runtime() {
@@ -53,6 +56,10 @@ final class HeadlessRuntimeScope {
 
     RuntimeConfiguration configuration() {
         return configuration;
+    }
+
+    ToolExecutionPipeline pipeline() {
+        return pipeline;
     }
 
     /**
@@ -80,6 +87,33 @@ final class HeadlessRuntimeScope {
             io.github.liumaishenjian.ccjava.core.skill.SkillRunCoordinator skills,
             io.github.liumaishenjian.ccjava.core.plugin.PluginRunCoordinator plugins,
             io.github.liumaishenjian.ccjava.core.plugin.PluginRunHooks pluginHooks) {
+        return create(configuration, configuredModel, gateway, contextPreparation, registeredTools, sessions,
+                checkpoints, lifecycle, ids, approvals, permissionState, workspaceGuard, memoryContext,
+                instructionContext, hooks, skills, plugins, pluginHooks,
+                io.github.liumaishenjian.ccjava.core.FinalAssistantHandler.acceptAll());
+    }
+
+    /** 创建可在最终 Assistant 线性化点验证结构化终态的 Scope。 */
+    static HeadlessRuntimeScope create(
+            RuntimeConfiguration configuration,
+            String configuredModel,
+            ModelGateway gateway,
+            ContextPreparationService contextPreparation,
+            List<AgentTool> registeredTools,
+            FileSessionStore sessions,
+            FileCheckpointCoordinator checkpoints,
+            LifecycleDispatcher lifecycle,
+            AgentIdGenerator ids,
+            ApprovalHandler approvals,
+            InMemorySessionPermissionState permissionState,
+            io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceGuard workspaceGuard,
+            MemoryContextService memoryContext,
+            InstructionContextService instructionContext,
+            HookCoordinator hooks,
+            io.github.liumaishenjian.ccjava.core.skill.SkillRunCoordinator skills,
+            io.github.liumaishenjian.ccjava.core.plugin.PluginRunCoordinator plugins,
+            io.github.liumaishenjian.ccjava.core.plugin.PluginRunHooks pluginHooks,
+            io.github.liumaishenjian.ccjava.core.FinalAssistantHandler finalAssistantHandler) {
         RuntimeConfiguration checkedConfiguration = Objects.requireNonNull(configuration, "configuration 不能为空");
         if (checkedConfiguration.modelName().isPresent()
                 && !checkedConfiguration.modelName().orElseThrow().equals(configuredModel)) {
@@ -111,12 +145,18 @@ final class HeadlessRuntimeScope {
                 new DefaultHardDenialPolicy(new WorkspaceWriteHardDenial(workspaceGuard)),
                 permissionState);
         ApprovalReviewGateway reviewGateway = new ModelGatewayApprovalReviewGateway(gateway);
+        boolean trustedConfiguredWebSearch = registeredTools.stream()
+                .anyMatch(tool -> tool.definition().source() == ToolSource.BUILT_IN
+                        && tool.definition().effect() == io.github.liumaishenjian.ccjava.domain.ToolEffect.NETWORK_OR_REMOTE
+                        && tool.definition().name().equals("web_search")
+                        && checkedConfiguration.enabledBuiltinTools().contains("web_search"));
         ToolExecutionPipeline pipeline = new ToolExecutionPipeline(
                 registry, policy, approvals, permissionState, lifecycle, sessions, checkpoints, hooks, skills,
-                checkedConfiguration.approvalReviewer(), new AutoReviewCoordinator(reviewGateway));
+                checkedConfiguration.approvalReviewer(),
+                new AutoReviewCoordinator(reviewGateway, trustedConfiguredWebSearch));
         return new HeadlessRuntimeScope(new AgentRuntime(
                 sessions, ids, gateway, new DefaultContextAssembler(), registry, pipeline, lifecycle, sessions,
-                contextPreparation, memoryContext, instructionContext, hooks, skills, plugins, pluginHooks),
-                checkedConfiguration);
+                contextPreparation, memoryContext, instructionContext, hooks, skills, plugins, pluginHooks,
+                finalAssistantHandler), checkedConfiguration, pipeline);
     }
 }

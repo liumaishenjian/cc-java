@@ -13,6 +13,27 @@ describe('parseSlashCommand', () => {
     expect(parseSlashCommand('/compact focus release')).toEqual({
       kind: 'command', command: {intent: 'compact', arguments: {anchors: ['focus', 'release']}},
     });
+    expect(parseSlashCommand('/plan-status')).toEqual({
+      kind: 'command', command: {intent: 'plan-status', arguments: {}},
+    });
+    expect(parseSlashCommand('/plan-approve digest-a')).toEqual({
+      kind: 'command', command: {intent: 'plan-approve', arguments: {workspaceDigest: 'digest-a'}},
+    });
+    expect(parseSlashCommand('/plan-step-begin digest-a')).toEqual({
+      kind: 'command', command: {intent: 'plan-step-begin', arguments: {workspaceDigest: 'digest-a'}},
+    });
+    expect(parseSlashCommand('/plan-reject')).toEqual({
+      kind: 'command', command: {intent: 'plan-reject', arguments: {}},
+    });
+    expect(parseSlashCommand('/plan-step-complete digest-a')).toEqual({
+      kind: 'command', command: {intent: 'plan-step-complete', arguments: {workspaceDigest: 'digest-a'}},
+    });
+    expect(parseSlashCommand('/plan objective digest-a title detail expected-a')).toEqual({
+      kind: 'command', command: {intent: 'plan', arguments: {
+        objective: 'objective', workspaceDigest: 'digest-a',
+        steps: [{ordinal: 1, title: 'title', detail: 'detail', expectedDigest: 'expected-a'}],
+      }},
+    });
     expect(parseSlashCommand('/permissions')).toEqual({kind: 'permission-picker'});
     expect(parseSlashCommand('/permissions query')).toEqual({
       kind: 'command', command: {intent: 'permissions', arguments: {}},

@@ -181,7 +181,7 @@ describe('AgentView', () => {
     const frame = view.lastFrame() ?? '';
 
     expect(frame.split('\n').length).toBeLessThanOrEqual(12);
-    expect(frame).toContain('Y 允许本次');
+    expect(frame).toContain('Allow once');
     expect(frame).toContain('╭');
     expect(frame).toContain('❯');
   });
@@ -337,7 +337,7 @@ describe('AgentView', () => {
     expect(view.lastFrame()).toContain('需要批准：访问网络');
     expect(view.lastFrame()).toContain('已配置的 Web Search Provider');
     expect(view.lastFrame()).toContain('明天杭州天气');
-    expect(view.lastFrame()).toContain('Y 允许本次');
+    expect(view.lastFrame()).toContain('Allow once');
   });
 
   it('Backspace 按 Unicode Code Point 删除且中断动作取决于 Java Run 投影', () => {
@@ -744,6 +744,31 @@ describe('AgentView', () => {
 
     expect(client.prompts).toEqual(['initial']);
     expect(client.sessionCommands).toEqual(['tui-command-1:doctor:{}']);
+    view.unmount();
+  });
+
+  it('新增 plan Slash 命令经 session command 通道发送并保留结构化参数', async () => {
+    const client = new FakeAgentClient();
+    const view = await initializedTui(client);
+    for (const [index, input] of [
+      '/plan-status',
+      '/plan-approve digest-a',
+      '/plan-reject',
+      '/plan-step-begin digest-a',
+      '/plan-step-complete digest-a',
+      '/plan objective digest-a title detail expected-a',
+    ].entries()) {
+      view.stdin.write(input); view.stdin.write('\r');
+      await waitForFrame(() => client.sessionCommands.length === index + 1);
+    }
+    expect(client.sessionCommands).toEqual([
+      'tui-command-1:plan-status:{}',
+      'tui-command-2:plan-approve:{"workspaceDigest":"digest-a"}',
+      'tui-command-3:plan-reject:{}',
+      'tui-command-4:plan-step-begin:{"workspaceDigest":"digest-a"}',
+      'tui-command-5:plan-step-complete:{"workspaceDigest":"digest-a"}',
+      'tui-command-6:plan:{"objective":"objective","workspaceDigest":"digest-a","steps":[{"ordinal":1,"title":"title","detail":"detail","expectedDigest":"expected-a"}]}',
+    ]);
     view.unmount();
   });
 
@@ -1448,7 +1473,7 @@ class FakeAgentClient implements AgentClient {
     this.taskCommands.push(`remove:${taskId}`); return 'tui-task-remove';
   }
 
-  public sessionCommand(commandId: string, intent: 'help' | 'clear' | 'compact' | 'context' | 'doctor' | 'model' | 'permissions' | 'resume', arguments_: Readonly<Record<string, unknown>>): string {
+  public sessionCommand(commandId: string, intent: 'help' | 'clear' | 'compact' | 'context' | 'doctor' | 'model' | 'permissions' | 'resume' | 'plan-status' | 'plan' | 'plan-approve' | 'plan-reject' | 'plan-step-begin' | 'plan-step-complete', arguments_: Readonly<Record<string, unknown>>): string {
     this.sessionCommands.push(`${commandId}:${intent}:${JSON.stringify(arguments_)}`);
     return 'tui-session-command';
   }

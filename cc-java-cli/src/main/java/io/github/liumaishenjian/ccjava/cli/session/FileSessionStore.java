@@ -17,6 +17,8 @@ import io.github.liumaishenjian.ccjava.domain.SessionId;
 import io.github.liumaishenjian.ccjava.domain.SessionSpec;
 import io.github.liumaishenjian.ccjava.domain.StopReason;
 import io.github.liumaishenjian.ccjava.domain.ToolEffect;
+import io.github.liumaishenjian.ccjava.domain.PlanDocument;
+import io.github.liumaishenjian.ccjava.domain.PlanExecutionState;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
@@ -266,6 +268,13 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
      * @param summary 安全 Checkpoint 摘要
      * @param preDigest pre-image digest 或固定 {@code ABSENT}
      */
+    /** 持久化 Session-owned Plan 的完整安全投影；调用者必须在每次状态迁移后调用。 */
+    public synchronized void planSnapshot(
+            SessionId sessionId, PlanDocument document, PlanExecutionState state) {
+        OpenSession opened = writer(sessionId);
+        appendAndAdvance(opened, codec.encodePlanSnapshot(opened.nextSequence, document, state));
+    }
+
     public synchronized void checkpointCreated(
             SessionId sessionId,
             RunId runId,
@@ -380,6 +389,15 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
         JournalRead read = readJournal(id);
         SessionRecoverySnapshot snapshot = codec.replay(
                 read.lines, read.damagedTail, workspaceIdentity);
+        if (snapshot.plan().isPresent()
+                && snapshot.plan().orElseThrow().state().activeStep() != null) {
+            List<io.github.liumaishenjian.ccjava.core.SessionRecoveryIssue> merged =
+                    new ArrayList<>(snapshot.issues());
+            merged.add(io.github.liumaishenjian.ccjava.core.SessionRecoveryIssue.session(
+                    io.github.liumaishenjian.ccjava.core.SessionRecoveryIssueKind.PLAN_ACTIVE_STEP_RECOVERY));
+            snapshot = new SessionRecoverySnapshot(snapshot.sessionId(), snapshot.spec(), snapshot.messages(),
+                    snapshot.runIds(), snapshot.parentSessionId(), merged, snapshot.skillRecords(), snapshot.plan());
+        }
         List<io.github.liumaishenjian.ccjava.core.SessionRecoveryIssue> checkpointIssues =
                 new FileCheckpointCoordinator(root, workspaceGuard(), this)
                         .recoveryIssues(id);
@@ -394,7 +412,8 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
                     snapshot.runIds(),
                     snapshot.parentSessionId(),
                     merged,
-                    snapshot.skillRecords());
+                    snapshot.skillRecords(),
+                    snapshot.plan());
         }
         AgentSession session = AgentSession.restore(snapshot);
         if (readOnly) {
@@ -407,7 +426,8 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
                     snapshot.runIds(),
                     snapshot.parentSessionId(),
                     issues,
-                    snapshot.skillRecords()));
+                    snapshot.skillRecords(),
+                    snapshot.plan()));
             OpenSession inspected = OpenSession.readOnly(session, read.nextSequence);
             inspectedSessions.add(inspected);
             return new SessionOpenResult(

@@ -170,7 +170,13 @@ npm --prefix cc-java-tui run check
 java scripts/ProgressDashboard.java --check
 ```
 
-Linux 使用 `./mvnw clean verify`。真实模型测试需要显式配置 Provider；普通测试依赖 Fake Model 和 Fake Tool，可以在无网络、无 API Key 的环境运行。
+Linux 使用 `./mvnw clean verify`。普通测试依赖 Fake Model 和 Fake Tool，可以在无网络、无 API Key 的环境运行。PERM-05 真实 Provider Eval 默认不联网；仅在显式设置 `CC_JAVA_REAL_PROVIDER_EVAL=true`、`CC_JAVA_REAL_PROVIDER_PROFILE`、`CC_JAVA_OPENAI_BASE_URL`、`CC_JAVA_OPENAI_API_KEY` 与 `CC_JAVA_OPENAI_MODEL` 后，运行 `S15AutoReviewRealProviderEvalTest`。配置缺失时测试输出结构化 `SKIPPED/NOT_RUN` 并成功结束，不记录凭证、Prompt、原始 Tool 参数或自然语言响应。示例：
+
+```powershell
+$env:CC_JAVA_REAL_PROVIDER_EVAL = "true"
+$env:CC_JAVA_REAL_PROVIDER_PROFILE = "local-eval"
+.\mvnw.cmd -pl cc-java-model-spring-ai -am "-Dtest=S15AutoReviewRealProviderEvalTest" test
+```
 
 最近一次正式 `0.1.0` 基线验证为 Maven 1,012 tests / 32 skips / 0 failures / 0 errors，TUI 194/194；Windows/Linux 自包含打包也已在 GitHub-hosted runner 通过。详细结果见 [S14 发行证据](./docs/evidence/S14-installable-cli-2026-08-16.md)。
 
