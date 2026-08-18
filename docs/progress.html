@@ -223,7 +223,7 @@
     }
   </style>
 </head>
-<body data-matrix-digest="c8b43cda1535" data-state-digest="ca5064840f09" data-code-digest="4cd350bae2a5">
+<body data-matrix-digest="c8b43cda1535" data-state-digest="805b838d1424" data-code-digest="4cd350bae2a5">
   <main class="shell">
     <section class="hero">
       <p class="eyebrow">Reference-driven Java Agent Runtime</p>
@@ -333,10 +333,10 @@
         <div class="evidence-item"><dt>Last change</dt><dd>修正 PLAN-01 真实 Java E2E harness：module classpath 基于测试文件定位的 workspace root 解析为绝对路径，并以绝对 CC_JAVA_TEST_CLASSPATH、CC_JAVA_TEST_DEPENDENCY_CLASSPATH、CC_JAVA_PLAN_FAKE_CLASSPATH 复验；能力等级无变化。</dd></div>
         <div class="evidence-item"><dt>Evidence stage</dt><dd><code>S15</code></dd></div>
         <div class="evidence-item"><dt>Evidence class</dt><dd><code>COMMIT_VERIFIED</code></dd></div>
-        <div class="evidence-item"><dt>Code commit</dt><dd><code>e2f23a7af7292ca2231fbb16a3d4cdc94ebf71bd</code></dd></div>
-        <div class="evidence-item"><dt>Standard command</dt><dd><code>.mvnw.cmd -q -pl cc-java-cli -am test-compile dependency:build-classpath &quot;-DincludeScope=test&quot; &quot;-Dmdep.outputFile=target/test-dependency-classpath.txt&quot;; $root=(Get-Location).Path; $env:CC_JAVA_TEST_DEPENDENCY_CLASSPATH=(Get-Content -LiteralPath (Join-Path $root &#39;cc-java-cli	arget	est-dependency-classpath.txt&#39;) -Raw).Trim(); $modules=&#39;cc-java-cli&#39;,&#39;cc-java-core&#39;,&#39;cc-java-domain&#39;,&#39;cc-java-model-spring-ai&#39;,&#39;cc-java-tools-local&#39;,&#39;cc-java-tools-web&#39;,&#39;cc-java-mcp&#39;,&#39;cc-java-protocol&#39;,&#39;cc-java-sdk&#39;; $env:CC_JAVA_TEST_CLASSPATH=(($modules|ForEach-Object { Join-Path $root &quot;$_	argetclasses&quot; })+$env:CC_JAVA_TEST_DEPENDENCY_CLASSPATH)-join [IO.Path]::PathSeparator; $env:CC_JAVA_PLAN_FAKE_CLASSPATH=Join-Path $root &#39;cc-java-cli	arget	est-classes&#39;; npm.cmd --prefix cc-java-tui run test:real-java；npm.cmd --prefix cc-java-tui run check；java scripts/ProgressDashboard.java；java scripts/ProgressDashboard.java --check；java scripts/ProgressDashboard.java --self-test</code></dd></div>
+        <div class="evidence-item"><dt>Code commit</dt><dd><code>a01b0b07edf0368b3cd5758405a21846573e97b2</code></dd></div>
+        <div class="evidence-item"><dt>Standard command</dt><dd><code>./mvnw.cmd -q -pl cc-java-cli -am test-compile dependency:build-classpath &quot;-DincludeScope=test&quot; &quot;-Dmdep.outputFile=target/test-dependency-classpath.txt&quot;; $root=(Get-Location).Path; $env:CC_JAVA_TEST_DEPENDENCY_CLASSPATH=(Get-Content -LiteralPath (Join-Path $root &#39;cc-java-cli/target/test-dependency-classpath.txt&#39;) -Raw).Trim(); $modules=&#39;cc-java-cli&#39;,&#39;cc-java-core&#39;,&#39;cc-java-domain&#39;,&#39;cc-java-model-spring-ai&#39;,&#39;cc-java-tools-local&#39;,&#39;cc-java-tools-web&#39;,&#39;cc-java-mcp&#39;,&#39;cc-java-protocol&#39;,&#39;cc-java-sdk&#39;; $env:CC_JAVA_TEST_CLASSPATH=(($modules|ForEach-Object { Join-Path $root &quot;$_/target/classes&quot; })+$env:CC_JAVA_TEST_DEPENDENCY_CLASSPATH)-join [IO.Path]::PathSeparator; $env:CC_JAVA_PLAN_FAKE_CLASSPATH=Join-Path $root &#39;cc-java-cli/target/test-classes&#39;; npm.cmd --prefix cc-java-tui run test:real-java；npm.cmd --prefix cc-java-tui run check；java scripts/ProgressDashboard.java；java scripts/ProgressDashboard.java --check；java scripts/ProgressDashboard.java --self-test</code></dd></div>
         <div class="evidence-item"><dt>Result</dt><dd>当前工作树完成 PLAN-01 query/PLAN/start/status、连续 revise 原 selection、approve/restore/execute、失败反馈与退出恢复；真实 Java 跨进程 E2E 的 module classpath 已统一从 workspace root 解析绝对路径，含 dependency classpath 的三变量入口 1/1 通过。能力等级无变化；真实 Provider proposal 质量、Plan durable recovery 与 S15 L4 Eval 仍缺。</dd></div>
-        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix c8b43cda1535</code><br><code>state ca5064840f09</code><br><code>code/build 4cd350bae2a5</code></dd></div>
+        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix c8b43cda1535</code><br><code>state 805b838d1424</code><br><code>code/build 4cd350bae2a5</code></dd></div>
       </dl>
     </section>
 
