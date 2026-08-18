@@ -102,6 +102,7 @@ export interface ProtocolCommand {
   readonly type:
     | 'initialize'
     | 'run.start'
+    | 'plan.start'
     | 'input.begin'
     | 'input.chunk'
     | 'input.commit'
@@ -554,6 +555,9 @@ const SESSION_COMMAND_INTENTS = new Set([
   'help', 'clear', 'compact', 'context', 'doctor', 'model', 'permissions', 'resume',
   'plan-status', 'plan', 'plan-approve', 'plan-step-begin', 'plan-reject', 'plan-step-complete', 'plan-execute',
 ]);
+const PUBLIC_HELP_INTENTS = new Set([
+  'help', 'clear', 'compact', 'context', 'doctor', 'model', 'permissions', 'resume', 'plan-status', 'plan',
+]);
 const SESSION_COMMAND_CODES = new Set([
   'ok', 'active_run', 'invalid_argument', 'unavailable', 'not_available', 'deferred',
   'cancelled', 'compaction_rejected', 'internal_failure', 'request_budget_exhausted',
@@ -601,13 +605,13 @@ function validateSessionCommandPayload(
   }
   if (intent === 'help') {
     if (!hasExactFields(result, new Set(['commands'])) || !Array.isArray(result.commands)
-      || result.commands.length !== SESSION_COMMAND_INTENTS.size) {
+      || result.commands.length !== PUBLIC_HELP_INTENTS.size) {
       throw new ProtocolViolation('session.command.result help 投影无效');
     }
     const seen = new Set<string>();
     for (const item of result.commands) {
       if (!isRecord(item) || !hasExactFields(item, new Set(['intent', 'support']))
-        || typeof item.intent !== 'string' || !SESSION_COMMAND_INTENTS.has(item.intent)
+        || typeof item.intent !== 'string' || !PUBLIC_HELP_INTENTS.has(item.intent)
         || typeof item.support !== 'string' || !SESSION_COMMAND_SUPPORT.has(item.support)
         || seen.has(item.intent)) throw new ProtocolViolation('session.command.result help 条目无效');
       seen.add(item.intent);

@@ -313,17 +313,27 @@ export class StdioClient {
   }
 
   public startRun(prompt: string): string {
+    return this.#startTextRun('run.start', prompt);
+  }
+
+  /** 以自然语言任务启动 Java 权威的只读 Plan Runtime。 */
+  public startPlan(task: string): string {
+    return this.#startTextRun('plan.start', task);
+  }
+
+  #startTextRun(type: 'run.start' | 'plan.start', prompt: string): string {
     if (this.#sessionId === undefined) {
       throw new Error('Session 尚未初始化');
     }
     const encoded = Buffer.from(prompt, 'utf8');
     const requestId = `tui-${this.#nextRequestNumber++}`;
     const direct = this.#command(
-      'run.start', {prompt}, requestId, this.#nextCommandSequence, this.#sessionId,
+      type, {prompt}, requestId, this.#nextCommandSequence, this.#sessionId,
     );
     if (commandBytes(direct) < this.#maxLineBytes) {
       this.#write(direct);
     } else {
+      if (type === 'plan.start') throw new Error('Plan 任务超过单条安全协议预算');
       const inputId = `input-${requestId}`;
       const chunks = protocolTextChunks(
         prompt,

@@ -16,23 +16,11 @@ describe('parseSlashCommand', () => {
     expect(parseSlashCommand('/plan-status')).toEqual({
       kind: 'command', command: {intent: 'plan-status', arguments: {}},
     });
-    expect(parseSlashCommand('/plan-approve digest-a')).toEqual({
-      kind: 'command', command: {intent: 'plan-approve', arguments: {workspaceDigest: 'digest-a'}},
+    expect(parseSlashCommand('/plan')).toEqual({
+      kind: 'command', command: {intent: 'plan', arguments: {}},
     });
-    expect(parseSlashCommand('/plan-step-begin digest-a')).toEqual({
-      kind: 'command', command: {intent: 'plan-step-begin', arguments: {workspaceDigest: 'digest-a'}},
-    });
-    expect(parseSlashCommand('/plan-reject')).toEqual({
-      kind: 'command', command: {intent: 'plan-reject', arguments: {}},
-    });
-    expect(parseSlashCommand('/plan-step-complete digest-a')).toEqual({
-      kind: 'command', command: {intent: 'plan-step-complete', arguments: {workspaceDigest: 'digest-a'}},
-    });
-    expect(parseSlashCommand('/plan objective digest-a title detail expected-a')).toEqual({
-      kind: 'command', command: {intent: 'plan', arguments: {
-        objective: 'objective', workspaceDigest: 'digest-a',
-        steps: [{ordinal: 1, title: 'title', detail: 'detail', expectedDigest: 'expected-a'}],
-      }},
+    expect(parseSlashCommand('/plan 设计一个安全的登录流程')).toEqual({
+      kind: 'command', command: {intent: 'plan', arguments: {task: '设计一个安全的登录流程'}},
     });
     expect(parseSlashCommand('/permissions')).toEqual({kind: 'permission-picker'});
     expect(parseSlashCommand('/permissions query')).toEqual({
@@ -127,6 +115,10 @@ describe('parseSlashCommand', () => {
     expect(parseSlashCommand('/models add anthropic model primary').kind).toBe('invalid');
     expect(parseSlashCommand('/models remove anthropic').kind).toBe('invalid');
     expect(parseSlashCommand('/models remove anthropic model extra').kind).toBe('invalid');
+    expect(parseSlashCommand('/plan-approve digest-a')).toEqual({
+      kind: 'skill', name: 'plan-approve', arguments: 'digest-a',
+    });
+    expect(parseSlashCommand(`/plan ${'x'.repeat(8_193)}`).kind).toBe('invalid');
   });
 
   it('在 Skill 入口前保护封闭命令的一次拼写错误且不受参数影响', () => {

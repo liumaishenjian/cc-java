@@ -120,14 +120,36 @@ public sealed interface SessionCommandIntent permits SessionCommandIntent.Help, 
         @Override public SessionCommandKind kind() { return SessionCommandKind.PLAN; }
     }
 
-    /** 批准当前项目计划并重新校验工作区摘要。 */
-    record PlanApprove(String workspaceDigest) implements SessionCommandIntent {
-        public PlanApprove { if (invalidText(workspaceDigest)) throw new IllegalArgumentException("workspaceDigest 非法"); }
+    /**
+     * 批准当前项目计划并重新校验工作区摘要。
+     *
+     * @param planId Surface 实际展示的 Session-owned Plan 身份；空串仅供旧内部协议兼容
+     * @param workspaceDigest {@code plan.proposed} 随同该计划发布的服务端工作区摘要
+     */
+    record PlanApprove(String planId, String workspaceDigest) implements SessionCommandIntent {
+        public PlanApprove {
+            if ((planId == null || (!planId.isEmpty() && invalidText(planId))) || invalidText(workspaceDigest)) {
+                throw new IllegalArgumentException("plan approval binding 非法");
+            }
+        }
+        /** 旧内部协议兼容入口；新 Surface 必须同时绑定 planId。 */
+        public PlanApprove(String workspaceDigest) { this("", workspaceDigest); }
         @Override public SessionCommandKind kind() { return SessionCommandKind.PLAN_APPROVE; }
     }
 
-    /** 拒绝当前项目计划。 */
-    record PlanReject() implements SessionCommandIntent {
+    /**
+     * 拒绝当前项目计划。
+     *
+     * @param planId Surface 实际展示的 Plan 身份；空串仅供旧内部协议兼容
+     */
+    record PlanReject(String planId) implements SessionCommandIntent {
+        public PlanReject {
+            if (planId == null || (!planId.isEmpty() && invalidText(planId))) {
+                throw new IllegalArgumentException("planId 非法");
+            }
+        }
+        /** 旧内部协议兼容入口。 */
+        public PlanReject() { this(""); }
         @Override public SessionCommandKind kind() { return SessionCommandKind.PLAN_REJECT; }
     }
 
@@ -145,10 +167,17 @@ public sealed interface SessionCommandIntent permits SessionCommandIntent.Help, 
         @Override public SessionCommandKind kind() { return SessionCommandKind.PLAN_STEP_COMPLETE; }
     }
 
-    /** 执行当前已批准计划；maxSteps 是防止无限执行的显式上限。 */
-    record PlanExecute(int maxSteps) implements SessionCommandIntent {
+    /**
+     * 执行 Surface 已核对并恢复权限后的当前批准计划。
+     *
+     * @param planId Surface 实际批准的 Session-owned Plan 身份
+     * @param workspaceDigest 该提案发布并获批的服务端摘要
+     * @param maxSteps 防止无限执行的显式上限
+     */
+    record PlanExecute(String planId, String workspaceDigest, int maxSteps) implements SessionCommandIntent {
         public PlanExecute {
-            if (maxSteps < 1 || maxSteps > 128) throw new IllegalArgumentException("maxSteps 非法");
+            if (invalidText(planId) || invalidText(workspaceDigest)
+                    || maxSteps < 1 || maxSteps > 128) throw new IllegalArgumentException("plan execute binding 非法");
         }
         @Override public SessionCommandKind kind() { return SessionCommandKind.PLAN_EXECUTE; }
     }

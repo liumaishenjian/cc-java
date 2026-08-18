@@ -1018,16 +1018,43 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                         io.github.liumaishenjian.ccjava.domain.PlanStatus.DRAFT, digest)));
     }
 
-    public Optional<io.github.liumaishenjian.ccjava.core.PlanModeCoordinator> approvePlan(String digest) {
+    /**
+     * 批准 Surface 实际展示的当前 Plan，并同时核对事件摘要与实时工作区摘要。
+     *
+     * <p>Plan 身份或任一摘要不匹配时不改变审批 Gate；这可阻止重复、迟到或跨 Session
+     * 的 TUI 事件批准后来安装的计划。旧内部协议可以传空 planId，但仍必须通过摘要 Gate。</p>
+     *
+     * @param planId {@code plan.proposed} 中的计划身份，空串表示旧内部协议兼容
+     * @param digest {@code plan.proposed} 中由服务端发布的工作区摘要
+     * @return 仅在当前 Session 确有匹配计划时返回协调器
+     */
+    public Optional<io.github.liumaishenjian.ccjava.core.PlanModeCoordinator> approvePlan(
+            String planId, String digest) {
         requireOpen();
         return session.plan().flatMap(plan -> {
-            if (!plan.document().id().startsWith("plan-run-")) return session.approvePlan(digest);
+            if (!planId.isEmpty() && !plan.document().id().equals(planId)) return Optional.empty();
+            if (!plan.document().workspaceDigest().equals(digest)) return Optional.empty();
             String current = currentWorkspaceDigest();
-            return session.approvePlan(digest.equals(current) ? current : "conflict-" + current);
+            if (!digest.equals(current)) return Optional.empty();
+            return session.approvePlan(current);
         });
     }
+
+    /** 旧内部协议兼容入口。 */
+    public Optional<io.github.liumaishenjian.ccjava.core.PlanModeCoordinator> approvePlan(String digest) {
+        return approvePlan("", digest);
+    }
+
+    /** 仅拒绝 Surface 实际展示的当前 Plan；空 planId 保留旧内部协议兼容。 */
+    public Optional<io.github.liumaishenjian.ccjava.core.PlanModeCoordinator> rejectPlan(String planId) {
+        requireOpen();
+        return session.plan().filter(plan -> planId.isEmpty() || plan.document().id().equals(planId))
+                .flatMap(ignored -> session.rejectPlan());
+    }
+
+    /** 旧内部协议兼容入口。 */
     public Optional<io.github.liumaishenjian.ccjava.core.PlanModeCoordinator> rejectPlan() {
-        requireOpen(); return session.rejectPlan();
+        return rejectPlan("");
     }
     public Optional<PlanStepOutcome> beginPlanStep(String digest) {
         requireOpen();

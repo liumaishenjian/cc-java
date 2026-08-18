@@ -747,28 +747,335 @@ describe('AgentView', () => {
     view.unmount();
   });
 
-  it('新增 plan Slash 命令经 session command 通道发送并保留结构化参数', async () => {
+  it('/plan 严格等待 query→PLAN 成功后才启动只读 Plan Run', async () => {
     const client = new FakeAgentClient();
     const view = await initializedTui(client);
-    for (const [index, input] of [
-      '/plan-status',
-      '/plan-approve digest-a',
-      '/plan-reject',
-      '/plan-step-begin digest-a',
-      '/plan-step-complete digest-a',
-      '/plan objective digest-a title detail expected-a',
-    ].entries()) {
-      view.stdin.write(input); view.stdin.write('\r');
-      await waitForFrame(() => client.sessionCommands.length === index + 1);
+    view.stdin.write('/plan 设计一个安全的登录流程'); view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 1);
+    expect(client.sessionCommands).toEqual(['tui-plan-1-query:permissions:{}']);
+    expect(client.planTasks).toEqual([]);
+
+    client.emit(permissionResult('tui-plan-1-query', 'ASK', 2));
+    await waitForFrame(() => client.sessionCommands.length === 2);
+    expect(client.sessionCommands[1]).toBe('tui-plan-2-enter:permissions:{"selection":"PLAN"}');
+    expect(client.planTasks).toEqual([]);
+    client.emit(permissionResult('tui-plan-2-enter', 'PLAN', 3));
+    await waitForFrame(() => client.planTasks.length === 1);
+    expect(client.planTasks).toEqual(['设计一个安全的登录流程']);
+
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-plan-1', sessionId: 'session-1',
+      runId: 'run-plan', sequence: 4, payload: {}});
+    client.emit({version: 0, type: 'run.completed', requestId: 'tui-plan-1', sessionId: 'session-1',
+      runId: 'run-plan', sequence: 5, payload: {stopReason: 'completed', modelTurns: 1, toolCalls: 0}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+    expect(client.planTasks).toEqual(['设计一个安全的登录流程']);
+    view.unmount();
+  });
+
+  it('Plan proposal 完整展示，approve 后严格按 approve→restore→execute 顺序发送', async () => {
+    const client = new FakeAgentClient();
+    const view = await initializedTui(client);
+    view.stdin.write('/plan safe task'); view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 1); enterPlan(client);
+    await waitForFrame(() => client.planTasks.length === 1);
+    client.sessionCommands.length = 0;
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-plan-1', sessionId: 'session-1',
+      runId: 'run-plan', sequence: 4, payload: {}});
+    client.emit({version: 0, type: 'plan.proposed', requestId: 'tui-plan-1', sessionId: 'session-1',
+      runId: 'run-plan', sequence: 5, payload: {planId: 'plan-run-plan', status: 'awaiting_approval',
+        objective: '安全改造', workspaceDigest: 'a'.repeat(64), steps: [
+          {ordinal: 1, title: '检查现状', detail: '阅读相关代码'},
+          {ordinal: 2, title: '完成验证', detail: '运行聚焦测试'},
+        ]}});
+    client.emit({version: 0, type: 'run.completed', requestId: 'tui-plan-1', sessionId: 'session-1',
+      runId: 'run-plan', sequence: 6, payload: {stopReason: 'completed', modelTurns: 1, toolCalls: 0}});
+    await waitForFrame(() => view.lastFrame()?.includes('批准并执行') === true);
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('安全改造'); expect(frame).toContain('1. 检查现状');
+    expect(frame).toContain('阅读相关代码'); expect(frame).toContain('2. 完成验证');
+    view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 1);
+    expect(client.sessionCommands[0]).toBe(
+      `tui-plan-3-approve:plan-approve:{"planId":"plan-run-plan","workspaceDigest":"${'a'.repeat(64)}"}`,
+    );
+    client.emit({version: 0, type: 'session.command.result', requestId: 'approve-result',
+      sessionId: 'session-1', sequence: 7, payload: {commandId: 'tui-plan-3-approve', intent: 'plan-approve',
+        status: 'succeeded', code: 'ok', result: planCommandResult('plan-run-plan', 'a'.repeat(64), 'APPROVED')}});
+    await waitForFrame(() => client.sessionCommands.length === 2);
+    expect(client.sessionCommands[1]).toBe('tui-plan-4-restore-execute:permissions:{"selection":"ASK"}');
+    expect(client.sessionCommands.some(item => item.includes('plan-execute'))).toBe(false);
+    client.emit(permissionResult('tui-plan-4-restore-execute', 'ASK', 8));
+    await waitForFrame(() => client.sessionCommands.length === 3);
+    expect(client.sessionCommands[2]).toBe(
+      `tui-plan-5-execute:plan-execute:{"planId":"plan-run-plan","workspaceDigest":"${'a'.repeat(64)}","maxSteps":128}`,
+    );
+    view.unmount();
+  });
+
+  it('Plan revise 保持 PLAN，reject exit 成功后恢复进入前选择', async () => {
+    for (const [arrows, revise] of [[1, true], [2, false]] as const) {
+      const client = new FakeAgentClient(); const view = await initializedTui(client);
+      view.stdin.write('/plan task'); view.stdin.write('\r'); await waitForFrame(() => client.sessionCommands.length === 1);
+      enterPlan(client); await waitForFrame(() => client.planTasks.length === 1);
+      client.sessionCommands.length = 0;
+      client.emit({version: 0, type: 'run.started', requestId: 'tui-plan-1', sessionId: 'session-1', runId: 'run-plan', sequence: 4, payload: {}});
+      client.emit({version: 0, type: 'plan.proposed', requestId: 'tui-plan-1', sessionId: 'session-1', runId: 'run-plan', sequence: 5,
+        payload: {planId: 'plan-current', status: 'awaiting_approval', objective: '计划', workspaceDigest: 'b'.repeat(64),
+          steps: [{ordinal: 1, title: '步骤', detail: '详情'}]}});
+      client.emit({version: 0, type: 'run.completed', requestId: 'tui-plan-1', sessionId: 'session-1', runId: 'run-plan', sequence: 6,
+        payload: {stopReason: 'completed', modelTurns: 1, toolCalls: 0}});
+      await waitForFrame(() => view.lastFrame()?.includes('批准并执行') === true);
+      for (let index = 0; index < arrows; index++) {
+        view.stdin.write('[B'); await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      view.stdin.write('\r'); await waitForFrame(() => client.sessionCommands.length === 1);
+      expect(client.sessionCommands[0]).toBe('tui-plan-3-reject:plan-reject:{"planId":"plan-current"}');
+      client.emit({version: 0, type: 'session.command.result', requestId: 'reject-result', sessionId: 'session-1', sequence: 7,
+        payload: {commandId: 'tui-plan-3-reject', intent: 'plan-reject', status: 'succeeded', code: 'ok',
+          result: planCommandResult('plan-current', 'b'.repeat(64), 'REJECTED')}});
+      if (revise) {
+        await waitForFrame(() => view.lastFrame()?.includes('计划未执行') === true);
+        expect(client.sessionCommands).toHaveLength(1);
+      } else {
+        await waitForFrame(() => client.sessionCommands.length === 2);
+        expect(client.sessionCommands[1]).toBe('tui-plan-4-restore-exit:permissions:{"selection":"ASK"}');
+        client.emit(permissionResult('tui-plan-4-restore-exit', 'ASK', 8));
+        await waitForFrame(() => view.lastFrame()?.includes('计划已拒绝') === true);
+      }
+      expect(client.sessionCommands.some(item => item.includes('plan-execute'))).toBe(false);
+      view.unmount();
     }
-    expect(client.sessionCommands).toEqual([
-      'tui-command-1:plan-status:{}',
-      'tui-command-2:plan-approve:{"workspaceDigest":"digest-a"}',
-      'tui-command-3:plan-reject:{}',
-      'tui-command-4:plan-step-begin:{"workspaceDigest":"digest-a"}',
-      'tui-command-5:plan-step-complete:{"workspaceDigest":"digest-a"}',
-      'tui-command-6:plan:{"objective":"objective","workspaceDigest":"digest-a","steps":[{"ordinal":1,"title":"title","detail":"detail","expectedDigest":"expected-a"}]}',
-    ]);
+  });
+
+  it('AUTO→PLAN→revise→再次规划后批准仍恢复最初 AUTO', async () => {
+    const client = new FakeAgentClient(); const view = await initializedTui(client);
+    view.stdin.write('/plan first'); view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 1);
+    enterPlan(client, 2, 'AUTO'); await waitForFrame(() => client.planTasks.length === 1);
+    client.sessionCommands.length = 0;
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-plan-1', sessionId: 'session-1',
+      runId: 'run-plan-1', sequence: 4, payload: {}});
+    client.emit({version: 0, type: 'plan.proposed', requestId: 'tui-plan-1', sessionId: 'session-1',
+      runId: 'run-plan-1', sequence: 5, payload: {planId: 'plan-first', status: 'awaiting_approval',
+        objective: '初稿', workspaceDigest: '1'.repeat(64),
+        steps: [{ordinal: 1, title: '初稿步骤', detail: '待修改'}]}});
+    client.emit({version: 0, type: 'run.completed', requestId: 'tui-plan-1', sessionId: 'session-1',
+      runId: 'run-plan-1', sequence: 6, payload: {stopReason: 'completed', modelTurns: 1, toolCalls: 0}});
+    await waitForFrame(() => view.lastFrame()?.includes('批准并执行') === true);
+    view.stdin.write('[B'); await new Promise(resolve => setTimeout(resolve, 10)); view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 1);
+    client.emit({version: 0, type: 'session.command.result', requestId: 'reject-first',
+      sessionId: 'session-1', sequence: 7, payload: {commandId: 'tui-plan-3-reject', intent: 'plan-reject',
+        status: 'succeeded', code: 'ok', result: planCommandResult('plan-first', '1'.repeat(64), 'REJECTED')}});
+    await waitForFrame(() => view.lastFrame()?.includes('保持 Plan 模式') === true);
+
+    view.stdin.write('/plan revised'); view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 2);
+    expect(client.sessionCommands[1]).toBe('tui-plan-4-query:permissions:{}');
+    client.emit(permissionResult('tui-plan-4-query', 'PLAN', 8));
+    await waitForFrame(() => client.sessionCommands.length === 3);
+    expect(client.sessionCommands[2]).toBe('tui-plan-5-enter:permissions:{"selection":"PLAN"}');
+    client.emit(permissionResult('tui-plan-5-enter', 'PLAN', 9));
+    await waitForFrame(() => client.planTasks.length === 2);
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-plan-2', sessionId: 'session-1',
+      runId: 'run-plan-2', sequence: 10, payload: {}});
+    client.emit({version: 0, type: 'plan.proposed', requestId: 'tui-plan-2', sessionId: 'session-1',
+      runId: 'run-plan-2', sequence: 11, payload: {planId: 'plan-revised', status: 'awaiting_approval',
+        objective: '修订稿', workspaceDigest: '2'.repeat(64),
+        steps: [{ordinal: 1, title: '修订步骤', detail: '可执行'}]}});
+    client.emit({version: 0, type: 'run.completed', requestId: 'tui-plan-2', sessionId: 'session-1',
+      runId: 'run-plan-2', sequence: 12, payload: {stopReason: 'completed', modelTurns: 1, toolCalls: 0}});
+    await waitForFrame(() => view.lastFrame()?.includes('修订稿') === true); view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 4);
+    client.emit({version: 0, type: 'session.command.result', requestId: 'approve-revised',
+      sessionId: 'session-1', sequence: 13, payload: {commandId: 'tui-plan-6-approve', intent: 'plan-approve',
+        status: 'succeeded', code: 'ok', result: planCommandResult('plan-revised', '2'.repeat(64), 'APPROVED')}});
+    await waitForFrame(() => client.sessionCommands.length === 5);
+    expect(client.sessionCommands[4]).toBe('tui-plan-7-restore-execute:permissions:{"selection":"AUTO"}');
+    client.emit(permissionResult('tui-plan-7-restore-execute', 'AUTO', 14));
+    await waitForFrame(() => client.sessionCommands.length === 6);
+    expect(client.sessionCommands[5]).toContain('tui-plan-8-execute:plan-execute:');
+    view.unmount();
+  });
+
+  it('Plan start 同步拒绝后发送绑定恢复命令并等待权限结果', async () => {
+    const client = new FakeAgentClient(); client.rejectPlanStart = true;
+    const view = await initializedTui(client);
+    view.stdin.write('/plan rejected task'); view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 1);
+    client.emit(permissionResult('tui-plan-1-query', 'AUTO', 2));
+    client.emit(permissionResult('tui-plan-2-enter', 'PLAN', 3));
+    await waitForFrame(() => client.sessionCommands.length === 3);
+    expect(client.sessionCommands[2]).toBe(
+      'tui-plan-3-restore-start-failure:permissions:{"selection":"AUTO"}',
+    );
+    expect(view.lastFrame()).not.toContain('已恢复进入前权限选择');
+    client.emit(permissionResult('tui-plan-3-restore-start-failure', 'AUTO', 4));
+    await waitForFrame(() => view.lastFrame()?.includes('已恢复进入前权限选择') === true);
+    expect(client.planTasks).toEqual([]);
+    view.unmount();
+  });
+
+  it('无参数 /plan 同样执行 query→PLAN→plan-status', async () => {
+    const client = new FakeAgentClient(); const view = await initializedTui(client);
+    view.stdin.write('/plan'); view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 1);
+    expect(client.sessionCommands[0]).toBe('tui-plan-1-query:permissions:{}');
+    client.emit(permissionResult('tui-plan-1-query', 'AUTO', 2));
+    await waitForFrame(() => client.sessionCommands.length === 2);
+    expect(client.sessionCommands[1]).toBe('tui-plan-2-enter:permissions:{"selection":"PLAN"}');
+    client.emit(permissionResult('tui-plan-2-enter', 'PLAN', 3));
+    await waitForFrame(() => client.sessionCommands.length === 3);
+    expect(client.sessionCommands[2]).toBe('tui-plan-3-status:plan-status:{}');
+    expect(client.planTasks).toEqual([]);
+    view.unmount();
+  });
+
+  it('无参数 /plan 状态投影会完整显示并重新打开审批选择', async () => {
+    const client = new FakeAgentClient(); const view = await initializedTui(client);
+    view.stdin.write('/plan'); view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 1);
+    client.emit(permissionResult('tui-plan-1-query', 'AUTO', 2));
+    client.emit(permissionResult('tui-plan-2-enter', 'PLAN', 3));
+    await waitForFrame(() => client.sessionCommands.length === 3);
+    client.emit({version: 0, type: 'session.command.result', requestId: 'plan-status-result',
+      sessionId: 'session-1', sequence: 4, payload: {commandId: 'tui-plan-3-status', intent: 'plan-status',
+        status: 'succeeded', code: 'ok', result: planCommandResult('plan-existing', '3'.repeat(64), 'AWAITING_APPROVAL')}});
+    await waitForFrame(() => view.lastFrame()?.includes('❯ 批准并执行') === true);
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('等待审批；输入 /plan 可重新打开计划视图');
+    expect(frame).toContain('1. 步骤');
+    expect(frame).toContain('详情');
+    expect(frame).toContain('❯ 批准并执行');
+    view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 4);
+    expect(client.sessionCommands[3]).toBe(
+      `tui-plan-4-approve:plan-approve:{"planId":"plan-existing","workspaceDigest":"${'3'.repeat(64)}"}`,
+    );
+    view.unmount();
+  });
+
+  it('权限恢复失败保持已批准 Plan 且绝不 execute', async () => {
+    const client = new FakeAgentClient(); const view = await initializedTui(client);
+    view.stdin.write('/plan task'); view.stdin.write('\r'); await waitForFrame(() => client.sessionCommands.length === 1);
+    enterPlan(client); await waitForFrame(() => client.planTasks.length === 1); client.sessionCommands.length = 0;
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-plan-1', sessionId: 'session-1', runId: 'run-plan', sequence: 4, payload: {}});
+    client.emit({version: 0, type: 'plan.proposed', requestId: 'tui-plan-1', sessionId: 'session-1', runId: 'run-plan', sequence: 5,
+      payload: {planId: 'plan-current', status: 'awaiting_approval', objective: '计划', workspaceDigest: 'e'.repeat(64),
+        steps: [{ordinal: 1, title: '步骤', detail: '详情'}]}});
+    client.emit({version: 0, type: 'run.completed', requestId: 'tui-plan-1', sessionId: 'session-1', runId: 'run-plan', sequence: 6,
+      payload: {stopReason: 'completed', modelTurns: 1, toolCalls: 0}});
+    await waitForFrame(() => view.lastFrame()?.includes('批准并执行') === true); view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 1);
+    client.emit({version: 0, type: 'session.command.result', requestId: 'approve', sessionId: 'session-1', sequence: 7,
+      payload: {commandId: 'tui-plan-3-approve', intent: 'plan-approve', status: 'succeeded', code: 'ok',
+        result: planCommandResult('plan-current', 'e'.repeat(64), 'APPROVED')}});
+    await waitForFrame(() => client.sessionCommands.length === 2);
+    client.emit(permissionResult('tui-plan-4-restore-execute', 'ASK', 8, 'rejected'));
+    await waitForFrame(() => view.lastFrame()?.includes('权限恢复失败') === true);
+    expect(client.sessionCommands.some(item => item.includes('plan-execute'))).toBe(false);
+    expect(view.lastFrame()).toContain('批准并执行');
+    view.unmount();
+  });
+
+  it('reject exit 只有恢复到预期 selection 才声明完成', async () => {
+    const client = new FakeAgentClient(); const view = await initializedTui(client);
+    view.stdin.write('/plan task'); view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 1);
+    enterPlan(client, 2, 'AUTO'); await waitForFrame(() => client.planTasks.length === 1);
+    client.sessionCommands.length = 0;
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-plan-1', sessionId: 'session-1',
+      runId: 'run-plan', sequence: 4, payload: {}});
+    client.emit({version: 0, type: 'plan.proposed', requestId: 'tui-plan-1', sessionId: 'session-1',
+      runId: 'run-plan', sequence: 5, payload: {planId: 'plan-current', status: 'awaiting_approval',
+        objective: '计划', workspaceDigest: '4'.repeat(64),
+        steps: [{ordinal: 1, title: '步骤', detail: '详情'}]}});
+    client.emit({version: 0, type: 'run.completed', requestId: 'tui-plan-1', sessionId: 'session-1',
+      runId: 'run-plan', sequence: 6, payload: {stopReason: 'completed', modelTurns: 1, toolCalls: 0}});
+    await waitForFrame(() => view.lastFrame()?.includes('批准并执行') === true);
+    view.stdin.write('[B'); await new Promise(resolve => setTimeout(resolve, 10));
+    view.stdin.write('[B'); await new Promise(resolve => setTimeout(resolve, 10));
+    view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 1);
+    client.emit({version: 0, type: 'session.command.result', requestId: 'reject',
+      sessionId: 'session-1', sequence: 7, payload: {commandId: 'tui-plan-3-reject', intent: 'plan-reject',
+        status: 'succeeded', code: 'ok', result: planCommandResult('plan-current', '4'.repeat(64), 'REJECTED')}});
+    await waitForFrame(() => client.sessionCommands.length === 2);
+    expect(client.sessionCommands[1]).toBe('tui-plan-4-restore-exit:permissions:{"selection":"AUTO"}');
+    client.emit(permissionResult('tui-plan-4-restore-exit', 'ASK', 8));
+    await waitForFrame(() => view.lastFrame()?.includes('权限恢复未确认') === true);
+    expect(view.lastFrame()).not.toContain('计划已拒绝，未执行任何步骤');
+    view.unmount();
+  });
+
+  it('plan-execute 拒绝或异常绑定会明确保留 Plan 恢复路径', async () => {
+    for (const [status, matched] of [['rejected', true], ['succeeded', false]] as const) {
+      const client = new FakeAgentClient(); const view = await initializedTui(client);
+      view.stdin.write('/plan task'); view.stdin.write('\r');
+      await waitForFrame(() => client.sessionCommands.length === 1);
+      enterPlan(client); await waitForFrame(() => client.planTasks.length === 1);
+      client.sessionCommands.length = 0;
+      client.emit({version: 0, type: 'run.started', requestId: 'tui-plan-1', sessionId: 'session-1',
+        runId: 'run-plan', sequence: 4, payload: {}});
+      client.emit({version: 0, type: 'plan.proposed', requestId: 'tui-plan-1', sessionId: 'session-1',
+        runId: 'run-plan', sequence: 5, payload: {planId: 'plan-current', status: 'awaiting_approval',
+          objective: '计划', workspaceDigest: '5'.repeat(64),
+          steps: [{ordinal: 1, title: '步骤', detail: '详情'}]}});
+      client.emit({version: 0, type: 'run.completed', requestId: 'tui-plan-1', sessionId: 'session-1',
+        runId: 'run-plan', sequence: 6, payload: {stopReason: 'completed', modelTurns: 1, toolCalls: 0}});
+      await waitForFrame(() => view.lastFrame()?.includes('批准并执行') === true); view.stdin.write('\r');
+      client.emit({version: 0, type: 'session.command.result', requestId: 'approve',
+        sessionId: 'session-1', sequence: 7, payload: {commandId: 'tui-plan-3-approve', intent: 'plan-approve',
+          status: 'succeeded', code: 'ok', result: planCommandResult('plan-current', '5'.repeat(64), 'APPROVED')}});
+      await waitForFrame(() => client.sessionCommands.length === 2);
+      client.emit(permissionResult('tui-plan-4-restore-execute', 'ASK', 8));
+      await waitForFrame(() => client.sessionCommands.length === 3);
+      client.emit({version: 0, type: 'session.command.result', requestId: 'execute',
+        sessionId: 'session-1', sequence: 9, payload: {commandId: 'tui-plan-5-execute', intent: 'plan-execute',
+          status, code: status === 'succeeded' ? 'ok' : 'invalid_argument', result: status === 'succeeded'
+            ? planCommandResult(matched ? 'plan-current' : 'plan-other', matched ? '5'.repeat(64) : '6'.repeat(64), 'COMPLETED') : {}}});
+      await waitForFrame(() => view.lastFrame()?.includes('Plan 已保留') === true);
+      expect(view.lastFrame()).toContain('可用 /plan 查看并恢复');
+      view.unmount();
+    }
+  });
+
+  it('进入前已是 PLAN 时批准执行使用安全 ASK', async () => {
+    const client = new FakeAgentClient(); const view = await initializedTui(client);
+    view.stdin.write('/plan task'); view.stdin.write('\r'); await waitForFrame(() => client.sessionCommands.length === 1);
+    enterPlan(client, 2, 'PLAN'); await waitForFrame(() => client.planTasks.length === 1); client.sessionCommands.length = 0;
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-plan-1', sessionId: 'session-1', runId: 'run-plan', sequence: 4, payload: {}});
+    client.emit({version: 0, type: 'plan.proposed', requestId: 'tui-plan-1', sessionId: 'session-1', runId: 'run-plan', sequence: 5,
+      payload: {planId: 'plan-current', status: 'awaiting_approval', objective: '计划', workspaceDigest: 'f'.repeat(64),
+        steps: [{ordinal: 1, title: '步骤', detail: '详情'}]}});
+    client.emit({version: 0, type: 'run.completed', requestId: 'tui-plan-1', sessionId: 'session-1', runId: 'run-plan', sequence: 6,
+      payload: {stopReason: 'completed', modelTurns: 1, toolCalls: 0}});
+    await waitForFrame(() => view.lastFrame()?.includes('批准并执行') === true); view.stdin.write('\r');
+    client.emit({version: 0, type: 'session.command.result', requestId: 'approve', sessionId: 'session-1', sequence: 7,
+      payload: {commandId: 'tui-plan-3-approve', intent: 'plan-approve', status: 'succeeded', code: 'ok',
+        result: planCommandResult('plan-current', 'f'.repeat(64), 'APPROVED')}});
+    await waitForFrame(() => client.sessionCommands.length === 2);
+    expect(client.sessionCommands[1]).toBe('tui-plan-4-restore-execute:permissions:{"selection":"ASK"}');
+    view.unmount();
+  });
+
+  it('迟到或摘要不匹配的 approve 结果不会触发执行', async () => {
+    const client = new FakeAgentClient(); const view = await initializedTui(client);
+    view.stdin.write('/plan task'); view.stdin.write('\r'); await waitForFrame(() => client.sessionCommands.length === 1); enterPlan(client); await waitForFrame(() => client.planTasks.length === 1);
+    client.sessionCommands.length = 0;
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-plan-1', sessionId: 'session-1', runId: 'run-plan', sequence: 4, payload: {}});
+    client.emit({version: 0, type: 'plan.proposed', requestId: 'tui-plan-1', sessionId: 'session-1', runId: 'run-plan', sequence: 5,
+      payload: {planId: 'plan-current', status: 'awaiting_approval', objective: '计划', workspaceDigest: 'c'.repeat(64),
+        steps: [{ordinal: 1, title: '步骤', detail: '详情'}]}});
+    client.emit({version: 0, type: 'run.completed', requestId: 'tui-plan-1', sessionId: 'session-1', runId: 'run-plan', sequence: 6,
+      payload: {stopReason: 'completed', modelTurns: 1, toolCalls: 0}});
+    await waitForFrame(() => view.lastFrame()?.includes('批准并执行') === true); view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 1);
+    client.emit({version: 0, type: 'session.command.result', requestId: 'stale-result', sessionId: 'session-1', sequence: 5,
+      payload: {commandId: 'tui-plan-3-approve', intent: 'plan-approve', status: 'succeeded', code: 'ok',
+        result: planCommandResult('plan-stale', 'd'.repeat(64), 'APPROVED')}});
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(client.sessionCommands).toHaveLength(1); expect(view.lastFrame()).toContain('批准并执行');
     view.unmount();
   });
 
@@ -1353,6 +1660,34 @@ function initialCheckpointState(): TuiState {
     await waitForFrame(() => view.lastFrame()?.includes('anthropic/personal') === true);
     view.unmount();
   });
+function permissionResult(
+  commandId: string,
+  selection: 'PLAN' | 'ASK' | 'AUTO' | 'ADVANCED',
+  sequence: number,
+  status: 'succeeded' | 'rejected' = 'succeeded',
+): ProtocolEvent {
+  const mode = selection === 'PLAN' ? 'PLAN' : selection === 'ADVANCED' ? 'ACCEPT_EDITS' : 'DEFAULT';
+  const reviewer = selection === 'AUTO' ? 'AUTO_REVIEW' : 'USER';
+  return {version: 0, type: 'session.command.result', requestId: `result-${commandId}`,
+    sessionId: 'session-1', sequence, payload: {commandId, intent: 'permissions', status,
+      code: status === 'succeeded' ? 'ok' : 'invalid_argument', result: status === 'succeeded' ? {
+        effectiveMode: mode, effectiveReviewer: reviewer, effectiveSelection: selection,
+        modeSourceKind: 'BASELINE', modeSafeSourceId: 'runtime-baseline',
+        modeValidationStatus: 'BASELINE', startupRuleCount: 0, rules: [],
+      } : {}}};
+}
+
+function enterPlan(client: FakeAgentClient, sequence = 2, selection: 'PLAN' | 'ASK' | 'AUTO' | 'ADVANCED' = 'ASK'): void {
+  client.emit(permissionResult('tui-plan-1-query', selection, sequence));
+  client.emit(permissionResult('tui-plan-2-enter', 'PLAN', sequence + 1));
+}
+
+function planCommandResult(planId: string, workspaceDigest: string, status: string) {
+  return {planId, status, approvalGate: status === 'APPROVED' ? 'APPROVED' : 'PENDING', objective: '计划',
+    workspaceDigest, steps: [{ordinal: 1, title: '步骤', detail: '详情', expectedDigest: workspaceDigest}],
+    nextStep: 1, activeStep: null};
+}
+
 async function initializedTui(client: FakeAgentClient) {
   const view = render(<AgentTui client={client} />);
   await waitForFrame(() => client.initializeCalls === 1);
@@ -1392,11 +1727,13 @@ describe('approvalDecision', () => {
 
 class FakeAgentClient implements AgentClient {
   readonly prompts: string[] = [];
+  readonly planTasks: string[] = [];
   readonly checkpointCommands: string[] = [];
   readonly sessionCommands: string[] = [];
   readonly providerControls: string[] = [];
   readonly providerLogins: ProviderLoginRequest[] = [];
   providerLoginResult: ProviderLoginResult = {status: 'succeeded', exitCode: 0};
+  rejectPlanStart = false;
   readonly fileSuggestions: string[] = [];
   readonly taskCommands: string[] = [];
   readonly skillInvocations: string[] = [];
@@ -1430,6 +1767,12 @@ class FakeAgentClient implements AgentClient {
   public startRun(prompt: string): string {
     this.prompts.push(prompt);
     return `tui-${this.prompts.length + 1}`;
+  }
+
+  public startPlan(task: string): string {
+    if (this.rejectPlanStart) throw new Error('rejected');
+    this.planTasks.push(task);
+    return `tui-plan-${this.planTasks.length}`;
   }
 
   public invokeSkill(name: string, arguments_: string): string {
@@ -1473,7 +1816,7 @@ class FakeAgentClient implements AgentClient {
     this.taskCommands.push(`remove:${taskId}`); return 'tui-task-remove';
   }
 
-  public sessionCommand(commandId: string, intent: 'help' | 'clear' | 'compact' | 'context' | 'doctor' | 'model' | 'permissions' | 'resume' | 'plan-status' | 'plan' | 'plan-approve' | 'plan-reject' | 'plan-step-begin' | 'plan-step-complete', arguments_: Readonly<Record<string, unknown>>): string {
+  public sessionCommand(commandId: string, intent: 'help' | 'clear' | 'compact' | 'context' | 'doctor' | 'model' | 'permissions' | 'resume' | 'plan-status' | 'plan' | 'plan-approve' | 'plan-reject' | 'plan-step-begin' | 'plan-step-complete' | 'plan-execute', arguments_: Readonly<Record<string, unknown>>): string {
     this.sessionCommands.push(`${commandId}:${intent}:${JSON.stringify(arguments_)}`);
     return 'tui-session-command';
   }

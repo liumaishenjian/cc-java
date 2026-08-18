@@ -138,11 +138,13 @@ public final class SessionCommandDispatcher {
                 case SessionCommandIntent.Resume resume -> resume(commandId, sessionId, resume.sessionId(), cancellationToken);
                 case SessionCommandIntent.PlanStatus ignored -> planStatus(commandId, sessionId);
                 case SessionCommandIntent.Plan create -> createPlan(commandId, sessionId, create);
-                case SessionCommandIntent.PlanApprove approve -> planApprove(commandId, sessionId, approve.workspaceDigest());
-                case SessionCommandIntent.PlanReject ignored -> planReject(commandId, sessionId);
+                case SessionCommandIntent.PlanApprove approve -> planApprove(commandId, sessionId,
+                        approve.planId(), approve.workspaceDigest());
+                case SessionCommandIntent.PlanReject reject -> planReject(commandId, sessionId, reject.planId());
                 case SessionCommandIntent.PlanStepBegin begin -> planBegin(commandId, sessionId, begin.workspaceDigest());
                 case SessionCommandIntent.PlanStepComplete complete -> planComplete(commandId, sessionId, complete.workspaceDigest());
-                case SessionCommandIntent.PlanExecute execute -> planExecute(commandId, sessionId, execute.maxSteps(), cancellationToken);
+                case SessionCommandIntent.PlanExecute execute -> planExecute(commandId, sessionId,
+                        execute.planId(), execute.workspaceDigest(), execute.maxSteps(), cancellationToken);
             };
         } catch (RuntimeException ignored) {
             return terminal(intent.kind(), commandId, safeSessionId(), SessionCommandStatus.FAILED,
@@ -167,14 +169,17 @@ public final class SessionCommandDispatcher {
         }
     }
 
-    private SessionCommandResult planApprove(CommandId id, SessionId sid, String digest) {
-        return runtime.approvePlan(digest)
+    private SessionCommandResult planApprove(CommandId id, SessionId sid, String planId, String digest) {
+        return runtime.approvePlan(planId, digest)
+                .filter(value -> value.state().approvalGate()
+                        == io.github.liumaishenjian.ccjava.domain.PlanApprovalGate.APPROVED)
                 .map(value -> success(SessionCommandKind.PLAN_APPROVE, id, sid, planPayload(value.document(), value.state())))
-                .orElseGet(() -> rejected(SessionCommandKind.PLAN_APPROVE, id, sid, SessionCommandResultCode.NOT_AVAILABLE));
+                .orElseGet(() -> rejected(SessionCommandKind.PLAN_APPROVE, id, sid,
+                        SessionCommandResultCode.INVALID_ARGUMENT));
     }
 
-    private SessionCommandResult planReject(CommandId id, SessionId sid) {
-        return runtime.rejectPlan()
+    private SessionCommandResult planReject(CommandId id, SessionId sid, String planId) {
+        return runtime.rejectPlan(planId)
                 .map(value -> success(SessionCommandKind.PLAN_REJECT, id, sid, planPayload(value.document(), value.state())))
                 .orElseGet(() -> rejected(SessionCommandKind.PLAN_REJECT, id, sid, SessionCommandResultCode.NOT_AVAILABLE));
     }
@@ -202,8 +207,17 @@ public final class SessionCommandDispatcher {
         }
     }
 
-    private SessionCommandResult planExecute(CommandId id, SessionId sid, int maxSteps,
+    private SessionCommandResult planExecute(CommandId id, SessionId sid, String planId,
+                                              String workspaceDigest, int maxSteps,
                                               CancellationToken cancellationToken) {
+        var current = runtime.planStatus();
+        if (current.isEmpty()
+                || !current.orElseThrow().document().id().equals(planId)
+                || !current.orElseThrow().document().workspaceDigest().equals(workspaceDigest)
+                || current.orElseThrow().state().approvalGate()
+                    != io.github.liumaishenjian.ccjava.domain.PlanApprovalGate.APPROVED) {
+            return rejected(SessionCommandKind.PLAN_EXECUTE, id, sid, SessionCommandResultCode.INVALID_ARGUMENT);
+        }
         return runtime.executePlan(cancellationToken, maxSteps)
                 .map(value -> success(SessionCommandKind.PLAN_EXECUTE, id, sid,
                         planPayload(value.document(), value.state())))
@@ -414,8 +428,17 @@ public final class SessionCommandDispatcher {
 
     private SessionCommandEvent.HelpPayload help() {
         List<SessionCommandEvent.CommandAvailability> commands = Arrays.stream(SessionCommandKind.values())
+                .filter(SessionCommandDispatcher::publicCommand)
                 .map(kind -> new SessionCommandEvent.CommandAvailability(kind, support(kind))).toList();
         return new SessionCommandEvent.HelpPayload(commands);
+    }
+
+    /** 内部 Plan 运维 intent 保持协议兼容，但不进入用户可发现命令面。 */
+    private static boolean publicCommand(SessionCommandKind kind) {
+        return switch (kind) {
+            case PLAN_APPROVE, PLAN_REJECT, PLAN_STEP_BEGIN, PLAN_STEP_COMPLETE, PLAN_EXECUTE -> false;
+            default -> true;
+        };
     }
 
     private SessionCommandEvent.CommandSupport support(SessionCommandKind kind) {

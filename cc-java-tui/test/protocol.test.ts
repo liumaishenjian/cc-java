@@ -265,9 +265,6 @@ describe('decodeEvent', () => {
           {intent: 'doctor', support: 'available'}, {intent: 'model', support: 'not_available'},
           {intent: 'permissions', support: 'deferred'}, {intent: 'resume', support: 'deferred'},
           {intent: 'plan-status', support: 'available'}, {intent: 'plan', support: 'available'},
-          {intent: 'plan-approve', support: 'available'}, {intent: 'plan-step-begin', support: 'available'},
-          {intent: 'plan-reject', support: 'available'}, {intent: 'plan-step-complete', support: 'available'},
-          {intent: 'plan-execute', support: 'available'},
         ],
       }},
     };

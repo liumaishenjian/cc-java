@@ -62,6 +62,38 @@ class RuntimeStdioCommandHandlerTest {
     }
 
     @Test
+    void naturalLanguagePlanStartProducesServerOwnedProposalWithoutUserDigest() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        AtomicInteger calls = new AtomicInteger();
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            calls.incrementAndGet();
+            assertThat(request.messages()).anySatisfy(message -> {
+                if (message instanceof io.github.liumaishenjian.ccjava.domain.UserMessage user) {
+                    assertThat(user.content()).isEqualTo("设计安全登录流程");
+                }
+            });
+            return ModelTurn.text("{\"objective\":\"安全登录\",\"steps\":[{\"title\":\"检查\",\"detail\":\"阅读现有实现\"}]}");
+        }, testOptions())) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"plan.start\","
+                    + "\"requestId\":\"plan\",\"sessionId\":\"%s\",\"sequence\":2,"
+                    + "\"payload\":{\"prompt\":\"设计安全登录流程\"}}").formatted(sessionId)), emitter);
+
+            CapturedEvent proposal = awaitEvent(events, "plan.proposed");
+            awaitTerminal(events);
+            assertThat(proposal.payload().get("planId").stringValue()).startsWith("plan-run-");
+            assertThat(proposal.payload().get("workspaceDigest").stringValue()).matches("[a-f0-9]{64}");
+            assertThat(proposal.payload().toString()).contains("安全登录", "阅读现有实现");
+            assertThat(calls).hasValue(1);
+        }
+    }
+
+    @Test
     void terminalContainsProviderUsageAndPrivacySafeTimingProjection()
             throws Exception {
         StdioProtocolCodec codec = new StdioProtocolCodec();

@@ -324,7 +324,7 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
 - FR-PERM-001：S05 提供可由 CLI/Composition Root 选择的 `DEFAULT`、安全 `PLAN` 和
   `ACCEPT_EDITS`；模式在一次 Headless Session 装配时固定。
 - FR-PERM-002：`DEFAULT` 自动允许普通读取，修改和 Shell 默认询问。
-- FR-PERM-003：`PLAN` 禁止修改文件和执行有副作用的命令。
+- FR-PERM-003：`PLAN` 禁止修改文件和执行有副作用的命令。用户以 `/plan [自然语言任务]` 启动真实只读规划；TUI 必须严格执行 `permissions query → selection PLAN → plan.start`，无参数执行 `query → PLAN → plan-status`。objective、workspace digest 与结构化步骤由 Runtime 内部生成，不属于用户输入 API。Plan proposal 必须完整展示，并提供批准执行、继续修改、拒绝退出三项选择；批准结果绑定当前 Session-owned Plan ID 与服务端事件 digest，随后必须恢复进入前公开 selection（原值为 PLAN 时使用 ASK）并等待恢复成功，才可发送同样绑定的 execute。恢复失败保持 APPROVED 且不执行；revise 保持 PLAN，reject exit 恢复 selection；迟到/不匹配结果、resume 或 transport failure 不得推进旧状态。
 - FR-PERM-004：审批支持允许一次、按可信 Tool/ToolSource/selector 当前会话允许和拒绝；
   持久规则与分层 Settings 仍属于 S08。
 - FR-PERM-005：硬拒绝优先于模式、规则和用户会话允许。

@@ -25,6 +25,7 @@ public final class StdioProtocolCodec {
     private static final Set<String> COMMAND_TYPES = Set.of(
             "initialize",
             "run.start",
+            "plan.start",
             "input.begin",
             "input.chunk",
             "input.commit",
@@ -386,9 +387,11 @@ public final class StdioProtocolCodec {
             case "model" -> Set.of("name");
             case "permissions" -> Set.of("mode", "selection");
             case "resume" -> Set.of("sessionId");
-            case "plan-status", "plan-reject" -> Set.of();
-            case "plan-step-complete", "plan-step-begin", "plan-approve" -> Set.of("workspaceDigest");
-            case "plan-execute" -> Set.of("maxSteps");
+            case "plan-status" -> Set.of();
+            case "plan-reject" -> Set.of("planId");
+            case "plan-step-complete", "plan-step-begin" -> Set.of("workspaceDigest");
+            case "plan-approve" -> Set.of("planId", "workspaceDigest");
+            case "plan-execute" -> Set.of("planId", "workspaceDigest", "maxSteps");
             case "plan" -> Set.of("objective", "workspaceDigest", "steps");
             default -> throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "未知 session.command intent");
         };
@@ -431,9 +434,13 @@ public final class StdioProtocolCodec {
             throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "resume sessionId 非法");
         }
         if ((intent.equals("plan-approve") || intent.equals("plan-step-begin")
-                || intent.equals("plan-step-complete"))
+                || intent.equals("plan-step-complete") || intent.equals("plan-execute"))
                 && invalidCommandText(requiredPayloadText(arguments, "workspaceDigest", requestId))) {
             throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "plan workspaceDigest 非法");
+        }
+        if ((intent.equals("plan-approve") || intent.equals("plan-reject") || intent.equals("plan-execute"))
+                && invalidCommandText(requiredPayloadText(arguments, "planId", requestId))) {
+            throw new StdioProtocolException("INVALID_ARGUMENT", requestId, "planId 非法");
         }
         if (intent.equals("plan-execute")) {
             JsonNode maxSteps = arguments.get("maxSteps");

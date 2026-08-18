@@ -16,12 +16,14 @@ Run 结束时，TUI 直接展示 Java 终态中的安全摘要，例如
 替代整个 Run 的终态。
 
 普通 `npm run check` / `npm test` 只运行不依赖 Java 产物的确定性 TUI 测试。跨进程 Java
-Plan E2E 是显式 opt-in，运行前必须设置 `CC_JAVA_TEST_CLASSPATH`，且将
-`cc-java-cli/target/classes` 放在 classpath 首位；缺少变量时专用测试会明确失败，不会
-跳过或假通过：
+Plan E2E 是显式 opt-in，运行前必须设置 `CC_JAVA_TEST_CLASSPATH` 与
+`CC_JAVA_PLAN_FAKE_CLASSPATH`；后者必须包含编译后的 Java 测试 Fixture
+`StdioProtocolFixtureMain`，并会实际置于 Java 启动 classpath 首位。缺少任一变量时专用测试
+会明确失败，不会跳过或假通过：
+
+在仓库根目录运行以下可复制命令；三个 classpath 变量均使用绝对路径，因此测试启动不依赖
+PowerShell 或 Vitest 的当前目录：
 
 ```powershell
-Set-Location cc-java-tui
-$env:CC_JAVA_TEST_CLASSPATH = "..\cc-java-cli\target\classes;..\cc-java-core\target\classes;..\cc-java-domain\target\classes;<依赖 jars>"
-npm.cmd run test:real-java
+.\mvnw.cmd -q -pl cc-java-cli -am test-compile dependency:build-classpath "-DincludeScope=test" "-Dmdep.outputFile=target/test-dependency-classpath.txt"; $root = (Get-Location).Path; $env:CC_JAVA_TEST_DEPENDENCY_CLASSPATH = (Get-Content -LiteralPath (Join-Path $root 'cc-java-cli\target\test-dependency-classpath.txt') -Raw).Trim(); $modules = 'cc-java-cli','cc-java-core','cc-java-domain','cc-java-model-spring-ai','cc-java-tools-local','cc-java-tools-web','cc-java-mcp','cc-java-protocol','cc-java-sdk'; $env:CC_JAVA_TEST_CLASSPATH = (($modules | ForEach-Object { Join-Path $root "$_\target\classes" }) + $env:CC_JAVA_TEST_DEPENDENCY_CLASSPATH) -join [IO.Path]::PathSeparator; $env:CC_JAVA_PLAN_FAKE_CLASSPATH = Join-Path $root 'cc-java-cli\target\test-classes'; npm.cmd --prefix cc-java-tui run test:real-java
 ```

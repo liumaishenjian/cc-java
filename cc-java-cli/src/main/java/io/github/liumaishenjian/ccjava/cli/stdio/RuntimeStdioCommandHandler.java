@@ -406,6 +406,7 @@ public final class RuntimeStdioCommandHandler
         return switch (command.type()) {
             case "initialize" -> initialize(command, events);
             case "run.start" -> startRun(command, events);
+            case "plan.start" -> startPlan(command, events);
             case "input.begin" -> beginInput(command);
             case "input.chunk" -> appendInputChunk(command);
             case "input.commit" -> commitInput(command, events);
@@ -486,6 +487,27 @@ public final class RuntimeStdioCommandHandler
             StdioProtocol.EventEmitter events) throws StdioProtocolException {
         String prompt = requiredPrompt(command);
         return startAcceptedInput(command, events, prompt);
+    }
+
+    /**
+     * 以自然语言任务启动独立的只读 Plan Runtime。
+     *
+     * <p>该命令不依赖可变 Permission overlay，也不接受 workspace digest 或结构化步骤；
+     * Java 在真实 Run 内生成提案和摘要，并继续拥有 Session、事件与终态。</p>
+     */
+    private StdioProtocol.Disposition startPlan(
+            StdioProtocol.Command command,
+            StdioProtocol.EventEmitter events) throws StdioProtocolException {
+        String task = requiredPrompt(command);
+        ActiveRun run;
+        synchronized (lock) {
+            ensureState(State.READY, command);
+            requireSession(command);
+            requireNoRunId(command);
+            run = startRunLocked(command.requestId(), task.length(), events);
+        }
+        executor.submit(() -> executePlanRun(run, task));
+        return StdioProtocol.Disposition.CONTINUE;
     }
 
     /** 将 TUI 的类型化 Skill 命令启动为普通 Run；Java 仍生成 Run ID 并拥有终态。 */
@@ -1306,12 +1328,15 @@ public final class RuntimeStdioCommandHandler
                                             arguments.get("mode").stringValue())));
             case "resume" -> new SessionCommandIntent.Resume(new SessionId(arguments.get("sessionId").stringValue()));
             case "plan-status" -> new SessionCommandIntent.PlanStatus();
-            case "plan-approve" -> new SessionCommandIntent.PlanApprove(arguments.get("workspaceDigest").stringValue());
+            case "plan-approve" -> new SessionCommandIntent.PlanApprove(
+                    arguments.get("planId").stringValue(), arguments.get("workspaceDigest").stringValue());
             case "plan-step-begin" -> new SessionCommandIntent.PlanStepBegin(arguments.get("workspaceDigest").stringValue());
-            case "plan-reject" -> new SessionCommandIntent.PlanReject();
+            case "plan-reject" -> new SessionCommandIntent.PlanReject(arguments.get("planId").stringValue());
             case "plan-step-complete" -> new SessionCommandIntent.PlanStepComplete(
                     arguments.get("workspaceDigest").stringValue());
-            case "plan-execute" -> new SessionCommandIntent.PlanExecute(arguments.get("maxSteps").intValue());
+            case "plan-execute" -> new SessionCommandIntent.PlanExecute(
+                    arguments.get("planId").stringValue(), arguments.get("workspaceDigest").stringValue(),
+                    arguments.get("maxSteps").intValue());
             case "plan" -> new SessionCommandIntent.Plan(
                     arguments.get("objective").stringValue(),
                     java.util.stream.StreamSupport.stream(arguments.get("steps").spliterator(), false)
@@ -1600,6 +1625,14 @@ public final class RuntimeStdioCommandHandler
             } else {
                 application.run(message);
             }
+        } catch (RuntimeException exception) {
+            emitUnexpectedFailure(run);
+        }
+    }
+
+    private void executePlanRun(ActiveRun run, String task) {
+        try {
+            application.runPlan(task);
         } catch (RuntimeException exception) {
             emitUnexpectedFailure(run);
         }

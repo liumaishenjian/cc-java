@@ -20,7 +20,7 @@ const TOKEN_PATTERN = new RegExp(`${TOKEN_START}paste:([1-9][0-9]*)${TOKEN_END}`
 
 const COMMAND_COMPLETIONS = [
   '/clear', '/compact', '/context', '/doctor', '/help', '/model', '/permissions', '/resume',
-  '/plan-status', '/plan', '/plan-approve', '/plan-reject', '/plan-step-begin', '/plan-step-complete',
+  '/plan-status', '/plan',
 ] as const;
 const ARGUMENT_COMPLETIONS: Readonly<Record<string, readonly string[]>> = {
   '/permissions': [

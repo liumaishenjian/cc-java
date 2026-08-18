@@ -39,6 +39,13 @@ import {
   type ApprovalPickerState,
 } from './approval-picker.js';
 import {
+  createPlanReviewPicker,
+  movePlanReviewPicker,
+  PLAN_REVIEW_PICKER_ITEMS,
+  selectedPlanReviewDecision,
+  type PlanReviewPickerState,
+} from './plan-review-picker.js';
+import {
   independentProviderControlId,
   isIndependentProviderControlResult,
 } from './provider-control-id.js';
@@ -73,6 +80,24 @@ import {
 } from './input-editor.js';
 
 const PRODUCT_VERSION = '0.1.0';
+
+type PublicPermissionSelection = 'PLAN' | 'ASK' | 'AUTO' | 'ADVANCED';
+type PlanEntryState = {
+  readonly phase: 'query' | 'enter' | 'restore-after-start-failure';
+  readonly commandId: string;
+  readonly task: string | undefined;
+  readonly originalSelection: PublicPermissionSelection | undefined;
+};
+type PlanDecisionState = {
+  readonly phase: 'approve' | 'restore-for-execute' | 'execute' | 'reject-revise' | 'reject-exit' | 'restore-for-exit';
+  readonly commandId: string;
+  readonly planId: string;
+  readonly workspaceDigest: string;
+};
+type PlanSessionState = {
+  readonly originalSelection: PublicPermissionSelection;
+};
+
 const CODEJ_BANNER = [
   ' ██████  ██████  ██████  ███████     ██',
   '██      ██    ██ ██   ██ ██          ██',
@@ -91,6 +116,7 @@ export interface AgentClient {
   onExit(listener: () => void): () => void;
   initialize(): string;
   startRun(prompt: string): string;
+  startPlan?(task: string): string;
   invokeSkill?(name: string, arguments_: string): string;
   cancelRun(): string;
   resolveApproval(
@@ -193,6 +219,8 @@ export function AgentTui({client}: AgentTuiProps) {
   const [connectWizard, setConnectWizard] = useState<ModelSetupState | undefined>(undefined);
   const [permissionPicker, setPermissionPicker] = useState<PermissionPickerState | undefined>(undefined);
   const [approvalPicker, setApprovalPicker] = useState<ApprovalPickerState>(() => initialApprovalPickerState());
+  const [planReviewPicker, setPlanReviewPicker] = useState<PlanReviewPickerState | undefined>(undefined);
+  const planReviewPickerRef = useRef<PlanReviewPickerState | undefined>(undefined);
   const composerRef = useRef(composer);
   const permissionPickerSubmittedRef = useRef(false);
   const historySessionIdRef = useRef<string | undefined>(undefined);
@@ -205,6 +233,9 @@ export function AgentTui({client}: AgentTuiProps) {
   const transportFailureRef = useRef(false);
   const nextCommandNumber = useRef(1);
   const nextConnectGeneration = useRef(1);
+  const pendingPlanEntryRef = useRef<PlanEntryState | undefined>(undefined);
+  const pendingPlanDecisionRef = useRef<PlanDecisionState | undefined>(undefined);
+  const planSessionRef = useRef<PlanSessionState | undefined>(undefined);
   const connectWizardRef = useRef<ModelSetupState | undefined>(undefined);
   const setupCredentialBytesRef = useRef<number[]>([]);
   const fileSuggestionRef = useRef<{
@@ -241,6 +272,10 @@ export function AgentTui({client}: AgentTuiProps) {
   const replaceConnectWizard = (next: ModelSetupState | undefined) => {
     connectWizardRef.current = next;
     setConnectWizard(next);
+  };
+  const replacePlanReviewPicker = (next: PlanReviewPickerState | undefined) => {
+    planReviewPickerRef.current = next;
+    setPlanReviewPicker(next);
   };
   const applyComposer = (action: ComposerAction) => {
     const transition = reduceComposer(composerRef.current, action, composerLayout);
@@ -287,6 +322,10 @@ export function AgentTui({client}: AgentTuiProps) {
           if (switchingSession) replaceComposer(createComposerState(4));
           pendingSteeringPromptsRef.current.clear();
           pendingSubmissionsRef.current.clear();
+          pendingPlanEntryRef.current = undefined;
+          pendingPlanDecisionRef.current = undefined;
+          planSessionRef.current = undefined;
+          replacePlanReviewPicker(undefined);
         }
         if (event.payload.modelConfigured === false && connectWizardRef.current === undefined) {
           setupCredentialBytesRef.current.fill(0); setupCredentialBytesRef.current.length = 0;
@@ -329,37 +368,194 @@ export function AgentTui({client}: AgentTuiProps) {
         }
       }
       if (event.type === 'session.command.result') {
-        if (event.payload.intent === 'resume' && event.payload.status === 'succeeded') {
+        const payload = event.payload;
+        const commandId = String(payload.commandId);
+        const intent = String(payload.intent);
+        const status = String(payload.status);
+        const result = payload.result as Readonly<Record<string, unknown>>;
+        let planTransitionHandled = false;
+        const entry = pendingPlanEntryRef.current;
+        if (entry !== undefined && commandId === entry.commandId && intent === 'permissions') {
+          planTransitionHandled = true;
+          if (entry.phase === 'query') {
+            pendingPlanEntryRef.current = undefined;
+            const queriedSelection = status === 'succeeded'
+              ? publicPermissionSelection(result.effectiveSelection) : undefined;
+            const originalSelection = queriedSelection === 'PLAN'
+              && planSessionRef.current !== undefined
+              ? planSessionRef.current.originalSelection
+              : queriedSelection;
+            if (originalSelection === undefined) {
+              dispatch({type: 'slash.notice', message: '无法读取当前权限选择；未进入 Plan'});
+            } else {
+              const enterId = `tui-plan-${nextCommandNumber.current++}-enter`;
+              pendingPlanEntryRef.current = {
+                phase: 'enter', commandId: enterId, task: entry.task, originalSelection,
+              };
+              client.sessionCommand?.(enterId, 'permissions', {selection: 'PLAN'});
+            }
+          } else if (entry.phase === 'enter') {
+            pendingPlanEntryRef.current = undefined;
+            if (status !== 'succeeded' || result.effectiveSelection !== 'PLAN'
+              || entry.originalSelection === undefined) {
+              dispatch({type: 'slash.notice', message: 'Plan 模式未能发布；未启动规划'});
+            } else {
+              planSessionRef.current = {originalSelection: entry.originalSelection};
+              if (entry.task === undefined) {
+                client.sessionCommand?.(`tui-plan-${nextCommandNumber.current++}-status`, 'plan-status', {});
+              } else if (client.startPlan === undefined) {
+                if (!restoreAfterPlanStartFailure(client, nextCommandNumber, pendingPlanEntryRef,
+                  entry.task, entry.originalSelection)) {
+                  dispatch({type: 'slash.notice', message: 'Plan 任务未启动且恢复命令未被接受；请用 /permissions query 检查当前选择'});
+                }
+              } else {
+                try {
+                  const requestId = client.startPlan(entry.task);
+                  const label = `/plan ${entry.task}`;
+                  replaceComposer(acceptSubmittedComposer(composerRef.current));
+                  dispatch({type: 'run.submitted', requestId, prompt: label});
+                } catch {
+                  if (!restoreAfterPlanStartFailure(client, nextCommandNumber, pendingPlanEntryRef,
+                    entry.task, entry.originalSelection)) {
+                    dispatch({type: 'slash.notice', message: 'Plan 任务未启动且恢复命令未被接受；请用 /permissions query 检查当前选择'});
+                  }
+                }
+              }
+            }
+          } else {
+            pendingPlanEntryRef.current = undefined;
+            if (status === 'succeeded'
+              && result.effectiveSelection === executionSelection(entry.originalSelection)) {
+              planSessionRef.current = undefined;
+              dispatch({type: 'slash.notice', message: 'Plan 任务未启动；已恢复进入前权限选择'});
+            } else {
+              dispatch({type: 'slash.notice', message: 'Plan 任务未启动且权限恢复失败；当前可能仍为 Plan 模式'});
+            }
+          }
+        }
+        const decision = pendingPlanDecisionRef.current;
+        if (decision !== undefined && commandId === decision.commandId) {
+          planTransitionHandled = true;
+          const boundResult = result.planId === decision.planId
+            && result.workspaceDigest === decision.workspaceDigest;
+          if (decision.phase === 'approve' && intent === 'plan-approve') {
+            if (status === 'succeeded' && boundResult) {
+              const restoreId = `tui-plan-${nextCommandNumber.current++}-restore-execute`;
+              pendingPlanDecisionRef.current = {...decision, phase: 'restore-for-execute', commandId: restoreId};
+              client.sessionCommand?.(restoreId, 'permissions',
+                permissionRestoreArguments(planSessionRef.current?.originalSelection));
+            } else {
+              pendingPlanDecisionRef.current = undefined;
+              const picker = planReviewPickerRef.current;
+              if (picker?.planId === decision.planId && picker.workspaceDigest === decision.workspaceDigest) {
+                replacePlanReviewPicker({...picker, submitted: false});
+              }
+            }
+          } else if (decision.phase === 'restore-for-execute' && intent === 'permissions') {
+            if (status === 'succeeded'
+              && result.effectiveSelection === executionSelection(planSessionRef.current?.originalSelection)) {
+              const executeId = `tui-plan-${nextCommandNumber.current++}-execute`;
+              pendingPlanDecisionRef.current = {...decision, phase: 'execute', commandId: executeId};
+              client.sessionCommand?.(executeId, 'plan-execute', {
+                planId: decision.planId,
+                workspaceDigest: decision.workspaceDigest,
+                maxSteps: 128,
+              });
+              replacePlanReviewPicker(undefined);
+            } else {
+              pendingPlanDecisionRef.current = undefined;
+              const picker = planReviewPickerRef.current;
+              if (picker?.planId === decision.planId && picker.workspaceDigest === decision.workspaceDigest) {
+                replacePlanReviewPicker({...picker, submitted: false});
+              }
+              dispatch({type: 'slash.notice', message: '权限恢复失败；Plan 保持已批准且未执行'});
+            }
+          } else if (decision.phase === 'execute' && intent === 'plan-execute') {
+            pendingPlanDecisionRef.current = undefined;
+            if (status === 'succeeded' && boundResult) {
+              replacePlanReviewPicker(undefined);
+              planSessionRef.current = undefined;
+              dispatch({type: 'slash.notice', message: '计划已提交执行'});
+            } else {
+              dispatch({type: 'slash.notice', message: '计划执行未启动或未完成；Plan 已保留，可用 /plan 查看并恢复'});
+            }
+          } else if (decision.phase === 'reject-revise' && intent === 'plan-reject') {
+            pendingPlanDecisionRef.current = undefined;
+            if (status === 'succeeded' && boundResult) {
+              replacePlanReviewPicker(undefined);
+              dispatch({type: 'slash.notice', message: '计划未执行；保持 Plan 模式，可用 /plan <自然语言任务> 继续修改'});
+            } else {
+              const picker = planReviewPickerRef.current;
+              if (picker?.planId === decision.planId) replacePlanReviewPicker({...picker, submitted: false});
+              dispatch({type: 'slash.notice', message: '计划修改请求未完成；当前 Plan 已保留，可用 /plan 查看'});
+            }
+          } else if (decision.phase === 'reject-exit' && intent === 'plan-reject') {
+            if (status === 'succeeded' && boundResult) {
+              const restoreId = `tui-plan-${nextCommandNumber.current++}-restore-exit`;
+              pendingPlanDecisionRef.current = {...decision, phase: 'restore-for-exit', commandId: restoreId};
+              client.sessionCommand?.(restoreId, 'permissions',
+                permissionRestoreArguments(planSessionRef.current?.originalSelection));
+              replacePlanReviewPicker(undefined);
+            } else {
+              pendingPlanDecisionRef.current = undefined;
+              const picker = planReviewPickerRef.current;
+              if (picker?.planId === decision.planId) replacePlanReviewPicker({...picker, submitted: false});
+            }
+          } else if (decision.phase === 'restore-for-exit' && intent === 'permissions') {
+            pendingPlanDecisionRef.current = undefined;
+            if (status === 'succeeded'
+              && result.effectiveSelection === executionSelection(planSessionRef.current?.originalSelection)) {
+              planSessionRef.current = undefined;
+              dispatch({type: 'slash.notice', message: '计划已拒绝，未执行任何步骤'});
+            } else {
+              dispatch({type: 'slash.notice', message: '计划已拒绝，但权限恢复未确认；请用 /permissions query 检查当前选择'});
+            }
+          }
+        }
+        if (intent === 'resume' && status === 'succeeded') {
           historySessionIdRef.current = event.sessionId;
           fileSuggestionRef.current = undefined;
           replaceComposer(createComposerState(4));
           pendingSteeringPromptsRef.current.clear();
           pendingSubmissionsRef.current.clear();
+          pendingPlanEntryRef.current = undefined;
+          pendingPlanDecisionRef.current = undefined;
+          planSessionRef.current = undefined;
+          replacePlanReviewPicker(undefined);
         }
-        const payload = event.payload;
-        dispatch({
-          type: 'slash.notice',
-          message: renderSlashResult(
-            String(payload.intent), String(payload.status), String(payload.code),
-            payload.result as Readonly<Record<string, unknown>>,
-          ),
-        });
+        if (!planTransitionHandled) {
+          dispatch({
+            type: 'slash.notice',
+            message: renderSlashResult(
+              intent, status, String(payload.code), result,
+            ),
+          });
+          if ((intent === 'plan-status' || intent === 'plan') && status === 'succeeded'
+            && isReviewablePlanStatus(result.status)) {
+            const planId = String(result.planId);
+            const workspaceDigest = String(result.workspaceDigest);
+            dispatch({
+              type: 'plan.status.received',
+              requestId: `plan-status-${planId}`,
+              proposal: {
+                planId,
+                status: 'awaiting_approval',
+                objective: String(result.objective),
+                workspaceDigest,
+                steps: (result.steps as readonly Readonly<Record<string, unknown>>[]).map(step => ({
+                  ordinal: Number(step.ordinal), title: String(step.title), detail: String(step.detail),
+                })),
+              },
+            });
+            replacePlanReviewPicker(createPlanReviewPicker(planId, workspaceDigest));
+          }
+        }
       }
       if (event.type === 'plan.proposed') {
-        const payload = event.payload;
-        const steps = Array.isArray(payload.steps) ? payload.steps : [];
-        dispatch({
-          type: 'slash.notice',
-          message: [
-            `Plan proposal · ${String(payload.status)}`,
-            String(payload.objective),
-            ...steps.map(item => {
-              const step = item as Readonly<Record<string, unknown>>;
-              return `${String(step.ordinal)}. ${String(step.title)} — ${String(step.detail)}`;
-            }),
-            'Review with /plan-status, then use the explicit plan approval command.',
-          ].join('\n'),
-        });
+        pendingPlanDecisionRef.current = undefined;
+        replacePlanReviewPicker(createPlanReviewPicker(
+          String(event.payload.planId), String(event.payload.workspaceDigest),
+        ));
       }
       if (event.type === 'steering.discarded' || event.type === 'protocol.error') {
         if (fileSuggestionRef.current?.requestId === event.requestId) {
@@ -407,6 +603,10 @@ export function AgentTui({client}: AgentTuiProps) {
       cancelPending.current = false;
       pendingSteeringPromptsRef.current.clear();
       pendingSubmissionsRef.current.clear();
+      pendingPlanEntryRef.current = undefined;
+      pendingPlanDecisionRef.current = undefined;
+      planSessionRef.current = undefined;
+      replacePlanReviewPicker(undefined);
       if (!transportFailureRef.current) {
         transportFailureRef.current = true;
         dispatch({type: 'transport.failed', message});
@@ -416,6 +616,10 @@ export function AgentTui({client}: AgentTuiProps) {
       cancelPending.current = false;
       pendingSteeringPromptsRef.current.clear();
       pendingSubmissionsRef.current.clear();
+      pendingPlanEntryRef.current = undefined;
+      pendingPlanDecisionRef.current = undefined;
+      planSessionRef.current = undefined;
+      replacePlanReviewPicker(undefined);
       if (transportFailureRef.current) {
         return;
       }
@@ -517,6 +721,43 @@ export function AgentTui({client}: AgentTuiProps) {
           {selection: selectedPermissionSelection(permissionPicker)},
         );
         setPermissionPicker(undefined);
+      }
+      return;
+    }
+    if (planReviewPicker !== undefined) {
+      if (key.escape && !planReviewPicker.submitted) {
+        replacePlanReviewPicker(undefined);
+      } else if (key.upArrow || key.downArrow) {
+        replacePlanReviewPicker(movePlanReviewPicker(planReviewPicker, key.upArrow ? -1 : 1));
+      } else if (key.return && !planReviewPicker.submitted) {
+        if (client.sessionCommand === undefined) {
+          dispatch({type: 'slash.notice', message: '当前连接不支持 Plan 审批'});
+          return;
+        }
+        const decision = selectedPlanReviewDecision(planReviewPicker);
+        const commandNumber = nextCommandNumber.current++;
+        const commandId = decision === 'approve'
+          ? `tui-plan-${commandNumber}-approve` : `tui-plan-${commandNumber}-reject`;
+        if (decision === 'approve') {
+          pendingPlanDecisionRef.current = {
+            phase: 'approve', commandId, planId: planReviewPicker.planId,
+            workspaceDigest: planReviewPicker.workspaceDigest,
+          };
+          client.sessionCommand(commandId, 'plan-approve', {
+            planId: planReviewPicker.planId,
+            workspaceDigest: planReviewPicker.workspaceDigest,
+          });
+        } else {
+          pendingPlanDecisionRef.current = {
+            phase: decision === 'revise' ? 'reject-revise' : 'reject-exit',
+            commandId, planId: planReviewPicker.planId,
+            workspaceDigest: planReviewPicker.workspaceDigest,
+          };
+          client.sessionCommand(commandId, 'plan-reject', {
+            planId: planReviewPicker.planId,
+          });
+        }
+        replacePlanReviewPicker({...planReviewPicker, submitted: true});
       }
       return;
     }
@@ -671,7 +912,8 @@ export function AgentTui({client}: AgentTuiProps) {
       return;
     }
     if (key.return) {
-      if (current.completionCandidates.length > 0 && current.text.trim() !== '/permissions') {
+      if (current.completionCandidates.length > 0
+        && current.text.trim() !== '/permissions' && current.text.trim() !== '/plan') {
         acceptCurrentCompletion();
         return;
       }
@@ -684,6 +926,9 @@ export function AgentTui({client}: AgentTuiProps) {
       const prompt = submission.expandedText;
       if (prompt.trim().length === 0) return;
       const slash = parseSlashCommand(prompt.trim());
+      if (prompt.trim() === '/plan' && current.completionCandidates.length > 0) {
+        applyComposer({type: 'CloseCompletion'});
+      }
       if (slash.kind === 'task') {
         const {action, taskId, timeoutMillis} = slash.command;
         try {
@@ -770,7 +1015,31 @@ export function AgentTui({client}: AgentTuiProps) {
           dispatch({type: 'slash.notice', message: '当前连接不支持 Slash 命令'});
           return;
         }
-        client.sessionCommand(`tui-command-${nextCommandNumber.current++}`, slash.command.intent, slash.command.arguments);
+        if (slash.command.intent === 'plan') {
+          const task = typeof slash.command.arguments.task === 'string'
+            ? slash.command.arguments.task : undefined;
+          if (task !== undefined && client.startPlan === undefined) {
+            dispatch({type: 'slash.notice', message: '当前连接不支持只读 Plan Runtime'});
+            return;
+          }
+          if (pendingPlanEntryRef.current !== undefined || pendingPlanDecisionRef.current !== undefined) {
+            dispatch({type: 'slash.notice', message: 'Plan 状态迁移仍在进行，请等待 Java 确认'});
+            return;
+          }
+          const queryId = `tui-plan-${nextCommandNumber.current++}-query`;
+          pendingPlanEntryRef.current = {
+            phase: 'query', commandId: queryId, task, originalSelection: undefined,
+          };
+          try {
+            client.sessionCommand(queryId, 'permissions', {});
+          } catch {
+            pendingPlanEntryRef.current = undefined;
+            dispatch({type: 'slash.notice', message: '当前权限选择未被 Java 接受'});
+            return;
+          }
+        } else {
+          client.sessionCommand(`tui-command-${nextCommandNumber.current++}`, slash.command.intent, slash.command.arguments);
+        }
       } else if (slash.kind === 'skill') {
         if (client.invokeSkill === undefined || state.phase !== 'ready') {
           dispatch({type: 'slash.notice', message: '当前连接或状态不支持 Skill 调用'});
@@ -855,6 +1124,7 @@ export function AgentTui({client}: AgentTuiProps) {
     {...(connectWizard === undefined ? {} : {connectWizard})}
     {...(permissionPicker === undefined ? {} : {permissionPicker})}
     {...(pendingApproval === undefined ? {} : {approvalPicker: effectiveApprovalPicker})}
+    {...(planReviewPicker === undefined ? {} : {planReviewPicker})}
   />;
 }
 
@@ -870,6 +1140,7 @@ export interface AgentViewProps {
   readonly connectWizard?: ModelSetupState;
   readonly permissionPicker?: PermissionPickerState;
   readonly approvalPicker?: ApprovalPickerState;
+  readonly planReviewPicker?: PlanReviewPickerState;
 }
 
 const MAX_SETUP_CREDENTIAL_BYTES = 16_384;
@@ -896,7 +1167,7 @@ export function maskedCredentialPreview(value: readonly number[]): string {
 /**
  * 纯展示组件，使宽字符、窄窗口和各 Run 终态无需真实终端即可验证。
  */
-export function AgentView({state, composer, input = '', columns, rows, composerLayout, connectWizard, permissionPicker, approvalPicker}: AgentViewProps) {
+export function AgentView({state, composer, input = '', columns, rows, composerLayout, connectWizard, permissionPicker, approvalPicker, planReviewPicker}: AgentViewProps) {
   const width = Math.max(20, columns);
   const viewportRows = rows === undefined
     ? undefined
@@ -999,6 +1270,9 @@ export function AgentView({state, composer, input = '', columns, rows, composerL
           {run.pendingApproval === undefined
             ? null
             : <ApprovalPrompt approval={run.pendingApproval} picker={approvalPicker} />}
+          {run.planProposal === undefined
+            ? null
+            : <PlanReviewPanel proposal={run.planProposal} picker={planReviewPicker} />}
           {run.status === 'running' && run.tools.length === 0 && run.text.length === 0 ? (
             <Box marginTop={1} marginLeft={2}>
               <Text color="yellow">◌ 等待模型响应…</Text>
@@ -1283,6 +1557,38 @@ function CheckpointRow({
   );
 }
 
+function PlanReviewPanel({proposal, picker}: {
+  readonly proposal: NonNullable<RunView['planProposal']>;
+  readonly picker: PlanReviewPickerState | undefined;
+}) {
+  const active = picker?.planId === proposal.planId;
+  return (
+    <Box marginTop={1} marginLeft={2} flexDirection="column"
+      borderStyle="round" borderColor="cyan" paddingX={1}>
+      <Text bold color="cyan">实施计划</Text>
+      <Text bold>{proposal.objective}</Text>
+      {proposal.steps.map(step => (
+        <Box key={step.ordinal} flexDirection="column" marginTop={1}>
+          <Text bold>{step.ordinal}. {step.title}</Text>
+          <Text>{step.detail}</Text>
+        </Box>
+      ))}
+      {!active ? <Text dimColor>该计划已不再等待当前窗口决定</Text>
+        : picker.submitted ? <Text dimColor>批准已发送，等待 Java 核对 Plan 与工作区状态</Text>
+          : <>
+            <Box marginTop={1} flexDirection="column">
+              {PLAN_REVIEW_PICKER_ITEMS.map((item, index) => (
+                <Text key={item.decision} color={index === picker.selectedIndex ? 'cyan' : 'white'}>
+                  {index === picker.selectedIndex ? '❯ ' : '  '}{item.label}
+                </Text>
+              ))}
+            </Box>
+            <Text dimColor>↑/↓ 选择　Enter 确认　Esc 关闭当前选择面板；稍后可用 /plan 重新查询</Text>
+          </>}
+    </Box>
+  );
+}
+
 function ApprovalPrompt({approval, picker}: {
   readonly approval: ApprovalView;
   readonly picker: ApprovalPickerState | undefined;
@@ -1544,6 +1850,51 @@ export function decideInterrupt(
     return 'terminate';
   }
   return 'shutdown';
+}
+
+function publicPermissionSelection(value: unknown): PublicPermissionSelection | undefined {
+  return value === 'PLAN' || value === 'ASK' || value === 'AUTO' || value === 'ADVANCED'
+    ? value : undefined;
+}
+
+/** PLAN 不能执行副作用；若用户原本已在 PLAN，则以 ASK 作为安全退出选择。 */
+function executionSelection(value: PublicPermissionSelection | undefined): Exclude<PublicPermissionSelection, 'PLAN'> {
+  return value === undefined || value === 'PLAN' ? 'ASK' : value;
+}
+
+function permissionRestoreArguments(
+  value: PublicPermissionSelection | undefined,
+): Readonly<Record<string, unknown>> {
+  const selection = executionSelection(value);
+  return selection === 'ADVANCED' ? {mode: 'ACCEPT_EDITS'} : {selection};
+}
+
+function restoreAfterPlanStartFailure(
+  client: AgentClient,
+  nextCommandNumber: {current: number},
+  pendingEntry: {current: PlanEntryState | undefined},
+  task: string,
+  originalSelection: PublicPermissionSelection,
+): boolean {
+  const restoreId = `tui-plan-${nextCommandNumber.current++}-restore-start-failure`;
+  pendingEntry.current = {
+    phase: 'restore-after-start-failure', commandId: restoreId, task, originalSelection,
+  };
+  try {
+    if (client.sessionCommand === undefined) {
+      pendingEntry.current = undefined;
+      return false;
+    }
+    client.sessionCommand(restoreId, 'permissions', permissionRestoreArguments(originalSelection));
+    return true;
+  } catch {
+    pendingEntry.current = undefined;
+    return false;
+  }
+}
+
+function isReviewablePlanStatus(value: unknown): boolean {
+  return value === 'DRAFT' || value === 'AWAITING_APPROVAL';
 }
 
 /**

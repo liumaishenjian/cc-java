@@ -23,7 +23,9 @@ public final class StdioProtocolFixtureMain {
         try {
             StdioProtocol.CommandHandler handler = args.length == 1 && args[0].equals("provider-control")
                     ? providerControlHandler()
-                    : new FakeStdioCommandHandler(List.of("alpha ", "beta"), Duration.ofMillis(250));
+                    : args.length == 2 && args[0].equals("plan-runtime")
+                            ? planRuntimeHandler(Path.of(args[1]))
+                            : new FakeStdioCommandHandler(List.of("alpha ", "beta"), Duration.ofMillis(250));
             StdioProtocolServer.ExitReason reason =
                     new StdioProtocolServer(System.in, System.out, handler).run();
             if (reason == StdioProtocolServer.ExitReason.INTERNAL_ERROR) {
@@ -34,6 +36,24 @@ public final class StdioProtocolFixtureMain {
             System.err.println("Fake stdio fixture failed");
             System.exit(2);
         }
+    }
+
+    private static RuntimeStdioCommandHandler planRuntimeHandler(Path workspace) {
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        io.github.liumaishenjian.ccjava.core.ModelGateway model = request -> {
+            if (calls.getAndIncrement() == 0) {
+                return io.github.liumaishenjian.ccjava.domain.ModelTurn.text(
+                        "{\"objective\":\"cross-process plan\",\"steps\":[{\"title\":\"inspect\","
+                                + "\"detail\":\"read workspace safely\"}]}");
+            }
+            throw new IllegalStateException("Plan fixture 不应收到额外模型请求");
+        };
+        return new RuntimeStdioCommandHandler((events, approvals) ->
+                new io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeSession(
+                        model, events,
+                        new io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeOptions(
+                                workspace.toAbsolutePath().normalize(), "fixture-model", Duration.ofSeconds(5)),
+                        approvals));
     }
 
     private static RuntimeStdioCommandHandler providerControlHandler() throws Exception {

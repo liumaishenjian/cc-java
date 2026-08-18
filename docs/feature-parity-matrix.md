@@ -346,7 +346,7 @@ Stage 完成项。
 | PERM-11 | Denial Tracking | 重复拒绝降级 | L2 | S05/S14 | REF-01/04 |
 | PERM-12 | Project/User/Managed Scope | user/project/local Settings 来源与 Session overlay；Managed Policy 延期 S13 | L2 | S08/S13 | REF-04 |
 | PERM-13 | Print Mode Policy | 无交互时确定性处理 ASK | L2 | S05 | REF-04 |
-| PLAN-01 | In-memory Plan Step Gate | S15 真实 Headless PLAN Run 复用唯一 AgentRuntime/ModelGateway/Context Projection/Pipeline，只发布五个 bounded Workspace read/search Tool；最终 Assistant 在追加前由 Java 严格解析、规范化为 Session-owned `PlanDocument`，stdio/TUI 消费 `plan.proposed`；写/命令/扩展 Tool 不可见且执行为零，畸形/超限提案失败关闭。既有显式命令兼容，`plan-step-begin` 仍仅在显式批准、无活动 Run且 workspace digest 一致时原子领取步骤；Fake/Parser/TUI protocol 测试与 ADR-074 | L1 | S15 | REF-01/AUTH-01 |
+| PLAN-01 | In-memory Plan Step Gate | S15 用户以 `/plan [自然语言任务]` 启动真实 Headless PLAN Run；TUI 严格 query 当前 selection→PLAN 成功→start，无参数随后 status。唯一 AgentRuntime/ModelGateway/Context Projection/Pipeline 只发布五个 bounded Workspace read/search Tool。Runtime 严格规范化 Session-owned `PlanDocument` 并发布 `plan.proposed`；TUI approve 绑定 Plan ID/digest，成功后先恢复进入前 selection（原 PLAN→安全 ASK），等待成功才发送同绑定 execute；恢复失败保持 APPROVED 不执行，revise 保持 PLAN，reject exit 恢复。commandId/planId/digest、resume/transport failure 均 fail closed；Java `write_file` Pipeline 与非空跑真实 Java stdio E2E 已覆盖。workspace digest/结构化步骤不是用户 API；内部运维命令保留兼容但隐藏。durable restart recovery/真实 proposal Eval 仍缺，等级保持 L1 | L1 | S15 | REF-01/AUTH-01 |
 
 ## 12. Lifecycle / Hooks 对照
 

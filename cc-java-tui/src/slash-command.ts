@@ -11,12 +11,7 @@ export type SlashIntent =
   | 'permissions'
   | 'resume'
   | 'plan-status'
-  | 'plan'
-  | 'plan-approve'
-  | 'plan-reject'
-  | 'plan-step-begin'
-  | 'plan-step-complete'
-  | 'plan-execute';
+  | 'plan';
 
 export type SessionSlashIntent = Exclude<SlashIntent, 'connect' | 'auth' | 'models'>;
 
@@ -51,7 +46,7 @@ const MAX_COMPACT_ANCHOR_CODE_POINTS = 512;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/u;
 const COMMAND_NAMES: readonly SlashIntent[] = [
   'help', 'clear', 'compact', 'context', 'doctor', 'model', 'connect', 'auth', 'models', 'permissions', 'resume',
-  'plan-status', 'plan', 'plan-approve', 'plan-reject', 'plan-step-begin', 'plan-step-complete', 'plan-execute',
+  'plan-status', 'plan',
 ];
 const COMMANDS = new Set<SlashIntent>(COMMAND_NAMES);
 const TYPO_PROTECTED_COMMANDS: readonly string[] = [...COMMAND_NAMES, 'task'];
@@ -70,12 +65,7 @@ const COMMAND_USAGE: Readonly<Record<SlashIntent, string>> = {
   permissions: '/permissions [query|mode MODE] — 查看或切换权限模式',
   resume: '/resume <session-id> — 安全恢复会话',
   'plan-status': '/plan-status — 查看当前计划状态',
-  plan: '/plan <objective> — 创建项目计划（由协议提供完整步骤）',
-  'plan-approve': '/plan-approve <workspace-digest> — 批准当前计划',
-  'plan-reject': '/plan-reject — 拒绝当前计划',
-  'plan-step-begin': '/plan-step-begin <workspace-digest> — 开始下一计划步骤',
-  'plan-step-complete': '/plan-step-complete <workspace-digest> — 完成当前计划步骤',
-  'plan-execute': '/plan-execute [max-steps] — 执行已批准计划',
+  plan: '/plan [自然语言任务] — 进入只读 Plan 模式、规划任务或查看当前计划',
 };
 
 /**
@@ -105,41 +95,17 @@ export function parseSlashCommand(input: string): SlashParseResult {
     return {kind: 'invalid', message: '未知 Slash 命令'};
   }
   const intent = rawName as SessionSlashIntent;
-  if (['help', 'clear', 'context', 'doctor', 'plan-status', 'plan-reject'].includes(intent)) {
+  if (['help', 'clear', 'context', 'doctor', 'plan-status'].includes(intent)) {
     return values.length === 0
       ? {kind: 'command', command: {intent, arguments: {}}}
       : {kind: 'invalid', message: `/${intent} 不接受参数`};
   }
-  if (intent === 'plan-approve' || intent === 'plan-step-begin' || intent === 'plan-step-complete') {
-    const workspaceDigest = values[0];
-    return values.length === 1 && workspaceDigest !== undefined && !invalidArgument(workspaceDigest)
-      ? {kind: 'command', command: {intent, arguments: {workspaceDigest}}}
-      : {kind: 'invalid', message: `/${intent} 需要一个有界 workspace digest`};
-  }
-  if (intent === 'plan-execute') {
-    const maxSteps = values.length === 0 ? 128 : Number(values[0]);
-    return values.length <= 1 && Number.isInteger(maxSteps) && maxSteps >= 1 && maxSteps <= 128
-      ? {kind: 'command', command: {intent, arguments: {maxSteps}}}
-      : {kind: 'invalid', message: '/plan-execute max-steps 必须为 1..128'};
-  }
   if (intent === 'plan') {
-    const [objective, workspaceDigest, ...stepValues] = values;
-    if (objective === undefined || workspaceDigest === undefined || invalidArgument(objective) || invalidArgument(workspaceDigest)
-      || stepValues.length === 0 || stepValues.length % 3 !== 0 || stepValues.length > 384) {
-      return {kind: 'invalid', message: '/plan 需要 objective、workspace digest 以及 title/detail/expectedDigest 步骤三元组'};
+    const task = input.slice(input.indexOf('/plan') + '/plan'.length).trim();
+    if (Array.from(task).length > 8_192 || CONTROL_CHARACTER_PATTERN.test(task)) {
+      return {kind: 'invalid', message: '/plan 自然语言任务非法或超过上限'};
     }
-    const steps = [];
-    for (let index = 0; index < stepValues.length; index += 3) {
-      const title = stepValues[index];
-      const detail = stepValues[index + 1];
-      const expectedDigest = stepValues[index + 2];
-      if (title === undefined || detail === undefined || expectedDigest === undefined
-        || invalidArgument(title) || invalidArgument(detail) || invalidArgument(expectedDigest)) {
-        return {kind: 'invalid', message: '/plan 步骤参数非法'};
-      }
-      steps.push({ordinal: index / 3 + 1, title, detail, expectedDigest});
-    }
-    return {kind: 'command', command: {intent, arguments: {objective, workspaceDigest, steps}}};
+    return {kind: 'command', command: {intent, arguments: task.length === 0 ? {} : {task}}};
   }
   if (intent === 'compact') {
     if (values.length > MAX_COMPACT_ANCHORS || values.some(invalidCompactAnchor)) {
@@ -248,6 +214,16 @@ function renderSuccessfulResult(
       ...entryLines,
     ].join('\n');
   }
+  if (intent === 'plan-status' || intent === 'plan') {
+    const steps = Array.isArray(result.steps) ? result.steps : [];
+    return [
+      `Plan · ${safeValue(result.status)}`,
+      String(result.objective ?? ''),
+      ...steps.flatMap(step => isRecord(step)
+        ? [`${safeValue(step.ordinal)}. ${safeValue(step.title)} — ${safeValue(step.detail)}`] : []),
+      result.approvalGate === 'PENDING' ? '等待审批；输入 /plan 可重新打开计划视图' : '',
+    ].filter(Boolean).join('\n');
+  }
   return `/${intent} 已完成`;
 }
 
@@ -299,10 +275,6 @@ function isSlashIntent(value: unknown): value is SlashIntent {
     case 'resume':
     case 'plan-status':
     case 'plan':
-    case 'plan-approve':
-    case 'plan-reject':
-    case 'plan-step-begin':
-    case 'plan-step-complete':
       return true;
     default:
       return false;

@@ -54,6 +54,18 @@ export interface ToolView {
   readonly output: string;
 }
 
+export interface PlanProposalView {
+  readonly planId: string;
+  readonly status: 'awaiting_approval';
+  readonly objective: string;
+  readonly workspaceDigest: string;
+  readonly steps: readonly {
+    readonly ordinal: number;
+    readonly title: string;
+    readonly detail: string;
+  }[];
+}
+
 export interface RunView {
   readonly requestId: string;
   readonly prompt: string;
@@ -61,6 +73,7 @@ export interface RunView {
   readonly text: string;
   readonly tools: readonly ToolView[];
   readonly pendingApproval?: ApprovalView | undefined;
+  readonly planProposal?: PlanProposalView | undefined;
   readonly status: RunStatus;
   readonly stopReason: string | undefined;
   readonly modelFailure?: ModelFailureView | undefined;
@@ -144,6 +157,7 @@ export type TuiAction =
     readonly steering?: boolean;
   }
   | {readonly type: 'approval.submitted'; readonly approvalId: string}
+  | {readonly type: 'plan.status.received'; readonly requestId: string; readonly proposal: PlanProposalView}
   | {readonly type: 'checkpoint.selected'; readonly checkpointId: string}
   | {readonly type: 'checkpoint.undo.requested'; readonly checkpointId: string}
   | {readonly type: 'checkpoint.undo.cancelled'}
@@ -197,6 +211,7 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
             text: '',
             tools: [],
             pendingApproval: undefined,
+            planProposal: undefined,
             status: 'running',
             stopReason: undefined,
             modelFailure: undefined,
@@ -215,6 +230,34 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
             }
           : run),
       };
+    case 'plan.status.received': {
+      const existingIndex = state.runs.findLastIndex(run =>
+        run.planProposal?.planId === action.proposal.planId);
+      if (existingIndex >= 0) {
+        return {
+          ...state,
+          runs: state.runs.map((run, index) => index === existingIndex
+            ? {...run, planProposal: action.proposal} : run),
+        };
+      }
+      return {
+        ...state,
+        runs: [...state.runs, {
+          requestId: action.requestId,
+          prompt: '/plan',
+          runId: undefined,
+          text: '',
+          tools: [],
+          pendingApproval: undefined,
+          planProposal: action.proposal,
+          status: 'completed',
+          stopReason: 'completed',
+          modelFailure: undefined,
+          modelTurns: undefined,
+          toolCalls: undefined,
+        }],
+      };
+    }
     case 'checkpoint.selected':
       return state.checkpoints.some(item => item.checkpointId === action.checkpointId)
         ? {
@@ -314,7 +357,20 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
         text: run.text + String(event.payload.text),
       }));
     case 'plan.proposed':
-      return {...state, notice: `Plan proposal：${String(event.payload.objective)}`};
+      return updateCurrentRun(state, event, run => ({
+        ...run,
+        planProposal: {
+          planId: String(event.payload.planId),
+          status: 'awaiting_approval',
+          objective: String(event.payload.objective),
+          workspaceDigest: String(event.payload.workspaceDigest),
+          steps: (event.payload.steps as readonly Readonly<Record<string, unknown>>[]).map(step => ({
+            ordinal: Number(step.ordinal),
+            title: String(step.title),
+            detail: String(step.detail),
+          })),
+        },
+      }));
     case 'approval.requested':
       return updateCurrentRun(state, event, run => ({
         ...run,
