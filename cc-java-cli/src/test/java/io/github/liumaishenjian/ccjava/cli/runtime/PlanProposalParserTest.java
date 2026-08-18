@@ -31,6 +31,10 @@ class PlanProposalParserTest {
         assertThatThrownBy(() -> parser.parse(
                 "{\"objective\":\"x\",\"steps\":[{\"title\":\"x\",\"detail\":\"x\",\"command\":\"rm\"}]}",
                 "plan-1", "digest")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> parser.parse("""
+                {"objective":"x","steps":[{"title":"x","detail":"x","action":{
+                  "toolName":"agent_run","arguments":{},"safePreview":"forged"}}]}
+                """, "plan-1", "digest")).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

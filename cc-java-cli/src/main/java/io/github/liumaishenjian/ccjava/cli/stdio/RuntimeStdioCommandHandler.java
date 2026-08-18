@@ -407,6 +407,7 @@ public final class RuntimeStdioCommandHandler
             case "initialize" -> initialize(command, events);
             case "run.start" -> startRun(command, events);
             case "plan.start" -> startPlan(command, events);
+            case "plan.execute" -> executeApprovedPlan(command, events);
             case "input.begin" -> beginInput(command);
             case "input.chunk" -> appendInputChunk(command);
             case "input.commit" -> commitInput(command, events);
@@ -505,8 +506,40 @@ public final class RuntimeStdioCommandHandler
             requireSession(command);
             requireNoRunId(command);
             run = startRunLocked(command.requestId(), task.length(), events);
+            run.suppressModelText = true;
         }
         executor.submit(() -> executePlanRun(run, task));
+        return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    /** 批准后启动完整 Agent Runtime；该路径拥有普通 Run 的审批、取消和事件生命周期。 */
+    private StdioProtocol.Disposition executeApprovedPlan(
+            StdioProtocol.Command command,
+            StdioProtocol.EventEmitter events) throws StdioProtocolException {
+        String planId;
+        String workspaceDigest;
+        ActiveRun run;
+        synchronized (lock) {
+            ensureState(State.READY, command);
+            requireSession(command);
+            requireNoRunId(command);
+            JsonNode rawPlanId = command.payload().get("planId");
+            JsonNode rawDigest = command.payload().get("workspaceDigest");
+            if (command.payload().size() != 2
+                    || rawPlanId == null || !rawPlanId.isString() || rawPlanId.stringValue().isBlank()
+                    || rawPlanId.stringValue().length() > 128
+                    || rawDigest == null || !rawDigest.isString() || rawDigest.stringValue().isBlank()
+                    || rawDigest.stringValue().length() > 256) {
+                throw protocolError("INVALID_PAYLOAD", command, "plan.execute 绑定参数无效");
+            }
+            planId = rawPlanId.stringValue();
+            workspaceDigest = rawDigest.stringValue();
+            run = startRunLocked(command.requestId(), 0, events);
+            run.approvedPlanExecution = true;
+        }
+        String acceptedPlanId = planId;
+        String acceptedDigest = workspaceDigest;
+        executor.submit(() -> executeApprovedPlanRun(run, acceptedPlanId, acceptedDigest));
         return StdioProtocol.Disposition.CONTINUE;
     }
 
@@ -1638,6 +1671,14 @@ public final class RuntimeStdioCommandHandler
         }
     }
 
+    private void executeApprovedPlanRun(ActiveRun run, String planId, String workspaceDigest) {
+        try {
+            application.runApprovedPlan(planId, workspaceDigest);
+        } catch (RuntimeException exception) {
+            emitUnexpectedFailure(run);
+        }
+    }
+
     private void executeSkillRun(ActiveRun run,
             io.github.liumaishenjian.ccjava.domain.skill.ExplicitSkillInvocation invocation) {
         try {
@@ -1721,7 +1762,7 @@ public final class RuntimeStdioCommandHandler
             payload.put("stream", output.stream().name().toLowerCase(Locale.ROOT));
             payload.put("text", output.text());
             emit(run, "tool.output", payload);
-        } else if (envelope.event() instanceof ModelTextDelta delta) {
+        } else if (envelope.event() instanceof ModelTextDelta delta && !run.suppressModelText) {
             ObjectNode payload = codec.objectNode();
             payload.put("text", delta.text());
             payload.put("turn", delta.turnNumber());
@@ -1743,6 +1784,7 @@ public final class RuntimeStdioCommandHandler
             payload.set("steps", steps);
             emit(run, "plan.proposed", payload);
         } else if (envelope.event() instanceof LifecycleEvent.RunFinished finished) {
+            if (run.approvedPlanExecution) application.recordApprovedPlanTerminal(finished.result());
             emitTerminal(run, finished.result());
         }
     }
@@ -2202,6 +2244,8 @@ public final class RuntimeStdioCommandHandler
         private final StdioProtocol.EventEmitter events;
         private final Map<Integer, String> toolModes = new LinkedHashMap<>();
         private RunId runId;
+        private boolean suppressModelText;
+        private boolean approvedPlanExecution;
 
         private ActiveRun(
                 String requestId,

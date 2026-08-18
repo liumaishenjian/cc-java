@@ -1080,9 +1080,87 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         return session.executePlan(executor, cancellationToken, maxSteps);
     }
 
+    /**
+     * 用正常 Agent Runtime 执行当前已批准的自然语言 Plan。
+     *
+     * <p>Plan ID、批准摘要和实时工作区摘要全部匹配后才启动。执行阶段恢复完整 Tool Registry，
+     * 每次 Tool 调用仍经过 Permission、Approval、Hook 与 Pipeline；只有 Run 正常完成才把 Plan
+     * 标记为 COMPLETED。</p>
+     */
+    public AgentRunResult runApprovedPlan(String planId, String workspaceDigest) {
+        requireOpen();
+        var coordinator = session.plan().orElseThrow(() -> new IllegalStateException("Plan 不存在"));
+        var document = coordinator.document();
+        if (!document.id().equals(planId)
+                || coordinator.state().approvalGate()
+                    != io.github.liumaishenjian.ccjava.domain.PlanApprovalGate.APPROVED
+                || coordinator.state().status() != io.github.liumaishenjian.ccjava.domain.PlanStatus.APPROVED
+                || coordinator.state().nextStep() == null
+                || !document.workspaceDigest().equals(workspaceDigest)
+                || !currentWorkspaceDigest().equals(workspaceDigest)
+                || document.steps().stream().anyMatch(step -> !step.action().agentRun())) {
+            throw new IllegalStateException("Plan 未批准、摘要冲突或不是自然语言执行计划");
+        }
+        coordinator.beginAgentRun(workspaceDigest);
+        AgentRunResult result;
+        try {
+            result = run(new AgentRunRequest(new UserMessage(approvedPlanPrompt(document)),
+                    new AgentLimits(AgentLimits.DEFAULT.maxModelTurns(), AgentLimits.DEFAULT.maxToolCalls(),
+                            options.timeout()), Optional.empty()), null);
+        } catch (RuntimeException failure) {
+            coordinator.failAgentRun(io.github.liumaishenjian.ccjava.domain.PlanStatus.FAILED,
+                    currentWorkspaceDigest());
+            throw failure;
+        }
+        recordApprovedPlanTerminal(result);
+        return result;
+    }
+
+    /**
+     * 在 Surface 发布 Run 终态前同步收敛 Plan 状态；重复调用是幂等的。
+     *
+     * @param result 已由 AgentRuntime 产生的权威终态
+     */
+    public void recordApprovedPlanTerminal(AgentRunResult result) {
+        requireOpen();
+        Objects.requireNonNull(result, "result 不能为空");
+        var coordinator = session.plan().orElseThrow(() -> new IllegalStateException("Plan 不存在"));
+        if (coordinator.state().status() != io.github.liumaishenjian.ccjava.domain.PlanStatus.EXECUTING) return;
+        if (result.stopReason() == io.github.liumaishenjian.ccjava.domain.StopReason.COMPLETED) {
+            coordinator.completeAgentRun(currentWorkspaceDigest());
+        } else {
+            coordinator.failAgentRun(planFailureStatus(result.stopReason()), currentWorkspaceDigest());
+        }
+    }
+
+    private static String approvedPlanPrompt(io.github.liumaishenjian.ccjava.domain.PlanDocument document) {
+        StringBuilder prompt = new StringBuilder("执行下面这份已经由用户批准的计划。必须实际使用所需工具完成任务，"
+                + "不要只复述或总结计划；遇到权限审批时等待用户决定。\n\n目标：")
+                .append(document.objective()).append("\n步骤：\n");
+        document.steps().forEach(step -> prompt.append(step.ordinal()).append(". ")
+                .append(step.title()).append(" — ").append(step.detail()).append('\n'));
+        return prompt.toString();
+    }
+
+    private static io.github.liumaishenjian.ccjava.domain.PlanStatus planFailureStatus(
+            io.github.liumaishenjian.ccjava.domain.StopReason reason) {
+        return switch (reason) {
+            case USER_CANCELLED -> io.github.liumaishenjian.ccjava.domain.PlanStatus.CANCELLED;
+            case TIME_LIMIT_REACHED -> io.github.liumaishenjian.ccjava.domain.PlanStatus.TIMED_OUT;
+            case TURN_LIMIT_REACHED, TOOL_LIMIT_REACHED, OUTPUT_LIMIT_REACHED, CONTEXT_LIMIT_REACHED ->
+                    io.github.liumaishenjian.ccjava.domain.PlanStatus.LIMIT_EXCEEDED;
+            default -> io.github.liumaishenjian.ccjava.domain.PlanStatus.FAILED;
+        };
+    }
+
     private io.github.liumaishenjian.ccjava.core.PlanStepExecutionResult executePlanStepThroughPipeline(
             HeadlessRuntimeScope currentScope, io.github.liumaishenjian.ccjava.domain.PlanStep step,
             CancellationToken token) {
+        if (step.action().agentRun()) {
+            return new io.github.liumaishenjian.ccjava.core.PlanStepExecutionResult(
+                    io.github.liumaishenjian.ccjava.core.PlanStepExecutionResult.Status.FAILURE,
+                    currentWorkspaceDigest(), "agent-run plan requires the approved Plan runtime");
+        }
         String current = currentWorkspaceDigest();
         if (!step.expectedDigest().equals(current)) {
             return new io.github.liumaishenjian.ccjava.core.PlanStepExecutionResult(

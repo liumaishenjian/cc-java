@@ -138,6 +138,40 @@ public final class PlanModeCoordinator {
     }
 
     /**
+     * 领取整份已批准的自然语言 Plan，供一个正常 Agent Run 逐步落实。
+     *
+     * <p>本方法只改变 Plan 状态；模型调用和 Tool 执行仍由 AgentRuntime 与统一 Pipeline 负责。</p>
+     */
+    public synchronized PlanExecutionState beginAgentRun(String currentDigest) {
+        Objects.requireNonNull(currentDigest, "currentDigest 不能为空");
+        if (state.approvalGate() != PlanApprovalGate.APPROVED || state.activeStep() != null
+                || state.nextStep() == null || isTerminalFailure(state.status())) return state;
+        if (!state.workspaceDigest().equals(currentDigest)) return conflict(currentDigest);
+        document = document.withStatus(PlanStatus.EXECUTING);
+        state = new PlanExecutionState(document.id(), PlanApprovalGate.APPROVED,
+                null, state.nextStep(), PlanStatus.EXECUTING, currentDigest);
+        return state;
+    }
+
+    /** 仅在正常 Agent Run 成功终止后完成整份 Plan，并接受副作用产生的新摘要。 */
+    public synchronized PlanExecutionState completeAgentRun(String completedDigest) {
+        Objects.requireNonNull(completedDigest, "completedDigest 不能为空");
+        if (state.status() != PlanStatus.EXECUTING || state.activeStep() == null) return state;
+        document = new PlanDocument(document.id(), document.objective(), document.steps(),
+                PlanStatus.COMPLETED, completedDigest);
+        state = new PlanExecutionState(document.id(), PlanApprovalGate.APPROVED,
+                null, null, PlanStatus.COMPLETED, completedDigest);
+        return state;
+    }
+
+    /** 把未成功结束的 Agent Run 收敛为可观察终态，不得显示 COMPLETED。 */
+    public synchronized PlanExecutionState failAgentRun(PlanStatus failureStatus, String digest) {
+        Objects.requireNonNull(failureStatus, "failureStatus 不能为空");
+        if (!isTerminalFailure(failureStatus)) throw new IllegalArgumentException("failureStatus 必须是失败终态");
+        return terminal(failureStatus, Objects.requireNonNull(digest, "digest 不能为空"));
+    }
+
+    /**
      * 在批准、摘要和单活动步骤 Gate 下顺序执行全部剩余步骤。
      *
      * <p>每个步骤只领取一次；首个非成功结果立即进入可恢复终态，后续步骤不会被

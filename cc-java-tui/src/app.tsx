@@ -89,7 +89,7 @@ type PlanEntryState = {
   readonly originalSelection: PublicPermissionSelection | undefined;
 };
 type PlanDecisionState = {
-  readonly phase: 'approve' | 'restore-for-execute' | 'execute' | 'reject-revise' | 'reject-exit' | 'restore-for-exit';
+  readonly phase: 'approve' | 'restore-for-execute' | 'reject-revise' | 'reject-exit' | 'restore-for-exit';
   readonly commandId: string;
   readonly planId: string;
   readonly workspaceDigest: string;
@@ -117,6 +117,7 @@ export interface AgentClient {
   initialize(): string;
   startRun(prompt: string): string;
   startPlan?(task: string): string;
+  startPlanExecution?(planId: string, workspaceDigest: string): string;
   invokeSkill?(name: string, arguments_: string): string;
   cancelRun(): string;
   resolveApproval(
@@ -454,14 +455,22 @@ export function AgentTui({client}: AgentTuiProps) {
           } else if (decision.phase === 'restore-for-execute' && intent === 'permissions') {
             if (status === 'succeeded'
               && result.effectiveSelection === executionSelection(planSessionRef.current?.originalSelection)) {
-              const executeId = `tui-plan-${nextCommandNumber.current++}-execute`;
-              pendingPlanDecisionRef.current = {...decision, phase: 'execute', commandId: executeId};
-              client.sessionCommand?.(executeId, 'plan-execute', {
-                planId: decision.planId,
-                workspaceDigest: decision.workspaceDigest,
-                maxSteps: 128,
-              });
-              replacePlanReviewPicker(undefined);
+              try {
+                if (client.startPlanExecution === undefined) throw new Error('unsupported');
+                const requestId = client.startPlanExecution(decision.planId, decision.workspaceDigest);
+                pendingPlanDecisionRef.current = undefined;
+                replacePlanReviewPicker(undefined);
+                planSessionRef.current = undefined;
+                dispatch({type: 'run.submitted', requestId, prompt: '执行已批准计划'});
+                dispatch({type: 'slash.notice', message: '计划已批准，开始实际执行'});
+              } catch {
+                pendingPlanDecisionRef.current = undefined;
+                const picker = planReviewPickerRef.current;
+                if (picker?.planId === decision.planId && picker.workspaceDigest === decision.workspaceDigest) {
+                  replacePlanReviewPicker({...picker, submitted: false});
+                }
+                dispatch({type: 'slash.notice', message: '计划执行未能启动；Plan 已保留，可用 /plan 查看'});
+              }
             } else {
               pendingPlanDecisionRef.current = undefined;
               const picker = planReviewPickerRef.current;
@@ -469,15 +478,6 @@ export function AgentTui({client}: AgentTuiProps) {
                 replacePlanReviewPicker({...picker, submitted: false});
               }
               dispatch({type: 'slash.notice', message: '权限恢复失败；Plan 保持已批准且未执行'});
-            }
-          } else if (decision.phase === 'execute' && intent === 'plan-execute') {
-            pendingPlanDecisionRef.current = undefined;
-            if (status === 'succeeded' && boundResult) {
-              replacePlanReviewPicker(undefined);
-              planSessionRef.current = undefined;
-              dispatch({type: 'slash.notice', message: '计划已提交执行'});
-            } else {
-              dispatch({type: 'slash.notice', message: '计划执行未启动或未完成；Plan 已保留，可用 /plan 查看并恢复'});
             }
           } else if (decision.phase === 'reject-revise' && intent === 'plan-reject') {
             pendingPlanDecisionRef.current = undefined;

@@ -3,7 +3,8 @@ package io.github.liumaishenjian.ccjava.domain;
 import java.util.Objects;
 
 /**
- * 规划文档中的一个有序步骤。步骤只描述意图与工作区摘要，不携带可直接执行的命令。
+ * 规划文档中的一个有序步骤。自然语言步骤使用内部 Agent Run 标记，批准后由正常模型—工具循环执行；
+ * 显式结构化步骤仍可携带单个 Tool 意图。
  *
  * @param ordinal 从 1 开始的顺序号
  * @param title 面向用户的短标题
@@ -21,7 +22,7 @@ public record PlanStep(int ordinal, String title, String detail, String expected
 
     public PlanStep(int ordinal, String title, String detail, String expectedDigest) {
         this(ordinal, title, detail, expectedDigest,
-                new PlanStepAction("git_status", JsonObject.empty(), "read-only status"));
+                PlanStepAction.agentRunMarker());
     }
 
     /** 将步骤的执行前摘要推进到上一步真实完成后的工作区摘要。 */

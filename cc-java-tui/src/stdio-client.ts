@@ -321,6 +321,17 @@ export class StdioClient {
     return this.#startTextRun('plan.start', task);
   }
 
+  /** 执行 Java Session 中已批准且摘要绑定的 Plan。 */
+  public startPlanExecution(planId: string, workspaceDigest: string): string {
+    if (this.#sessionId === undefined || this.#activeRunId !== undefined
+      || this.#pendingRunStartRequestId !== undefined) {
+      throw new Error('只有就绪 Session 可以执行已批准 Plan');
+    }
+    const requestId = this.#send('plan.execute', {planId, workspaceDigest}, this.#sessionId);
+    this.#pendingRunStartRequestId = requestId;
+    return requestId;
+  }
+
   #startTextRun(type: 'run.start' | 'plan.start', prompt: string): string {
     if (this.#sessionId === undefined) {
       throw new Error('Session 尚未初始化');

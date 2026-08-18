@@ -52,6 +52,7 @@ describe('real Java stdio plan flow', () => {
       const workspaceDigest = String(proposal.payload.workspaceDigest);
       expect(proposal.payload.objective).toBeTruthy();
       expect(proposal.payload.steps).toBeInstanceOf(Array);
+      expect(events.some(event => event.type === 'model.text.delta' && event.requestId === requestId)).toBe(false);
 
       const staleRequest = client.sessionCommand('stale-approve', 'plan-approve', {
         planId: 'plan-stale', workspaceDigest,
@@ -64,6 +65,19 @@ describe('real Java stdio plan flow', () => {
       const approved = await waitForEvent(events, approveRequest);
       expect(approved.payload.status).toBe('succeeded');
       expect((approved.payload.result as Record<string, unknown>).approvalGate).toBe('APPROVED');
+
+      const executionRequest = client.startPlanExecution(planId, workspaceDigest);
+      await waitFor(() => events.some(event => event.type === 'tool.completed'
+        && event.requestId === executionRequest && event.payload.toolName === 'git_status'),
+      () => diagnostic(events, failures, exit));
+      await waitFor(() => events.some(event => event.type === 'run.completed'
+        && event.requestId === executionRequest), () => diagnostic(events, failures, exit));
+      expect(events.some(event => event.type === 'run.completed'
+        && event.requestId === executionRequest
+        && String(event.payload.finalText).includes('approved plan executed'))).toBe(true);
+      const statusRequest = client.sessionCommand('completed-status', 'plan-status', {});
+      const completed = await waitForEvent(events, statusRequest);
+      expect((completed.payload.result as Record<string, unknown>).status).toBe('COMPLETED');
       expect(failures).toEqual([]);
     } finally {
       await client.shutdown();

@@ -55,4 +55,13 @@ class PlanModeCoordinatorTest {
         assertThat(coordinator.state().sideEffectsAllowed()).isFalse();
         assertThat(coordinator.reject().status()).isEqualTo(PlanStatus.REJECTED);
     }
+
+    @Test void approvedAgentRunCompletesOnlyAfterRuntimeTerminalAndAcceptsChangedDigest() {
+        PlanModeCoordinator coordinator = new PlanModeCoordinator(plan());
+        coordinator.approve("digest-a");
+        assertThat(coordinator.beginAgentRun("digest-a").status()).isEqualTo(PlanStatus.EXECUTING);
+        assertThat(coordinator.state().activeStep()).isEqualTo(1);
+        assertThat(coordinator.completeAgentRun("digest-after-tools").status()).isEqualTo(PlanStatus.COMPLETED);
+        assertThat(coordinator.document().workspaceDigest()).isEqualTo("digest-after-tools");
+    }
 }

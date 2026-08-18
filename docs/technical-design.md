@@ -658,8 +658,8 @@ Workspace-relative 目标。同名同参数 Tool 变更来源后不会复用 Gra
 - 用户通过 `/plan [自然语言任务]` 进入该路径；TUI 先以绑定 commandId 的 `permissions query` 保存当前公开 selection，再等待 PLAN selection 成功。带参数时随后发送专用 `plan.start(task)`，无参数则发送 `plan-status`；不得并发发送 selection 与 Run；
 - 最终 Assistant 必须是精确 `{objective,steps[{title,detail}]}` JSON；Java 在追加 Assistant 前严格校验、生成 plan ID/ordinal/digest/status，并安装为同一 Session 的 `PlanDocument`；
 - 畸形、超限或附加执行字段以 `INVALID_MODEL_RESPONSE` 失败关闭，不产生 Plan proposal；
-- 规范提案通过 `PlanProposalEvent` 与 stdio `plan.proposed` 投影给 TUI；TUI 完整展示计划并提供批准执行、继续修改、拒绝退出三项选择；
-- `workspaceDigest`、结构化步骤与内部 plan 运维命令不是用户 API。批准必须绑定当前 Session-owned plan ID 和事件 digest，服务端再核对实时 digest；approve 成功后 TUI 先恢复进入前 selection（若原值为 PLAN 则安全使用 ASK），并等待该 permissions command 成功，随后才发送同样绑定 planId+digest 的 execute。恢复失败保持 APPROVED 且不执行；revise 拒绝提案但保持 PLAN，reject exit 拒绝成功后恢复 selection；
+- 规范提案通过 `PlanProposalEvent` 与 stdio `plan.proposed` 投影给 TUI；规划模型的内部 JSON 不投影为 `model.text.delta`，TUI 只展示计划面板并提供批准执行、继续修改、拒绝退出三项选择；
+- `workspaceDigest`、结构化步骤与内部 plan 运维命令不是用户 API。批准必须绑定当前 Session-owned plan ID 和事件 digest，服务端再核对实时 digest；approve 成功后 TUI 先恢复进入前 selection（若原值为 PLAN 则安全使用 ASK），并等待该 permissions command 成功，随后才启动同样绑定 planId+digest 的 `plan.execute` 普通 Agent Run。自然语言步骤由该 Run 使用完整 Tool Registry 逐步落实，不再默认执行 `git_status`；只有 Run 正常完成才标记 Plan `COMPLETED`，工具仍走统一 Permission/Approval/Hook/Pipeline；
 - `plan-approve/plan-reject/plan-step-begin/plan-step-complete/plan-execute` 保留 Java 协议兼容但不进入 Slash suggestions/help；`plan-execute` 还必须绑定当前已批准的 planId+workspaceDigest。迟到或不匹配的 commandId/planId/digest 不推进状态，Session resume 与 transport failure 清除 TUI pending 状态；显式批准且退出 PLAN 前仍不允许任何副作用。
 
 `ACCEPT_EDITS`：

@@ -103,6 +103,7 @@ export interface ProtocolCommand {
     | 'initialize'
     | 'run.start'
     | 'plan.start'
+    | 'plan.execute'
     | 'input.begin'
     | 'input.chunk'
     | 'input.commit'

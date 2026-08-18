@@ -89,6 +89,7 @@ class RuntimeStdioCommandHandlerTest {
             assertThat(proposal.payload().get("planId").stringValue()).startsWith("plan-run-");
             assertThat(proposal.payload().get("workspaceDigest").stringValue()).matches("[a-f0-9]{64}");
             assertThat(proposal.payload().toString()).contains("安全登录", "阅读现有实现");
+            assertThat(events).noneMatch(event -> event.type().equals("model.text.delta"));
             assertThat(calls).hasValue(1);
         }
     }

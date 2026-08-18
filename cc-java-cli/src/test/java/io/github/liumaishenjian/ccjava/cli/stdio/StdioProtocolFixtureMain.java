@@ -41,12 +41,22 @@ public final class StdioProtocolFixtureMain {
     private static RuntimeStdioCommandHandler planRuntimeHandler(Path workspace) {
         java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
         io.github.liumaishenjian.ccjava.core.ModelGateway model = request -> {
-            if (calls.getAndIncrement() == 0) {
+            int call = calls.getAndIncrement();
+            if (call == 0) {
                 return io.github.liumaishenjian.ccjava.domain.ModelTurn.text(
                         "{\"objective\":\"cross-process plan\",\"steps\":[{\"title\":\"inspect\","
                                 + "\"detail\":\"read workspace safely\"}]}");
             }
-            throw new IllegalStateException("Plan fixture 不应收到额外模型请求");
+            if (call == 1) {
+                return io.github.liumaishenjian.ccjava.domain.ModelTurn.tools(List.of(
+                        new io.github.liumaishenjian.ccjava.domain.ToolCall(
+                                "approved-plan-tool", "git_status",
+                                io.github.liumaishenjian.ccjava.domain.JsonObject.empty())));
+            }
+            if (call == 2) {
+                return io.github.liumaishenjian.ccjava.domain.ModelTurn.text("approved plan executed");
+            }
+            throw new IllegalStateException("Plan fixture 收到过多模型请求");
         };
         return new RuntimeStdioCommandHandler((events, approvals) ->
                 new io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeSession(

@@ -805,10 +805,9 @@ describe('AgentView', () => {
     expect(client.sessionCommands[1]).toBe('tui-plan-4-restore-execute:permissions:{"selection":"ASK"}');
     expect(client.sessionCommands.some(item => item.includes('plan-execute'))).toBe(false);
     client.emit(permissionResult('tui-plan-4-restore-execute', 'ASK', 8));
-    await waitForFrame(() => client.sessionCommands.length === 3);
-    expect(client.sessionCommands[2]).toBe(
-      `tui-plan-5-execute:plan-execute:{"planId":"plan-run-plan","workspaceDigest":"${'a'.repeat(64)}","maxSteps":128}`,
-    );
+    await waitForFrame(() => client.planExecutions.length === 1);
+    expect(client.planExecutions[0]).toBe(`plan-run-plan:${'a'.repeat(64)}`);
+    expect(client.sessionCommands).toHaveLength(2);
     view.unmount();
   });
 
@@ -893,8 +892,8 @@ describe('AgentView', () => {
     await waitForFrame(() => client.sessionCommands.length === 5);
     expect(client.sessionCommands[4]).toBe('tui-plan-7-restore-execute:permissions:{"selection":"AUTO"}');
     client.emit(permissionResult('tui-plan-7-restore-execute', 'AUTO', 14));
-    await waitForFrame(() => client.sessionCommands.length === 6);
-    expect(client.sessionCommands[5]).toContain('tui-plan-8-execute:plan-execute:');
+    await waitForFrame(() => client.planExecutions.length === 1);
+    expect(client.planExecutions[0]).toBe(`plan-revised:${'2'.repeat(64)}`);
     view.unmount();
   });
 
@@ -1008,9 +1007,9 @@ describe('AgentView', () => {
     view.unmount();
   });
 
-  it('plan-execute 拒绝或异常绑定会明确保留 Plan 恢复路径', async () => {
-    for (const [status, matched] of [['rejected', true], ['succeeded', false]] as const) {
+  it('plan.execute 无法启动时明确保留 Plan 恢复路径', async () => {
       const client = new FakeAgentClient(); const view = await initializedTui(client);
+      client.rejectPlanExecution = true;
       view.stdin.write('/plan task'); view.stdin.write('\r');
       await waitForFrame(() => client.sessionCommands.length === 1);
       enterPlan(client); await waitForFrame(() => client.planTasks.length === 1);
@@ -1029,15 +1028,10 @@ describe('AgentView', () => {
           status: 'succeeded', code: 'ok', result: planCommandResult('plan-current', '5'.repeat(64), 'APPROVED')}});
       await waitForFrame(() => client.sessionCommands.length === 2);
       client.emit(permissionResult('tui-plan-4-restore-execute', 'ASK', 8));
-      await waitForFrame(() => client.sessionCommands.length === 3);
-      client.emit({version: 0, type: 'session.command.result', requestId: 'execute',
-        sessionId: 'session-1', sequence: 9, payload: {commandId: 'tui-plan-5-execute', intent: 'plan-execute',
-          status, code: status === 'succeeded' ? 'ok' : 'invalid_argument', result: status === 'succeeded'
-            ? planCommandResult(matched ? 'plan-current' : 'plan-other', matched ? '5'.repeat(64) : '6'.repeat(64), 'COMPLETED') : {}}});
+      await waitForFrame(() => view.lastFrame()?.includes('执行未能启动') === true);
       await waitForFrame(() => view.lastFrame()?.includes('Plan 已保留') === true);
-      expect(view.lastFrame()).toContain('可用 /plan 查看并恢复');
+      expect(view.lastFrame()).toContain('可用 /plan 查看');
       view.unmount();
-    }
   });
 
   it('进入前已是 PLAN 时批准执行使用安全 ASK', async () => {
@@ -1728,12 +1722,14 @@ describe('approvalDecision', () => {
 class FakeAgentClient implements AgentClient {
   readonly prompts: string[] = [];
   readonly planTasks: string[] = [];
+  readonly planExecutions: string[] = [];
   readonly checkpointCommands: string[] = [];
   readonly sessionCommands: string[] = [];
   readonly providerControls: string[] = [];
   readonly providerLogins: ProviderLoginRequest[] = [];
   providerLoginResult: ProviderLoginResult = {status: 'succeeded', exitCode: 0};
   rejectPlanStart = false;
+  rejectPlanExecution = false;
   readonly fileSuggestions: string[] = [];
   readonly taskCommands: string[] = [];
   readonly skillInvocations: string[] = [];
@@ -1773,6 +1769,12 @@ class FakeAgentClient implements AgentClient {
     if (this.rejectPlanStart) throw new Error('rejected');
     this.planTasks.push(task);
     return `tui-plan-${this.planTasks.length}`;
+  }
+
+  public startPlanExecution(planId: string, workspaceDigest: string): string {
+    if (this.rejectPlanExecution) throw new Error('rejected');
+    this.planExecutions.push(`${planId}:${workspaceDigest}`);
+    return `tui-plan-execute-${this.planExecutions.length}`;
   }
 
   public invokeSkill(name: string, arguments_: string): string {
