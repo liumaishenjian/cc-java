@@ -443,6 +443,25 @@ describe('reduceTuiState', () => {
     }));
   });
 
+  it('保留 Java 投影的类型化 Tool 失败治理元数据', () => {
+    let state = reduceTuiState(initialTuiState, {
+      type: 'event.received', event: event('initialized', 1, {}, 'init', 'session-1'),
+    });
+    state = reduceTuiState(state, {type: 'run.submitted', requestId: 'req-failure', prompt: 'search'});
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('run.started', 2, {}, 'req-failure', 'session-1', 'run-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('tool.failed', 3, {
+        ordinal: 1, toolName: 'web_search', status: 'failed', errorCode: 'web_search_forbidden',
+        failureCategory: 'http_forbidden', retryable: false,
+      }, 'req-failure', 'session-1', 'run-1'),
+    });
+    expect(state.runs[0]?.tools[0]).toEqual(expect.objectContaining({
+      errorCode: 'web_search_forbidden', failureCategory: 'http_forbidden', retryable: false,
+    }));
+  });
+
   it('把命令输出追加到对应 Tool 且保持通道标记', () => {
     let state = reduceTuiState(initialTuiState, {
       type: 'event.received',
@@ -497,3 +516,38 @@ function event(
     payload,
   };
 }
+
+describe('continuous plan projections', () => {
+  it('keeps durable Markdown review and correlated question in the active run', () => {
+    let state = reduceTuiState(initialTuiState, {
+      type: 'event.received', event: event('initialized', 1, {}, 'init', 'session-1'),
+    });
+    state = reduceTuiState(state, {type: 'run.submitted', requestId: 'plan', prompt: '/plan task'});
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('run.started', 2, {}, 'plan', 'session-1', 'run-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('question.requested', 3, {
+        callId: 'ask-1', question: 'Choose', options: [
+          {optionId: 'a', label: 'A', description: 'first'},
+          {optionId: 'b', label: 'B', description: 'second'},
+        ],
+      }, 'plan', 'session-1', 'run-1'),
+    });
+    expect(state.runs[0]?.pendingQuestion?.callId).toBe('ask-1');
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('tool.completed', 4, {
+        ordinal: 1, toolName: 'ask_plan_question', status: 'success', returnedCharacters: 1,
+        returnedItems: 1, filteredItems: 0, truncated: false, truncationReason: 'none',
+      }, 'plan', 'session-1', 'run-1'),
+    });
+    expect(state.runs[0]?.pendingQuestion).toBeUndefined();
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('plan.review.requested', 5, {
+        planId: 'plan-a', status: 'awaiting_approval', revision: 3,
+        contentDigest: 'a'.repeat(64), markdown: '# Plan\n\nSafe.',
+      }, 'plan', 'session-1', 'run-1'),
+    });
+    expect(state.runs[0]?.planReview).toEqual(expect.objectContaining({revision: 3, markdown: '# Plan\n\nSafe.'}));
+  });
+});

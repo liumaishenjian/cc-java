@@ -69,10 +69,42 @@ if ($manifest.artifacts -ne ($artifactFiles.Count + 1)) {
 }
 if ($manifest.publicReleaseAllowed -ne $false) { throw 'Public release must remain disabled' }
 if ($manifest.compatibility.minimumNode -ne 22) { throw 'Minimum Node runtime must be 22' }
-$reportedVersion = & (Join-Path $release 'codej.cmd') --version
-if ($LASTEXITCODE -ne 0 -or $reportedVersion -ne "codej $($manifest.version)") {
-    throw 'Product launcher version smoke failed'
+# 启动器必须拒绝 manifest 指向与实际包不同的 JAR/TUI，避免旧产物冒充当前构建。
+$originalManifestText = Get-Content -LiteralPath $manifestPath -Raw
+$driftManifest = $originalManifestText | ConvertFrom-Json
+$driftManifest.build.cliDigest = '0' * 64
+$driftManifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestPath -Encoding utf8NoBOM
+$driftVersion = & (Join-Path $release 'codej.cmd') --version 2>&1
+if ($LASTEXITCODE -eq 0 -or ($driftVersion -join "`n") -notlike '*packaged build identity drift detected*') {
+    throw 'Launcher did not fail closed on packaged build identity drift'
 }
+$originalManifestText | Set-Content -LiteralPath $manifestPath -Encoding utf8NoBOM
+$manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+$reportedVersion = & (Join-Path $release 'codej.cmd') --version
+$currentCommit = (& git -C $root rev-parse HEAD).Trim()
+$releaseCliDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $release 'app/cc-java-cli.jar')).Hash.ToLowerInvariant()
+$releaseTuiDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $release 'tui/dist/src/index.js')).Hash.ToLowerInvariant()
+if ($LASTEXITCODE -ne 0 -or $manifest.build.currentCommit -ne $currentCommit `
+        -or $manifest.build.cliDigest -ne $releaseCliDigest -or $manifest.build.tuiDigest -ne $releaseTuiDigest `
+        -or $reportedVersion -notlike "codej $($manifest.version) commit=$currentCommit source=* cli=$releaseCliDigest tui=$releaseTuiDigest") {
+    throw 'Product launcher build identity drift detected'
+}
+$stdioInput = Join-Path $release 'stdio-input.ndjson'
+@(
+    '{"version":0,"type":"initialize","requestId":"installed-init","sequence":1,"payload":{}}',
+    '{"version":0,"type":"shutdown","requestId":"installed-stop","sequence":2,"payload":{}}'
+) | Set-Content -LiteralPath $stdioInput -Encoding utf8NoBOM
+$stdioOut = Join-Path $release 'stdio-output.ndjson'; $stdioErr = Join-Path $release 'stdio-error.txt'
+$stdioProcess = Start-Process -FilePath (Join-Path $release 'codej.cmd') -ArgumentList '--stdio' `
+    -WorkingDirectory $root -NoNewWindow -PassThru -RedirectStandardInput $stdioInput `
+    -RedirectStandardOutput $stdioOut -RedirectStandardError $stdioErr
+if (-not $stdioProcess.WaitForExit(15000)) { $stdioProcess.Kill($true); throw 'Installed launcher stdio did not exit' }
+$stdioEvents = @(Get-Content -LiteralPath $stdioOut | ForEach-Object { $_ | ConvertFrom-Json })
+if ($stdioProcess.ExitCode -ne 0 -or @($stdioEvents | Where-Object type -eq 'initialized').Count -ne 1 `
+        -or (Get-Item -LiteralPath $stdioErr).Length -ne 0) {
+    throw 'Installed launcher Java stdio smoke failed'
+}
+Remove-Item -LiteralPath $stdioInput,$stdioOut,$stdioErr -Force
 
 $escaped = Join-Path $root 'target/release-escape-negative'
 $failedClosed = $false

@@ -69,6 +69,52 @@ class S15WebSearchHeadlessE2ETest {
     }
 
     @Test
+    void planNetworkReadRemainsPermissionGatedBeforeExecution(@TempDir java.nio.file.Path root) throws Exception {
+        java.nio.file.Path workspace = java.nio.file.Files.createDirectory(root.resolve("workspace"));
+        AtomicInteger hits = new AtomicInteger();
+        try (Loopback fixture = new Loopback(hits)) {
+            WebSearchConfiguration configuration = WebSearchConfiguration.loopbackDevelopment(
+                    io.github.liumaishenjian.ccjava.tools.web.WebSearchProvider.EXA,
+                    fixture.uri(), Optional.empty(), Duration.ofSeconds(3));
+            WebSearchRuntimeResources resources = WebSearchRuntimeResources.fromConfiguration(configuration);
+            AtomicInteger turns = new AtomicInteger();
+            CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+            StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                    events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+            StdioProtocolCodec codec = new StdioProtocolCodec();
+            HeadlessRuntimeOptions options = new HeadlessRuntimeOptions(workspace, "fake-model",
+                    Duration.ofSeconds(10), PermissionMode.DEFAULT, List.of(), SessionOpenRequest.create(),
+                    root.resolve("sessions"));
+            try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler((eventSink, approvals) ->
+                    new HeadlessRuntimeSession(request -> turns.incrementAndGet() == 1
+                            ? ModelTurn.tools(List.of(new ToolCall("plan-web", "web_search",
+                                    new JsonObject(Map.of("query", "planning fact", "result_limit", 1)))))
+                            : ModelTurn.text("stop"), eventSink, options, approvals,
+                            ContextPreparationService.noop(), null,
+                            HeadlessRuntimeSession.HeadlessMemoryLayout.disabled(),
+                            HeadlessRuntimeSession.HeadlessInstructionLayout.production(() -> root.resolve("home")),
+                            null, true, resources))) {
+                handler.handle(codec.decodeCommand(
+                        "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+                String sessionId = events.getFirst().sessionId().orElseThrow();
+                handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"plan.start\","
+                        + "\"requestId\":\"plan\",\"sessionId\":\"%s\",\"sequence\":2,"
+                        + "\"payload\":{\"prompt\":\"plan with current fact\"}}").formatted(sessionId)), emitter);
+                CapturedEvent approval = awaitEvent(events, "approval.requested");
+                assertThat(approval.payload().toString()).contains("network_or_remote", "planning fact");
+                assertThat(hits).hasValue(0);
+                handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"approval.resolve\","
+                        + "\"requestId\":\"deny\",\"sessionId\":\"%s\",\"runId\":\"%s\","
+                        + "\"sequence\":3,\"payload\":{\"approvalId\":\"%s\",\"decision\":\"deny\"}}")
+                        .formatted(sessionId, approval.runId().orElseThrow(),
+                                approval.payload().get("approvalId").stringValue())), emitter);
+                awaitEvent(events, "run.completed");
+                assertThat(hits).hasValue(0);
+            }
+        }
+    }
+
+    @Test
     void stdioAllowsTwoNetworkRequestsWithOnceThenSession(@TempDir java.nio.file.Path root) throws Exception {
         java.nio.file.Path workspace = java.nio.file.Files.createDirectory(root.resolve("workspace"));
         AtomicInteger hits = new AtomicInteger();

@@ -62,35 +62,108 @@ class RuntimeStdioCommandHandlerTest {
     }
 
     @Test
-    void naturalLanguagePlanStartProducesServerOwnedProposalWithoutUserDigest() throws Exception {
+    void continuousPlanQuestionAndReviewUseSafeCorrelatedStdioEventsWithoutJsonLeak() throws Exception {
         StdioProtocolCodec codec = new StdioProtocolCodec();
         CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
         StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
                 events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
         AtomicInteger calls = new AtomicInteger();
-        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
-            calls.incrementAndGet();
-            assertThat(request.messages()).anySatisfy(message -> {
-                if (message instanceof io.github.liumaishenjian.ccjava.domain.UserMessage user) {
-                    assertThat(user.content()).isEqualTo("设计安全登录流程");
-                }
-            });
-            return ModelTurn.text("{\"objective\":\"安全登录\",\"steps\":[{\"title\":\"检查\",\"detail\":\"阅读现有实现\"}]}");
-        }, testOptions())) {
+        String markdown = "# Plan\n\nUse the selected rollout.\n";
+        String digest = io.github.liumaishenjian.ccjava.domain.PlanArtifact.digest(markdown);
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request ->
+                switch (calls.getAndIncrement()) {
+                    case 0 -> ModelTurn.tools(List.of(new ToolCall("ask-stdio", "ask_plan_question",
+                            new JsonObject(java.util.Map.of("question", "Choose rollout", "options", List.of(
+                                    java.util.Map.of("optionId", "safe", "label", "Safe", "description", "Staged"),
+                                    java.util.Map.of("optionId", "fast", "label", "Fast", "description", "Direct")))))));
+                    case 1 -> ModelTurn.tools(List.of(new ToolCall("update-stdio", "revise_plan_artifact",
+                            new JsonObject(java.util.Map.of("markdown", markdown, "expectedRevision", 0,
+                                    "expectedContentDigest", "")))));
+                    case 2 -> ModelTurn.tools(List.of(new ToolCall("review-stdio", "request_plan_review",
+                            new JsonObject(java.util.Map.of("revision", 1, "contentDigest", digest)))));
+                    default -> ModelTurn.text("{\"internal\":\"must-not-leak\"}");
+                }, testOptions())) {
             handler.handle(codec.decodeCommand(
                     "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
             String sessionId = events.getFirst().sessionId().orElseThrow();
             handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"plan.start\","
                     + "\"requestId\":\"plan\",\"sessionId\":\"%s\",\"sequence\":2,"
                     + "\"payload\":{\"prompt\":\"设计安全登录流程\"}}").formatted(sessionId)), emitter);
-
-            CapturedEvent proposal = awaitEvent(events, "plan.proposed");
+            CapturedEvent question = awaitEvent(events, "question.requested");
+            assertThat(question.payload().toString()).contains("ask-stdio", "Choose rollout", "safe", "fast")
+                    .doesNotContain("ask_plan_question", "expectedDigest", "objective", "title", "detail");
+            String runId = question.runId().orElseThrow();
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"question.resolve\","
+                    + "\"requestId\":\"answer\",\"sessionId\":\"%s\",\"runId\":\"%s\","
+                    + "\"sequence\":3,\"payload\":{\"callId\":\"ask-stdio\",\"optionId\":\"safe\"}}")
+                    .formatted(sessionId, runId)), emitter);
+            CapturedEvent review = awaitEvent(events, "plan.review.requested");
             awaitTerminal(events);
-            assertThat(proposal.payload().get("planId").stringValue()).startsWith("plan-run-");
-            assertThat(proposal.payload().get("workspaceDigest").stringValue()).matches("[a-f0-9]{64}");
-            assertThat(proposal.payload().toString()).contains("安全登录", "阅读现有实现");
+            assertThat(review.payload().toString()).contains("# Plan", "awaiting_approval", digest)
+                    .doesNotContain("objective", "title", "detail", "expectedDigest");
             assertThat(events).noneMatch(event -> event.type().equals("model.text.delta"));
-            assertThat(calls).hasValue(1);
+            CapturedEvent terminal = events.stream().filter(event -> event.type().equals("run.completed"))
+                    .findFirst().orElseThrow();
+            assertThat(terminal.payload().toString()).doesNotContain("internal", "must-not-leak", "finalText");
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"question.resolve\","
+                    + "\"requestId\":\"late\",\"sessionId\":\"%s\",\"runId\":\"%s\","
+                    + "\"sequence\":4,\"payload\":{\"callId\":\"ask-stdio\",\"optionId\":\"safe\"}}")
+                    .formatted(sessionId, runId)), emitter)).isInstanceOf(StdioProtocolException.class);
+        }
+    }
+
+    @Test
+    void durableReviewResolveIsOneCommandAndStartsRealExecutionWithoutLegacyExecute() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        AtomicInteger calls = new AtomicInteger();
+        String markdown = "# Plan\n\nExecute normally.\n";
+        String digest = io.github.liumaishenjian.ccjava.domain.PlanArtifact.digest(markdown);
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request ->
+                switch (calls.getAndIncrement()) {
+                    case 0 -> ModelTurn.tools(List.of(new ToolCall("update-review", "revise_plan_artifact",
+                            new JsonObject(java.util.Map.of("markdown", markdown, "expectedRevision", 0,
+                                    "expectedContentDigest", "")))));
+                    case 1 -> ModelTurn.tools(List.of(new ToolCall("review", "request_plan_review",
+                            new JsonObject(java.util.Map.of("revision", 1, "contentDigest", digest)))));
+                    case 2 -> ModelTurn.text("plan complete");
+                    default -> ModelTurn.text("execution complete");
+                }, testOptions())) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"plan.start\","
+                    + "\"requestId\":\"plan\",\"sessionId\":\"%s\",\"sequence\":2,"
+                    + "\"payload\":{\"prompt\":\"plan\"}}").formatted(sessionId)), emitter);
+            CapturedEvent review = awaitEvent(events, "plan.review.requested");
+            awaitTerminal(events);
+            String planId = review.payload().get("planId").stringValue();
+            long revision = review.payload().get("revision").longValue();
+            String workspaceDigest = review.payload().get("workspaceDigest").stringValue();
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"plan.review.resolve\","
+                    + "\"requestId\":\"decision\",\"sessionId\":\"%s\",\"sequence\":3,"
+                    + "\"payload\":{\"planId\":\"%s\",\"revision\":%d,\"contentDigest\":\"%s\","
+                    + "\"workspaceDigest\":\"%s\",\"decision\":\"APPROVE_USER\","
+                    + "\"contextPolicy\":\"KEEP\",\"feedback\":\"\"}}").formatted(
+                            sessionId, planId, revision, digest, workspaceDigest)), emitter);
+            CapturedEvent accepted = awaitEvent(events, "plan.execution.accepted");
+            assertThat(accepted.payload().get("approvalReviewer").stringValue()).isEqualTo("user");
+            awaitEvent(events, "run.started");
+            long deadline = System.nanoTime() + Duration.ofSeconds(3).toNanos();
+            while (System.nanoTime() < deadline && events.stream()
+                    .filter(event -> event.type().equals("run.completed")).count() < 2L) {
+                Thread.sleep(10);
+            }
+            assertThat(events.stream().filter(event -> event.type().equals("run.completed")).count())
+                    .isGreaterThanOrEqualTo(2L);
+            assertThat(events).noneMatch(event -> event.type().equals("plan.proposed"));
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand(("{\"version\":0,"
+                    + "\"type\":\"plan.execute\",\"requestId\":\"legacy\",\"sessionId\":\"%s\","
+                    + "\"sequence\":4,\"payload\":{\"planId\":\"%s\",\"workspaceDigest\":\"%s\"}}")
+                    .formatted(sessionId, planId, workspaceDigest)), emitter))
+                    .isInstanceOf(StdioProtocolException.class);
         }
     }
 
@@ -232,6 +305,8 @@ class RuntimeStdioCommandHandlerTest {
         assertThat(failed.payload().toString())
                 .contains(
                         "sensitive_path",
+                        "\"failureCategory\":\"validation\"",
+                        "\"retryable\":false",
                         "returnedCharacters",
                         "\"returnedItems\":0",
                         "\"truncationReason\":\"none\"")

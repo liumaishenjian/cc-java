@@ -2,6 +2,7 @@ package io.github.liumaishenjian.ccjava.core;
 
 import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
 import io.github.liumaishenjian.ccjava.domain.RunId;
+import io.github.liumaishenjian.ccjava.domain.PlanArtifact;
 import io.github.liumaishenjian.ccjava.domain.SessionId;
 import io.github.liumaishenjian.ccjava.domain.StopReason;
 import io.github.liumaishenjian.ccjava.domain.ToolEffect;
@@ -116,6 +117,17 @@ public interface SessionJournal {
      */
     default void skillCompleted(SessionId sessionId, RunId runId, SkillId skillId,
             SkillInvocationKind kind, SkillErrorCode errorCode) {
+    }
+
+    /**
+     * 持久记录当前 Session 绑定的完整 Markdown PlanArtifact revision。
+     *
+     * <p>该事实用于本地 artifact 文件缺失时恢复；实现不得只保存路径或依赖外部文件仍存在。</p>
+     *
+     * @param sessionId 工件所属 Session
+     * @param artifact 完整且已校验的工件 revision
+     */
+    default void planArtifactSaved(SessionId sessionId, PlanArtifact artifact) {
     }
 
     /**

@@ -8,5 +8,5 @@ package io.github.liumaishenjian.ccjava.domain;
  *
  * @since 0.1.0
  */
-public sealed interface AgentEvent permits LifecycleEvent, ModelTextDelta, PlanProposalEvent {
+public sealed interface AgentEvent permits LifecycleEvent, ModelTextDelta, PlanProposalEvent, PlanReviewEvent {
 }

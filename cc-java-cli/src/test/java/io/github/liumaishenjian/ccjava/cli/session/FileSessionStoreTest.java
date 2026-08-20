@@ -15,6 +15,7 @@ import io.github.liumaishenjian.ccjava.domain.SessionId;
 import io.github.liumaishenjian.ccjava.domain.SessionSpec;
 import io.github.liumaishenjian.ccjava.domain.StopReason;
 import io.github.liumaishenjian.ccjava.domain.PlanApprovalGate;
+import io.github.liumaishenjian.ccjava.domain.PlanArtifact;
 import io.github.liumaishenjian.ccjava.domain.PlanDocument;
 import io.github.liumaishenjian.ccjava.domain.PlanExecutionState;
 import io.github.liumaishenjian.ccjava.domain.PlanStatus;
@@ -154,6 +155,12 @@ class FileSessionStoreTest {
                     .filteredOn(ToolResultMessage.class::isInstance)
                     .extracting(message -> ((ToolResultMessage) message).result().callId())
                     .containsExactly("call-denied", "call-read");
+            ToolResultMessage deniedResult = resumed.session().messages().stream()
+                    .filter(ToolResultMessage.class::isInstance)
+                    .map(ToolResultMessage.class::cast).findFirst().orElseThrow();
+            assertThat(deniedResult.result().error().orElseThrow().category())
+                    .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolFailureCategory.PERMISSION);
+            assertThat(deniedResult.result().error().orElseThrow().retryable()).isFalse();
             assertThat(Files.readAllLines(journal(storeRoot, sessionId), StandardCharsets.UTF_8))
                     .noneMatch(line -> line.contains("token") || line.contains("chunk"));
         }
@@ -760,6 +767,434 @@ class FileSessionStoreTest {
         }
     }
 
+
+    @Test
+    void invalidArtifactTransitionIsRejectedBeforeJournalAndProjectionChange() throws IOException {
+        Path workspace = workspace("plan-write-invalid-state");
+        Path root = storeRoot("plan-write-invalid-state");
+        SessionId id;
+        PlanArtifact first;
+        long journalSize;
+        try (FileSessionStore store = store(root, workspace, 1)) {
+            id = store.create(SPEC).id();
+            first = PlanArtifact.create("plan-invalid-write", id, "# First", PlanStatus.DRAFT,
+                    Instant.parse("2026-08-20T00:00:00Z"));
+            store.savePlanArtifact(first, 0, "");
+            journalSize = Files.size(journal(root, id));
+            PlanArtifact invalid = first.nextRevision("# Invalid", PlanStatus.COMPLETED,
+                    Instant.parse("2026-08-20T00:00:01Z"));
+
+            long firstRevision = first.revision();
+            String firstDigest = first.contentDigest();
+            assertThatThrownBy(() -> store.savePlanArtifact(
+                    invalid, firstRevision, firstDigest))
+                    .isInstanceOfSatisfying(
+                            io.github.liumaishenjian.ccjava.core.PlanArtifactStoreException.class,
+                            failure -> assertThat(failure.code()).isEqualTo(
+                                    io.github.liumaishenjian.ccjava.core.PlanArtifactStoreException.Code.INVALID_STATE));
+            assertThat(Files.size(journal(root, id))).isEqualTo(journalSize);
+            assertThat(store.planArtifacts(id).load(id)).contains(first);
+            assertThat(Files.exists(root.resolve(id.value())
+                    .resolve("plan-r2-" + invalid.contentDigest() + ".md"))).isFalse();
+            assertThat(store.planArtifacts(id).load(id)).contains(first);
+            PlanArtifact legal = first.nextRevision(
+                    "# Legal update", PlanStatus.AWAITING_APPROVAL,
+                    Instant.parse("2026-08-20T00:00:02Z"));
+            store.savePlanArtifact(legal, first.revision(), first.contentDigest());
+            first = legal;
+        }
+        PlanArtifact expected = first;
+        try (FileSessionStore reopened = store(root, workspace, 20)) {
+            assertThat(reopened.open(SessionOpenRequest.resume(id), SPEC).session().isFenced()).isFalse();
+            assertThat(reopened.planArtifacts(id).load(id)).contains(expected);
+        }
+    }
+
+    @Test
+    void journalOneRevisionAheadOfOlderManifestFastForwardsProjection() throws IOException {
+        Path workspace = workspace("plan-journal-fast-forward");
+        Path root = storeRoot("plan-journal-fast-forward");
+        SessionId id;
+        PlanArtifact first;
+        PlanArtifact second;
+        try (FileSessionStore store = store(root, workspace, 1)) {
+            id = store.create(SPEC).id();
+            first = PlanArtifact.create("plan-fast-forward", id, "# First", PlanStatus.DRAFT,
+                    Instant.parse("2026-08-20T00:00:00Z"));
+            store.savePlanArtifact(first, 0, "");
+            second = first.nextRevision("# Second", PlanStatus.AWAITING_APPROVAL,
+                    Instant.parse("2026-08-20T00:00:01Z"));
+            store.savePlanArtifact(second, first.revision(), first.contentDigest());
+            store.close(id);
+        }
+        Path directory = root.resolve(id.value());
+        Files.delete(directory.resolve(FilePlanArtifactStore.MANIFEST_FILE));
+        new FilePlanArtifactStore(directory, id).restoreAuthoritative(first);
+        assertThat(new FilePlanArtifactStore(directory, id).load(id)).contains(first);
+
+        try (FileSessionStore reopened = store(root, workspace, 10)) {
+            reopened.open(SessionOpenRequest.resume(id), SPEC);
+            assertThat(reopened.planArtifacts(id).load(id)).contains(second);
+        }
+    }
+
+    @Test
+    void planArtifactResumesRecoversMissingFileAndForksIndependentIdentity() throws IOException {
+        Path workspace = workspace("plan-artifact-recovery");
+        Path root = storeRoot("plan-artifact-recovery");
+        SessionId sourceId;
+        io.github.liumaishenjian.ccjava.domain.PlanArtifact sourceArtifact;
+        try (FileSessionStore store = store(root, workspace, 1)) {
+            sourceId = store.create(SPEC).id();
+            sourceArtifact = io.github.liumaishenjian.ccjava.domain.PlanArtifact.create(
+                    "plan-source", sourceId, "# Plan\n\nDurable", PlanStatus.AWAITING_APPROVAL,
+                    Instant.parse("2026-08-20T00:00:00Z"));
+            store.savePlanArtifact(sourceArtifact, 0, "");
+            store.close(sourceId);
+        }
+
+        Path sourceDirectory = root.resolve(sourceId.value());
+        try (var files = Files.list(sourceDirectory)) {
+            files.filter(path -> path.getFileName().toString().startsWith("plan-"))
+                    .forEach(path -> {
+                        try { Files.delete(path); } catch (IOException failure) { throw new java.io.UncheckedIOException(failure); }
+                    });
+        }
+        Files.delete(sourceDirectory.resolve(FilePlanArtifactStore.MANIFEST_FILE));
+        SessionId forkId;
+        try (FileSessionStore reopened = store(root, workspace, 100)) {
+            SessionOpenResult resumed = reopened.open(SessionOpenRequest.resume(sourceId), SPEC);
+            assertThat(reopened.planArtifacts(sourceId).load(sourceId)).contains(sourceArtifact);
+            resumed.session().plan().ifPresent(ignored ->
+                    org.junit.jupiter.api.Assertions.fail("legacy PlanDocument 不应由 PlanArtifact 伪造"));
+            reopened.close(sourceId);
+
+            SessionOpenResult forked = reopened.open(
+                    new SessionOpenRequest(SessionOpenMode.FORK, Optional.of(sourceId)), SPEC);
+            forkId = forked.session().id();
+            var forkArtifact = reopened.planArtifacts(forkId).load(forkId).orElseThrow();
+            assertThat(forkArtifact.sessionId()).isEqualTo(forkId);
+            assertThat(forkArtifact.planId()).isNotEqualTo(sourceArtifact.planId());
+            assertThat(forkArtifact.revision()).isEqualTo(1);
+            assertThat(forkArtifact.markdownContent()).isEqualTo(sourceArtifact.markdownContent());
+            reopened.close(forkId);
+        }
+
+        var sourceBefore = reopenedArtifact(sourceDirectory, sourceId);
+        Path forkDirectory = root.resolve(forkId.value());
+        try (FileSessionStore forkWriter = store(root, workspace, 200)) {
+            forkWriter.open(SessionOpenRequest.resume(forkId), SPEC);
+            var firstFork = forkWriter.planArtifacts(forkId).load(forkId).orElseThrow();
+            var changed = firstFork.nextRevision("# Fork only", PlanStatus.APPROVED,
+                    firstFork.updatedAt().plusSeconds(1));
+            forkWriter.savePlanArtifact(changed, firstFork.revision(), firstFork.contentDigest());
+        }
+        assertThat(reopenedArtifact(sourceDirectory, sourceId)).isEqualTo(sourceBefore);
+        assertThat(reopenedArtifact(forkDirectory, forkId).markdownContent()).isEqualTo("# Fork only");
+    }
+
+    @Test
+    void journalCommittedWithMissingProjectionRebuildsManifestWithoutReplayingPlan() throws IOException {
+        Path workspace = workspace("plan-journal-ahead");
+        Path root = storeRoot("plan-journal-ahead");
+        SessionId id;
+        io.github.liumaishenjian.ccjava.domain.PlanArtifact artifact;
+        try (FileSessionStore store = store(root, workspace, 1)) {
+            id = store.create(SPEC).id();
+            artifact = io.github.liumaishenjian.ccjava.domain.PlanArtifact.create(
+                    "plan-journal-ahead", id, "# Durable journal", PlanStatus.AWAITING_APPROVAL,
+                    Instant.parse("2026-08-20T00:00:00Z"));
+            store.savePlanArtifact(artifact, 0, "");
+            store.close(id);
+        }
+        Files.delete(root.resolve(id.value()).resolve(FilePlanArtifactStore.MANIFEST_FILE));
+
+        try (FileSessionStore reopened = store(root, workspace, 2)) {
+            SessionOpenResult result = reopened.open(SessionOpenRequest.resume(id), SPEC);
+            assertThat(reopened.planArtifacts(id).load(id)).contains(artifact);
+            assertThat(result.session().hasActiveRun()).isFalse();
+            assertThat(result.session().plan()).isEmpty();
+        }
+    }
+
+    @Test
+    void localManifestAheadOfJournalIsDiscardedInsteadOfBlockingResume() throws IOException {
+        Path workspace = workspace("plan-local-ahead");
+        Path root = storeRoot("plan-local-ahead");
+        SessionId id;
+        try (FileSessionStore store = store(root, workspace, 1)) {
+            id = store.create(SPEC).id();
+            store.close(id);
+        }
+        Path directory = root.resolve(id.value());
+        var orphan = io.github.liumaishenjian.ccjava.domain.PlanArtifact.create(
+                "plan-local-ahead", id, "# Not journaled", PlanStatus.AWAITING_APPROVAL,
+                Instant.parse("2026-08-20T00:00:00Z"));
+        new FilePlanArtifactStore(directory, id).save(orphan, 0, "");
+
+        try (FileSessionStore reopened = store(root, workspace, 2)) {
+            SessionOpenResult result = reopened.open(SessionOpenRequest.resume(id), SPEC);
+            assertThat(result.issues()).isEmpty();
+            assertThat(reopened.planArtifacts(id).load(id)).isEmpty();
+            assertThat(Files.exists(directory.resolve(FilePlanArtifactStore.MANIFEST_FILE))).isFalse();
+        }
+    }
+
+    @Test
+    void forkOfCompletedPlanResetsArtifactAndProjectionToPendingApproval() throws IOException {
+        Path workspace = workspace("plan-fork-terminal");
+        Path root = storeRoot("plan-fork-terminal");
+        SessionId sourceId;
+        PlanDocument completedDocument = new PlanDocument("plan-terminal", "finished", List.of(
+                new PlanStep(1, "done", "done", "digest-a")), PlanStatus.COMPLETED, "digest-a");
+        PlanExecutionState completedState = new PlanExecutionState(
+                completedDocument.id(), PlanApprovalGate.APPROVED,
+                null, null, PlanStatus.COMPLETED, "digest-a");
+        try (FileSessionStore store = store(root, workspace, 1)) {
+            sourceId = store.create(SPEC).id();
+            var artifact = io.github.liumaishenjian.ccjava.domain.PlanArtifact.create(
+                    completedDocument.id(), sourceId, "# Completed", PlanStatus.AWAITING_APPROVAL,
+                    Instant.parse("2026-08-20T00:00:00Z"))
+                    .nextRevision("# Completed", PlanStatus.APPROVED,
+                            Instant.parse("2026-08-20T00:00:01Z"))
+                    .nextRevision("# Completed", PlanStatus.EXECUTING,
+                            Instant.parse("2026-08-20T00:00:02Z"))
+                    .nextRevision("# Completed", PlanStatus.COMPLETED,
+                            Instant.parse("2026-08-20T00:00:03Z"));
+            store.savePlanArtifact(artifact.fork(completedDocument.id(), sourceId,
+                    Instant.parse("2026-08-20T00:00:00Z")), 0, "");
+            var first = store.planArtifacts(sourceId).load(sourceId).orElseThrow();
+            var approved = first.nextRevision("# Completed", PlanStatus.APPROVED,
+                    Instant.parse("2026-08-20T00:00:01Z"));
+            store.savePlanArtifact(approved, first.revision(), first.contentDigest());
+            var executing = approved.nextRevision("# Completed", PlanStatus.EXECUTING,
+                    Instant.parse("2026-08-20T00:00:02Z"));
+            store.savePlanArtifact(executing, approved.revision(), approved.contentDigest());
+            var completed = executing.nextRevision("# Completed", PlanStatus.COMPLETED,
+                    Instant.parse("2026-08-20T00:00:03Z"));
+            store.savePlanArtifact(completed, executing.revision(), executing.contentDigest());
+            store.planSnapshot(sourceId, completedDocument, completedState);
+            store.close(sourceId);
+        }
+
+        try (FileSessionStore reopened = store(root, workspace, 10)) {
+            SessionOpenResult forked = reopened.open(
+                    new SessionOpenRequest(SessionOpenMode.FORK, Optional.of(sourceId)), SPEC);
+            var artifact = reopened.planArtifacts(forked.session().id())
+                    .load(forked.session().id()).orElseThrow();
+            assertThat(artifact.revision()).isEqualTo(1);
+            assertThat(artifact.status()).isEqualTo(PlanStatus.AWAITING_APPROVAL);
+            assertThat(artifact.sessionId()).isEqualTo(forked.session().id());
+            assertThat(forked.session().plan()).isPresent();
+            assertThat(forked.session().plan().orElseThrow().document().id()).isEqualTo(artifact.planId());
+            assertThat(forked.session().plan().orElseThrow().state().status())
+                    .isEqualTo(PlanStatus.AWAITING_APPROVAL);
+            assertThat(forked.session().plan().orElseThrow().state().approvalGate())
+                    .isEqualTo(PlanApprovalGate.PENDING);
+        }
+    }
+
+    @Test
+    void journalRejectsNonMonotonicPlanRevisionAndStatusChain() throws IOException {
+        Path workspace = workspace("plan-journal-invalid-chain");
+        Path root = storeRoot("plan-journal-invalid-chain");
+        SessionId id;
+        io.github.liumaishenjian.ccjava.domain.PlanArtifact first;
+        try (FileSessionStore store = store(root, workspace, 1)) {
+            id = store.create(SPEC).id();
+            first = io.github.liumaishenjian.ccjava.domain.PlanArtifact.create(
+                    "plan-invalid-chain", id, "# First", PlanStatus.AWAITING_APPROVAL,
+                    Instant.parse("2026-08-20T00:00:00Z"));
+            store.savePlanArtifact(first, 0, "");
+            store.close(id);
+        }
+        Path journal = journal(root, id);
+        String invalid = Files.readString(journal, StandardCharsets.UTF_8)
+                .replaceFirst("\"revision\":1", "\"revision\":2");
+        Files.writeString(journal, invalid, StandardCharsets.UTF_8);
+
+        try (FileSessionStore reopened = store(root, workspace, 2)) {
+            assertThatThrownBy(() -> reopened.open(SessionOpenRequest.resume(id), SPEC))
+                    .isInstanceOfSatisfying(SessionOpenException.class,
+                            failure -> assertThat(failure.code()).isEqualTo("INVALID_RECORD"));
+        }
+    }
+
+    @Test
+    void journalRejectsPlanArtifactOwnedByAnotherSession() throws IOException {
+        Path workspace = workspace("plan-journal-foreign");
+        Path root = storeRoot("plan-journal-foreign");
+        SessionId id;
+        try (FileSessionStore store = store(root, workspace, 1)) {
+            id = store.create(SPEC).id();
+            var artifact = io.github.liumaishenjian.ccjava.domain.PlanArtifact.create(
+                    "plan-foreign-owner", id, "# Plan", PlanStatus.AWAITING_APPROVAL,
+                    Instant.parse("2026-08-20T00:00:00Z"));
+            store.savePlanArtifact(artifact, 0, "");
+            store.close(id);
+        }
+        Path journal = journal(root, id);
+        String invalid = Files.readString(journal, StandardCharsets.UTF_8)
+                .replace("\"sessionId\":\"" + id.value() + "\",\"revision\"",
+                        "\"sessionId\":\"session-foreign-owner\",\"revision\"");
+        Files.writeString(journal, invalid, StandardCharsets.UTF_8);
+
+        try (FileSessionStore reopened = store(root, workspace, 2)) {
+            assertThatThrownBy(() -> reopened.open(SessionOpenRequest.resume(id), SPEC))
+                    .isInstanceOfSatisfying(SessionOpenException.class,
+                            failure -> assertThat(failure.code()).isEqualTo("INVALID_RECORD"));
+        }
+    }
+
+    @Test
+    void corruptLocalPlanArtifactFailsClosedEvenWhenJournalCanRecover() throws IOException {
+        Path workspace = workspace("plan-artifact-corrupt");
+        Path root = storeRoot("plan-artifact-corrupt");
+        SessionId id;
+        try (FileSessionStore store = store(root, workspace, 1)) {
+            id = store.create(SPEC).id();
+            var artifact = io.github.liumaishenjian.ccjava.domain.PlanArtifact.create(
+                    "plan-corrupt", id, "# Valid", PlanStatus.DRAFT,
+                    Instant.parse("2026-08-20T00:00:00Z"));
+            store.savePlanArtifact(artifact, 0, "");
+            store.close(id);
+        }
+        Path directory = root.resolve(id.value());
+        Path generation;
+        try (var files = Files.list(directory)) {
+            generation = files.filter(path -> path.getFileName().toString().startsWith("plan-r"))
+                    .findFirst().orElseThrow();
+        }
+        Files.writeString(generation, "tampered", StandardCharsets.UTF_8);
+        try (FileSessionStore reopened = store(root, workspace, 10)) {
+            assertThatThrownBy(() -> reopened.open(SessionOpenRequest.resume(id), SPEC))
+                    .isInstanceOfSatisfying(SessionOpenException.class,
+                            failure -> assertThat(failure.code()).isEqualTo("PLAN_ARTIFACT_CORRUPT"));
+        }
+    }
+
+    @Test
+    void failedForkRollsBackOnlyFreshTargetAndReleasesWriterEntry() throws IOException {
+        Path workspace = workspace("fork-failure-cleanup");
+        Path root = storeRoot("fork-failure-cleanup");
+        SessionId sourceId;
+        PlanArtifact sourceArtifact;
+        try (FileSessionStore sourceStore = store(root, workspace, 1)) {
+            sourceId = sourceStore.create(SPEC).id();
+            sourceArtifact = PlanArtifact.create("plan-fork-source", sourceId, "# Source",
+                    PlanStatus.AWAITING_APPROVAL, Instant.parse("2026-08-20T00:00:00Z"));
+            sourceStore.savePlanArtifact(sourceArtifact, 0, "");
+            sourceStore.close(sourceId);
+        }
+        Path sourceJournal = journal(root, sourceId);
+        byte[] sourceBefore = Files.readAllBytes(sourceJournal);
+        SessionId targetId = new SessionId("session-test-50");
+        AtomicInteger failures = new AtomicInteger();
+        try (FileSessionStore failing = new FileSessionStore(
+                root, workspace, new TestIds(50), lifecycle(),
+                Clock.fixed(Instant.parse("2026-08-03T00:00:00Z"), ZoneOffset.UTC),
+                io.github.liumaishenjian.ccjava.core.hook.HookCoordinator.disabled(),
+                ignored -> {
+                    if (failures.getAndIncrement() == 0) throw new InjectedForkFailure();
+                })) {
+            assertThatThrownBy(() -> failing.open(
+                    new SessionOpenRequest(SessionOpenMode.FORK, Optional.of(sourceId)), SPEC))
+                    .isInstanceOf(InjectedForkFailure.class);
+            assertThat(Files.exists(root.resolve(targetId.value()))).isFalse();
+            assertThat(Files.readAllBytes(sourceJournal)).isEqualTo(sourceBefore);
+
+            SessionOpenResult retry = failing.open(
+                    new SessionOpenRequest(SessionOpenMode.FORK, Optional.of(sourceId)), SPEC);
+            assertThat(retry.session().id()).isEqualTo(new SessionId("session-test-51"));
+            assertThat(failing.planArtifacts(retry.session().id()).load(retry.session().id()))
+                    .get().extracting(PlanArtifact::markdownContent)
+                    .isEqualTo(sourceArtifact.markdownContent());
+        }
+    }
+
+    @Test
+    void forkFailureAfterArtifactRestoreRemovesManifestAndGenerationsWithoutTouchingSource() throws IOException {
+        Path workspace = workspace("fork-artifact-failure-cleanup");
+        Path root = storeRoot("fork-artifact-failure-cleanup");
+        SessionId sourceId;
+        try (FileSessionStore sourceStore = store(root, workspace, 1)) {
+            sourceId = sourceStore.create(SPEC).id();
+            sourceStore.savePlanArtifact(PlanArtifact.create(
+                    "plan-fork-artifact-source", sourceId, "# Source", PlanStatus.AWAITING_APPROVAL,
+                    Instant.parse("2026-08-20T00:00:00Z")), 0, "");
+            sourceStore.close(sourceId);
+        }
+        byte[] sourceBefore = Files.readAllBytes(journal(root, sourceId));
+        SessionId targetId = new SessionId("session-test-60");
+        FileSessionStore.NewSessionFault fault = new FileSessionStore.NewSessionFault() {
+            @Override public void afterJournalWritten(SessionId ignored) { }
+            @Override public void afterArtifactRestored(SessionId ignored) {
+                throw new InjectedForkFailure();
+            }
+        };
+        try (FileSessionStore failing = new FileSessionStore(
+                root, workspace, new TestIds(60), lifecycle(),
+                Clock.fixed(Instant.parse("2026-08-03T00:00:00Z"), ZoneOffset.UTC),
+                io.github.liumaishenjian.ccjava.core.hook.HookCoordinator.disabled(), fault)) {
+            assertThatThrownBy(() -> failing.open(
+                    new SessionOpenRequest(SessionOpenMode.FORK, Optional.of(sourceId)), SPEC))
+                    .isInstanceOf(InjectedForkFailure.class);
+            assertThat(Files.exists(root.resolve(targetId.value()))).isFalse();
+            assertThat(Files.readAllBytes(journal(root, sourceId))).isEqualTo(sourceBefore);
+        }
+    }
+
+    @Test
+    void forkFailureAfterSessionStartPhaseRollsBackTargetAndReleasesWriterEntry() throws IOException {
+        Path workspace = workspace("fork-start-failure-cleanup");
+        Path root = storeRoot("fork-start-failure-cleanup");
+        SessionId sourceId = createAndClose(root, workspace);
+        byte[] sourceBefore = Files.readAllBytes(journal(root, sourceId));
+        AtomicInteger failures = new AtomicInteger();
+        FileSessionStore.NewSessionFault fault = new FileSessionStore.NewSessionFault() {
+            @Override public void afterJournalWritten(SessionId ignored) { }
+            @Override public void afterSessionStarted(SessionId ignored) {
+                if (failures.getAndIncrement() == 0) throw new InjectedForkFailure();
+            }
+        };
+        try (FileSessionStore failing = new FileSessionStore(
+                root, workspace, new TestIds(80), lifecycle(),
+                Clock.fixed(Instant.parse("2026-08-03T00:00:00Z"), ZoneOffset.UTC),
+                io.github.liumaishenjian.ccjava.core.hook.HookCoordinator.disabled(), fault)) {
+            assertThatThrownBy(() -> failing.open(
+                    new SessionOpenRequest(SessionOpenMode.FORK, Optional.of(sourceId)), SPEC))
+                    .isInstanceOf(InjectedForkFailure.class);
+            assertThat(Files.exists(root.resolve("session-test-80"))).isFalse();
+            assertThat(Files.readAllBytes(journal(root, sourceId))).isEqualTo(sourceBefore);
+            assertThat(failing.open(
+                    new SessionOpenRequest(SessionOpenMode.FORK, Optional.of(sourceId)), SPEC)
+                    .session().id()).isEqualTo(new SessionId("session-test-81"));
+        }
+    }
+
+    @Test
+    void failedCreateRollsBackJournalAndReleasesWriterEntry() throws IOException {
+        Path workspace = workspace("create-failure-cleanup");
+        Path root = storeRoot("create-failure-cleanup");
+        AtomicInteger failures = new AtomicInteger();
+        try (FileSessionStore failing = new FileSessionStore(
+                root, workspace, new TestIds(70), lifecycle(),
+                Clock.fixed(Instant.parse("2026-08-03T00:00:00Z"), ZoneOffset.UTC),
+                io.github.liumaishenjian.ccjava.core.hook.HookCoordinator.disabled(),
+                ignored -> {
+                    if (failures.getAndIncrement() == 0) throw new InjectedForkFailure();
+                })) {
+            assertThatThrownBy(() -> failing.create(SPEC)).isInstanceOf(InjectedForkFailure.class);
+            assertThat(Files.exists(root.resolve("session-test-70"))).isFalse();
+            assertThat(failing.create(SPEC).id()).isEqualTo(new SessionId("session-test-71"));
+        }
+    }
+
+    private io.github.liumaishenjian.ccjava.domain.PlanArtifact reopenedArtifact(
+            Path directory, SessionId id) {
+        return new FilePlanArtifactStore(directory, id).load(id).orElseThrow();
+    }
+
     private SessionId createAndClose(Path storeRoot, Path workspace) {
         try (FileSessionStore store = store(storeRoot, workspace, 1)) {
             SessionId id = store.create(SPEC).id();
@@ -791,6 +1226,15 @@ class FileSessionStoreTest {
                         Clock.fixed(Instant.parse("2026-08-03T00:00:00Z"), ZoneOffset.UTC),
                         AgentEventSink.noop()),
                 Clock.fixed(Instant.parse("2026-08-03T00:00:00Z"), ZoneOffset.UTC));
+    }
+
+    private LifecycleDispatcher lifecycle() {
+        return new LifecycleDispatcher(
+                Clock.fixed(Instant.parse("2026-08-03T00:00:00Z"), ZoneOffset.UTC),
+                AgentEventSink.noop());
+    }
+
+    private static final class InjectedForkFailure extends RuntimeException {
     }
 
     private static final class TestIds implements AgentIdGenerator {

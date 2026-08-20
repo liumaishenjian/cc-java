@@ -2,6 +2,7 @@ package io.github.liumaishenjian.ccjava.domain;
 
 import java.time.Duration;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * 提供给模型和 Runtime 的框架无关 Tool 元数据。
@@ -19,6 +20,7 @@ import java.util.Objects;
  * @param defaultTimeout         建议的默认执行超时
  * @param outputMediaType        Tool 输出内容类型
  * @param maxOutputCharacters    建议的最大输出字符数
+ * @param planCapabilities       可信注册边缘显式声明的规划能力
  * @since 0.1.0
  */
 public record ToolDefinition(
@@ -30,7 +32,8 @@ public record ToolDefinition(
         boolean supportsCancellation,
         Duration defaultTimeout,
         String outputMediaType,
-        int maxOutputCharacters) {
+        int maxOutputCharacters,
+        Set<PlanToolCapability> planCapabilities) {
 
     /**
      * 校验 Tool 元数据和资源边界后创建定义。
@@ -55,12 +58,55 @@ public record ToolDefinition(
         source = Objects.requireNonNull(source, "source 不能为空");
         defaultTimeout = Objects.requireNonNull(defaultTimeout, "defaultTimeout 不能为空");
         outputMediaType = requireText(outputMediaType, "outputMediaType");
+        planCapabilities = Set.copyOf(Objects.requireNonNull(planCapabilities, "planCapabilities 不能为空"));
         if (defaultTimeout.isZero() || defaultTimeout.isNegative()) {
             throw new IllegalArgumentException("defaultTimeout 必须大于 0");
         }
         if (maxOutputCharacters < 1) {
             throw new IllegalArgumentException("maxOutputCharacters 必须大于 0");
         }
+        if (planCapabilities.contains(PlanToolCapability.READ_ONLY_LOCAL)
+                && effect != ToolEffect.READ_WORKSPACE) {
+            throw new IllegalArgumentException("READ_ONLY_LOCAL 必须使用 READ_WORKSPACE Effect");
+        }
+        if (planCapabilities.contains(PlanToolCapability.READ_ONLY_NETWORK)
+                && effect != ToolEffect.NETWORK_OR_REMOTE) {
+            throw new IllegalArgumentException("READ_ONLY_NETWORK 必须使用 NETWORK_OR_REMOTE Effect");
+        }
+        if (planCapabilities.contains(PlanToolCapability.PLAN_ARTIFACT_WRITE)
+                && effect != ToolEffect.PLAN_ARTIFACT_WRITE) {
+            throw new IllegalArgumentException("PLAN_ARTIFACT_WRITE 能力与 Effect 不匹配");
+        }
+        if (planCapabilities.contains(PlanToolCapability.USER_QUESTION)
+                && effect != ToolEffect.USER_INTERACTION) {
+            throw new IllegalArgumentException("USER_QUESTION 能力与 Effect 不匹配");
+        }
+        if ((planCapabilities.contains(PlanToolCapability.PLAN_ARTIFACT_WRITE)
+                || planCapabilities.contains(PlanToolCapability.USER_QUESTION))
+                && source != ToolSource.BUILT_IN) {
+            throw new IllegalArgumentException("Plan 控制能力只能由内置 Tool 声明");
+        }
+    }
+
+    /**
+     * 兼容既有 Tool 定义；仅内置 Workspace Read 自动获得本地只读规划能力。
+     *
+     * <p>外部、MCP、Plugin 与其他 Effect 默认不声明规划能力，必须使用完整构造器显式选择。</p>
+     */
+    public ToolDefinition(
+            String name,
+            String description,
+            String inputSchemaJson,
+            ToolEffect effect,
+            ToolSource source,
+            boolean supportsCancellation,
+            Duration defaultTimeout,
+            String outputMediaType,
+            int maxOutputCharacters) {
+        this(name, description, inputSchemaJson, effect, source, supportsCancellation,
+                defaultTimeout, outputMediaType, maxOutputCharacters,
+                effect == ToolEffect.READ_WORKSPACE && source == ToolSource.BUILT_IN
+                        ? Set.of(PlanToolCapability.READ_ONLY_LOCAL) : Set.of());
     }
 
     /**

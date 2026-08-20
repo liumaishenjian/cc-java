@@ -2102,83 +2102,172 @@ class HeadlessRuntimeSessionTest {
         }
     }
     @Test
-    void planRunUsesReadOnlyRuntimeCreatesProposalAndTransitionsAfterApproval() throws Exception {
+    void continuousPlanUsesReadUpdateQuestionUpdateReviewInSameSessionAndResumes() throws Exception {
         Files.writeString(temporaryWorkspace.resolve("sample.txt"), "hello\n");
+        AtomicInteger calls = new AtomicInteger();
+        List<ModelRequest> requests = new CopyOnWriteArrayList<>();
+        String first = "# Plan\n\nInspect sample and choose a rollout.\n";
+        String second = "# Plan\n\n1. Inspect sample.\n2. Use the selected safe rollout.\n";
+        String firstDigest = io.github.liumaishenjian.ccjava.domain.PlanArtifact.digest(first);
+        String secondDigest = io.github.liumaishenjian.ccjava.domain.PlanArtifact.digest(second);
+        ModelGateway model = request -> {
+            requests.add(request);
+            return switch (calls.getAndIncrement()) {
+                case 0 -> ModelTurn.tools(List.of(new ToolCall("read-1", "read_file",
+                        new JsonObject(Map.of("path", "sample.txt")))));
+                case 1 -> ModelTurn.tools(List.of(new ToolCall("update-1", "revise_plan_artifact",
+                        new JsonObject(Map.of("markdown", first, "expectedRevision", 0,
+                                "expectedContentDigest", "")))));
+                case 2 -> ModelTurn.tools(List.of(new ToolCall("ask-1", "ask_plan_question",
+                        new JsonObject(Map.of("question", "Which rollout should the plan use?", "options", List.of(
+                                Map.of("optionId", "safe", "label", "Safe", "description", "Use staged rollout"),
+                                Map.of("optionId", "fast", "label", "Fast", "description", "Use direct rollout")))))));
+                case 3 -> ModelTurn.tools(List.of(new ToolCall("update-2", "revise_plan_artifact",
+                        new JsonObject(Map.of("markdown", second, "expectedRevision", 1,
+                                "expectedContentDigest", firstDigest)))));
+                case 4 -> ModelTurn.tools(List.of(new ToolCall("review-1", "request_plan_review",
+                        new JsonObject(Map.of("revision", 2, "contentDigest", secondDigest)))));
+                default -> ModelTurn.text("internal completion should not become the plan");
+            };
+        };
+        List<AgentEventEnvelope> events = new CopyOnWriteArrayList<>();
+        io.github.liumaishenjian.ccjava.domain.SessionId sessionId;
+        try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(
+                model, events::add, testOptions(temporaryWorkspace, Duration.ofSeconds(5)))) {
+            runtime.installUserQuestionHandler((request, token) ->
+                    new io.github.liumaishenjian.ccjava.domain.UserQuestionAnswer(request.callId(), "safe"));
+            sessionId = runtime.open();
+            assertThat(runtime.runPlan("plan a safe update").stopReason()).isEqualTo(StopReason.COMPLETED);
+            assertThat(requests).hasSize(6);
+            assertThat(requests).allSatisfy(request -> assertThat(request.sessionId()).isEqualTo(sessionId));
+            assertThat(requests.getFirst().toolDefinitions()).extracting(definition -> definition.name())
+                    .contains("read_file", "revise_plan_artifact", "ask_plan_question", "request_plan_review")
+                    .doesNotContain("write_file", "apply_patch", "run_command", "delegate_agent");
+            var artifact = runtime.planArtifact().orElseThrow();
+            assertThat(artifact.revision()).isEqualTo(3);
+            assertThat(artifact.status()).isEqualTo(io.github.liumaishenjian.ccjava.domain.PlanStatus.AWAITING_APPROVAL);
+            assertThat(artifact.markdownContent()).isEqualTo(second);
+            assertThat(events).anySatisfy(event -> {
+                if (event.event() instanceof io.github.liumaishenjian.ccjava.domain.PlanReviewEvent review) {
+                    assertThat(review.planId()).isEqualTo(artifact.planId());
+                    assertThat(review.revision()).isEqualTo(artifact.revision());
+                    assertThat(review.contentDigest()).isEqualTo(artifact.contentDigest());
+                    assertThat(review.markdownContent()).isEqualTo(artifact.markdownContent());
+                    assertThat(review.workspaceDigest()).isEqualTo(runtime.currentWorkspaceDigest());
+                }
+            });
+            var draft = runtime.returnPlanForFeedback(
+                    artifact.planId(), artifact.revision(), artifact.contentDigest()).orElseThrow();
+            assertThat(draft.status()).isEqualTo(io.github.liumaishenjian.ccjava.domain.PlanStatus.DRAFT);
+            assertThat(draft.planId()).isEqualTo(artifact.planId());
+            assertThat(draft.revision()).isEqualTo(4);
+        }
+        try (HeadlessRuntimeSession resumed = new HeadlessRuntimeSession(
+                ignored -> ModelTurn.text("unused"), AgentEventSink.noop(),
+                optionsFor(SessionOpenRequest.resume(sessionId)))) {
+            assertThat(resumed.open()).isEqualTo(sessionId);
+            var artifact = resumed.planArtifact().orElseThrow();
+            assertThat(artifact.status()).isEqualTo(io.github.liumaishenjian.ccjava.domain.PlanStatus.DRAFT);
+            assertThat(artifact.markdownContent()).isEqualTo(second);
+            assertThat(artifact.revision()).isEqualTo(4);
+        }
+    }
+
+    @Test
+    void repeatedPlanDecisionsDoNotCreateRevisionsAndDoubleRejectResumes() throws Exception {
+        Files.writeString(temporaryWorkspace.resolve("sample.txt"), "hello\n");
+        HeadlessRuntimeOptions createOptions = testOptions(temporaryWorkspace, Duration.ofSeconds(5));
+        io.github.liumaishenjian.ccjava.domain.SessionId rejectedSession;
+        try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(
+                ignored -> ModelTurn.text("done"), AgentEventSink.noop(), createOptions)) {
+            rejectedSession = runtime.open();
+            var plan = runtime.createPlan("plan-double-reject", "review", List.of(
+                    new io.github.liumaishenjian.ccjava.domain.PlanStep(
+                            1, "inspect", "inspect only", runtime.currentWorkspaceDigest())),
+                    runtime.currentWorkspaceDigest()).orElseThrow();
+            assertThat(runtime.rejectPlan(plan.document().id()).orElseThrow().state().status())
+                    .isEqualTo(io.github.liumaishenjian.ccjava.domain.PlanStatus.REJECTED);
+            long afterFirst = planRevision(sessionStoreRoot, rejectedSession);
+            assertThat(runtime.rejectPlan(plan.document().id()).orElseThrow().state().status())
+                    .isEqualTo(io.github.liumaishenjian.ccjava.domain.PlanStatus.REJECTED);
+            assertThat(planRevision(sessionStoreRoot, rejectedSession)).isEqualTo(afterFirst);
+        }
+        try (HeadlessRuntimeSession resumed = new HeadlessRuntimeSession(
+                ignored -> ModelTurn.text("done"), AgentEventSink.noop(),
+                optionsFor(SessionOpenRequest.resume(rejectedSession)))) {
+            assertThat(resumed.open()).isEqualTo(rejectedSession);
+            assertThat(resumed.planStatus().orElseThrow().state().status())
+                    .isEqualTo(io.github.liumaishenjian.ccjava.domain.PlanStatus.REJECTED);
+        }
+
+        io.github.liumaishenjian.ccjava.domain.SessionId approvedSession;
+        try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(
+                ignored -> ModelTurn.text("done"), AgentEventSink.noop(), createOptions)) {
+            approvedSession = runtime.open();
+            String digest = runtime.currentWorkspaceDigest();
+            var plan = runtime.createPlan("plan-double-approve", "review", List.of(
+                    new io.github.liumaishenjian.ccjava.domain.PlanStep(1, "inspect", "inspect only", digest)),
+                    digest).orElseThrow();
+            runtime.approvePlan(plan.document().id(), digest).orElseThrow();
+            long afterApprove = planRevision(sessionStoreRoot, approvedSession);
+            runtime.approvePlan(plan.document().id(), digest).orElseThrow();
+            runtime.rejectPlan(plan.document().id()).orElseThrow();
+            assertThat(planRevision(sessionStoreRoot, approvedSession)).isEqualTo(afterApprove);
+            assertThat(runtime.planStatus().orElseThrow().state().status())
+                    .isEqualTo(io.github.liumaishenjian.ccjava.domain.PlanStatus.APPROVED);
+        }
+        try (HeadlessRuntimeSession resumed = new HeadlessRuntimeSession(
+                ignored -> ModelTurn.text("done"), AgentEventSink.noop(),
+                optionsFor(SessionOpenRequest.resume(approvedSession)))) {
+            assertThat(resumed.open()).isEqualTo(approvedSession);
+            assertThat(resumed.planStatus().orElseThrow().state().status())
+                    .isEqualTo(io.github.liumaishenjian.ccjava.domain.PlanStatus.APPROVED);
+        }
+    }
+
+    private long planRevision(Path root, io.github.liumaishenjian.ccjava.domain.SessionId id) throws IOException {
+        String manifest = Files.readString(root.resolve(id.value()).resolve("plan.manifest.json"));
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\"revision\":([0-9]+)")
+                .matcher(manifest);
+        assertThat(matcher.find()).isTrue();
+        return Long.parseLong(matcher.group(1));
+    }
+
+    private HeadlessRuntimeOptions optionsFor(SessionOpenRequest request) {
+        return new HeadlessRuntimeOptions(
+                temporaryWorkspace,
+                "fake-model",
+                Duration.ofSeconds(5),
+                PermissionMode.DEFAULT,
+                java.util.List.of(),
+                request,
+                sessionStoreRoot);
+    }
+
+    @Test
+    void continuousPlanHidesAndRejectsWorkspaceMutationWithoutExecutingIt() throws Exception {
         AtomicInteger calls = new AtomicInteger();
         List<ModelRequest> requests = new CopyOnWriteArrayList<>();
         ModelGateway model = request -> {
             requests.add(request);
             if (calls.getAndIncrement() == 0) {
-                return new ModelTurn(AssistantMessage.tools(List.of(new ToolCall(
-                        "call-read", "read_file", new JsonObject(Map.of("path", "sample.txt"))))),
-                        new ModelTurnMetadata(ModelFinishReason.TOOL_CALLS, Optional.empty(), Optional.empty()));
+                return ModelTurn.tools(List.of(new ToolCall("call-write", "write_file",
+                        new JsonObject(Map.of("path", "created.txt", "content", "bad")))));
             }
-            return ModelTurn.text("{\"objective\":\"update sample\",\"steps\":[{\"title\":\"edit\",\"detail\":\"change the value after approval\"}]}");
-        };
-        List<AgentEventEnvelope> events = new CopyOnWriteArrayList<>();
-        try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(
-                model, events::add, testOptions(temporaryWorkspace, Duration.ofSeconds(5)))) {
-            runtime.open();
-            AgentRunResult result = runtime.runPlan("plan a safe update");
-
-            assertThat(result.stopReason()).isEqualTo(StopReason.COMPLETED);
-            assertThat(requests).hasSize(2);
-            assertThat(requests).allSatisfy(request -> assertThat(request.toolDefinitions())
-                    .extracting(definition -> definition.name())
-                    .containsExactlyInAnyOrder("list_files", "read_file", "search_text", "git_status", "git_diff"));
-            assertThat(requests.get(1).messages()).anyMatch(ToolResultMessage.class::isInstance);
-            assertThat(events).anySatisfy(event -> assertThat(event.event())
-                    .isInstanceOf(io.github.liumaishenjian.ccjava.domain.PlanProposalEvent.class));
-            var proposal = runtime.planStatus().orElseThrow();
-            assertThat(proposal.document().objective()).isEqualTo("update sample");
-            assertThat(proposal.state().status()).isEqualTo(io.github.liumaishenjian.ccjava.domain.PlanStatus.AWAITING_APPROVAL);
-            assertThat(proposal.state().sideEffectsAllowed()).isFalse();
-            assertThat(runtime.approvePlan(proposal.document().workspaceDigest()).orElseThrow()
-                    .state().status()).isEqualTo(io.github.liumaishenjian.ccjava.domain.PlanStatus.APPROVED);
-        }
-    }
-
-    @Test
-    void planRunDeniesKnownAndUnknownSideEffectsBeforeProposal() throws Exception {
-        Files.writeString(temporaryWorkspace.resolve("sample.txt"), "before\n");
-        AtomicInteger calls = new AtomicInteger();
-        List<ModelRequest> requests = new CopyOnWriteArrayList<>();
-        ModelGateway model = request -> {
-            requests.add(request);
-            return switch (calls.getAndIncrement()) {
-                case 0 -> new ModelTurn(AssistantMessage.tools(List.of(new ToolCall(
-                        "call-write", "write_file", new JsonObject(Map.of("path", "created.txt", "content", "bad"))))),
-                        new ModelTurnMetadata(ModelFinishReason.TOOL_CALLS, Optional.empty(), Optional.empty()));
-                case 1 -> new ModelTurn(AssistantMessage.tools(List.of(new ToolCall(
-                        "call-command", "run_command", new JsonObject(Map.of("command", "echo bad"))))),
-                        new ModelTurnMetadata(ModelFinishReason.TOOL_CALLS, Optional.empty(), Optional.empty()));
-                default -> ModelTurn.text("{\"objective\":\"safe\",\"steps\":[{\"title\":\"review\",\"detail\":\"no mutation\"}]}");
-            };
+            return ModelTurn.text("stop safely");
         };
         try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(
                 model, AgentEventSink.noop(), testOptions(temporaryWorkspace, Duration.ofSeconds(5)))) {
             runtime.open();
             assertThat(runtime.runPlan("do not mutate").stopReason()).isEqualTo(StopReason.COMPLETED);
             assertThat(Files.exists(temporaryWorkspace.resolve("created.txt"))).isFalse();
+            assertThat(requests.getFirst().toolDefinitions()).extracting(definition -> definition.name())
+                    .doesNotContain("write_file", "run_command");
             assertThat(requests.get(1).messages()).anySatisfy(message -> {
                 assertThat(message).isInstanceOf(ToolResultMessage.class);
-                ToolResultMessage result = (ToolResultMessage) message;
-                assertThat(result.result().error().orElseThrow().code())
+                assertThat(((ToolResultMessage) message).result().error().orElseThrow().code())
                         .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolErrorCode.UNKNOWN_TOOL);
             });
-            assertThat(requests.get(2).messages().stream().filter(ToolResultMessage.class::isInstance)).hasSize(2);
-        }
-    }
-
-    @Test
-    void malformedPlanProposalStopsWithoutInstallingPlanOrCanonicalAssistant() {
-        ModelGateway model = ignored -> ModelTurn.text("not-json");
-        try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(
-                model, AgentEventSink.noop(), testOptions(temporaryWorkspace, Duration.ofSeconds(5)))) {
-            runtime.open();
-            AgentRunResult result = runtime.runPlan("plan safely");
-            assertThat(result.stopReason()).isEqualTo(StopReason.INVALID_MODEL_RESPONSE);
-            assertThat(runtime.planStatus()).isEmpty();
         }
     }
 

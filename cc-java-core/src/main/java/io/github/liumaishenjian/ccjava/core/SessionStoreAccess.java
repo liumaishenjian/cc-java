@@ -49,6 +49,15 @@ public final class SessionStoreAccess {
     }
 
     /**
+     * 在架构边缘 durable 写入不确定后永久 fence 当前内存 Session。
+     *
+     * @param session Store 当前持有的 Session
+     */
+    public static void fenceSession(AgentSession session) {
+        Objects.requireNonNull(session, "session 不能为空").fence();
+    }
+
+    /**
      * 判断 Store 当前持有的 Session 是否存在活动 Run。
      *
      * <p>该只读查询只供持久化 Adapter 实施 Undo 等互斥 Gate；它不允许 Adapter 修改

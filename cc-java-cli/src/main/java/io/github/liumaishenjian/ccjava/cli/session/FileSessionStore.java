@@ -18,7 +18,9 @@ import io.github.liumaishenjian.ccjava.domain.SessionSpec;
 import io.github.liumaishenjian.ccjava.domain.StopReason;
 import io.github.liumaishenjian.ccjava.domain.ToolEffect;
 import io.github.liumaishenjian.ccjava.domain.PlanDocument;
+import io.github.liumaishenjian.ccjava.domain.PlanArtifact;
 import io.github.liumaishenjian.ccjava.domain.PlanExecutionState;
+import io.github.liumaishenjian.ccjava.domain.PlanStatus;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
 import io.github.liumaishenjian.ccjava.domain.JsonObject;
@@ -69,6 +71,7 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
     private final AgentIdGenerator ids;
     private final LifecycleDispatcher lifecycle;
     private final HookCoordinator hooks;
+    private final NewSessionFault newSessionFault;
     private final JsonlSessionCodec codec = new JsonlSessionCodec();
     private final Map<SessionId, OpenSession> writerSessions = new LinkedHashMap<>();
     private final List<OpenSession> inspectedSessions = new ArrayList<>();
@@ -88,7 +91,7 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
             AgentIdGenerator ids,
             LifecycleDispatcher lifecycle,
             Clock clock) {
-        this(root, workspace, ids, lifecycle, clock, HookCoordinator.disabled());
+        this(root, workspace, ids, lifecycle, clock, HookCoordinator.disabled(), NewSessionFault.none());
     }
 
     /**
@@ -111,6 +114,18 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
             LifecycleDispatcher lifecycle,
             Clock clock,
             HookCoordinator hooks) {
+        this(root, workspace, ids, lifecycle, clock, hooks, NewSessionFault.none());
+    }
+
+    /** 仅供同包故障注入测试模拟新 Session journal 已提交后的失败。 */
+    FileSessionStore(
+            Path root,
+            Path workspace,
+            AgentIdGenerator ids,
+            LifecycleDispatcher lifecycle,
+            Clock clock,
+            HookCoordinator hooks,
+            NewSessionFault newSessionFault) {
         this.root = Objects.requireNonNull(root, "root 不能为空")
                 .toAbsolutePath().normalize();
         Path checkedWorkspace = Objects.requireNonNull(workspace, "workspace 不能为空");
@@ -123,6 +138,7 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
         this.ids = Objects.requireNonNull(ids, "ids 不能为空");
         this.lifecycle = Objects.requireNonNull(lifecycle, "lifecycle 不能为空");
         this.hooks = Objects.requireNonNull(hooks, "hooks 不能为空");
+        this.newSessionFault = Objects.requireNonNull(newSessionFault, "newSessionFault 不能为空");
         Objects.requireNonNull(clock, "clock 不能为空");
         initializeRoot(checkedWorkspace);
     }
@@ -250,6 +266,12 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
     }
 
     @Override
+    public synchronized void planArtifactSaved(SessionId sessionId, PlanArtifact artifact) {
+        OpenSession opened = writer(sessionId);
+        appendAndAdvance(opened, codec.encodePlanArtifact(opened.nextSequence, artifact));
+    }
+
+    @Override
     public synchronized void runCompleted(
             SessionId sessionId,
             RunId runId,
@@ -355,7 +377,7 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
             SessionOpenMode mode) {
         SessionId id = Objects.requireNonNull(ids.newSessionId(), "newSessionId 返回 null");
         validateSessionId(id);
-        if (Files.exists(journalPath(id), LinkOption.NOFOLLOW_LINKS)) {
+        if (Files.exists(sessionDirectory(id), LinkOption.NOFOLLOW_LINKS)) {
             throw new SessionOpenException("DUPLICATE_ID", "Session ID 已存在");
         }
         OpenSession opened = acquireWriter(id, AgentSession.create(id, spec), 1);
@@ -363,6 +385,7 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
             append(opened, codec.encodeSessionCreated(
                     opened.nextSequence, id, spec, workspaceIdentity, parent));
             opened.nextSequence++;
+            newSessionFault.afterJournalWritten(id);
             writerSessions.put(id, opened);
             lifecycle.dispatch(opened.session, new LifecycleEvent.SessionStarted(spec));
             hooks.evaluate(
@@ -373,10 +396,12 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
                             id.value(),
                             new JsonObject(Map.of("sessionId", id.value()))),
                     CancellationToken.none());
+            newSessionFault.afterSessionStarted(id);
             return new SessionOpenResult(opened.session, mode, parent, false, List.of(), List.of());
         } catch (RuntimeException failure) {
+            writerSessions.remove(id, opened);
             opened.release();
-            deleteEmptyFiles(id);
+            rollbackNewSession(id);
             throw failure;
         }
     }
@@ -389,6 +414,16 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
         JournalRead read = readJournal(id);
         SessionRecoverySnapshot snapshot = codec.replay(
                 read.lines, read.damagedTail, workspaceIdentity);
+        synchronizePlanArtifact(snapshot);
+        if (snapshot.planArtifact().filter(artifact -> artifact.status() == PlanStatus.EXECUTING).isPresent()) {
+            List<io.github.liumaishenjian.ccjava.core.SessionRecoveryIssue> merged =
+                    new ArrayList<>(snapshot.issues());
+            merged.add(io.github.liumaishenjian.ccjava.core.SessionRecoveryIssue.session(
+                    io.github.liumaishenjian.ccjava.core.SessionRecoveryIssueKind.PLAN_EXECUTION_RECOVERY));
+            snapshot = new SessionRecoverySnapshot(snapshot.sessionId(), snapshot.spec(), snapshot.messages(),
+                    snapshot.runIds(), snapshot.parentSessionId(), merged, snapshot.skillRecords(), snapshot.plan(),
+                    snapshot.planArtifact());
+        }
         if (snapshot.plan().isPresent()
                 && snapshot.plan().orElseThrow().state().activeStep() != null) {
             List<io.github.liumaishenjian.ccjava.core.SessionRecoveryIssue> merged =
@@ -396,7 +431,8 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
             merged.add(io.github.liumaishenjian.ccjava.core.SessionRecoveryIssue.session(
                     io.github.liumaishenjian.ccjava.core.SessionRecoveryIssueKind.PLAN_ACTIVE_STEP_RECOVERY));
             snapshot = new SessionRecoverySnapshot(snapshot.sessionId(), snapshot.spec(), snapshot.messages(),
-                    snapshot.runIds(), snapshot.parentSessionId(), merged, snapshot.skillRecords(), snapshot.plan());
+                    snapshot.runIds(), snapshot.parentSessionId(), merged, snapshot.skillRecords(), snapshot.plan(),
+                    snapshot.planArtifact());
         }
         List<io.github.liumaishenjian.ccjava.core.SessionRecoveryIssue> checkpointIssues =
                 new FileCheckpointCoordinator(root, workspaceGuard(), this)
@@ -413,7 +449,8 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
                     snapshot.parentSessionId(),
                     merged,
                     snapshot.skillRecords(),
-                    snapshot.plan());
+                    snapshot.plan(),
+                    snapshot.planArtifact());
         }
         AgentSession session = AgentSession.restore(snapshot);
         if (readOnly) {
@@ -427,7 +464,8 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
                     snapshot.parentSessionId(),
                     issues,
                     snapshot.skillRecords(),
-                    snapshot.plan()));
+                    snapshot.plan(),
+                    snapshot.planArtifact()));
             OpenSession inspected = OpenSession.readOnly(session, read.nextSequence);
             inspectedSessions.add(inspected);
             return new SessionOpenResult(
@@ -477,7 +515,9 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
                     source.runIds(),
                     source.parentSessionId(),
                     merged,
-                    source.skillRecords());
+                    source.skillRecords(),
+                    source.plan(),
+                    source.planArtifact());
         }
         if (!source.issues().isEmpty()) {
             throw new SessionOpenException(
@@ -485,15 +525,51 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
         }
         SessionId targetId = Objects.requireNonNull(ids.newSessionId(), "newSessionId 返回 null");
         validateSessionId(targetId);
-        if (Files.exists(journalPath(targetId), LinkOption.NOFOLLOW_LINKS)) {
+        String forkPlanId = "plan-" + targetId.value().substring("session-".length());
+        Optional<PlanArtifact> forkArtifact = source.planArtifact().map(artifact ->
+                artifact.fork(forkPlanId, targetId, java.time.Instant.now()));
+        Optional<io.github.liumaishenjian.ccjava.core.PlanRecoveryProjection> forkPlan =
+                source.plan().map(projection -> {
+                    PlanDocument sourceDocument = projection.document();
+                    PlanDocument document = new PlanDocument(
+                            forkPlanId,
+                            sourceDocument.objective(),
+                            sourceDocument.steps(),
+                            PlanStatus.AWAITING_APPROVAL,
+                            sourceDocument.workspaceDigest());
+                    PlanExecutionState state = new PlanExecutionState(
+                            forkPlanId,
+                            io.github.liumaishenjian.ccjava.domain.PlanApprovalGate.PENDING,
+                            1,
+                            null,
+                            PlanStatus.AWAITING_APPROVAL,
+                            sourceDocument.workspaceDigest());
+                    return new io.github.liumaishenjian.ccjava.core.PlanRecoveryProjection(document, state);
+                });
+        if (Files.exists(sessionDirectory(targetId), LinkOption.NOFOLLOW_LINKS)) {
             throw new SessionOpenException("DUPLICATE_ID", "Session ID 已存在");
         }
-        List<ObjectNode> records = codec.forkRecords(
+        List<ObjectNode> records = new ArrayList<>(codec.forkRecords(
                 read.lines,
                 targetId,
                 createSpec,
                 workspaceIdentity,
-                sourceId);
+                sourceId));
+        records.removeIf(record -> {
+            String type = record.path("recordType").stringValue();
+            return "plan.artifact.saved".equals(type) || "plan.snapshot".equals(type);
+        });
+        for (int index = 0; index < records.size(); index++) records.get(index).put("sequence", index + 1L);
+        if (forkArtifact.isPresent() && forkPlan.isPresent()) {
+            var projection = forkPlan.orElseThrow();
+            records.add(codec.encodePlanCommit(records.size() + 1L, forkArtifact.orElseThrow(),
+                    projection.document(), projection.state()));
+        } else {
+            forkArtifact.ifPresent(artifact ->
+                    records.add(codec.encodePlanArtifact(records.size() + 1L, artifact)));
+            forkPlan.ifPresent(projection -> records.add(codec.encodePlanSnapshot(
+                    records.size() + 1L, projection.document(), projection.state())));
+        }
         SessionRecoverySnapshot targetSnapshot = codec.replay(
                 records.stream().map(codec::encode).toList(),
                 false,
@@ -505,7 +581,10 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
                 append(target, record);
                 target.nextSequence++;
             }
+            newSessionFault.afterJournalWritten(targetId);
             writerSessions.put(targetId, target);
+            forkArtifact.ifPresent(artifact -> planArtifacts(targetId).restoreMissing(artifact));
+            newSessionFault.afterArtifactRestored(targetId);
             lifecycle.dispatch(targetSession, new LifecycleEvent.SessionStarted(createSpec));
             hooks.evaluate(
                     new HookInvocation(
@@ -515,6 +594,7 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
                             targetId.value(),
                             new JsonObject(Map.of("sessionId", targetId.value()))),
                     CancellationToken.none());
+            newSessionFault.afterSessionStarted(targetId);
             return new SessionOpenResult(
                     targetSession,
                     SessionOpenMode.FORK,
@@ -523,9 +603,99 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
                     List.of(),
                     targetSnapshot.skillRecords());
         } catch (RuntimeException failure) {
+            writerSessions.remove(targetId, target);
             target.release();
-            deleteEmptyFiles(targetId);
+            rollbackNewSession(targetId);
             throw failure;
+        }
+    }
+
+    /**
+     * 先 durable 准备不可变 generation，再提交 canonical journal，最后原子切换本地 manifest；
+     * 任一步失败都会 fence 当前 Session，恢复时由 journal 确定 projection。
+     *
+     * @param artifact 完整新 revision
+     * @param expectedRevision 预期旧 revision；创建为 0
+     * @param expectedDigest 预期旧正文摘要；创建为空
+     * @return 已提交并重读的工件
+     */
+    public synchronized PlanArtifact savePlanArtifact(
+            PlanArtifact artifact, long expectedRevision, String expectedDigest) {
+        return savePlanArtifact(artifact, null, null, expectedRevision, expectedDigest);
+    }
+
+    /**
+     * 把 artifact 与兼容 Plan projection 作为单条 canonical journal 事实提交，消除两个
+     * JSONL append 之间的永久不一致窗口；随后再切换可重建 manifest。
+     *
+     * @param artifact 完整新 revision
+     * @param document 同一状态的兼容 PlanDocument；可为空表示只有 Markdown artifact
+     * @param state 与 document 匹配的执行状态；document 为空时也必须为空
+     * @param expectedRevision 预期旧 revision；创建为 0
+     * @param expectedDigest 预期旧正文摘要；创建为空
+     * @return 已经进入 canonical journal 并发布 projection 的工件
+     */
+    public synchronized PlanArtifact savePlanArtifact(
+            PlanArtifact artifact,
+            PlanDocument document,
+            PlanExecutionState state,
+            long expectedRevision,
+            String expectedDigest) {
+        if ((document == null) != (state == null)) {
+            throw new IllegalArgumentException("document 与 state 必须同时存在或同时缺失");
+        }
+        OpenSession opened = writer(artifact.sessionId());
+        FilePlanArtifactStore store = planArtifacts(artifact.sessionId());
+        // prepare 与编码都发生在 journal append 前；确定性拒绝不制造提交不确定性，也不 fence Writer。
+        FilePlanArtifactStore.PreparedArtifact prepared =
+                store.prepare(artifact, expectedRevision, expectedDigest);
+        ObjectNode commit = document == null
+                ? codec.encodePlanArtifact(opened.nextSequence, artifact)
+                : codec.encodePlanCommit(opened.nextSequence, artifact, document, state);
+        try {
+            appendAndAdvance(opened, commit);
+            store.commit(prepared);
+            return artifact;
+        } catch (RuntimeException failure) {
+            SessionStoreAccess.fenceSession(opened.session);
+            throw failure;
+        }
+    }
+
+    /**
+     * 返回绑定指定 Session 私有目录的 PlanArtifact store。
+     *
+     * @param id 已验证的 Session 身份
+     * @return 不接受调用方路径的固定布局 store
+     */
+    public synchronized FilePlanArtifactStore planArtifacts(SessionId id) {
+        validateSessionId(id);
+        return new FilePlanArtifactStore(sessionDirectory(id), id);
+    }
+
+    private void synchronizePlanArtifact(SessionRecoverySnapshot snapshot) {
+        FilePlanArtifactStore artifacts = planArtifacts(snapshot.sessionId());
+        Optional<PlanArtifact> local;
+        try {
+            local = artifacts.load(snapshot.sessionId());
+        } catch (io.github.liumaishenjian.ccjava.core.PlanArtifactStoreException corrupt) {
+            throw new SessionOpenException("PLAN_ARTIFACT_CORRUPT", "Plan artifact 投影损坏，拒绝恢复");
+        }
+        try {
+            if (snapshot.planArtifact().isEmpty()) {
+                // Journal 没有 Plan 事实时，合法本地 manifest 只能来自未完成提交；移除权威指针，
+                // generation 作为安全 orphan 留待有界清理，不能永久阻塞普通 Session 恢复。
+                local.ifPresent(artifacts::discardUnjournaled);
+                return;
+            }
+            PlanArtifact authoritative = snapshot.planArtifact().orElseThrow();
+            if (!local.equals(snapshot.planArtifact())) {
+                // Journal 是跨文件崩溃恢复的 canonical source。缺失、落后或领先投影都只重建指针，
+                // 不执行 Plan、不恢复活动 Tool，也不自动重放任何副作用。
+                artifacts.restoreAuthoritative(authoritative);
+            }
+        } catch (io.github.liumaishenjian.ccjava.core.PlanArtifactStoreException failure) {
+            throw new SessionOpenException("PLAN_ARTIFACT_RECOVERY_FAILED", "Plan artifact 投影无法从 journal 收敛");
         }
     }
 
@@ -817,14 +987,53 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
         }
     }
 
-    private void deleteEmptyFiles(SessionId id) {
+    /**
+     * 回滚本次调用独占创建、但尚未成功返回的新 Session 目录。
+     *
+     * <p>调用方在创建前已确认整个目标目录不存在。本方法只枚举该一级目录，并只接受本 Store
+     * 可能创建的固定文件名；遇到链接、重解析点、未知文件或删除失败立即停止。journal 最后删除，
+     * 因而不能完成精确回滚时仍保留可由 Resume 发现的 canonical Session，而不会递归宽删、
+     * 触碰 Fork source 或自动重放任何副作用。</p>
+     */
+    private void rollbackNewSession(SessionId id) {
+        Path directory = sessionDirectory(id);
+        if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) return;
         try {
-            Files.deleteIfExists(journalPath(id));
-            Files.deleteIfExists(lockPath(id));
-            Files.deleteIfExists(sessionDirectory(id));
-        } catch (IOException ignored) {
-            // 后续打开会因缺少有效 header Fail Closed，不伪装清理成功。
+            rejectLink(directory);
+            List<Path> entries;
+            try (var listed = Files.list(directory)) {
+                entries = listed.limit(129).toList();
+            }
+            if (entries.size() > 128 || entries.stream().anyMatch(path -> !rollbackFileAllowed(directory, path))) return;
+            Path journal = journalPath(id);
+            Path lock = lockPath(id);
+            Path manifest = directory.resolve(FilePlanArtifactStore.MANIFEST_FILE);
+            // 先撤掉非 canonical 指针。之后即使 generation 删除中断，journal 仍可重建投影。
+            Files.deleteIfExists(manifest);
+            for (Path entry : entries) {
+                if (!entry.equals(journal) && !entry.equals(lock) && !entry.equals(manifest)) {
+                    Files.deleteIfExists(entry);
+                }
+            }
+            Files.deleteIfExists(lock);
+            Files.deleteIfExists(journal);
+            Files.deleteIfExists(directory);
+        } catch (RuntimeException | IOException ignored) {
+            // journal 在已知 projection 文件之前不会删除；失败时保留可发现、可恢复的新 Session。
         }
+    }
+
+    private boolean rollbackFileAllowed(Path directory, Path path) {
+        Path normalized = path.toAbsolutePath().normalize();
+        if (!normalized.getParent().equals(directory) || !normalized.equals(path)) return false;
+        String name = path.getFileName().toString();
+        boolean known = name.equals("session.jsonl") || name.equals("writer.lock")
+                || name.equals(FilePlanArtifactStore.MANIFEST_FILE)
+                || name.matches("plan-r[1-9][0-9]{0,18}-[0-9a-f]{64}\\.md")
+                || name.matches("\\.plan-(?:content|manifest|discard)-[A-Za-z0-9-]+\\.tmp");
+        if (!known || Files.isSymbolicLink(path)) return false;
+        rejectLink(path);
+        return Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS);
     }
 
     private static String workspaceIdentity(Path workspace) {
@@ -835,6 +1044,21 @@ public final class FileSessionStore implements SessionStore, SessionJournal, Aut
             return java.util.HexFormat.of().formatHex(bytes);
         } catch (IOException | NoSuchAlgorithmException exception) {
             throw new SessionOpenException("WORKSPACE_IDENTITY", "无法计算 Workspace identity");
+        }
+    }
+
+    @FunctionalInterface
+    interface NewSessionFault {
+        void afterJournalWritten(SessionId sessionId);
+
+        default void afterArtifactRestored(SessionId sessionId) {
+        }
+
+        default void afterSessionStarted(SessionId sessionId) {
+        }
+
+        static NewSessionFault none() {
+            return ignored -> { };
         }
     }
 

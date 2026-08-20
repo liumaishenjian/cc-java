@@ -34,7 +34,7 @@ class RunCommandToolTest {
     }
 
     @Test
-    void returnsNonZeroExitAsRecoverableCommandEvidence() {
+    void returnsNonZeroExitAsTypedProcessFailureWithBoundedEvidence() {
         RunCommandTool tool = new RunCommandTool(new LocalCommandExecutor(workspace));
         String command = CommandShell.current() == CommandShell.WINDOWS_POWERSHELL
                 ? "Write-Output 'failed-test'; exit 9"
@@ -42,7 +42,12 @@ class RunCommandToolTest {
 
         ToolExecutionOutcome result = tool.execute(invocation(command));
 
-        assertThat(result.successful()).isTrue();
+        assertThat(result.successful()).isFalse();
+        assertThat(result.error().orElseThrow().code())
+                .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolErrorCode.PROCESS_EXIT);
+        assertThat(result.error().orElseThrow().category())
+                .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolFailureCategory.PROCESS_EXIT);
+        assertThat(result.error().orElseThrow().retryable()).isFalse();
         assertThat(result.content())
                 .contains("workingDirectory: .", "exitCode: 9", "failed-test");
     }

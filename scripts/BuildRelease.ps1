@@ -258,6 +258,29 @@ $sbom = [ordered]@{
 }
 $sbom | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $staging 'sbom.cdx.json') -Encoding utf8NoBOM
 
+# 构建身份在复制完成后由当前 Git HEAD、生产输入摘要和发行物摘要共同固定。
+# dirty 工作树仍可构建测试候选，但 currentCommit + sourceDigest 可证明它不是陈旧 JAR/TUI。
+$commit = (& git -C $root rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[0-9a-f]{40}$') { throw 'Current Git commit unavailable' }
+$sourceInputs = @(
+    Get-ChildItem -LiteralPath $root -File -Recurse | Where-Object {
+        $relative = [IO.Path]::GetRelativePath($root, $_.FullName).Replace('\','/')
+        ($relative -match '^(cc-java-[^/]+/src/(main|test)/|cc-java-tui/(src|test)/|scripts/).+') -and
+        $relative -notmatch '(^|/)(target|dist|node_modules|\.claude)(/|$)' -and
+        $relative -ne 'generate_henan_weather_xlsx.py'
+    } | Sort-Object FullName
+)
+$sourceAccumulator = [Text.StringBuilder]::new()
+foreach ($file in $sourceInputs) {
+    $relative = [IO.Path]::GetRelativePath($root, $file.FullName).Replace('\','/')
+    [void]$sourceAccumulator.Append($relative).Append(':').Append(
+        (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash.ToLowerInvariant()).Append("`n")
+}
+$sourceDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+    [Text.Encoding]::UTF8.GetBytes($sourceAccumulator.ToString()))).ToLowerInvariant()
+$cliDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $staging 'app/cc-java-cli.jar')).Hash.ToLowerInvariant()
+$tuiDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $staging 'tui/dist/src/index.js')).Hash.ToLowerInvariant()
+
 $artifactFiles = Get-ChildItem -LiteralPath $staging -File -Recurse |
     Where-Object Name -ne 'SHA256SUMS' |
     Sort-Object FullName
@@ -266,6 +289,7 @@ $manifest = [ordered]@{
     version = $Version
     platform = $Platform
     product = 'codej'
+    build = [ordered]@{ currentCommit = $commit; sourceDigest = $sourceDigest; cliDigest = $cliDigest; tuiDigest = $tuiDigest }
     entrypoint = $(if ($Platform -eq 'windows-x64') { 'codej.cmd' } else { 'codej' })
     compatibility = [ordered]@{
         protocolMajors=@(0,1)

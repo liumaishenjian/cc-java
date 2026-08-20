@@ -115,6 +115,24 @@ public record ToolResult(
     }
 
     /**
+     * 创建保留有界失败证据的结果。
+     *
+     * @param callId 原始 Call ID
+     * @param toolName Tool 名称
+     * @param content 已裁剪、可反馈给模型的失败证据
+     * @param error 类型化失败
+     * @param metadata 证据输出边界
+     * @return 失败结果
+     */
+    public static ToolResult failure(String callId, String toolName, String content,
+            ToolError error, ToolResultMetadata metadata) {
+        return new ToolResult(callId, toolName, ToolResultStatus.FAILURE,
+                Objects.requireNonNull(content, "content 不能为空"),
+                Optional.of(Objects.requireNonNull(error, "error 不能为空")),
+                Objects.requireNonNull(metadata, "metadata 不能为空"));
+    }
+
+    /**
      * 创建权限拒绝结果。
      *
      * @param callId   原始 Call ID

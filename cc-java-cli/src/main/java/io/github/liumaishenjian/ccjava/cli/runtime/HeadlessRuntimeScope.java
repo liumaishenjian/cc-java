@@ -90,7 +90,38 @@ final class HeadlessRuntimeScope {
         return create(configuration, configuredModel, gateway, contextPreparation, registeredTools, sessions,
                 checkpoints, lifecycle, ids, approvals, permissionState, workspaceGuard, memoryContext,
                 instructionContext, hooks, skills, plugins, pluginHooks,
-                io.github.liumaishenjian.ccjava.core.FinalAssistantHandler.acceptAll());
+                io.github.liumaishenjian.ccjava.core.FinalAssistantHandler.acceptAll(), null);
+    }
+
+    /**
+     * 创建可选受持续规划能力 Gate 约束的 Scope。
+     *
+     * @param planEligibility 为空保持普通 Runtime；存在时同时过滤 definitions 并在 Pipeline 重检
+     */
+    static HeadlessRuntimeScope create(
+            RuntimeConfiguration configuration,
+            String configuredModel,
+            ModelGateway gateway,
+            ContextPreparationService contextPreparation,
+            List<AgentTool> registeredTools,
+            FileSessionStore sessions,
+            FileCheckpointCoordinator checkpoints,
+            LifecycleDispatcher lifecycle,
+            AgentIdGenerator ids,
+            ApprovalHandler approvals,
+            InMemorySessionPermissionState permissionState,
+            io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceGuard workspaceGuard,
+            MemoryContextService memoryContext,
+            InstructionContextService instructionContext,
+            HookCoordinator hooks,
+            io.github.liumaishenjian.ccjava.core.skill.SkillRunCoordinator skills,
+            io.github.liumaishenjian.ccjava.core.plugin.PluginRunCoordinator plugins,
+            io.github.liumaishenjian.ccjava.core.plugin.PluginRunHooks pluginHooks,
+            io.github.liumaishenjian.ccjava.core.PlanEligibilityPolicy planEligibility) {
+        return create(configuration, configuredModel, gateway, contextPreparation, registeredTools, sessions,
+                checkpoints, lifecycle, ids, approvals, permissionState, workspaceGuard, memoryContext,
+                instructionContext, hooks, skills, plugins, pluginHooks,
+                io.github.liumaishenjian.ccjava.core.FinalAssistantHandler.acceptAll(), planEligibility);
     }
 
     /** 创建可在最终 Assistant 线性化点验证结构化终态的 Scope。 */
@@ -114,6 +145,32 @@ final class HeadlessRuntimeScope {
             io.github.liumaishenjian.ccjava.core.plugin.PluginRunCoordinator plugins,
             io.github.liumaishenjian.ccjava.core.plugin.PluginRunHooks pluginHooks,
             io.github.liumaishenjian.ccjava.core.FinalAssistantHandler finalAssistantHandler) {
+        return create(configuration, configuredModel, gateway, contextPreparation, registeredTools, sessions,
+                checkpoints, lifecycle, ids, approvals, permissionState, workspaceGuard, memoryContext,
+                instructionContext, hooks, skills, plugins, pluginHooks, finalAssistantHandler, null);
+    }
+
+    static HeadlessRuntimeScope create(
+            RuntimeConfiguration configuration,
+            String configuredModel,
+            ModelGateway gateway,
+            ContextPreparationService contextPreparation,
+            List<AgentTool> registeredTools,
+            FileSessionStore sessions,
+            FileCheckpointCoordinator checkpoints,
+            LifecycleDispatcher lifecycle,
+            AgentIdGenerator ids,
+            ApprovalHandler approvals,
+            InMemorySessionPermissionState permissionState,
+            io.github.liumaishenjian.ccjava.tools.local.workspace.WorkspaceGuard workspaceGuard,
+            MemoryContextService memoryContext,
+            InstructionContextService instructionContext,
+            HookCoordinator hooks,
+            io.github.liumaishenjian.ccjava.core.skill.SkillRunCoordinator skills,
+            io.github.liumaishenjian.ccjava.core.plugin.PluginRunCoordinator plugins,
+            io.github.liumaishenjian.ccjava.core.plugin.PluginRunHooks pluginHooks,
+            io.github.liumaishenjian.ccjava.core.FinalAssistantHandler finalAssistantHandler,
+            io.github.liumaishenjian.ccjava.core.PlanEligibilityPolicy planEligibility) {
         RuntimeConfiguration checkedConfiguration = Objects.requireNonNull(configuration, "configuration 不能为空");
         if (checkedConfiguration.modelName().isPresent()
                 && !checkedConfiguration.modelName().orElseThrow().equals(configuredModel)) {
@@ -136,6 +193,7 @@ final class HeadlessRuntimeScope {
         List<AgentTool> visibleTools = java.util.stream.Stream.concat(
                 visibleBuiltins.stream(),
                 registeredTools.stream().filter(tool -> tool.definition().source() != ToolSource.BUILT_IN))
+                .filter(tool -> planEligibility == null || planEligibility.eligible(tool.definition()))
                 .toList();
         ToolRegistry registry = new ToolRegistry(visibleTools);
         PermissionPolicy policy = new PermissionPolicy(
@@ -145,7 +203,7 @@ final class HeadlessRuntimeScope {
                 new DefaultHardDenialPolicy(new WorkspaceWriteHardDenial(workspaceGuard)),
                 permissionState);
         ApprovalReviewGateway reviewGateway = new ModelGatewayApprovalReviewGateway(gateway);
-        boolean trustedConfiguredWebSearch = registeredTools.stream()
+        boolean trustedConfiguredWebSearch = visibleTools.stream()
                 .anyMatch(tool -> tool.definition().source() == ToolSource.BUILT_IN
                         && tool.definition().effect() == io.github.liumaishenjian.ccjava.domain.ToolEffect.NETWORK_OR_REMOTE
                         && tool.definition().name().equals("web_search")
@@ -154,6 +212,7 @@ final class HeadlessRuntimeScope {
                 registry, policy, approvals, permissionState, lifecycle, sessions, checkpoints, hooks, skills,
                 checkedConfiguration.approvalReviewer(),
                 new AutoReviewCoordinator(reviewGateway, trustedConfiguredWebSearch));
+        if (planEligibility != null) pipeline.restrictToPlanning(planEligibility);
         return new HeadlessRuntimeScope(new AgentRuntime(
                 sessions, ids, gateway, new DefaultContextAssembler(), registry, pipeline, lifecycle, sessions,
                 contextPreparation, memoryContext, instructionContext, hooks, skills, plugins, pluginHooks,

@@ -20,6 +20,8 @@ interface ToolGroup {
   readonly failedCount: number;
   readonly deniedCount: number;
   readonly errorCode: string | undefined;
+  readonly failureCategory: string | undefined;
+  readonly retryable: boolean | undefined;
 }
 
 /**
@@ -85,6 +87,8 @@ function fromTool(tool: ToolView): ToolGroup {
     failedCount: tool.status === 'failed' ? 1 : 0,
     deniedCount: tool.status === 'denied' ? 1 : 0,
     errorCode: tool.errorCode,
+    failureCategory: tool.failureCategory,
+    retryable: tool.retryable,
   };
 }
 
@@ -103,6 +107,8 @@ function mergeTool(group: ToolGroup, tool: ToolView): ToolGroup {
     failedCount: group.failedCount + (tool.status === 'failed' ? 1 : 0),
     deniedCount: group.deniedCount + (tool.status === 'denied' ? 1 : 0),
     errorCode: tool.errorCode ?? group.errorCode,
+    failureCategory: tool.failureCategory ?? group.failureCategory,
+    retryable: tool.retryable ?? group.retryable,
   };
 }
 
@@ -139,8 +145,9 @@ function formatToolDetails(group: ToolGroup): string {
   if (group.deniedCount > 1 || (group.deniedCount > 0 && group.successfulCount > 0)) {
     details.push(`${group.deniedCount} 次拒绝`);
   }
-  if (group.errorCode !== undefined) {
-    details.push(group.errorCode);
+  if (group.errorCode !== undefined) details.push(group.errorCode);
+  if (group.failureCategory !== undefined) {
+    details.push(`${group.failureCategory}${group.retryable === true ? ' · retryable' : ''}`);
   }
   return details.length === 0 ? '' : ` · ${details.join(' · ')}`;
 }

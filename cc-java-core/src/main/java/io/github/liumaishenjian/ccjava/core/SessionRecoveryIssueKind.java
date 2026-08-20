@@ -35,5 +35,8 @@ public enum SessionRecoveryIssueKind {
     SKILL_RECOVERY_MISMATCH,
 
     /** Plan durable snapshot 包含未完成 active step，必须人工选择恢复策略。 */
-    PLAN_ACTIVE_STEP_RECOVERY
+    PLAN_ACTIVE_STEP_RECOVERY,
+
+    /** durable Plan 在 EXECUTING 中断；恢复不得自动重放任何副作用。 */
+    PLAN_EXECUTION_RECOVERY
 }

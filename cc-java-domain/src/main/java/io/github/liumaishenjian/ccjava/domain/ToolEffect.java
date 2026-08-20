@@ -16,6 +16,12 @@ public enum ToolEffect {
     /** 在受控 Workspace 内创建、修改或删除内容。 */
     WRITE_WORKSPACE,
 
+    /** 只写当前 Session 独占的 PlanArtifact，不触碰 Workspace。 */
+    PLAN_ARTIFACT_WRITE,
+
+    /** 暂停当前模型循环并等待结构化用户选择。 */
+    USER_INTERACTION,
+
     /** 启动本地进程。 */
     EXECUTE_PROCESS,
 

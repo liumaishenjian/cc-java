@@ -47,7 +47,9 @@ public final class FixedPermissionGate implements PermissionGate {
         ToolEffect effect = checked.effect();
         PermissionSelector selector = PermissionSelector.toolWide(
                 checked.name(), checked.source());
-        if (effect == ToolEffect.READ_WORKSPACE) {
+        if (effect == ToolEffect.READ_WORKSPACE
+                || (mode == PermissionMode.DEFAULT
+                    && (effect == ToolEffect.PLAN_ARTIFACT_WRITE || effect == ToolEffect.USER_INTERACTION))) {
             return PermissionOutcome.of(
                     PermissionDecision.ALLOW,
                     PermissionReason.EFFECT_DEFAULT,

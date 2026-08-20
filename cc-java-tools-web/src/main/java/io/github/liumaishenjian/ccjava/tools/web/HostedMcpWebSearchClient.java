@@ -53,6 +53,7 @@ public final class HostedMcpWebSearchClient implements WebSearchClient, AutoClos
     static final int MAX_RESPONSE_BYTES = 512 * 1024;
     static final int MAX_SSE_LINES = 2_048;
     private static final int MAX_TEXT_ITEMS = 32;
+    static final int MAX_HTTP_ATTEMPTS = 3;
     private static final int MAX_CONTEXT_CODE_POINTS = 48_000;
     private static final ObjectMapper JSON = JsonMapper.builder()
             .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build();
@@ -62,6 +63,7 @@ public final class HostedMcpWebSearchClient implements WebSearchClient, AutoClos
     private final HttpClient client;
     private final ExecutorService operations;
     private final AtomicBoolean closed = new AtomicBoolean();
+    private final WebRetrySleeper retrySleeper;
 
     /**
      * 创建固定 hosted MCP 目标的生产 Client。
@@ -71,15 +73,22 @@ public final class HostedMcpWebSearchClient implements WebSearchClient, AutoClos
      */
     public HostedMcpWebSearchClient(WebSearchConfiguration configuration, NetworkAccessPort networkAccess) {
         this(configuration, networkAccess, HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NEVER).build());
+                .followRedirects(HttpClient.Redirect.NEVER).build(), HostedMcpWebSearchClient::sleep);
     }
 
     /** 注入真实 JDK client，供 loopback wire-contract 测试。 */
     HostedMcpWebSearchClient(WebSearchConfiguration configuration, NetworkAccessPort networkAccess,
             HttpClient client) {
+        this(configuration, networkAccess, client, HostedMcpWebSearchClient::sleep);
+    }
+
+    /** 注入 HTTP client 与确定性 sleeper 的测试构造器。 */
+    HostedMcpWebSearchClient(WebSearchConfiguration configuration, NetworkAccessPort networkAccess,
+            HttpClient client, WebRetrySleeper retrySleeper) {
         this.configuration = Objects.requireNonNull(configuration, "configuration 不能为空");
         this.networkAccess = Objects.requireNonNull(networkAccess, "networkAccess 不能为空");
         this.client = Objects.requireNonNull(client, "client 不能为空");
+        this.retrySleeper = Objects.requireNonNull(retrySleeper, "retrySleeper 不能为空");
         this.operations = Executors.newThreadPerTaskExecutor(Thread.ofVirtual()
                 .name("cc-java-web-search-", 0).factory());
     }
@@ -97,7 +106,7 @@ public final class HostedMcpWebSearchClient implements WebSearchClient, AutoClos
         AttemptControl control = new AttemptControl();
         final Future<WebSearchResponse> operation;
         try {
-            operation = operations.submit(() -> execute(request, cancellation, deadlineNanos, control));
+            operation = operations.submit(() -> executeWithRetry(request, cancellation, deadlineNanos, control));
         } catch (RejectedExecutionException failure) {
             throw new WebSearchException(WebSearchFailure.EXECUTION_FAILED);
         }
@@ -108,6 +117,30 @@ public final class HostedMcpWebSearchClient implements WebSearchClient, AutoClos
             if (!operation.isDone()) operation.cancel(true);
             control.closeBody();
         }
+    }
+
+    private WebSearchResponse executeWithRetry(WebSearchRequest request, CancellationToken cancellation,
+            long deadlineNanos, AttemptControl control) throws WebSearchException {
+        WebSearchException last = null;
+        for (int attempt = 1; attempt <= MAX_HTTP_ATTEMPTS; attempt++) {
+            try {
+                return execute(request, cancellation, deadlineNanos, control);
+            } catch (WebSearchException failure) {
+                last = failure;
+                if (!retryable(failure) || attempt == MAX_HTTP_ATTEMPTS) throw failure;
+                Duration delay = failure.retryAfterSeconds().isPresent()
+                        ? Duration.ofSeconds(failure.retryAfterSeconds().getAsLong())
+                        : Duration.ofMillis(100L << (attempt - 1));
+                retrySleeper.sleep(delay, cancellation);
+                checkActive(deadlineNanos, cancellation, control);
+            }
+        }
+        throw Objects.requireNonNull(last);
+    }
+
+    private static boolean retryable(WebSearchException failure) {
+        return failure.failure() == WebSearchFailure.RATE_LIMITED
+                || failure.failure() == WebSearchFailure.REMOTE_SERVER_ERROR;
     }
 
     private WebSearchResponse execute(WebSearchRequest request, CancellationToken cancellation,
@@ -147,7 +180,10 @@ public final class HostedMcpWebSearchClient implements WebSearchClient, AutoClos
             try (InputStream stream = responseBody) {
                 int status = response.statusCode();
                 if (status >= 300 && status < 400) throw new WebSearchException(WebSearchFailure.REDIRECT_REFUSED);
-                if (status == 429) throw new WebSearchException(WebSearchFailure.RATE_LIMITED);
+                if (status == 403) throw new WebSearchException(WebSearchFailure.FORBIDDEN,
+                        forbiddenReason(response));
+                if (status == 429) throw new WebSearchException(WebSearchFailure.RATE_LIMITED,
+                        retryAfter(response));
                 if (status >= 500) throw new WebSearchException(WebSearchFailure.REMOTE_SERVER_ERROR);
                 if (status < 200 || status >= 300) throw new WebSearchException(WebSearchFailure.REMOTE_CLIENT_ERROR);
                 byte[] bytes = readBounded(stream, deadlineNanos, cancellation, control);
@@ -173,6 +209,35 @@ public final class HostedMcpWebSearchClient implements WebSearchClient, AutoClos
         } finally {
             control.http.compareAndSet(http, null);
             if (!http.isDone()) http.cancel(true);
+        }
+    }
+
+    private static WebForbiddenReason forbiddenReason(HttpResponse<?> response) {
+        if (response.headers().firstValue("WWW-Authenticate").isPresent()) {
+            return WebForbiddenReason.AUTHORIZATION_REQUIRED;
+        }
+        String proxy = response.headers().firstValue("X-Proxy-Error").orElse("");
+        return "blocked-by-allowlist".equalsIgnoreCase(proxy)
+                ? WebForbiddenReason.USER_AGENT_OR_ACL : WebForbiddenReason.FORBIDDEN;
+    }
+
+    private static java.util.OptionalLong retryAfter(HttpResponse<?> response) {
+        try {
+            long value = Long.parseLong(response.headers().firstValue("Retry-After").orElse(""));
+            return value >= 0 && value <= 300 ? java.util.OptionalLong.of(value) : java.util.OptionalLong.empty();
+        } catch (NumberFormatException ignored) {
+            return java.util.OptionalLong.empty();
+        }
+    }
+
+    private static void sleep(Duration delay, CancellationToken cancellation) throws WebSearchException {
+        if (cancellation.isCancellationRequested()) throw new WebSearchException(WebSearchFailure.CANCELLED);
+        try {
+            Thread.sleep(delay);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new WebSearchException(cancellation.isCancellationRequested()
+                    ? WebSearchFailure.CANCELLED : WebSearchFailure.EXECUTION_FAILED);
         }
     }
 

@@ -5,9 +5,11 @@ import io.github.liumaishenjian.ccjava.core.SessionRecoveryIssueKind;
 import io.github.liumaishenjian.ccjava.core.SessionRecoverySnapshot;
 import io.github.liumaishenjian.ccjava.core.PlanRecoveryProjection;
 import io.github.liumaishenjian.ccjava.domain.PlanApprovalGate;
+import io.github.liumaishenjian.ccjava.domain.PlanArtifact;
 import io.github.liumaishenjian.ccjava.domain.PlanDocument;
 import io.github.liumaishenjian.ccjava.domain.PlanExecutionState;
 import io.github.liumaishenjian.ccjava.domain.PlanStatus;
+import io.github.liumaishenjian.ccjava.domain.PlanLifecyclePolicy;
 import io.github.liumaishenjian.ccjava.domain.PlanStep;
 import io.github.liumaishenjian.ccjava.domain.AgentMessage;
 import io.github.liumaishenjian.ccjava.domain.AssistantMessage;
@@ -240,9 +242,51 @@ final class JsonlSessionCodec {
         return root;
     }
 
+    ObjectNode encodePlanArtifact(long sequence, PlanArtifact artifact) {
+        ObjectNode root = record(sequence, "plan.artifact.saved");
+        root.put("planId", checkedIdentifier(artifact.planId(), "planId"));
+        root.put("sessionId", checkedIdentifier(artifact.sessionId().value(), "sessionId"));
+        root.put("revision", artifact.revision());
+        root.put("markdownContent", checkedText(artifact.markdownContent(), "plan.markdownContent"));
+        root.put("contentDigest", checkedDigest(artifact.contentDigest(), "plan.contentDigest"));
+        root.put("status", artifact.status().name());
+        root.put("createdAt", artifact.createdAt().toString());
+        root.put("updatedAt", artifact.updatedAt().toString());
+        artifact.executionBrief().ifPresent(brief -> root.set("executionBrief",
+                ExecutionBriefJson.encode(mapper.createObjectNode(), brief)));
+        root.set("evidenceLedger", PlanEvidenceLedgerJson.encode(mapper.createObjectNode(), artifact.evidenceLedger()));
+        return root;
+    }
+
+    ObjectNode encodePlanCommit(
+            long sequence, PlanArtifact artifact, PlanDocument document, PlanExecutionState state) {
+        PlanRecoveryProjection projection;
+        try {
+            projection = new PlanRecoveryProjection(document, state);
+        } catch (IllegalArgumentException invalidProjection) {
+            throw invalid("INVALID_RECORD", "Plan commit projection 不一致");
+        }
+        if (!artifact.planId().equals(projection.document().id())
+                || artifact.status() != projection.document().status()) {
+            throw invalid("INVALID_RECORD", "Plan commit 身份或状态不一致");
+        }
+        ObjectNode root = encodePlanArtifact(sequence, artifact);
+        addPlanProjection(root, document, state);
+        return root;
+    }
+
     ObjectNode encodePlanSnapshot(long sequence, PlanDocument document, PlanExecutionState state) {
-        if (!document.id().equals(state.planId())) throw invalid("INVALID_RECORD", "Plan ID 不匹配");
+        try {
+            new PlanRecoveryProjection(document, state);
+        } catch (IllegalArgumentException invalidProjection) {
+            throw invalid("INVALID_RECORD", "Plan snapshot projection 不一致");
+        }
         ObjectNode root = record(sequence, "plan.snapshot");
+        addPlanProjection(root, document, state);
+        return root;
+    }
+
+    private void addPlanProjection(ObjectNode root, PlanDocument document, PlanExecutionState state) {
         root.put("planId", checkedIdentifier(document.id(), "planId"));
         root.put("objective", checkedText(document.objective(), "plan.objective"));
         root.put("status", document.status().name());
@@ -260,7 +304,6 @@ final class JsonlSessionCodec {
             steps.add(item);
         });
         root.set("steps", steps);
-        return root;
     }
 
     ObjectNode encodeCheckpointCreated(
@@ -358,6 +401,7 @@ final class JsonlSessionCodec {
         Map<String, ToolCallState> calls = new LinkedHashMap<>();
         Map<String, CheckpointRecordState> checkpoints = new LinkedHashMap<>();
         Optional<PlanRecoveryProjection> plan = Optional.empty();
+        Optional<PlanArtifact> planArtifact = Optional.empty();
         Set<String> activeRuns = new HashSet<>();
         SessionId sessionId = null;
         SessionSpec spec = null;
@@ -528,32 +572,54 @@ final class JsonlSessionCodec {
                     }
                     state.completed = true;
                 }
-                case "plan.snapshot" -> {
-                    if (plan.isPresent()) throw invalid("INVALID_RECORD", "Plan snapshot 重复");
-                    String id = requiredText(record, "planId", MAX_IDENTIFIER_CHARS);
-                    String objective = requiredText(record, "objective", MAX_TEXT_CHARS);
-                    PlanStatus status = enumValue(PlanStatus.class, requiredText(record, "status", MAX_IDENTIFIER_CHARS), "status");
-                    String digest = requiredText(record, "workspaceDigest", MAX_TEXT_CHARS);
-                    PlanApprovalGate gate = enumValue(PlanApprovalGate.class, requiredText(record, "approvalGate", MAX_IDENTIFIER_CHARS), "approvalGate");
-                    Integer next = nullablePositive(record, "nextStep");
-                    Integer active = nullablePositive(record, "activeStep");
-                    ArrayNode nodes = requiredArray(record, "steps");
-                    if (nodes.isEmpty() || nodes.size() > 128) throw invalid("LIMIT_EXCEEDED", "Plan steps 数量无效");
-                    List<PlanStep> steps = new ArrayList<>();
-                    for (JsonNode node : nodes) {
-                        if (!node.isObject()) throw invalid("INVALID_RECORD", "Plan step 必须是 Object");
-                        ObjectNode item = (ObjectNode) node;
-                        steps.add(new PlanStep(requiredInt(item, "ordinal"), requiredText(item, "title", 200),
-                                requiredText(item, "detail", MAX_TEXT_CHARS), requiredText(item, "expectedDigest", MAX_TEXT_CHARS)));
+                case "plan.artifact.saved" -> {
+                    SessionId owner = new SessionId(requiredText(record, "sessionId", MAX_IDENTIFIER_CHARS));
+                    if (sessionId == null || !sessionId.equals(owner)) {
+                        throw invalid("INVALID_RECORD", "PlanArtifact Session ID 不匹配");
                     }
+                    PlanArtifact candidate;
                     try {
-                        PlanDocument document = new PlanDocument(id, objective, steps, status, digest);
-                        PlanExecutionState state = new PlanExecutionState(id, gate, next, active, status, digest);
-                        plan = Optional.of(new PlanRecoveryProjection(document, state));
-                    } catch (IllegalArgumentException invalid) {
-                        throw invalid("INVALID_RECORD", "Plan projection 无效");
+                        candidate = new PlanArtifact(
+                                requiredText(record, "planId", MAX_IDENTIFIER_CHARS), owner,
+                                requiredPositiveLong(record, "revision"),
+                                requiredText(record, "markdownContent", MAX_TEXT_CHARS),
+                                requiredDigest(record, "contentDigest"),
+                                requiredEnumValue(PlanStatus.class, record, "status"),
+                                java.time.Instant.parse(requiredText(record, "createdAt", MAX_IDENTIFIER_CHARS)),
+                                java.time.Instant.parse(requiredText(record, "updatedAt", MAX_IDENTIFIER_CHARS)),
+                                record.has("executionBrief")
+                                        ? Optional.of(ExecutionBriefJson.decode(record.get("executionBrief"), requiredText(record, "markdownContent", MAX_TEXT_CHARS)))
+                                        : Optional.empty(),
+                                record.has("evidenceLedger")
+                                        ? PlanEvidenceLedgerJson.decode(record.get("evidenceLedger"))
+                                        : io.github.liumaishenjian.ccjava.domain.PlanEvidenceLedger.planning(owner,
+                                                requiredText(record, "planId", MAX_IDENTIFIER_CHARS),
+                                                java.time.Instant.parse(requiredText(record, "createdAt", MAX_IDENTIFIER_CHARS))));
+                    } catch (SessionOpenException invalidRecord) {
+                        throw invalidRecord;
+                    } catch (RuntimeException invalidArtifact) {
+                        throw invalid("INVALID_RECORD", "PlanArtifact revision、时间或正文无效");
+                    }
+                    if (planArtifact.isPresent()) {
+                        PlanArtifact previous = planArtifact.orElseThrow();
+                        if (!previous.planId().equals(candidate.planId())
+                                || !previous.createdAt().equals(candidate.createdAt())
+                                || candidate.revision() != previous.revision() + 1
+                                || candidate.updatedAt().isBefore(previous.updatedAt())
+                                || !PlanLifecyclePolicy.validTransition(previous.status(), candidate.status())) {
+                            throw invalid("INVALID_RECORD", "PlanArtifact revision、时间或状态链无效");
+                        }
+                    } else if (candidate.revision() != 1
+                            || !PlanLifecyclePolicy.validInitial(candidate.status())) {
+                        throw invalid("INVALID_RECORD", "PlanArtifact 首个 revision 或状态无效");
+                    }
+                    planArtifact = Optional.of(candidate);
+                    if (record.has("steps")) {
+                        plan = Optional.of(decodePlanProjection(record, planArtifact, plan));
                     }
                 }
+                case "plan.snapshot" ->
+                        plan = Optional.of(decodePlanProjection(record, planArtifact, plan));
                 case "checkpoint.created" -> {
                     requireActiveRun(record, activeRuns);
                     int ordinal = requiredPositiveOrdinal(record);
@@ -613,6 +679,14 @@ final class JsonlSessionCodec {
                 default -> throw invalid("UNKNOWN_RECORD", "不支持的 Session recordType");
             }
         }
+        if (plan.isPresent() && planArtifact.isPresent()) {
+            PlanRecoveryProjection projection = plan.orElseThrow();
+            PlanArtifact artifact = planArtifact.orElseThrow();
+            if (!projection.document().id().equals(artifact.planId())
+                    || projection.document().status() != artifact.status()) {
+                throw invalid("INVALID_RECORD", "Plan 最终 snapshot 与 artifact 不一致");
+            }
+        }
         if (damagedTail) {
             issues.add(SessionRecoveryIssue.session(SessionRecoveryIssueKind.DAMAGED_TAIL));
         }
@@ -633,8 +707,58 @@ final class JsonlSessionCodec {
                 parent,
                 issues,
                 skillRecords,
-                plan);
+                plan,
+                planArtifact);
     }
+
+    private PlanRecoveryProjection decodePlanProjection(
+            ObjectNode record,
+            Optional<PlanArtifact> planArtifact,
+            Optional<PlanRecoveryProjection> previousPlan) {
+        String id = requiredText(record, "planId", MAX_IDENTIFIER_CHARS);
+        String objective = requiredText(record, "objective", MAX_TEXT_CHARS);
+        PlanStatus status = enumValue(PlanStatus.class,
+                requiredText(record, "status", MAX_IDENTIFIER_CHARS), "status");
+        String digest = requiredText(record, "workspaceDigest", MAX_TEXT_CHARS);
+        PlanApprovalGate gate = enumValue(PlanApprovalGate.class,
+                requiredText(record, "approvalGate", MAX_IDENTIFIER_CHARS), "approvalGate");
+        Integer next = nullablePositive(record, "nextStep");
+        Integer active = nullablePositive(record, "activeStep");
+        ArrayNode nodes = requiredArray(record, "steps");
+        if (nodes.isEmpty() || nodes.size() > 128) {
+            throw invalid("LIMIT_EXCEEDED", "Plan steps 数量无效");
+        }
+        List<PlanStep> steps = new ArrayList<>();
+        for (JsonNode node : nodes) {
+            if (!node.isObject()) throw invalid("INVALID_RECORD", "Plan step 必须是 Object");
+            ObjectNode item = (ObjectNode) node;
+            steps.add(new PlanStep(requiredInt(item, "ordinal"), requiredText(item, "title", 200),
+                    requiredText(item, "detail", MAX_TEXT_CHARS),
+                    requiredText(item, "expectedDigest", MAX_TEXT_CHARS)));
+        }
+        try {
+            PlanDocument document = new PlanDocument(id, objective, steps, status, digest);
+            PlanExecutionState state = new PlanExecutionState(id, gate, next, active, status, digest);
+            if (planArtifact.isPresent()
+                    && (!planArtifact.orElseThrow().planId().equals(id)
+                            || planArtifact.orElseThrow().status() != status)) {
+                throw invalid("INVALID_RECORD", "Plan projection 与 artifact 不一致");
+            }
+            if (previousPlan.isPresent()) {
+                PlanRecoveryProjection previous = previousPlan.orElseThrow();
+                if (!previous.document().id().equals(id)
+                        || !PlanLifecyclePolicy.validTransition(previous.document().status(), status)) {
+                    throw invalid("INVALID_RECORD", "Plan snapshot 状态链无效");
+                }
+            }
+            return new PlanRecoveryProjection(document, state);
+        } catch (SessionOpenException invalid) {
+            throw invalid;
+        } catch (IllegalArgumentException invalid) {
+            throw invalid("INVALID_RECORD", "Plan projection 无效");
+        }
+    }
+
 
     private List<UserFileAttachment> decodeAttachments(ObjectNode record) {
         JsonNode value = record.get("attachments");
@@ -687,6 +811,8 @@ final class JsonlSessionCodec {
         result.error().ifPresent(error -> {
             ObjectNode errorNode = mapper.createObjectNode();
             errorNode.put("code", error.code().name());
+            errorNode.put("category", error.category().name());
+            errorNode.put("retryable", error.retryable());
             errorNode.put("message", checkedText(error.message(), "toolError.message"));
             JsonNode details = mapper.valueToTree(error.details().values());
             validateJsonShape(details);
@@ -728,11 +854,18 @@ final class JsonlSessionCodec {
                     ToolErrorCode.class,
                     requiredText(object, "code", MAX_IDENTIFIER_CHARS),
                     "error.code");
+            io.github.liumaishenjian.ccjava.domain.ToolFailureCategory category = object.has("category")
+                    ? enumValue(io.github.liumaishenjian.ccjava.domain.ToolFailureCategory.class,
+                            requiredText(object, "category", MAX_IDENTIFIER_CHARS), "error.category")
+                    : new ToolError(code, "compatibility", JsonObject.empty()).category();
+            boolean retryable = object.has("retryable")
+                    ? requiredBoolean(object, "retryable")
+                    : new ToolError(code, "compatibility", JsonObject.empty()).retryable();
             String message = requiredText(object, "message", MAX_TEXT_CHARS);
             @SuppressWarnings("unchecked")
             Map<String, Object> details = mapper.convertValue(
                     requiredObject(object, "details"), Map.class);
-            error = Optional.of(new ToolError(code, message, new JsonObject(details)));
+            error = Optional.of(new ToolError(code, category, retryable, message, new JsonObject(details)));
         }
         ObjectNode metadataNode = requiredObject(node, "metadata");
         OptionalLong knownOriginal = optionalLong(metadataNode, "knownOriginalCharacters");
@@ -795,6 +928,12 @@ final class JsonlSessionCodec {
             throw invalid("INVALID_RECORD", field + " 必须为正整数或 null");
         }
         return node.intValue();
+    }
+
+    private long requiredPositiveLong(ObjectNode record, String field) {
+        long value = requiredLong(record, field);
+        if (value < 1) throw invalid("INVALID_RECORD", field + " 必须为正整数");
+        return value;
     }
 
     private int requiredPositiveOrdinal(ObjectNode record) {
@@ -1028,7 +1167,9 @@ final class JsonlSessionCodec {
                         Optional.of(call.name()),
                         Optional.empty()));
             }
-            boolean potential = effect != ToolEffect.READ_WORKSPACE;
+            boolean potential = effect != ToolEffect.READ_WORKSPACE
+                    && effect != ToolEffect.PLAN_ARTIFACT_WRITE
+                    && effect != ToolEffect.USER_INTERACTION;
             return Optional.of(new SessionRecoveryIssue(
                     potential
                             ? SessionRecoveryIssueKind.POTENTIAL_SIDE_EFFECT

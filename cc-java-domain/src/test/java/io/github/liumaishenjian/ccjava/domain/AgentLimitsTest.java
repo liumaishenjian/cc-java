@@ -15,6 +15,11 @@ class AgentLimitsTest {
 
         assertThat(compatible.maxDuration()).isEqualTo(Duration.ofMinutes(5));
         assertThat(explicit.maxDuration()).isEqualTo(Duration.ofSeconds(4));
+        assertThat(compatible.budgetPolicy()).isEqualTo(AgentBudgetPolicy.EXPLICIT_HARD);
+        AgentLimits interactive = AgentLimits.interactive(Duration.ofSeconds(9));
+        assertThat(interactive.budgetPolicy()).isEqualTo(AgentBudgetPolicy.INTERACTIVE_ADAPTIVE);
+        assertThat(interactive.absoluteMaxModelTurns()).isGreaterThan(interactive.maxModelTurns());
+        assertThat(interactive.absoluteMaxToolCalls()).isGreaterThan(interactive.maxToolCalls());
         assertThatThrownBy(() -> new AgentLimits(2, 3, Duration.ZERO))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new AgentLimits(2, 3, Duration.ofSeconds(-1)))

@@ -169,7 +169,7 @@ Stage 是学习顺序，不是要求等到上一阶段 100% 成熟才能开始�
 | Stage Exit | S01-S14 Accepted；TOOL-18 与 MODEL-13 实现切片已完成 Commit-scoped G6 对账，S15 整体仍 `OPEN`，不得由两项切片进展推断 Stage Accepted |
 | 当前等级 | 151 项为 L2，40 项为 L1，8 项为 L0 |
 | 默认最终目标 | 199 项达到 L3，或存在明确 `Accepted Deviation` |
-| 当前能力覆盖 | 57.29%（199 项加权、按各 Feature 目标等级计算；PLAN-01 为 S15 L1 内存切片，不因新增条目宣称 L4 创新收益） |
+| 当前能力覆盖 | 57.29%（199 项加权、按各 Feature 目标等级计算；PLAN-01 为 S15 L1 durable continuous-planning 切片，不因新增条目宣称 L4 创新收益） |
 | 下一步 | 补齐 PERM-05 真实 Provider 的对抗性误放行、语义上下文质量、延迟、成本与 A/B Eval；同时补齐至少两个 distinct Provider 的真实 BYOK text stream、Tool call、cancel 与 auth-negative 证据，并完成 S15 L4 创新评测 |
 
 每次新增、合并或排除 Capability ID 时必须同步更新这张快照。
@@ -279,7 +279,7 @@ Stage 完成项。
 | LOOP-04 | 流式 Model Turn | Delta + 聚合结果 | L2 | S02 | REF-02/08 |
 | LOOP-05 | Tool Result 驱动下一回合 | Canonical Message History | L1 | S01 | REF-08 |
 | LOOP-06 | 多 Continue 原因 | 显式 Transition/Stop Reason | L1 | S01/S07 | REF-01 |
-| LOOP-07 | 最大回合和工具数 | `AgentLimits` | L1 | S01 | REF-01 |
+| LOOP-07 | 最大回合和工具数 | 显式硬上限 + 普通交互 progress-aware soft checkpoint/absolute ceiling/typed event | L1 | S01/S15 | REF-01/AUTH-01 |
 | LOOP-08 | Deadline 与取消 | Cancellation 传播 | L1 | S02/S04 | REF-02 |
 | LOOP-09 | 模型错误重试 | 有界 Retry Policy | L2 | S02/S14 | REF-01/AUTH-01 |
 | LOOP-10 | Model Output Length Recovery | S02 识别截断/不完整输出并有界停止或续接 → S14 L3 恢复策略 | L2 | S02/S14 | REF-01/AUTH-01 |
@@ -319,15 +319,15 @@ Stage 完成项。
 | TOOL-07 | Git Status / Diff | 脏工作区和证据 | L2 | S03/S04 | REF-02 |
 | TOOL-08 | Apply Patch / Edit | LF/CRLF 规范精确匹配、BOM/换行外观保留、先读覆盖证据、冲突重检、同目录原子替换与有界摘要 | L1 | S04 | REF-02/AUTH-01 |
 | TOOL-09 | Write / Create | 仅创建新 UTF-8 文件、父目录 realpath 与禁止覆盖 | L1 | S04 | REF-02/AUTH-01 |
-| TOOL-10 | Run Command | 固定平台 Shell/Workspace、准确审批、timeout 与 exit code | L1 | S04 | REF-02/AUTH-01 |
+| TOOL-10 | Run Command | 固定 Shell/Workspace/审批/timeout；非零退出为 FAILURE/PROCESS_EXIT 且保留有界证据 | L1 | S04/S15 | REF-02/AUTH-01 |
 | TOOL-11 | Tool Output Streaming | 有界 stdout/stderr Lifecycle/stdio v0/TUI Event | L1 | S04 | REF-02/AUTH-01 |
 | TOOL-12 | Result Truncation | 显式截断、超长行计数、与已返回正文一致的结构化 continuation 和摘要 | L2 | S03/S07 | REF-01/AUTH-01 |
-| TOOL-13 | Structured Tool Error | 模型可纠正错误 | L2 | S01/S03 | REF-01 |
+| TOOL-13 | Structured Tool Error | code + typed category/retryable；Run 内 canonical failure fingerprint 要求策略变化 | L2 | S01/S03/S15 | REF-01/AUTH-01 |
 | TOOL-14 | Tool Cancellation | 文件提交前取消 L1 → Process 取消与进程树 L2 | L1 | S04 | REF-02 |
 | TOOL-15 | 并行安全工具 | 白名单 READ_WORKSPACE 同批并发已接入完整 AgentRuntime batch 与唯一 Pipeline，稳定按原 Call ID/顺序归并并覆盖取消收敛和真实墙钟门槛 | L2 | S12 | REF-01 |
 | TOOL-16 | Tool Search / Lazy Schema | 大工具集按需加载 | L0 | S10/S11 | REF-02/03 |
 | TOOL-17 | Code Intelligence | LSP / Symbol Tool | L0 | S14/S15 | REF-02/03 |
-| TOOL-18 | Web Tool | 显式 Exa/Parallel hosted MCP Provider gate、Exa no-key/编码 query-key、Parallel Bearer、JSON-RPC `tools/call`、严格 query/result schema 与 JSON/SSE media type、有界 external/untrusted content、逐次 NetworkAccessPort 与唯一 Permission/Approval/Hook/Pipeline；loopback 故障/secret 矩阵及真实 Exa/codej 天气 E2E；只搜索不抓取页面 | L2 | S15 | REF-02/AUTH-01/OPENCODE-0d927ba |
+| TOOL-18 | Web Tool | 显式 Exa/Parallel hosted MCP Provider gate、Exa no-key/编码 query-key、Parallel Bearer、JSON-RPC `tools/call`、严格 query/result schema 与 JSON/SSE media type、有界 external/untrusted content、逐次 NetworkAccessPort 与唯一 Permission/Approval/Hook/Pipeline；loopback 故障/secret 矩阵及真实 Exa/codej 天气 E2E；只搜索不抓取页面；403 非重试、429/5xx Adapter bounded retry、相同失败 query 由 Runtime 重定向策略 | L2 | S15 | REF-02/AUTH-01/OPENCODE-0d927ba |
 
 ## 11. Permission 对照
 
@@ -346,7 +346,7 @@ Stage 完成项。
 | PERM-11 | Denial Tracking | 重复拒绝降级 | L2 | S05/S14 | REF-01/04 |
 | PERM-12 | Project/User/Managed Scope | user/project/local Settings 来源与 Session overlay；Managed Policy 延期 S13 | L2 | S08/S13 | REF-04 |
 | PERM-13 | Print Mode Policy | 无交互时确定性处理 ASK | L2 | S05 | REF-04 |
-| PLAN-01 | In-memory Plan Step Gate | S15 用户以 `/plan [自然语言任务]` 启动真实 Headless PLAN Run；TUI 严格 query 当前 selection→PLAN 成功→start，无参数随后 status。规划期唯一 AgentRuntime/ModelGateway/Context Projection/Pipeline 只发布五个 bounded Workspace read/search Tool，内部 proposal JSON 不投影为用户文本。Runtime 严格规范化 Session-owned `PlanDocument` 并发布 `plan.proposed`；TUI approve 绑定 Plan ID/digest，成功后先恢复进入前 selection（原 PLAN→安全 ASK），等待成功才启动同绑定 `plan.execute` 普通 Agent Run。执行 Run 恢复完整 Tool Registry 并继续经过 Permission/Approval/Hook/Pipeline；无 action 步骤不再伪装为 `git_status`，只有实际 Run 正常完成才标记 Plan `COMPLETED`。恢复失败保持 APPROVED 不执行，revise 保持 PLAN，reject exit 恢复；commandId/planId/digest、resume/transport failure 均 fail closed。跨进程 E2E 覆盖 JSON 隔离、批准后真实 Tool call、最终文本和终态顺序。workspace digest/结构化步骤不是用户 API；内部运维命令保留兼容但隐藏。durable restart recovery/真实 proposal Eval 仍缺，等级保持 L1 | L1 | S15 | REF-01/AUTH-01 |
+| PLAN-01 | Durable Plan Workflow | ADR-076/077/078：Session-owned revisioned Markdown PlanArtifact、revision+digest CAS、canonical journal/manifest 恢复与 Fork 隔离；持续规划按 capability/effect 双 Gate 开放只读/Plan controls。review 事件严格分离 content/workspace digest；四项单一 Ink picker 的一次 Enter 发送 `plan.review.resolve`，Java 原子校验 revision、提交携带 immutable ExecutionBrief 的 APPROVED、选择 USER/AUTO_REVIEW 与 keep/clear、接受正常 Agent Run；Markdown 直接作为不可信自然语言进入统一 Pipeline，不解析 legacy triple。feedback/reject、APPROVED 显式恢复、EXECUTING recovery gate、取消/终态和真实 Java stdio E2E 已覆盖；旧 PlanDocument/plan.execute 仅隐藏兼容且 durable 调用固定拒绝。Batch 5 又加入 codej 独立 PlanEvidenceLedger：受控声明交付/验证要求，绑定 approved revision/ExecutionBrief/workspace digest，只以 WorkspaceGuard 文件与 canonical 成功 ToolResult 作为证据；普通 Run 完成但证据不足进入 NEEDS_VERIFICATION，typed user skip durable/auditable。安装包 commit/source/JAR/TUI digest 和真实 Java stdio smoke 已验证。真实 Provider 计划质量/完整跨平台故障矩阵/多人冲突/稳定 migration 与 L4 A/B Eval 尚缺，因此保持 L1 | L1 | S15 | REF-01/AUTH-01 |
 
 ## 12. Lifecycle / Hooks 对照
 
@@ -786,7 +786,7 @@ ADR-063/064 冻结的范围已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776
 
 ### S15：Independent Innovation
 
-状态：`IN_PROGRESS`，Stage Exit `OPEN`。ADR-067/068 已完成 TOOL-18 OpenCode 固定公开 revision 研究与独立 Java 契约；`cc-java-tools-web`、Headless production composition、真实 JDK loopback、Permission/NetworkAccess/JSON-RPC/JSON/SSE/cancel/隐私矩阵与 Demo 形成工作树 G0-G5 verified，使 `TOOL-18 L0 → L2`。2026-08-12 真实 Exa hosted MCP smoke 和安装版 `codej --print` 杭州天气 E2E 均通过，Tool started/completed 各一次且 Call ID 匹配。该工具是参考差距补齐，不是 L4 创新收益证据；不支持 WebFetch/任意 URL，NetworkAccessPort 也不是 OS Sandbox。完整 S15 仍须完成创新 A/B Eval、收益/成本/安全阈值和 commit-scoped G6。当前已补充 `PLAN-01` 的 L1 内存 Plan Run + 步骤 Gate：选择 PLAN 后，真实 Headless Runtime 复用唯一 AgentRuntime、ModelGateway、Context Projection 与 Pipeline 进行只读多回合探索，只向模型发布五个 bounded Workspace read/search Tool；最终 Assistant 在 Canonical 追加前由 Java 严格解析、生成 Runtime-owned ID/ordinal/digest/status，并安装为同一 Session 的 `PlanDocument`，stdio/TUI 只消费有界 `plan.proposed`，内部 JSON 不显示为 Assistant 文本。畸形/未知字段/超限提案以 `INVALID_MODEL_RESPONSE` 失败关闭；批准且恢复进入前权限后，绑定的 `plan.execute` 使用普通 Agent Runtime 和完整 Tool Registry 实际落实计划，所有 Tool 继续走统一 Pipeline，只有正常完成才写入 `COMPLETED`。真实 Java 跨进程 E2E 已观察到批准后的 Tool call、最终文本及终态顺序；现有显式 Plan 命令保持兼容。[ADR-074](./adr/ADR-074-s15-plan-step-gate.md)、`RuntimeStdioCommandHandlerTest`、`PlanProposalParserTest`、`PlanModeCoordinatorTest` 与 TUI/真实 Java E2E 提供证据。S07 的 258k Context compaction 证据仍由 `AgentRuntimeContextIntegrationTest#explicitCompactionUsesRealProjectionAt258kBoundaryBeforeOverflow` 覆盖；Plan durable checkpoint/restart 与真实 Provider proposal Eval 尚未实现，仍是明确 gap，不宣称持久化、重启恢复或 L4 收益。
+状态：`IN_PROGRESS`，Stage Exit `OPEN`。ADR-067/068 的 `TOOL-18 L2` 与真实 Exa/codej 证据继续有效；网络读取仍经唯一 Permission/Approval/Hook/Pipeline，NetworkAccessPort 不是 OS Sandbox。ADR-076/077 已把 `PLAN-01` 推进为 durable continuous-planning L1：`/plan <task>` 在同一 Session 复用 AgentRuntime/ModelGateway/Context/Canonical Transcript，按显式 capability/effect 开放本地只读、Permission-gated 只读网络、唯一 PlanArtifact CAS 写入与 callId 结构化问题，并在 definitions 与 Pipeline 双重拒绝 Workspace mutation、process 和未声明能力的外部 Tool。模型可增量维护 Markdown；request-review 只发布已提交 revision，stdio/Ink 不显示 Tool/final JSON；反馈执行 `AWAITING_APPROVAL -> DRAFT` 并保持同一 planId/revision chain，Resume 可继续。旧严格 JSON parser、`PlanDocument`、`plan.proposed` 和 execute 命令只保留内部兼容，不属于新 TUI `/plan task` 路径。离线 Fake/loopback 覆盖 read→update→ask→answer→update→review、network deny hit=0、mutation/external default denial、duplicate/late/cancel/disconnect、feedback/revision/Resume。Batch 3 已完成 durable review 原子 approval-to-execution、ExecutionBrief、USER/AUTO、keep/clear 和 restart recovery；真实 Provider 计划质量、完整 fault matrix、Evidence Gate 与 S15 L4 A/B Eval 尚缺，`PLAN-01` 保持 L1，Stage Exit 保持 OPEN。S07 的 Context compaction 证据继续有效。 Batch 4 又完成 adaptive interactive budget、typed Tool failure taxonomy、Run-owned repeated-failure governance、Web 403/429/5xx 与 command process-exit 语义；本轮不提升 Capability Level，S15 仍 OPEN。
 
 ADR-069/070 冻结的 `MODEL-13` Provider/Auth 受控双源研究与契约已绑定实现 Commit `f0e274f779143164e0859961437a53acd220e7bd`：本地直连 BYOK，不建设官方中转 Gateway；ProviderDefinition 与多 CredentialProfile/SecretRef 分离，覆盖 OpenAI-compatible、Anthropic、OpenRouter，提供 `/connect`、`/auth list/logout`、`/models` 及 headless 对等入口。list/status 零网络，probe 显式有界；profile 优先级为显式→default→env→legacy，logout 对同进程 active run 建 fence/cancel/drain 并明确不等于 Provider revoke。secret 不进入 Domain/Session/log/event/error/argv/evidence；普通文件只能称权限受限存储；不实现 silent rotation/failover、Gateway、SQLite 或通用 OAuth。`MODEL-13` L1 切片已完成 commit-scoped G6；G5 仅有离线 Demo，双 Provider 在线证据仍缺失，不得虚报；S15 Stage Exit 仍为 OPEN。
 

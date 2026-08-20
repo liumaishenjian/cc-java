@@ -55,6 +55,66 @@ class AgentRuntimeTest {
             ZoneOffset.UTC);
 
     @Test
+    void adaptiveInteractiveBudgetCompletesAfterMoreThanThirtyTwoProgressingToolCalls() {
+        ModelTurn[] turns = new ModelTurn[35];
+        for (int index = 0; index < 34; index++) {
+            turns[index] = ModelTurn.tools(List.of(call("adaptive-" + index, "echo")));
+        }
+        turns[34] = ModelTurn.text("done after progress");
+        ScriptedModelGateway model = ScriptedModelGateway.of(turns);
+        AgentTool tool = successfulTool("echo");
+        Harness harness = newHarness(model, tool);
+
+        AgentRunResult result = harness.run("long interactive",
+                AgentLimits.interactive(Duration.ofMinutes(1)));
+
+        assertThat(result.status()).isEqualTo(RunStatus.COMPLETED);
+        assertThat(result.toolCalls()).isEqualTo(34);
+        assertThat(result.modelTurns()).isEqualTo(35);
+        assertThat(harness.events().envelopes()).extracting(AgentEventEnvelope::event)
+                .filteredOn(LifecycleEvent.BudgetGoverned.class::isInstance)
+                .map(LifecycleEvent.BudgetGoverned.class::cast)
+                .extracting(LifecycleEvent.BudgetGoverned::reason)
+                .contains(io.github.liumaishenjian.ccjava.domain.BudgetGovernanceReason.PROGRESS_EXTENDED);
+    }
+
+    @Test
+    void adaptiveAbsoluteCeilingStillTerminatesWithExplicitReason() {
+        ScriptedModelGateway model = ScriptedModelGateway.of(
+                ModelTurn.tools(List.of(call("absolute-1", "echo"))),
+                ModelTurn.tools(List.of(call("absolute-2", "echo"))),
+                ModelTurn.tools(List.of(call("absolute-3", "echo"))),
+                ModelTurn.text("must not be reached"));
+        Harness harness = newHarness(model, successfulTool("echo"));
+        AgentLimits bounded = new AgentLimits(2, 2, Duration.ofMinutes(1),
+                io.github.liumaishenjian.ccjava.domain.AgentBudgetPolicy.INTERACTIVE_ADAPTIVE, 3, 3);
+
+        AgentRunResult result = harness.run("absolute cap", bounded);
+
+        assertThat(result.stopReason()).isEqualTo(StopReason.TURN_LIMIT_REACHED);
+        assertThat(result.modelTurns()).isEqualTo(3);
+        assertThat(harness.events().envelopes()).extracting(AgentEventEnvelope::event)
+                .filteredOn(LifecycleEvent.BudgetGoverned.class::isInstance)
+                .map(LifecycleEvent.BudgetGoverned.class::cast)
+                .extracting(LifecycleEvent.BudgetGoverned::reason)
+                .contains(io.github.liumaishenjian.ccjava.domain.BudgetGovernanceReason.ABSOLUTE_LIMIT);
+    }
+
+    @Test
+    void explicitToolCapStillTerminatesExactBatch() {
+        ScriptedModelGateway model = ScriptedModelGateway.of(
+                ModelTurn.tools(List.of(call("hard-1", "echo"))),
+                ModelTurn.tools(List.of(call("hard-2", "echo"))));
+        Harness harness = newHarness(model,
+                successfulTool("echo"));
+
+        AgentRunResult result = harness.run("explicit cap", new AgentLimits(3, 1));
+
+        assertThat(result.stopReason()).isEqualTo(StopReason.TOOL_LIMIT_REACHED);
+        assertThat(result.toolCalls()).isEqualTo(1);
+    }
+
+    @Test
     void completesDirectlyWhenModelReturnsFinalText() {
         ScriptedModelGateway model = ScriptedModelGateway.of(ModelTurn.text("任务完成"));
         Harness harness = newHarness(model);
@@ -901,6 +961,21 @@ class AgentRuntimeTest {
                 .singleElement()
                 .satisfies(envelope -> assertThat(envelope.event())
                         .isEqualTo(new LifecycleEvent.RunFinished(result)));
+    }
+
+    private static AgentTool successfulTool(String name) {
+        return new AgentTool() {
+            @Override public io.github.liumaishenjian.ccjava.domain.ToolDefinition definition() {
+                return io.github.liumaishenjian.ccjava.domain.ToolDefinition.readOnlyText(
+                        name, "progress fixture", "{\"type\":\"object\"}");
+            }
+            @Override public ToolValidationResult validate(JsonObject arguments) {
+                return ToolValidationResult.validResult();
+            }
+            @Override public ToolExecutionOutcome execute(ToolInvocation invocation) {
+                return ToolExecutionOutcome.success("ok");
+            }
+        };
     }
 
     private static AgentTool reviewedTool(AtomicInteger executions) {

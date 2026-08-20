@@ -321,15 +321,30 @@ export class StdioClient {
     return this.#startTextRun('plan.start', task);
   }
 
-  /** 执行 Java Session 中已批准且摘要绑定的 Plan。 */
-  public startPlanExecution(planId: string, workspaceDigest: string): string {
+  /** 以一个服务端原子命令收敛 durable review，并在批准时直接接受执行。 */
+  public resolvePlanReview(input: {
+    readonly planId: string;
+    readonly revision: number;
+    readonly contentDigest: string;
+    readonly workspaceDigest: string;
+    readonly decision: 'APPROVE_AUTO' | 'APPROVE_USER' | 'CONTINUE_PLANNING' | 'REJECT';
+    readonly contextPolicy: 'KEEP' | 'CLEAR';
+    readonly feedback: string;
+  }): string {
     if (this.#sessionId === undefined || this.#activeRunId !== undefined
       || this.#pendingRunStartRequestId !== undefined) {
-      throw new Error('只有就绪 Session 可以执行已批准 Plan');
+      throw new Error('只有就绪 Session 可以决定 Plan review');
     }
-    const requestId = this.#send('plan.execute', {planId, workspaceDigest}, this.#sessionId);
-    this.#pendingRunStartRequestId = requestId;
+    const requestId = this.#send('plan.review.resolve', input, this.#sessionId);
+    if (input.decision === 'APPROVE_AUTO' || input.decision === 'APPROVE_USER') {
+      this.#pendingRunStartRequestId = requestId;
+    }
     return requestId;
+  }
+
+  /** 隐藏兼容方法；durable review 的 UI 不再调用第二次 plan.execute。 */
+  public startPlanExecution(_planId: string, _workspaceDigest: string): string {
+    throw new Error('durable Plan 使用 plan.review.resolve 原子执行交接');
   }
 
   #startTextRun(type: 'run.start' | 'plan.start', prompt: string): string {
@@ -377,6 +392,15 @@ export class StdioClient {
       this.#pendingRunStartRequestId = requestId;
     }
     return requestId;
+  }
+
+  /** 将当前 durable review revision 返回 DRAFT，随后可在同一 Session 继续 /plan。 */
+  public returnPlanFeedback(planId: string, revision: number, contentDigest: string): string {
+    if (this.#sessionId === undefined || this.#activeRunId !== undefined
+      || this.#pendingRunStartRequestId !== undefined) {
+      throw new Error('只有就绪 Session 可以返回 Plan 反馈');
+    }
+    return this.#send('plan.feedback', {planId, revision, contentDigest}, this.#sessionId);
   }
 
   /** 启动 Java 权威的显式 Skill Run。 */
@@ -544,6 +568,14 @@ export class StdioClient {
       this.#sessionId,
       this.#activeRunId,
     );
+  }
+
+  /** 返回当前活动 Plan Run 中匹配 callId 的结构化单选答案。 */
+  public resolveQuestion(callId: string, optionId: string): string {
+    if (this.#sessionId === undefined || this.#activeRunId === undefined) {
+      throw new Error('当前没有可以回答的 Plan 问题');
+    }
+    return this.#send('question.resolve', {callId, optionId}, this.#sessionId, this.#activeRunId);
   }
 
   public async shutdown(): Promise<void> {

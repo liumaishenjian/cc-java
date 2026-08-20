@@ -42,7 +42,8 @@ public final class WebSearchTool implements AgentTool {
             true,
             Duration.ofSeconds(10),
             "text/plain",
-            MAX_OUTPUT_CODE_POINTS);
+            MAX_OUTPUT_CODE_POINTS,
+            Set.of(io.github.liumaishenjian.ccjava.domain.PlanToolCapability.READ_ONLY_NETWORK));
 
     private final WebSearchClient client;
 
@@ -127,6 +128,7 @@ public final class WebSearchTool implements AgentTool {
             case NETWORK_UNCONTROLLED -> ToolErrorCode.NETWORK_CONTROL_UNAVAILABLE;
             case INVALID_TARGET -> ToolErrorCode.WEB_SEARCH_INVALID_TARGET;
             case REDIRECT_REFUSED -> ToolErrorCode.WEB_SEARCH_REDIRECT_REFUSED;
+            case FORBIDDEN -> ToolErrorCode.WEB_SEARCH_FORBIDDEN;
             case RATE_LIMITED -> ToolErrorCode.WEB_SEARCH_RATE_LIMITED;
             case REMOTE_CLIENT_ERROR -> ToolErrorCode.WEB_SEARCH_REMOTE_CLIENT_ERROR;
             case REMOTE_SERVER_ERROR -> ToolErrorCode.WEB_SEARCH_REMOTE_SERVER_ERROR;
@@ -145,6 +147,7 @@ public final class WebSearchTool implements AgentTool {
             case NETWORK_UNCONTROLLED -> "当前 Web 搜索网络路径无法完整受控";
             case INVALID_TARGET -> "Web 搜索固定目标校验失败";
             case REDIRECT_REFUSED -> "Web 搜索拒绝服务端重定向";
+            case FORBIDDEN -> "Web 搜索服务返回禁止访问";
             case RATE_LIMITED -> failure.retryAfterSeconds().isPresent()
                     ? "Web 搜索受到限流，可在约 " + failure.retryAfterSeconds().getAsLong() + " 秒后重试"
                     : "Web 搜索受到限流，请稍后重试";
@@ -159,6 +162,12 @@ public final class WebSearchTool implements AgentTool {
             case CANCELLED -> "Web 搜索已取消";
             case EXECUTION_FAILED -> "Web 搜索执行失败";
         };
+        if (failure.failure() == WebSearchFailure.FORBIDDEN) {
+            String reason = failure.forbiddenReason().orElse(WebForbiddenReason.FORBIDDEN).name();
+            return ToolError.classified(code,
+                    io.github.liumaishenjian.ccjava.domain.ToolFailureCategory.HTTP_FORBIDDEN,
+                    false, message, new JsonObject(java.util.Map.of("reason", reason)));
+        }
         return ToolError.of(code, message);
     }
 }

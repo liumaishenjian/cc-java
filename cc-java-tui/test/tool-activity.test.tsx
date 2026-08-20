@@ -44,6 +44,8 @@ describe('ToolActivityGroup', () => {
         ...tool(1, 'search_text', 'failed'),
         mode: 'content',
         errorCode: 'INVALID_ARGUMENTS',
+        failureCategory: 'validation',
+        retryable: false,
       },
       {
         ...tool(2, 'search_text', 'success', 2_000),
@@ -77,6 +79,8 @@ function tool(
     truncated: false,
     truncationReason: undefined,
     errorCode: undefined,
+          failureCategory: undefined,
+          retryable: undefined,
     output: '',
   };
 }

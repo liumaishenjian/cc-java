@@ -24,8 +24,10 @@ import java.util.Set;
  * 经统一 Permission/Approval Pipeline 执行一个前台 Shell 命令。
  *
  * <p>Tool 只接受命令正文和有限 timeout；Shell、Workspace、环境、stdin、输出预算与
- * 进程树策略不可由模型覆盖。非零退出码是可供 Agent 纠正的正常命令结果，而不是
- * Adapter 协议失败。该 Tool 不支持后台执行、TTY、Commit、Push 或部署特权。</p>
+ * 进程树策略不可由模型覆盖。非零退出码通过 Pipeline 返回 {@code FAILURE/PROCESS_EXIT}，
+ * 同时保留有界 stdout/stderr 作为纠正证据。Shell HTTP 请求应显式使用让 HTTP 错误产生非零退出
+ * 且保留正文的选项（例如 curl 的 {@code --fail-with-body}）；Runtime 不抓取 HTML 猜测状态。
+ * 该 Tool 不支持后台执行、TTY、Commit、Push 或部署特权。</p>
  *
  * @since 0.4.0
  */
@@ -35,7 +37,8 @@ public final class RunCommandTool implements AgentTool {
     private static final ToolDefinition DEFINITION = new ToolDefinition(
             "run_command",
             "Run one approved foreground command in the fixed workspace and platform shell. "
-                    + "Returns exit code and bounded stdout/stderr.",
+                    + "Non-zero exit is a typed failure with bounded stdout/stderr. For shell HTTP, use an "
+                    + "explicit fail-with-body option so HTTP errors produce a non-zero exit; HTML is not scraped.",
             "{\"type\":\"object\",\"additionalProperties\":false,"
                     + "\"required\":[\"command\"],\"properties\":{"
                     + "\"command\":{\"type\":\"string\",\"minLength\":1},"
@@ -106,7 +109,7 @@ public final class RunCommandTool implements AgentTool {
                     invocation.cancellationToken(),
                     invocation.outputSink());
             String content = render(result);
-            return ToolExecutionOutcome.success(content, new ToolResultMetadata(
+            ToolResultMetadata metadata = new ToolResultMetadata(
                     result.truncated(),
                     result.truncated()
                             ? ToolResultTruncationReason.BYTE_LIMIT
@@ -119,7 +122,27 @@ public final class RunCommandTool implements AgentTool {
                             : OptionalLong.of(content.codePointCount(0, content.length())),
                     2,
                     0,
-                    JsonObject.empty()));
+                    JsonObject.empty());
+            if (result.cancelled()) {
+                return ToolExecutionOutcome.failure(content,
+                        ToolError.classified(ToolErrorCode.OPERATION_CANCELLED,
+                                io.github.liumaishenjian.ccjava.domain.ToolFailureCategory.CANCELLATION,
+                                false, "命令已取消", JsonObject.empty()), metadata);
+            }
+            if (result.timedOut()) {
+                return ToolExecutionOutcome.failure(content,
+                        ToolError.classified(ToolErrorCode.OPERATION_TIMED_OUT,
+                                io.github.liumaishenjian.ccjava.domain.ToolFailureCategory.TIMEOUT,
+                                false, "命令达到墙钟期限", JsonObject.empty()), metadata);
+            }
+            if (result.exitCode() != 0) {
+                return ToolExecutionOutcome.failure(content,
+                        ToolError.classified(ToolErrorCode.PROCESS_EXIT,
+                                io.github.liumaishenjian.ccjava.domain.ToolFailureCategory.PROCESS_EXIT,
+                                false, "命令以非零状态退出",
+                                new JsonObject(java.util.Map.of("exitCode", result.exitCode()))), metadata);
+            }
+            return ToolExecutionOutcome.success(content, metadata);
         } catch (IOException exception) {
             return ToolExecutionOutcome.failure(ToolError.of(
                     ToolErrorCode.EXECUTION_FAILED,

@@ -16,6 +16,16 @@ describe('decodeEvent', () => {
     expect(event.payload.text).toBe('你好');
   });
 
+  it('接受关联 Run 的类型化预算治理事件', () => {
+    const event = decodeEvent(JSON.stringify({
+      version: 0, type: 'run.budget.governed', requestId: 'req-budget',
+      sessionId: 'session-1', runId: 'run-1', sequence: 1,
+      payload: {reason: 'progress_extended', modelTurns: 16, toolCalls: 16,
+        effectiveModelLimit: 24, effectiveToolLimit: 32},
+    }), 1);
+    expect(event.payload.reason).toBe('progress_extended');
+  });
+
   it('接受严格有界的 Plan proposal 并拒绝额外执行字段', () => {
     const base = {
       version: 0,
@@ -559,5 +569,31 @@ describe('decodeEvent', () => {
       ...approval,
       payload: {...approval.payload, query: 'weather\nspoof'},
     }), 1)).toThrowError(/网络预览/);
+  });
+});
+
+describe('continuous plan protocol', () => {
+  it('accepts durable Markdown review and structured question, rejecting leaked fields', () => {
+    const review = {
+      version: 0, type: 'plan.review.requested', requestId: 'plan', sessionId: 'session-1',
+      runId: 'run-1', sequence: 1,
+      payload: {planId: 'plan-abc', status: 'awaiting_approval', revision: 3,
+        contentDigest: 'a'.repeat(64), markdown: '# Plan\n\nRead safely.', workspaceDigest: 'b'.repeat(64), originalPermissionMode: 'default', suggestedContextPolicy: 'keep'},
+    };
+    expect(decodeEvent(JSON.stringify(review), 1).payload.markdown).toContain('# Plan');
+    expect(() => decodeEvent(JSON.stringify({...review,
+      payload: {...review.payload, objective: 'hidden'}}), 1)).toThrowError(/plan\.review/);
+
+    const question = {
+      version: 0, type: 'question.requested', requestId: 'plan', sessionId: 'session-1',
+      runId: 'run-1', sequence: 2,
+      payload: {callId: 'ask-1', question: 'Choose rollout', options: [
+        {optionId: 'safe', label: 'Safe', description: 'Staged'},
+        {optionId: 'fast', label: 'Fast', description: 'Direct'},
+      ]},
+    };
+    expect(decodeEvent(JSON.stringify(question), 2).payload.options).toHaveLength(2);
+    expect(() => decodeEvent(JSON.stringify({...question,
+      payload: {...question.payload, rawArguments: '{}'}}), 2)).toThrowError(/question\.requested/);
   });
 });

@@ -19,6 +19,7 @@ import io.github.liumaishenjian.ccjava.domain.ToolSource;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
@@ -175,8 +176,65 @@ class WebSearchToolTest {
     }
 
     @Test
+    void forbiddenIsTypedNonRetryableAndDoesNotRetry() throws Exception {
+        AtomicInteger hits = new AtomicInteger();
+        try (Server server = new Server(exchange -> {
+            hits.incrementAndGet();
+            exchange.getRequestBody().readAllBytes();
+            exchange.getResponseHeaders().set("X-Proxy-Error", "blocked-by-allowlist");
+            respond(exchange, 403, "application/json", "secret body ignored");
+        })) {
+            var configuration = WebSearchConfiguration.loopbackDevelopment(
+                    WebSearchProvider.EXA, server.uri(), Optional.empty(), Duration.ofSeconds(2));
+            try (HostedMcpWebSearchClient client = new HostedMcpWebSearchClient(configuration,
+                    (request, cancellation) -> NetworkAccessDecision.allow(),
+                    HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build(),
+                    (delay, cancellation) -> { throw new AssertionError("403 must not back off"); })) {
+                var outcome = new WebSearchTool(client).execute(invocation(json("query", "same query")));
+                assertThat(outcome.successful()).isFalse();
+                assertThat(outcome.error().orElseThrow().code()).isEqualTo(ToolErrorCode.WEB_SEARCH_FORBIDDEN);
+                assertThat(outcome.error().orElseThrow().category())
+                        .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolFailureCategory.HTTP_FORBIDDEN);
+                assertThat(outcome.error().orElseThrow().retryable()).isFalse();
+                assertThat(outcome.error().orElseThrow().details().string("reason"))
+                        .contains("USER_AGENT_OR_ACL");
+            }
+            assertThat(hits).hasValue(1);
+        }
+    }
+
+    @Test
+    void rateLimitAndServerFailuresUseBoundedAdapterRetryWithDeterministicSleeper() throws Exception {
+        for (int transientStatus : new int[] {429, 503}) {
+            AtomicInteger hits = new AtomicInteger();
+            java.util.List<Duration> delays = new java.util.ArrayList<>();
+            try (Server server = new Server(exchange -> {
+                exchange.getRequestBody().readAllBytes();
+                int hit = hits.incrementAndGet();
+                if (hit < 3) {
+                    if (transientStatus == 429) exchange.getResponseHeaders().set("Retry-After", "0");
+                    respond(exchange, transientStatus, "application/json", "");
+                } else respond(exchange, 200, "application/json", JSON_SUCCESS);
+            })) {
+                var configuration = WebSearchConfiguration.loopbackDevelopment(
+                        WebSearchProvider.EXA, server.uri(), Optional.empty(), Duration.ofSeconds(3));
+                try (HostedMcpWebSearchClient client = new HostedMcpWebSearchClient(configuration,
+                        (request, cancellation) -> NetworkAccessDecision.allow(),
+                        HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build(),
+                        (delay, cancellation) -> delays.add(delay))) {
+                    assertThat(client.search(new WebSearchRequest("q", 1), CancellationToken.none()).content())
+                            .contains("current answer");
+                }
+                assertThat(hits).hasValue(3);
+                assertThat(delays).hasSize(2);
+            }
+        }
+    }
+
+    @Test
     void protocolHttpMalformedNoResultAndSizeFailuresAreTyped() throws Exception {
         assertStatusFailure(302, "application/json", "", WebSearchFailure.REDIRECT_REFUSED);
+        assertStatusFailure(403, "application/json", "", WebSearchFailure.FORBIDDEN);
         assertStatusFailure(429, "application/json", "", WebSearchFailure.RATE_LIMITED);
         assertStatusFailure(400, "application/json", "", WebSearchFailure.REMOTE_CLIENT_ERROR);
         assertStatusFailure(503, "application/json", "", WebSearchFailure.REMOTE_SERVER_ERROR);

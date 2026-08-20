@@ -39,10 +39,16 @@ import {
   type ApprovalPickerState,
 } from './approval-picker.js';
 import {
+  createQuestionPicker,
+  moveQuestionPicker,
+  type QuestionPickerState,
+} from './question-picker.js';
+import {
   createPlanReviewPicker,
   movePlanReviewPicker,
   PLAN_REVIEW_PICKER_ITEMS,
   selectedPlanReviewDecision,
+  togglePlanContextPolicy,
   type PlanReviewPickerState,
 } from './plan-review-picker.js';
 import {
@@ -117,13 +123,21 @@ export interface AgentClient {
   initialize(): string;
   startRun(prompt: string): string;
   startPlan?(task: string): string;
+  resolvePlanReview?(input: {
+    readonly planId: string; readonly revision: number; readonly contentDigest: string;
+    readonly workspaceDigest: string;
+    readonly decision: 'APPROVE_AUTO' | 'APPROVE_USER' | 'CONTINUE_PLANNING' | 'REJECT';
+    readonly contextPolicy: 'KEEP' | 'CLEAR'; readonly feedback: string;
+  }): string;
   startPlanExecution?(planId: string, workspaceDigest: string): string;
+  returnPlanFeedback?(planId: string, revision: number, contentDigest: string): string;
   invokeSkill?(name: string, arguments_: string): string;
   cancelRun(): string;
   resolveApproval(
     approvalId: string,
     decision: 'allow_once' | 'allow_session' | 'deny',
   ): string;
+  resolveQuestion?(callId: string, optionId: string): string;
   listCheckpoints?(): string;
   checkpointDiff?(checkpointId: string): string;
   undoCheckpoint?(checkpointId: string, confirmed: boolean): string;
@@ -221,6 +235,7 @@ export function AgentTui({client}: AgentTuiProps) {
   const [permissionPicker, setPermissionPicker] = useState<PermissionPickerState | undefined>(undefined);
   const [approvalPicker, setApprovalPicker] = useState<ApprovalPickerState>(() => initialApprovalPickerState());
   const [planReviewPicker, setPlanReviewPicker] = useState<PlanReviewPickerState | undefined>(undefined);
+  const [questionPicker, setQuestionPicker] = useState<QuestionPickerState | undefined>(undefined);
   const planReviewPickerRef = useRef<PlanReviewPickerState | undefined>(undefined);
   const composerRef = useRef(composer);
   const permissionPickerSubmittedRef = useRef(false);
@@ -238,6 +253,7 @@ export function AgentTui({client}: AgentTuiProps) {
   const pendingPlanDecisionRef = useRef<PlanDecisionState | undefined>(undefined);
   const planSessionRef = useRef<PlanSessionState | undefined>(undefined);
   const connectWizardRef = useRef<ModelSetupState | undefined>(undefined);
+  const providerLoginActiveRef = useRef(false);
   const setupCredentialBytesRef = useRef<number[]>([]);
   const fileSuggestionRef = useRef<{
     readonly requestId: string;
@@ -245,9 +261,9 @@ export function AgentTui({client}: AgentTuiProps) {
     readonly mention: ActiveFileMention;
   } | undefined>(undefined);
   const fileSuggestionTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const pendingApproval = state.runs.findLast(
-    run => run.status === 'running',
-  )?.pendingApproval;
+  const activeRun = state.runs.findLast(run => run.status === 'running');
+  const pendingApproval = activeRun?.pendingApproval;
+  const pendingQuestion = activeRun?.pendingQuestion;
   const effectiveApprovalPicker = pendingApproval === undefined
     ? approvalPicker
     : resetApprovalPicker(approvalPicker, pendingApproval.approvalId);
@@ -557,6 +573,36 @@ export function AgentTui({client}: AgentTuiProps) {
           String(event.payload.planId), String(event.payload.workspaceDigest),
         ));
       }
+      if (event.type === 'plan.review.requested') {
+        pendingPlanDecisionRef.current = undefined;
+        replacePlanReviewPicker(createPlanReviewPicker(
+          String(event.payload.planId), Number(event.payload.revision), String(event.payload.contentDigest),
+          String(event.payload.workspaceDigest), String(event.payload.suggestedContextPolicy) as 'keep' | 'clear',
+        ));
+      }
+      if (event.type === 'plan.execution.accepted') {
+        replacePlanReviewPicker(undefined);
+        planSessionRef.current = undefined;
+        dispatch({type: 'slash.notice', message: '计划已批准并由 Java 接受执行，正在启动真实 Run'});
+      }
+      if (event.type === 'plan.verification.required') {
+        dispatch({type: 'slash.notice', message: `计划尚未完成：需要验证 ${String(event.payload.blockingRequirementId ?? 'required-evidence-not-declared')}（${String(event.payload.satisfiedEvidence)}/${String(event.payload.requiredEvidence)}）`});
+      }
+      if (event.type === 'plan.verification.completed') {
+        dispatch({type: 'slash.notice', message: `计划证据已验证（${String(event.payload.satisfiedEvidence)}/${String(event.payload.requiredEvidence)}）`});
+      }
+      if (event.type === 'plan.review.rejected') {
+        replacePlanReviewPicker(undefined);
+        planSessionRef.current = undefined;
+        dispatch({type: 'slash.notice', message: '计划已拒绝，未执行任何步骤'});
+      }
+      if (event.type === 'question.requested') {
+        setQuestionPicker(createQuestionPicker(String(event.payload.callId)));
+      }
+      if ((event.type === 'tool.completed' || event.type === 'tool.failed')
+        && event.payload.toolName === 'ask_plan_question') {
+        setQuestionPicker(undefined);
+      }
       if (event.type === 'steering.discarded' || event.type === 'protocol.error') {
         if (fileSuggestionRef.current?.requestId === event.requestId) {
           fileSuggestionRef.current = undefined;
@@ -725,39 +771,61 @@ export function AgentTui({client}: AgentTuiProps) {
       return;
     }
     if (planReviewPicker !== undefined) {
+      const durableReview = planReviewPicker.durable && client.resolvePlanReview !== undefined;
+      if (!durableReview) {
+        if (key.escape && !planReviewPicker.submitted) replacePlanReviewPicker(undefined);
+        else if (key.upArrow || key.downArrow) {
+          replacePlanReviewPicker(movePlanReviewPicker(planReviewPicker, key.upArrow ? -1 : 1));
+        } else if (key.return && !planReviewPicker.submitted) {
+          const legacyDecision = selectedPlanReviewDecision(planReviewPicker);
+          const legacy = legacyDecision === 'approve_auto' || legacyDecision === 'approve_user' ? 'approve'
+            : legacyDecision === 'continue_planning' ? 'revise' : 'reject';
+          const commandNumber = nextCommandNumber.current++;
+          const commandId = legacy === 'approve'
+            ? `tui-plan-${commandNumber}-approve` : `tui-plan-${commandNumber}-reject`;
+          if (legacy === 'approve' && client.sessionCommand !== undefined) {
+            pendingPlanDecisionRef.current = {phase: 'approve', commandId, planId: planReviewPicker.planId,
+              workspaceDigest: planReviewPicker.workspaceDigest};
+            client.sessionCommand(commandId, 'plan-approve', {planId: planReviewPicker.planId,
+              workspaceDigest: planReviewPicker.workspaceDigest});
+          } else if (client.sessionCommand !== undefined) {
+            pendingPlanDecisionRef.current = {phase: legacy === 'revise' ? 'reject-revise' : 'reject-exit',
+              commandId, planId: planReviewPicker.planId, workspaceDigest: planReviewPicker.workspaceDigest};
+            client.sessionCommand(commandId, 'plan-reject', {planId: planReviewPicker.planId});
+          }
+          replacePlanReviewPicker({...planReviewPicker, submitted: true});
+        }
+        return;
+      }
       if (key.escape && !planReviewPicker.submitted) {
         replacePlanReviewPicker(undefined);
       } else if (key.upArrow || key.downArrow) {
         replacePlanReviewPicker(movePlanReviewPicker(planReviewPicker, key.upArrow ? -1 : 1));
+      } else if (key.tab && !planReviewPicker.submitted) {
+        replacePlanReviewPicker(togglePlanContextPolicy(planReviewPicker));
       } else if (key.return && !planReviewPicker.submitted) {
-        if (client.sessionCommand === undefined) {
-          dispatch({type: 'slash.notice', message: '当前连接不支持 Plan 审批'});
+        if (client.resolvePlanReview === undefined) {
+          dispatch({type: 'slash.notice', message: '当前连接不支持 durable Plan review'});
           return;
         }
         const decision = selectedPlanReviewDecision(planReviewPicker);
-        const commandNumber = nextCommandNumber.current++;
-        const commandId = decision === 'approve'
-          ? `tui-plan-${commandNumber}-approve` : `tui-plan-${commandNumber}-reject`;
-        if (decision === 'approve') {
-          pendingPlanDecisionRef.current = {
-            phase: 'approve', commandId, planId: planReviewPicker.planId,
-            workspaceDigest: planReviewPicker.workspaceDigest,
-          };
-          client.sessionCommand(commandId, 'plan-approve', {
+        const protocolDecision = decision === 'approve_auto' ? 'APPROVE_AUTO'
+          : decision === 'approve_user' ? 'APPROVE_USER'
+            : decision === 'continue_planning' ? 'CONTINUE_PLANNING' : 'REJECT';
+        try {
+          client.resolvePlanReview({
             planId: planReviewPicker.planId,
+            revision: planReviewPicker.revision,
+            contentDigest: planReviewPicker.contentDigest,
             workspaceDigest: planReviewPicker.workspaceDigest,
+            decision: protocolDecision,
+            contextPolicy: planReviewPicker.contextPolicy.toUpperCase() as 'KEEP' | 'CLEAR',
+            feedback: '',
           });
-        } else {
-          pendingPlanDecisionRef.current = {
-            phase: decision === 'revise' ? 'reject-revise' : 'reject-exit',
-            commandId, planId: planReviewPicker.planId,
-            workspaceDigest: planReviewPicker.workspaceDigest,
-          };
-          client.sessionCommand(commandId, 'plan-reject', {
-            planId: planReviewPicker.planId,
-          });
+          replacePlanReviewPicker({...planReviewPicker, submitted: true});
+        } catch {
+          dispatch({type: 'slash.notice', message: 'Plan 决定未被连接接受；durable review 保持待决定'});
         }
-        replacePlanReviewPicker({...planReviewPicker, submitted: true});
       }
       return;
     }
@@ -795,7 +863,7 @@ export function AgentTui({client}: AgentTuiProps) {
           return;
         }
         if (setupCredentialBytesRef.current.length === 0) return;
-        if (client.providerLogin === undefined || providerLoginActive) {
+        if (client.providerLogin === undefined || providerLoginActiveRef.current) {
           setupCredentialBytesRef.current.fill(0); setupCredentialBytesRef.current.length = 0;
           replaceConnectWizard({...currentWizard, phase: 'error', message: '当前启动器不支持安全 API Key 输入'});
           return;
@@ -805,6 +873,7 @@ export function AgentTui({client}: AgentTuiProps) {
         setupCredentialBytesRef.current.length = 0;
         const loggingIn = beginModelSetupLogin(currentWizard);
         replaceConnectWizard(loggingIn);
+        providerLoginActiveRef.current = true;
         setProviderLoginActive(true);
         void client.providerLogin({providerId: currentWizard.providerId, profileId: 'default',
           secretSource: 'stdin', secretBytes, setDefault: true}).then(result => {
@@ -820,6 +889,7 @@ export function AgentTui({client}: AgentTuiProps) {
           }
         }).finally(() => {
           secretBytes.fill(0);
+          providerLoginActiveRef.current = false;
           setProviderLoginActive(false);
         });
         return;
@@ -839,6 +909,24 @@ export function AgentTui({client}: AgentTuiProps) {
           }
         }
         return;
+      }
+      return;
+    }
+    if (pendingQuestion !== undefined) {
+      const picker = questionPicker?.callId === pendingQuestion.callId
+        ? questionPicker : createQuestionPicker(pendingQuestion.callId);
+      if (key.upArrow || key.downArrow) {
+        setQuestionPicker(moveQuestionPicker(
+          picker, pendingQuestion.options.length, key.upArrow ? -1 : 1,
+        ));
+      } else if (key.return && !picker.submitted) {
+        const option = pendingQuestion.options[picker.selectedIndex];
+        if (option !== undefined && client.resolveQuestion !== undefined) {
+          client.resolveQuestion(pendingQuestion.callId, option.optionId);
+          setQuestionPicker({...picker, submitted: true});
+        }
+      } else if (key.escape && !picker.submitted) {
+        client.cancelRun();
       }
       return;
     }
@@ -957,7 +1045,7 @@ export function AgentTui({client}: AgentTuiProps) {
               dispatch({type: 'slash.notice', message: 'Agent Run 运行中，结束或取消后再连接 Provider'});
               return;
             }
-            if (client.providerLogin === undefined || providerLoginActive) {
+            if (client.providerLogin === undefined || providerLoginActiveRef.current) {
               dispatch({type: 'slash.notice', message: providerLoginActive
                 ? '已有 Provider 登录正在执行；Ctrl+C 可取消'
                 : '当前启动器不支持安全 Provider 登录桥'});
@@ -1112,7 +1200,7 @@ export function AgentTui({client}: AgentTuiProps) {
       }
     }
   }, {
-    isActive: !providerLoginActive && state.phase !== 'closing',
+    isActive: state.phase !== 'closing',
   });
 
   return <AgentView
@@ -1125,6 +1213,7 @@ export function AgentTui({client}: AgentTuiProps) {
     {...(permissionPicker === undefined ? {} : {permissionPicker})}
     {...(pendingApproval === undefined ? {} : {approvalPicker: effectiveApprovalPicker})}
     {...(planReviewPicker === undefined ? {} : {planReviewPicker})}
+    {...(questionPicker === undefined ? {} : {questionPicker})}
   />;
 }
 
@@ -1141,6 +1230,7 @@ export interface AgentViewProps {
   readonly permissionPicker?: PermissionPickerState;
   readonly approvalPicker?: ApprovalPickerState;
   readonly planReviewPicker?: PlanReviewPickerState;
+  readonly questionPicker?: QuestionPickerState;
 }
 
 const MAX_SETUP_CREDENTIAL_BYTES = 16_384;
@@ -1167,7 +1257,7 @@ export function maskedCredentialPreview(value: readonly number[]): string {
 /**
  * 纯展示组件，使宽字符、窄窗口和各 Run 终态无需真实终端即可验证。
  */
-export function AgentView({state, composer, input = '', columns, rows, composerLayout, connectWizard, permissionPicker, approvalPicker, planReviewPicker}: AgentViewProps) {
+export function AgentView({state, composer, input = '', columns, rows, composerLayout, connectWizard, permissionPicker, approvalPicker, planReviewPicker, questionPicker}: AgentViewProps) {
   const width = Math.max(20, columns);
   const viewportRows = rows === undefined
     ? undefined
@@ -1273,6 +1363,12 @@ export function AgentView({state, composer, input = '', columns, rows, composerL
           {run.planProposal === undefined
             ? null
             : <PlanReviewPanel proposal={run.planProposal} picker={planReviewPicker} />}
+          {run.planReview === undefined
+            ? null
+            : <DurablePlanReviewPanel review={run.planReview} picker={planReviewPicker} />}
+          {run.pendingQuestion === undefined
+            ? null
+            : <QuestionPrompt question={run.pendingQuestion} picker={questionPicker} />}
           {run.status === 'running' && run.tools.length === 0 && run.text.length === 0 ? (
             <Box marginTop={1} marginLeft={2}>
               <Text color="yellow">◌ 等待模型响应…</Text>
@@ -1557,6 +1653,47 @@ function CheckpointRow({
   );
 }
 
+function DurablePlanReviewPanel({review, picker}: {
+  readonly review: NonNullable<RunView['planReview']>;
+  readonly picker: PlanReviewPickerState | undefined;
+}) {
+  const active = picker?.planId === review.planId;
+  return <Box marginTop={1} marginLeft={2} flexDirection="column"
+    borderStyle="round" borderColor="cyan" paddingX={1}>
+    <Text bold color="cyan">实施计划 · revision {review.revision}</Text>
+    <AssistantMarkdown text={review.markdown} />
+    {!active ? <Text dimColor>该计划已不再等待当前窗口决定</Text>
+      : picker.submitted ? <Text dimColor>决定已发送，等待 Java 核对 durable revision</Text>
+        : <><Box marginTop={1} flexDirection="column">
+          {PLAN_REVIEW_PICKER_ITEMS.map((item, index) => <Text key={item.decision}
+            color={index === picker.selectedIndex ? 'cyan' : 'white'}>
+            {index === picker.selectedIndex ? '❯ ' : '  '}{item.label}
+          </Text>)}
+        </Box><Text dimColor>上下选择　Tab 切换上下文（当前 {picker.contextPolicy === 'keep' ? '保留' : '清空'}）　Enter 一次确认</Text></>}
+  </Box>;
+}
+
+function QuestionPrompt({question, picker}: {
+  readonly question: NonNullable<RunView['pendingQuestion']>;
+  readonly picker: QuestionPickerState | undefined;
+}) {
+  const selected = picker?.callId === question.callId ? picker.selectedIndex : 0;
+  return <Box marginTop={1} marginLeft={2} flexDirection="column"
+    borderStyle="round" borderColor="yellow" paddingX={1}>
+    <Text bold color="yellow">需要你的选择</Text>
+    <Text>{question.question}</Text>
+    <Box marginTop={1} flexDirection="column">
+      {question.options.map((option, index) => <Box key={option.optionId} flexDirection="column">
+        <Text color={index === selected ? 'cyan' : 'white'}>
+          {index === selected ? '❯ ' : '  '}{option.label}
+        </Text>
+        <Text dimColor>    {option.description}</Text>
+      </Box>)}
+    </Box>
+    <Text dimColor>{picker?.submitted ? '答案已发送，正在继续同一规划会话' : '↑/↓ 选择　Enter 回答　Esc 取消 Run'}</Text>
+  </Box>;
+}
+
 function PlanReviewPanel({proposal, picker}: {
   readonly proposal: NonNullable<RunView['planProposal']>;
   readonly picker: PlanReviewPickerState | undefined;
@@ -1577,7 +1714,9 @@ function PlanReviewPanel({proposal, picker}: {
         : picker.submitted ? <Text dimColor>批准已发送，等待 Java 核对 Plan 与工作区状态</Text>
           : <>
             <Box marginTop={1} flexDirection="column">
-              {PLAN_REVIEW_PICKER_ITEMS.map((item, index) => (
+              {[{decision: 'approve', label: '批准并执行'},
+                {decision: 'revise', label: '继续修改计划'},
+                {decision: 'reject', label: '拒绝并退出'}].map((item, index) => (
                 <Text key={item.decision} color={index === picker.selectedIndex ? 'cyan' : 'white'}>
                   {index === picker.selectedIndex ? '❯ ' : '  '}{item.label}
                 </Text>

@@ -51,6 +51,8 @@ export interface ToolView {
   readonly truncated: boolean;
   readonly truncationReason: string | undefined;
   readonly errorCode: string | undefined;
+  readonly failureCategory: string | undefined;
+  readonly retryable: boolean | undefined;
   readonly output: string;
 }
 
@@ -66,6 +68,28 @@ export interface PlanProposalView {
   }[];
 }
 
+export interface PlanReviewView {
+  readonly planId: string;
+  readonly status: 'awaiting_approval';
+  readonly revision: number;
+  readonly contentDigest: string;
+  readonly markdown: string;
+  readonly workspaceDigest: string;
+  readonly originalPermissionMode: 'default' | 'accept_edits';
+  readonly suggestedContextPolicy: 'keep' | 'clear';
+}
+
+export interface UserQuestionView {
+  readonly callId: string;
+  readonly question: string;
+  readonly options: readonly {
+    readonly optionId: string;
+    readonly label: string;
+    readonly description: string;
+  }[];
+  readonly submitted: boolean;
+}
+
 export interface RunView {
   readonly requestId: string;
   readonly prompt: string;
@@ -74,6 +98,8 @@ export interface RunView {
   readonly tools: readonly ToolView[];
   readonly pendingApproval?: ApprovalView | undefined;
   readonly planProposal?: PlanProposalView | undefined;
+  readonly planReview?: PlanReviewView | undefined;
+  readonly pendingQuestion?: UserQuestionView | undefined;
   readonly status: RunStatus;
   readonly stopReason: string | undefined;
   readonly modelFailure?: ModelFailureView | undefined;
@@ -346,6 +372,8 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
         notice: `子任务 ${taskId} worktree：${disposition}`,
       };
     }
+    case 'run.budget.governed':
+      return {...state, notice: `交互预算：${String(event.payload.reason)}`};
     case 'run.started':
       return updateCurrentRun(state, event, run => ({
         ...run,
@@ -369,6 +397,33 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
             title: String(step.title),
             detail: String(step.detail),
           })),
+        },
+      }));
+    case 'plan.review.requested':
+      return updateCurrentRun(state, event, run => ({
+        ...run,
+        planReview: {
+          planId: String(event.payload.planId),
+          status: 'awaiting_approval',
+          revision: Number(event.payload.revision),
+          contentDigest: String(event.payload.contentDigest),
+          markdown: String(event.payload.markdown),
+          workspaceDigest: String(event.payload.workspaceDigest),
+          originalPermissionMode: String(event.payload.originalPermissionMode) as 'default' | 'accept_edits',
+          suggestedContextPolicy: String(event.payload.suggestedContextPolicy) as 'keep' | 'clear',
+        },
+      }));
+    case 'question.requested':
+      return updateCurrentRun(state, event, run => ({
+        ...run,
+        pendingQuestion: {
+          callId: String(event.payload.callId),
+          question: String(event.payload.question),
+          options: (event.payload.options as readonly Readonly<Record<string, unknown>>[]).map(option => ({
+            optionId: String(option.optionId), label: String(option.label),
+            description: String(option.description),
+          })),
+          submitted: false,
         },
       }));
     case 'approval.requested':
@@ -403,6 +458,8 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
         tools: upsertFinishedTool(run.tools, event),
         pendingApproval: run.pendingApproval?.ordinal === Number(event.payload.ordinal)
           ? undefined : run.pendingApproval,
+        pendingQuestion: event.payload.toolName === 'ask_plan_question'
+          ? undefined : run.pendingQuestion,
       }));
     case 'tool.output':
       return updateCurrentRun(state, event, run => ({
@@ -453,6 +510,11 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
     case 'session.command.result':
       return applySessionCommandResult(state, event);
     case 'provider.control.result':
+    case 'plan.feedback.accepted':
+    case 'plan.execution.accepted':
+    case 'plan.review.rejected':
+    case 'plan.verification.required':
+    case 'plan.verification.completed':
       return state;
     case 'file.suggestions':
       return state;
@@ -592,6 +654,8 @@ function upsertStartedTool(
     truncated: false,
     truncationReason: undefined,
     errorCode: undefined,
+    failureCategory: undefined,
+    retryable: undefined,
     output: '',
   };
   return [...tools.filter(tool => tool.ordinal !== ordinal), item]
@@ -620,6 +684,10 @@ function upsertFinishedTool(
       ? event.payload.truncationReason : undefined,
     errorCode: typeof event.payload.errorCode === 'string'
       ? event.payload.errorCode : undefined,
+    failureCategory: typeof event.payload.failureCategory === 'string'
+      ? event.payload.failureCategory : undefined,
+    retryable: typeof event.payload.retryable === 'boolean'
+      ? event.payload.retryable : undefined,
     output: tools.find(tool => tool.ordinal === ordinal)?.output ?? '',
   };
   return [...tools.filter(tool => tool.ordinal !== ordinal), item]

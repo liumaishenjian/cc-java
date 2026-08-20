@@ -7,6 +7,7 @@ public enum PlanStatus {
     APPROVED,
     EXECUTING,
     PAUSED,
+    NEEDS_VERIFICATION,
     COMPLETED,
     REJECTED,
     DIGEST_CONFLICT,

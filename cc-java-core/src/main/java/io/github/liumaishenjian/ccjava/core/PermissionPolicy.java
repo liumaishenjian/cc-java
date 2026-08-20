@@ -84,7 +84,11 @@ public final class PermissionPolicy implements PermissionGate {
         if (deny != null) {
             return PermissionOutcome.fromRule(deny, PermissionReason.EXPLICIT_DENY, selector);
         }
-        if (mode == PermissionMode.PLAN && definition.effect() != ToolEffect.READ_WORKSPACE) {
+        if (mode == PermissionMode.PLAN
+                && definition.effect() != ToolEffect.READ_WORKSPACE
+                && definition.effect() != ToolEffect.NETWORK_OR_REMOTE
+                && definition.effect() != ToolEffect.PLAN_ARTIFACT_WRITE
+                && definition.effect() != ToolEffect.USER_INTERACTION) {
             return PermissionOutcome.of(
                     PermissionDecision.DENY,
                     PermissionReason.PLAN_RESTRICTION,
@@ -132,7 +136,7 @@ public final class PermissionPolicy implements PermissionGate {
             ToolDefinition definition,
             PermissionSelector selector) {
         return switch (definition.effect()) {
-            case READ_WORKSPACE -> PermissionOutcome.of(
+            case READ_WORKSPACE, PLAN_ARTIFACT_WRITE, USER_INTERACTION -> PermissionOutcome.of(
                     PermissionDecision.ALLOW,
                     PermissionReason.EFFECT_DEFAULT,
                     selector);

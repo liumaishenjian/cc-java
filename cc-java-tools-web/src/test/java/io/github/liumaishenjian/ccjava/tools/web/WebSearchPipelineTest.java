@@ -93,6 +93,47 @@ class WebSearchPipelineTest {
     }
 
     @Test
+    void repeatedIdenticalForbiddenIsRedirectedBeforeExecutionButChangedQueryIsAllowed() {
+        AtomicInteger executions = new AtomicInteger();
+        WebSearchTool tool = new WebSearchTool((request, cancellation) -> {
+            executions.incrementAndGet();
+            throw new WebSearchException(WebSearchFailure.FORBIDDEN, WebForbiddenReason.FORBIDDEN);
+        });
+        EventRecorder events = new EventRecorder();
+        LifecycleDispatcher lifecycle = new LifecycleDispatcher(CLOCK, events);
+        var store = new InMemorySessionStore(new UuidAgentIdGenerator(), lifecycle);
+        AgentSession session = store.create(SessionSpec.of("repeat-governance"));
+        var state = new InMemorySessionPermissionState();
+        var policy = new PermissionPolicy(PermissionMode.DEFAULT, List.of(),
+                new DefaultPermissionSelectorResolver(), new DefaultHardDenialPolicy(), state);
+        var journal = new RecordingJournal();
+        var pipeline = new ToolExecutionPipeline(new ToolRegistry(List.of(tool)), policy,
+                (invocation, definition, outcome) -> ApprovalResponse.allowOnce(), state, lifecycle, journal);
+        RunId runId = new RunId("run-repeat-forbidden");
+
+        ToolResult first = pipeline.execute(session, runId, 1,
+                new ToolCall("call-first", "web_search", new JsonObject(Map.of("query", "same"))),
+                CancellationToken.none());
+        ToolResult repeated = pipeline.execute(session, runId, 2,
+                new ToolCall("call-repeat", "web_search", new JsonObject(Map.of("query", "same"))),
+                CancellationToken.none());
+        ToolResult changed = pipeline.execute(session, runId, 3,
+                new ToolCall("call-changed", "web_search", new JsonObject(Map.of("query", "changed"))),
+                CancellationToken.none());
+
+        assertThat(first.error().orElseThrow().category())
+                .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolFailureCategory.HTTP_FORBIDDEN);
+        assertThat(repeated.error().orElseThrow().code())
+                .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolErrorCode.REPEATED_FAILURE);
+        assertThat(repeated.error().orElseThrow().details().values())
+                .containsEntry("requiredStrategyChange", true);
+        assertThat(changed.error().orElseThrow().code()).isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolErrorCode.WEB_SEARCH_FORBIDDEN);
+        assertThat(executions).hasValue(2);
+        assertThat(journal.started).hasValue(2);
+        assertThat(journal.completed).hasValue(2);
+    }
+
+    @Test
     void allowedCallUsesHttpAndKeepsCallIdWithUniqueDurableAndFinalEvents() throws Exception {
         AtomicInteger hits = new AtomicInteger();
         try (Fixture fixture = fixture(hits, List.of(),

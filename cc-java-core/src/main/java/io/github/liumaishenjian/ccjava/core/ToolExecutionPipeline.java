@@ -63,6 +63,11 @@ public final class ToolExecutionPipeline {
     private final AutoReviewCoordinator autoReview;
     /** 可选的 Plan Gate；为空表示保持非 Plan Runtime 的既有语义。 */
     private PlanModeCoordinator planMode;
+    /** 可选的持续规划 capability Gate；隐藏与猜名调用使用同一策略。 */
+    private PlanEligibilityPolicy planEligibility;
+    /** 当前 Run 的短生命周期失败 fingerprint。 */
+    private final java.util.concurrent.ConcurrentMap<RunId, ToolFailureFingerprintGovernance> failureGovernance =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
      * 创建 Tool 执行管线。
@@ -243,6 +248,7 @@ public final class ToolExecutionPipeline {
         this.reviewer = ApprovalReviewer.USER;
         this.autoReview = null;
         this.planMode = null;
+        this.planEligibility = null;
     }
 
     /**
@@ -288,6 +294,7 @@ public final class ToolExecutionPipeline {
         this.autoReview = reviewer == ApprovalReviewer.AUTO_REVIEW
                 ? Objects.requireNonNull(autoReview, "autoReview 不能为空") : autoReview;
         this.planMode = null;
+        this.planEligibility = null;
     }
 
     /**
@@ -324,6 +331,26 @@ public final class ToolExecutionPipeline {
      * @param runId 当前 Run 标识
      * @return AUTO_REVIEW 时启用、否则保持 USER 既有语义的 scope
      */
+    /**
+     * 在首次执行前启用持续规划 hard boundary。
+     *
+     * <p>返回当前 Pipeline 便于 Composition Root 在创建 Scope 时原子装配；Pipeline 不得跨普通
+     * Run 与 Plan Run 共享，因此启用后不可清除。</p>
+     *
+     * @param policy 能力驱动规划资格策略
+     * @return 当前 Pipeline
+     */
+    public ToolExecutionPipeline restrictToPlanning(PlanEligibilityPolicy policy) {
+        if (planEligibility != null) throw new IllegalStateException("Plan eligibility 已启用");
+        planEligibility = Objects.requireNonNull(policy, "policy 不能为空");
+        return this;
+    }
+
+    /** 清除当前 Run 的短生命周期失败 fingerprint。 */
+    public void closeRunGovernance(RunId runId) {
+        failureGovernance.remove(Objects.requireNonNull(runId, "runId 不能为空"));
+    }
+
     public AutoReviewRunScope createRunScope(RunId runId) {
         Objects.requireNonNull(runId, "runId 不能为空");
         return reviewer == ApprovalReviewer.AUTO_REVIEW
@@ -460,6 +487,20 @@ public final class ToolExecutionPipeline {
         }
 
         ToolDefinition definition = tool.definition();
+        ToolFailureFingerprintGovernance governance = failureGovernance.computeIfAbsent(
+                runId, ignored -> new ToolFailureFingerprintGovernance());
+        if (governance.repeated(call)) {
+            return resolveWithoutExecution(session, runId, ordinal,
+                    ToolResult.failure(call.id(), call.name(), ToolFailureFingerprintGovernance.repeatedFailure()),
+                    ToolResolutionReason.REPEATED_FAILURE, cancellationToken);
+        }
+        if (planEligibility != null && !planEligibility.executionAllowed(definition)) {
+            return resolveWithoutExecution(session, runId, ordinal,
+                    ToolResult.failure(call.id(), call.name(),
+                            ToolError.of(ToolErrorCode.PLAN_GATE_BLOCKED,
+                                    "Tool capability is unavailable while planning")),
+                    ToolResolutionReason.PLAN_GATE_BLOCKED, cancellationToken);
+        }
         if (planMode != null && isPlanSideEffect(definition.effect()) && !planAllows()) {
             return resolveWithoutExecution(session, runId, ordinal,
                     ToolResult.failure(call.id(), call.name(),
@@ -575,7 +616,7 @@ public final class ToolExecutionPipeline {
                     "Tool execute 返回 null");
             result = execution.successful()
                     ? normalizeSuccess(call, definition, execution)
-                    : ToolResult.failure(call.id(), call.name(), execution.error().orElseThrow());
+                    : normalizeFailure(call, definition, execution);
         } catch (Exception exception) {
             result = ToolResult.failure(
                     call.id(),
@@ -600,6 +641,12 @@ public final class ToolExecutionPipeline {
             throw new ToolJournalPersistenceException(
                     "Tool 已执行但完成记录未可靠持久化",
                     journalFailure);
+        }
+        if (result.status() != io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS
+                && result.error().isPresent()) {
+            governance.record(call, result.error().orElseThrow());
+        } else if (result.status() == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS) {
+            governance.recordProgress();
         }
         if (reviewer == ApprovalReviewer.USER
                 && result.status() == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS) {
@@ -862,6 +909,20 @@ public final class ToolExecutionPipeline {
                     PermissionReason.USER_DENY,
                     initial.selector());
         };
+    }
+
+    private ToolResult normalizeFailure(ToolCall call, ToolDefinition definition,
+            ToolExecutionOutcome outcome) {
+        int limit = Math.min(definition.maxOutputCharacters(), ABSOLUTE_MAX_OUTPUT_CHARACTERS);
+        String original = outcome.content();
+        int originalCharacters = original.codePointCount(0, original.length());
+        String normalized = originalCharacters <= limit ? original
+                : prefixByCodePoints(original, Math.max(0, limit - Math.min(limit,
+                        TRUNCATION_MARKER.codePointCount(0, TRUNCATION_MARKER.length()))))
+                        + prefixByCodePoints(TRUNCATION_MARKER, Math.min(limit,
+                                TRUNCATION_MARKER.codePointCount(0, TRUNCATION_MARKER.length())));
+        return ToolResult.failure(call.id(), call.name(), normalized, outcome.error().orElseThrow(),
+                outcome.metadata().normalize(normalized, originalCharacters > limit, originalCharacters));
     }
 
     private ToolResult normalizeSuccess(

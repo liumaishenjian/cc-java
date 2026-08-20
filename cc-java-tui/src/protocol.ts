@@ -33,6 +33,7 @@ const CHECKPOINT_UNDO_STATUSES = new Set([
 const EVENT_TYPES = new Set([
   'initialized',
   'run.started',
+  'run.budget.governed',
   'skill.invoked',
   'skill.completed',
   'task.status',
@@ -40,6 +41,13 @@ const EVENT_TYPES = new Set([
   'task.worktree',
   'model.text.delta',
   'plan.proposed',
+  'plan.review.requested',
+  'plan.execution.accepted',
+  'plan.review.rejected',
+  'plan.verification.required',
+  'plan.verification.completed',
+  'plan.feedback.accepted',
+  'question.requested',
   'approval.requested',
   'tool.started',
   'tool.output',
@@ -62,6 +70,7 @@ const EVENT_TYPES = new Set([
 export type EventType =
   | 'initialized'
   | 'run.started'
+  | 'run.budget.governed'
   | 'skill.invoked'
   | 'skill.completed'
   | 'task.status'
@@ -69,6 +78,13 @@ export type EventType =
   | 'task.worktree'
   | 'model.text.delta'
   | 'plan.proposed'
+  | 'plan.review.requested'
+  | 'plan.execution.accepted'
+  | 'plan.review.rejected'
+  | 'plan.verification.required'
+  | 'plan.verification.completed'
+  | 'plan.feedback.accepted'
+  | 'question.requested'
   | 'approval.requested'
   | 'tool.started'
   | 'tool.output'
@@ -103,12 +119,15 @@ export interface ProtocolCommand {
     | 'initialize'
     | 'run.start'
     | 'plan.start'
+    | 'plan.review.resolve'
     | 'plan.execute'
+    | 'plan.feedback'
     | 'input.begin'
     | 'input.chunk'
     | 'input.commit'
     | 'run.cancel'
     | 'approval.resolve'
+    | 'question.resolve'
     | 'checkpoint.list'
     | 'checkpoint.diff'
     | 'checkpoint.undo'
@@ -227,9 +246,12 @@ function validateEventShape(
   }
   if (
     (type === 'run.started'
+      || type === 'run.budget.governed'
       || type === 'skill.completed'
       || type === 'model.text.delta'
       || type === 'plan.proposed'
+      || type === 'plan.review.requested'
+      || type === 'question.requested'
       || type === 'approval.requested'
       || type === 'tool.started'
       || type === 'tool.output'
@@ -267,6 +289,44 @@ function validateEventShape(
   }
   if (type === 'plan.proposed') {
     validatePlanProposal(payload);
+  } else if (type === 'plan.review.requested') {
+    validatePlanReview(payload);
+  } else if (type === 'question.requested') {
+    validateUserQuestion(payload);
+  }
+  if (type === 'plan.execution.accepted') {
+    if (sessionId === undefined || runId !== undefined
+      || !hasExactFields(payload, new Set(['planId', 'status', 'revision', 'contentDigest', 'contextPolicy', 'approvalReviewer']))
+      || payload.status !== 'approved' || typeof payload.planId !== 'string'
+      || !Number.isSafeInteger(payload.revision) || (payload.revision as number) < 1
+      || typeof payload.contentDigest !== 'string' || !/^[0-9a-f]{64}$/u.test(payload.contentDigest)
+      || !['keep', 'clear'].includes(String(payload.contextPolicy))
+      || !['user', 'auto_review'].includes(String(payload.approvalReviewer))) {
+      throw new ProtocolViolation('plan.execution.accepted 投影无效');
+    }
+  }
+  if (type === 'plan.verification.required' || type === 'plan.verification.completed') {
+    if (typeof payload.planId !== 'string' || typeof payload.status !== 'string'
+      || !Number.isSafeInteger(payload.requiredEvidence) || !Number.isSafeInteger(payload.satisfiedEvidence)
+      || (payload.blockingRequirementId !== undefined && typeof payload.blockingRequirementId !== 'string')) {
+      throw new ProtocolViolation('plan verification 投影无效');
+    }
+  }
+  if (type === 'plan.review.rejected') {
+    if (sessionId === undefined || runId !== undefined
+      || !hasExactFields(payload, new Set(['planId', 'status']))
+      || typeof payload.planId !== 'string' || payload.status !== 'rejected') {
+      throw new ProtocolViolation('plan.review.rejected 投影无效');
+    }
+  }
+  if (type === 'plan.feedback.accepted') {
+    if (sessionId === undefined || runId !== undefined
+      || !hasExactFields(payload, new Set(['planId', 'status', 'revision', 'contentDigest']))
+      || typeof payload.planId !== 'string' || payload.status !== 'draft'
+      || !Number.isSafeInteger(payload.revision) || (payload.revision as number) < 1
+      || typeof payload.contentDigest !== 'string' || !/^[0-9a-f]{64}$/u.test(payload.contentDigest)) {
+      throw new ProtocolViolation('plan.feedback.accepted 投影无效');
+    }
   }
   if (
     type === 'approval.requested'
@@ -323,6 +383,46 @@ function validateEventShape(
     validateOptionalTerminalCount(type, payload, 'toolCalls');
     validateOptionalModelFailure(type, payload);
   }
+}
+
+function validatePlanReview(payload: Readonly<Record<string, unknown>>): void {
+  if (!hasExactFields(payload, new Set(['planId', 'status', 'revision', 'contentDigest', 'markdown', 'workspaceDigest', 'originalPermissionMode', 'suggestedContextPolicy']))
+    || typeof payload.planId !== 'string'
+    || !/^plan-[A-Za-z0-9-]{1,123}$/u.test(payload.planId)
+    || payload.status !== 'awaiting_approval'
+    || !Number.isSafeInteger(payload.revision) || (payload.revision as number) < 1
+    || typeof payload.contentDigest !== 'string' || !/^[0-9a-f]{64}$/u.test(payload.contentDigest)
+    || typeof payload.markdown !== 'string' || payload.markdown.trim().length === 0
+    || typeof payload.workspaceDigest !== 'string' || !/^[0-9a-f]{64}$/u.test(payload.workspaceDigest)
+    || !['default', 'accept_edits'].includes(String(payload.originalPermissionMode))
+    || !['keep', 'clear'].includes(String(payload.suggestedContextPolicy))
+    || Buffer.byteLength(payload.markdown, 'utf8') > 1_048_576) {
+    throw new ProtocolViolation('plan.review.requested durable 工件投影无效');
+  }
+}
+
+function validateUserQuestion(payload: Readonly<Record<string, unknown>>): void {
+  if (!hasExactFields(payload, new Set(['callId', 'question', 'options']))
+    || typeof payload.callId !== 'string' || payload.callId.trim().length === 0
+    || payload.callId.length > MAX_IDENTIFIER_CHARS
+    || typeof payload.question !== 'string' || payload.question.trim().length === 0
+    || Array.from(payload.question).length > 1_000
+    || !Array.isArray(payload.options) || payload.options.length < 2 || payload.options.length > 4) {
+    throw new ProtocolViolation('question.requested 投影无效');
+  }
+  const ids = new Set<string>();
+  payload.options.forEach(option => {
+    if (!isRecord(option) || !hasExactFields(option, new Set(['optionId', 'label', 'description']))
+      || typeof option.optionId !== 'string' || option.optionId.trim().length === 0
+      || option.optionId.length > 64 || ids.has(option.optionId)
+      || typeof option.label !== 'string' || option.label.trim().length === 0
+      || Array.from(option.label).length > 120
+      || typeof option.description !== 'string' || option.description.trim().length === 0
+      || Array.from(option.description).length > 500) {
+      throw new ProtocolViolation('question.requested option 无效');
+    }
+    ids.add(option.optionId);
+  });
 }
 
 function validatePlanProposal(payload: Readonly<Record<string, unknown>>): void {

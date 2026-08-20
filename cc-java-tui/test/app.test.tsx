@@ -228,6 +228,8 @@ describe('AgentView', () => {
           truncated: false,
           truncationReason: undefined,
           errorCode: undefined,
+          failureCategory: undefined,
+          retryable: undefined,
           output: '',
         }],
         status: 'running',
@@ -1719,10 +1721,108 @@ describe('approvalDecision', () => {
   });
 });
 
+
+describe('continuous plan Ink interaction', () => {
+  it('renders structured options and resumes the same active run with the selected option', async () => {
+    const client = new FakeAgentClient();
+    const view = await initializedTui(client);
+    view.stdin.write('plan task'); view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 1);
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-1', sequence: 2, payload: {}});
+    client.emit({version: 0, type: 'question.requested', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-1', sequence: 3, payload: {callId: 'ask-1', question: 'Choose rollout', options: [
+        {optionId: 'safe', label: 'Safe', description: 'Staged'},
+        {optionId: 'fast', label: 'Fast', description: 'Direct'},
+      ]}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('Choose rollout'));
+    expect(view.lastFrame()).toContain('Safe');
+    view.stdin.write('\u001b[B');
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('❯ Fast'));
+    view.stdin.write('\r');
+    await waitForFrame(() => client.questionAnswers.length === 1);
+    expect(client.questionAnswers).toEqual(['ask-1:fast']);
+    view.unmount();
+  });
+
+  it('renders durable Markdown review and sends one bound normal-approval decision', async () => {
+    const client = new FakeAgentClient();
+    const view = await initializedTui(client);
+    view.stdin.write('plan task'); view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 1);
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-1', sequence: 2, payload: {}});
+    client.emit({version: 0, type: 'plan.review.requested', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-1', sequence: 3, payload: {planId: 'plan-a', status: 'awaiting_approval', revision: 3,
+        contentDigest: 'a'.repeat(64), markdown: '# Plan\n\nSafe rollout.', workspaceDigest: 'b'.repeat(64), originalPermissionMode: 'default', suggestedContextPolicy: 'keep'}});
+    client.emit({version: 0, type: 'run.completed', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-1', sequence: 4, payload: {stopReason: 'completed', modelTurns: 2, toolCalls: 2}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('Safe rollout'));
+    view.stdin.write('\u001b[B');
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('❯ 批准并执行（后续 Tool 正常逐项询问）'));
+    view.stdin.write('\r');
+    await waitForFrame(() => client.planReviewResolutions.length === 1);
+    expect(client.planReviewResolutions).toEqual([
+      `plan-a:3:${'a'.repeat(64)}:${'b'.repeat(64)}:APPROVE_USER:KEEP`,
+    ]);
+    view.unmount();
+  });
+
+  it('default approve auto and Tab context toggle are driven by actual key events', async () => {
+    const client = new FakeAgentClient();
+    const view = await initializedTui(client);
+    view.stdin.write('plan task'); view.stdin.write(String.fromCharCode(13));
+    await waitForFrame(() => client.prompts.length === 1);
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-key', sequence: 2, payload: {}});
+    client.emit({version: 0, type: 'plan.review.requested', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-key', sequence: 3, payload: {planId: 'plan-keys', status: 'awaiting_approval', revision: 7,
+        contentDigest: 'c'.repeat(64), markdown: '# Key plan\n\nVerify.', workspaceDigest: 'd'.repeat(64),
+        originalPermissionMode: 'default', suggestedContextPolicy: 'keep'}});
+    client.emit({version: 0, type: 'run.completed', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-key', sequence: 4, payload: {stopReason: 'completed', modelTurns: 2, toolCalls: 3}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('批准并自动执行'));
+    view.stdin.write(String.fromCharCode(9));
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('当前 清空'));
+    view.stdin.write(String.fromCharCode(13));
+    await waitForFrame(() => client.planReviewResolutions.length === 1);
+    expect(client.planReviewResolutions[0]).toContain(':APPROVE_AUTO:CLEAR');
+    view.unmount();
+  });
+
+  it('continue planning uses its distinct arrow-selected decision', async () => {
+    const client = new FakeAgentClient();
+    const view = await initializedTui(client);
+    view.stdin.write('plan task'); view.stdin.write(String.fromCharCode(13));
+    await waitForFrame(() => client.prompts.length === 1);
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-choice', sequence: 2, payload: {}});
+    client.emit({version: 0, type: 'plan.review.requested', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-choice', sequence: 3, payload: {planId: 'plan-choice', status: 'awaiting_approval', revision: 4,
+        contentDigest: 'e'.repeat(64), markdown: '# Choice plan', workspaceDigest: 'f'.repeat(64),
+        originalPermissionMode: 'default', suggestedContextPolicy: 'clear'}});
+    client.emit({version: 0, type: 'run.completed', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-choice', sequence: 4, payload: {stopReason: 'completed', modelTurns: 1, toolCalls: 1}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('Choice plan'));
+    view.stdin.write(String.fromCharCode(27) + '[B');
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('❯ 批准并执行（后续 Tool 正常逐项询问）'));
+    view.stdin.write(String.fromCharCode(27) + '[B');
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('❯ 带反馈继续规划'));
+    view.stdin.write(String.fromCharCode(13));
+    await waitForFrame(() => client.planReviewResolutions.length === 1);
+    expect(client.planReviewResolutions[0]).toContain(':CONTINUE_PLANNING:CLEAR');
+    view.unmount();
+  });
+
+});
+
 class FakeAgentClient implements AgentClient {
   readonly prompts: string[] = [];
   readonly planTasks: string[] = [];
   readonly planExecutions: string[] = [];
+  readonly planFeedback: string[] = [];
+  readonly planReviewResolutions: string[] = [];
+  readonly questionAnswers: string[] = [];
   readonly checkpointCommands: string[] = [];
   readonly sessionCommands: string[] = [];
   readonly providerControls: string[] = [];
@@ -1771,10 +1871,30 @@ class FakeAgentClient implements AgentClient {
     return `tui-plan-${this.planTasks.length}`;
   }
 
+  public resolvePlanReview(input: {
+    readonly planId: string; readonly revision: number; readonly contentDigest: string;
+    readonly workspaceDigest: string;
+    readonly decision: 'APPROVE_AUTO' | 'APPROVE_USER' | 'CONTINUE_PLANNING' | 'REJECT';
+    readonly contextPolicy: 'KEEP' | 'CLEAR'; readonly feedback: string;
+  }): string {
+    this.planReviewResolutions.push(`${input.planId}:${input.revision}:${input.contentDigest}:${input.workspaceDigest}:${input.decision}:${input.contextPolicy}`);
+    return `tui-plan-review-${this.planReviewResolutions.length}`;
+  }
+
   public startPlanExecution(planId: string, workspaceDigest: string): string {
     if (this.rejectPlanExecution) throw new Error('rejected');
     this.planExecutions.push(`${planId}:${workspaceDigest}`);
     return `tui-plan-execute-${this.planExecutions.length}`;
+  }
+
+  public returnPlanFeedback(planId: string, revision: number, contentDigest: string): string {
+    this.planFeedback.push(`${planId}:${revision}:${contentDigest}`);
+    return `tui-plan-feedback-${this.planFeedback.length}`;
+  }
+
+  public resolveQuestion(callId: string, optionId: string): string {
+    this.questionAnswers.push(`${callId}:${optionId}`);
+    return `tui-question-${this.questionAnswers.length}`;
   }
 
   public invokeSkill(name: string, arguments_: string): string {

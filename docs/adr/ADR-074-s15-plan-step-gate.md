@@ -1,5 +1,8 @@
 # ADR-074：S15 内存 Plan 步骤 Gate
 
+
+> **Superseded in part by ADR-076/077 (2026-08-21):** 本 ADR 的用户严格 JSON proposal、静态五 Tool registry 与一次性提案 UX 已退出生产 `/plan task` 路径，仅保留内部兼容。当前用户路径是 durable Markdown continuous planning；本 ADR 的批准前无 Workspace 副作用、批准后唯一 Pipeline、关联与失败关闭不变量继续有效。Batch 3 将重新实现 durable approval-to-execution。
+
 - Status: Accepted
 - Date: 2026-08-17
 - Stage: S15 Independent Innovation

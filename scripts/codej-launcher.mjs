@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import {spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {existsSync, readFileSync} from 'node:fs';
 import {dirname, isAbsolute, join, resolve} from 'node:path';
 import process from 'node:process';
@@ -142,10 +143,23 @@ function manageInstallation(uninstall) {
 function printVersion() {
   try {
     const manifest = JSON.parse(readFileSync(join(installationRoot, 'release-manifest.json'), 'utf8'));
-    process.stdout.write(`codej ${manifest.version}\n`);
+    const build = manifest.build ?? {};
+    const cli = fileDigest(join(installationRoot, 'app', 'cc-java-cli.jar'));
+    const tui = fileDigest(join(installationRoot, 'tui', 'dist', 'src', 'index.js'));
+    if (build.cliDigest !== cli || build.tuiDigest !== tui || !/^[0-9a-f]{40}$/.test(build.currentCommit ?? '')
+      || !/^[0-9a-f]{64}$/.test(build.sourceDigest ?? '')) {
+      process.stderr.write('codej: packaged build identity drift detected\n');
+      return exitWith(1);
+    }
+    process.stdout.write(`codej ${manifest.version} commit=${build.currentCommit} source=${build.sourceDigest} cli=${cli} tui=${tui}\n`);
   } catch {
-    process.stdout.write('codej unknown\n');
+    process.stderr.write('codej: release manifest unavailable or invalid\n');
+    return exitWith(1);
   }
+}
+
+function fileDigest(path) {
+  return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
 function printHelp() {

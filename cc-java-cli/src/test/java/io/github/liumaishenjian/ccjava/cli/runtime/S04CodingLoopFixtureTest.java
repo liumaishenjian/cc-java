@@ -273,7 +273,8 @@ class S04CodingLoopFixtureTest {
                             Map.of("command", TEST_COMMAND, "timeoutSeconds", 20));
                 }
                 case 7 -> {
-                    assertSuccess(request, "call-failing-test")
+                    assertFailure(request, "call-failing-test",
+                            io.github.liumaishenjian.ccjava.domain.ToolErrorCode.PROCESS_EXIT)
                             .contains(
                                     "timedOut: false",
                                     "cancelled: false",
@@ -350,6 +351,15 @@ class S04CodingLoopFixtureTest {
                             result.error().map(error -> error.code().name()).orElse("none"),
                             result.content())
                     .isEqualTo(ToolResultStatus.SUCCESS);
+            return assertThat(result.content());
+        }
+
+        private static org.assertj.core.api.AbstractStringAssert<?> assertFailure(
+                ModelRequest request, String callId,
+                io.github.liumaishenjian.ccjava.domain.ToolErrorCode code) {
+            ToolResult result = result(request, callId);
+            assertThat(result.status()).isEqualTo(ToolResultStatus.FAILURE);
+            assertThat(result.error().orElseThrow().code()).isEqualTo(code);
             return assertThat(result.content());
         }
 

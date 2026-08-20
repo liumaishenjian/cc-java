@@ -12,6 +12,9 @@ public enum ToolResolutionReason {
     /** Registry 中没有对应 Tool。 */
     UNKNOWN_TOOL,
 
+    /** 相同失败调用未改变策略。 */
+    REPEATED_FAILURE,
+
     /** Tool 参数未通过确定性校验。 */
     INVALID_ARGUMENTS,
 

@@ -44,29 +44,26 @@ describe('real Java stdio plan flow', () => {
         () => diagnostic(events, failures, exit));
 
       const requestId = client.startPlan('分析当前项目并给出只读实施计划');
-      await waitFor(() => events.some(event => event.type === 'plan.proposed' && event.requestId === requestId),
-        () => diagnostic(events, failures, exit));
+      await waitFor(() => events.some(event => event.type === 'plan.review.requested'
+        && event.requestId === requestId), () => diagnostic(events, failures, exit));
       await waitFor(() => events.some(event => event.type === 'run.completed' && event.requestId === requestId));
-      const proposal = events.find(event => event.type === 'plan.proposed' && event.requestId === requestId)!;
-      const planId = String(proposal.payload.planId);
-      const workspaceDigest = String(proposal.payload.workspaceDigest);
-      expect(proposal.payload.objective).toBeTruthy();
-      expect(proposal.payload.steps).toBeInstanceOf(Array);
+      const review = events.find(event => event.type === 'plan.review.requested'
+        && event.requestId === requestId)!;
+      const planId = String(review.payload.planId);
+      const revision = Number(review.payload.revision);
+      const contentDigest = String(review.payload.contentDigest);
+      const workspaceDigest = String(review.payload.workspaceDigest);
+      expect(String(review.payload.markdown)).toContain('Cross-process plan');
+      expect(revision).toBe(3); // plan + evidence declaration + review transition
+      expect(events.some(event => event.type === 'plan.proposed')).toBe(false);
       expect(events.some(event => event.type === 'model.text.delta' && event.requestId === requestId)).toBe(false);
 
-      const staleRequest = client.sessionCommand('stale-approve', 'plan-approve', {
-        planId: 'plan-stale', workspaceDigest,
+      const executionRequest = client.resolvePlanReview({
+        planId, revision, contentDigest, workspaceDigest,
+        decision: 'APPROVE_USER', contextPolicy: 'KEEP', feedback: '',
       });
-      const stale = await waitForEvent(events, staleRequest);
-      expect(stale.payload.status).toBe('rejected');
-      expect(events.some(event => event.type === 'tool.started' && event.requestId === staleRequest)).toBe(false);
-
-      const approveRequest = client.sessionCommand('bound-approve', 'plan-approve', {planId, workspaceDigest});
-      const approved = await waitForEvent(events, approveRequest);
-      expect(approved.payload.status).toBe('succeeded');
-      expect((approved.payload.result as Record<string, unknown>).approvalGate).toBe('APPROVED');
-
-      const executionRequest = client.startPlanExecution(planId, workspaceDigest);
+      await waitFor(() => events.some(event => event.type === 'plan.execution.accepted'
+        && event.requestId === executionRequest), () => diagnostic(events, failures, exit));
       await waitFor(() => events.some(event => event.type === 'tool.completed'
         && event.requestId === executionRequest && event.payload.toolName === 'git_status'),
       () => diagnostic(events, failures, exit));
@@ -75,9 +72,13 @@ describe('real Java stdio plan flow', () => {
       expect(events.some(event => event.type === 'run.completed'
         && event.requestId === executionRequest
         && String(event.payload.finalText).includes('approved plan executed'))).toBe(true);
-      const statusRequest = client.sessionCommand('completed-status', 'plan-status', {});
-      const completed = await waitForEvent(events, statusRequest);
-      expect((completed.payload.result as Record<string, unknown>).status).toBe('COMPLETED');
+      expect(events.filter(event => event.type === 'tool.completed'
+        && event.requestId === executionRequest && event.payload.toolName === 'git_status')).toHaveLength(1);
+      await waitFor(() => events.some(event => event.type === 'plan.verification.completed'
+        && event.requestId === executionRequest), () => diagnostic(events, failures, exit));
+      expect(events.some(event => event.type === 'plan.verification.required')).toBe(false);
+      expect(events.filter(event => event.requestId === executionRequest)
+        .some(event => event.type === 'plan.proposed')).toBe(false);
       expect(failures).toEqual([]);
     } finally {
       await client.shutdown();

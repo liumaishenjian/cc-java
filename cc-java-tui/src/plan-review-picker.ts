@@ -1,4 +1,5 @@
-export type PlanReviewDecision = 'approve' | 'revise' | 'reject';
+export type PlanReviewDecision = 'approve_auto' | 'approve_user' | 'continue_planning' | 'reject';
+export type PlanContextPolicy = 'keep' | 'clear';
 
 export interface PlanReviewPickerItem {
   readonly decision: PlanReviewDecision;
@@ -7,35 +8,57 @@ export interface PlanReviewPickerItem {
 
 export interface PlanReviewPickerState {
   readonly planId: string;
+  readonly revision: number;
+  readonly contentDigest: string;
   readonly workspaceDigest: string;
+  readonly contextPolicy: PlanContextPolicy;
+  readonly durable: boolean;
   readonly selectedIndex: number;
   readonly submitted: boolean;
 }
 
 export const PLAN_REVIEW_PICKER_ITEMS: readonly PlanReviewPickerItem[] = [
-  {decision: 'approve', label: '批准并执行'},
-  {decision: 'revise', label: '继续修改计划'},
+  {decision: 'approve_auto', label: '批准并自动执行（后续 ASK 由受限复核处理）'},
+  {decision: 'approve_user', label: '批准并执行（后续 Tool 正常逐项询问）'},
+  {decision: 'continue_planning', label: '带反馈继续规划'},
   {decision: 'reject', label: '拒绝并退出'},
 ];
 
-/** 为服务端提案创建只绑定其 Plan 身份与事件摘要的本地选择状态。 */
+/** 为精确 durable review revision 创建单一封闭 picker，默认选中自动执行。 */
 export function createPlanReviewPicker(
   planId: string,
-  workspaceDigest: string,
+  revisionOrDigest: number | string,
+  contentDigestOrRevision?: string | number,
+  workspaceDigest = '',
+  suggestedContextPolicy: PlanContextPolicy = 'keep',
 ): PlanReviewPickerState {
-  return {planId, workspaceDigest, selectedIndex: 0, submitted: false};
+  // 临时兼容旧 plan.proposed 测试；durable review 总是走 number + digest + workspaceDigest。
+  const revision = typeof revisionOrDigest === 'number'
+    ? revisionOrDigest : typeof contentDigestOrRevision === 'number' ? contentDigestOrRevision : 1;
+  const contentDigest = typeof revisionOrDigest === 'string'
+    ? revisionOrDigest : String(contentDigestOrRevision ?? '');
+  const durable = typeof revisionOrDigest === 'number';
+  return {
+    planId, revision, contentDigest, workspaceDigest: durable ? workspaceDigest : contentDigest,
+    contextPolicy: suggestedContextPolicy, durable,
+    selectedIndex: 0, submitted: false,
+  };
 }
 
-/** 在三个封闭决定间循环移动，方向键不会改变任何 Java 权威状态。 */
 export function movePlanReviewPicker(
   state: PlanReviewPickerState,
   delta: -1 | 1,
 ): PlanReviewPickerState {
-  const count = PLAN_REVIEW_PICKER_ITEMS.length;
+  const count = state.durable ? PLAN_REVIEW_PICKER_ITEMS.length : 3;
   return {...state, selectedIndex: (state.selectedIndex + delta + count) % count};
 }
 
-/** 返回当前选中的封闭决定。 */
 export function selectedPlanReviewDecision(state: PlanReviewPickerState): PlanReviewDecision {
-  return PLAN_REVIEW_PICKER_ITEMS[state.selectedIndex]?.decision ?? 'approve';
+  if (!state.durable) return (['approve_auto', 'continue_planning', 'reject'] as const)[state.selectedIndex] ?? 'approve_auto';
+  return PLAN_REVIEW_PICKER_ITEMS[state.selectedIndex]?.decision ?? 'approve_auto';
+}
+
+/** Tab 可显式覆盖 keep/clear，不改变当前决定。 */
+export function togglePlanContextPolicy(state: PlanReviewPickerState): PlanReviewPickerState {
+  return {...state, contextPolicy: state.contextPolicy === 'keep' ? 'clear' : 'keep'};
 }

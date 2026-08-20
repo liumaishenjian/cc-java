@@ -24,6 +24,7 @@ public sealed interface LifecycleEvent extends AgentEvent
                 LifecycleEvent.PermissionDecided,
                 LifecycleEvent.ToolOutput,
                 LifecycleEvent.AfterTool,
+                LifecycleEvent.BudgetGoverned,
                 LifecycleEvent.RunFinished {
 
     /**
@@ -310,6 +311,18 @@ public sealed interface LifecycleEvent extends AgentEvent
                 throw new IllegalArgumentException("ordinal 必须从 1 开始");
             }
             result = Objects.requireNonNull(result, "result 不能为空");
+        }
+    }
+
+    /** Runtime 对数量预算执行的一次隐私安全治理决定。 */
+    record BudgetGoverned(BudgetGovernanceReason reason, int modelTurns, int toolCalls,
+                           int effectiveModelLimit, int effectiveToolLimit) implements LifecycleEvent {
+        /** 校验治理原因和计数。 */
+        public BudgetGoverned {
+            reason = Objects.requireNonNull(reason, "reason 不能为空");
+            if (modelTurns < 0 || toolCalls < 0 || effectiveModelLimit < 1 || effectiveToolLimit < 0) {
+                throw new IllegalArgumentException("预算治理计数非法");
+            }
         }
     }
 

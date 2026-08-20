@@ -109,6 +109,7 @@ public final class RuntimeStdioCommandHandler
     private final InputAssemblyScheduler assemblyScheduler;
     private final Clock clock;
     private final StdioApprovalCoordinator approvals;
+    private final StdioQuestionCoordinator questions;
     private final HeadlessRuntimeSession application;
     private final io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService providerAuth;
     private final Deque<QueuedSteering> steeringQueue = new ArrayDeque<>();
@@ -275,6 +276,7 @@ public final class RuntimeStdioCommandHandler
         clock = Clock.systemUTC();
         assemblyScheduler = InputAssemblyScheduler.production();
         approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
+        questions = new StdioQuestionCoordinator(this::emitUserQuestion);
         providerAuth = null;
         application = new HeadlessRuntimeSession(
                 Objects.requireNonNull(settings, "settings 不能为空"),
@@ -305,6 +307,7 @@ public final class RuntimeStdioCommandHandler
                                       io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService providerAuth) {
         clock = Clock.systemUTC(); assemblyScheduler = InputAssemblyScheduler.production();
         approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
+        questions = new StdioQuestionCoordinator(this::emitUserQuestion);
         application = Objects.requireNonNull(selectedApplication, "selectedApplication 不能为空");
         this.providerAuth = Objects.requireNonNull(providerAuth, "providerAuth 不能为空");
     }
@@ -321,6 +324,7 @@ public final class RuntimeStdioCommandHandler
         clock = Clock.systemUTC();
         assemblyScheduler = InputAssemblyScheduler.production();
         approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
+        questions = new StdioQuestionCoordinator(this::emitUserQuestion);
         application = Objects.requireNonNull(applicationFactory, "applicationFactory 不能为空")
                 .create(this, approvals);
         if (application == null) {
@@ -338,6 +342,7 @@ public final class RuntimeStdioCommandHandler
         clock = Clock.systemUTC();
         assemblyScheduler = InputAssemblyScheduler.production();
         approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
+        questions = new StdioQuestionCoordinator(this::emitUserQuestion);
         application = Objects.requireNonNull(applicationFactory, "applicationFactory 不能为空")
                 .create(this, approvals);
         if (application == null) {
@@ -354,6 +359,7 @@ public final class RuntimeStdioCommandHandler
         clock = Clock.systemUTC();
         assemblyScheduler = InputAssemblyScheduler.production();
         approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
+        questions = new StdioQuestionCoordinator(this::emitUserQuestion);
         application = Objects.requireNonNull(selectedApplication, "selectedApplication 不能为空");
         providerAuth = null;
     }
@@ -391,6 +397,7 @@ public final class RuntimeStdioCommandHandler
         this.clock = Objects.requireNonNull(clock, "clock 不能为空");
         this.assemblyScheduler = Objects.requireNonNull(assemblyScheduler, "assemblyScheduler 不能为空");
         approvals = new StdioApprovalCoordinator(this::emitApprovalRequest);
+        questions = new StdioQuestionCoordinator(this::emitUserQuestion);
         providerAuth = null;
         application = new HeadlessRuntimeSession(
                 Objects.requireNonNull(model, "model 不能为空"),
@@ -407,12 +414,15 @@ public final class RuntimeStdioCommandHandler
             case "initialize" -> initialize(command, events);
             case "run.start" -> startRun(command, events);
             case "plan.start" -> startPlan(command, events);
+            case "plan.review.resolve" -> resolvePlanReview(command, events);
             case "plan.execute" -> executeApprovedPlan(command, events);
+            case "plan.feedback" -> returnPlanFeedback(command, events);
             case "input.begin" -> beginInput(command);
             case "input.chunk" -> appendInputChunk(command);
             case "input.commit" -> commitInput(command, events);
             case "run.cancel" -> cancelRun(command);
             case "approval.resolve" -> resolveApproval(command);
+            case "question.resolve" -> resolveQuestion(command);
             case "checkpoint.list" -> listCheckpoints(command, events);
             case "checkpoint.diff" -> checkpointDiff(command, events);
             case "checkpoint.undo" -> checkpointUndo(command, events);
@@ -445,6 +455,7 @@ public final class RuntimeStdioCommandHandler
                         "initialize 不能携带 Session 或 Run");
             }
             application.setChildTaskObserver(report -> emitBackgroundTaskTerminal(events, report));
+            application.installUserQuestionHandler(questions);
             application.open();
             fileMentions = new io.github.liumaishenjian.ccjava.cli.mentions.FileMentionService(
                     application.workspaceGuard());
@@ -512,35 +523,168 @@ public final class RuntimeStdioCommandHandler
         return StdioProtocol.Disposition.CONTINUE;
     }
 
-    /** 批准后启动完整 Agent Runtime；该路径拥有普通 Run 的审批、取消和事件生命周期。 */
-    private StdioProtocol.Disposition executeApprovedPlan(
-            StdioProtocol.Command command,
-            StdioProtocol.EventEmitter events) throws StdioProtocolException {
+    /** 将匹配的 durable review revision 退回 DRAFT；正文不经协议往返。 */
+    private StdioProtocol.Disposition returnPlanFeedback(
+            StdioProtocol.Command command, StdioProtocol.EventEmitter events) throws StdioProtocolException {
         String planId;
-        String workspaceDigest;
-        ActiveRun run;
+        long revision;
+        String digest;
         synchronized (lock) {
             ensureState(State.READY, command);
             requireSession(command);
             requireNoRunId(command);
             JsonNode rawPlanId = command.payload().get("planId");
-            JsonNode rawDigest = command.payload().get("workspaceDigest");
-            if (command.payload().size() != 2
-                    || rawPlanId == null || !rawPlanId.isString() || rawPlanId.stringValue().isBlank()
-                    || rawPlanId.stringValue().length() > 128
-                    || rawDigest == null || !rawDigest.isString() || rawDigest.stringValue().isBlank()
-                    || rawDigest.stringValue().length() > 256) {
-                throw protocolError("INVALID_PAYLOAD", command, "plan.execute 绑定参数无效");
+            JsonNode rawRevision = command.payload().get("revision");
+            JsonNode rawDigest = command.payload().get("contentDigest");
+            if (command.payload().size() != 3 || rawPlanId == null || !rawPlanId.isString()
+                    || rawPlanId.stringValue().isBlank() || rawPlanId.stringValue().length() > 128
+                    || rawRevision == null || !rawRevision.isIntegralNumber() || rawRevision.longValue() < 1
+                    || rawDigest == null || !rawDigest.isString()
+                    || !rawDigest.stringValue().matches("[0-9a-f]{64}")) {
+                throw protocolError("INVALID_PAYLOAD", command, "plan.feedback 绑定参数无效");
             }
             planId = rawPlanId.stringValue();
-            workspaceDigest = rawDigest.stringValue();
-            run = startRunLocked(command.requestId(), 0, events);
-            run.approvedPlanExecution = true;
+            revision = rawRevision.longValue();
+            digest = rawDigest.stringValue();
         }
-        String acceptedPlanId = planId;
-        String acceptedDigest = workspaceDigest;
-        executor.submit(() -> executeApprovedPlanRun(run, acceptedPlanId, acceptedDigest));
+        var draft = application.returnPlanForFeedback(planId, revision, digest)
+                .orElseThrow(() -> protocolError("STALE_PLAN_REVIEW", command,
+                        "Plan review 已变化或不再等待反馈"));
+        ObjectNode payload = codec.objectNode();
+        payload.put("planId", draft.planId());
+        payload.put("status", "draft");
+        payload.put("revision", draft.revision());
+        payload.put("contentDigest", draft.contentDigest());
+        events.emit("plan.feedback.accepted", command.requestId(),
+                Optional.of(application.sessionId().value()), Optional.empty(), payload);
         return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    /**
+     * 原子收敛 durable review 决定；批准时同一次命令可靠提交 APPROVED 并接受执行 Run。
+     *
+     * <p>命令成功返回只表示执行已被服务端 executor 接受，而不是已经完成。入队失败会释放
+     * 尚未开始的句柄并保持 APPROVED，供显式恢复；不会伪造 EXECUTING 或 COMPLETED。</p>
+     */
+    private StdioProtocol.Disposition resolvePlanReview(
+            StdioProtocol.Command command, StdioProtocol.EventEmitter events) throws StdioProtocolException {
+        requirePlanReviewPayload(command);
+        String decisionText = command.payload().get("decision").stringValue();
+        io.github.liumaishenjian.ccjava.domain.PlanReviewDecision decision;
+        io.github.liumaishenjian.ccjava.domain.PlanContextPolicy contextPolicy;
+        try {
+            decision = io.github.liumaishenjian.ccjava.domain.PlanReviewDecision.valueOf(decisionText);
+            contextPolicy = io.github.liumaishenjian.ccjava.domain.PlanContextPolicy.valueOf(
+                    command.payload().get("contextPolicy").stringValue());
+        } catch (RuntimeException invalid) {
+            throw protocolError("INVALID_PAYLOAD", command, "Plan review 决定无效");
+        }
+        String planId = command.payload().get("planId").stringValue();
+        long revision = command.payload().get("revision").longValue();
+        String contentDigest = command.payload().get("contentDigest").stringValue();
+        String workspaceDigest = command.payload().get("workspaceDigest").stringValue();
+        String feedback = command.payload().get("feedback").stringValue();
+        synchronized (lock) {
+            ensureState(State.READY, command);
+            requireSession(command);
+            requireNoRunId(command);
+        }
+        if (decision == io.github.liumaishenjian.ccjava.domain.PlanReviewDecision.CONTINUE_PLANNING) {
+            var draft = application.returnPlanForFeedback(planId, revision, contentDigest)
+                    .orElseThrow(() -> protocolError("STALE_PLAN_REVIEW", command, "Plan review 已变化"));
+            ObjectNode payload = codec.objectNode();
+            payload.put("planId", draft.planId()); payload.put("status", "draft");
+            payload.put("revision", draft.revision()); payload.put("contentDigest", draft.contentDigest());
+            events.emit("plan.feedback.accepted", command.requestId(), Optional.of(application.sessionId().value()),
+                    Optional.empty(), payload);
+            if (!feedback.isBlank()) {
+                StdioProtocol.Command planCommand = new StdioProtocol.Command(command.version(), "plan.start",
+                        command.requestId(), command.sessionId(), Optional.empty(), command.sequence(),
+                        codec.objectNode().put("prompt", feedback));
+                return startPlan(planCommand, events);
+            }
+            return StdioProtocol.Disposition.CONTINUE;
+        }
+        if (decision == io.github.liumaishenjian.ccjava.domain.PlanReviewDecision.REJECT) {
+            var rejected = application.rejectDurablePlan(planId, revision, contentDigest)
+                    .orElseThrow(() -> protocolError("STALE_PLAN_REVIEW", command, "Plan review 已变化"));
+            ObjectNode payload = codec.objectNode();
+            payload.put("planId", rejected.planId()); payload.put("status", "rejected");
+            events.emit("plan.review.rejected", command.requestId(), Optional.of(application.sessionId().value()),
+                    Optional.empty(), payload);
+            return StdioProtocol.Disposition.CONTINUE;
+        }
+        HeadlessRuntimeSession.PlanExecutionAcceptance acceptance;
+        try {
+            acceptance = application.acceptPlanExecution(planId, revision, contentDigest, workspaceDigest,
+                    decision, contextPolicy, feedback);
+        } catch (RuntimeException stale) {
+            throw protocolError("STALE_PLAN_REVIEW", command, "Plan revision、摘要、状态或工作区已变化");
+        }
+        ActiveRun run;
+        synchronized (lock) {
+            run = startAcceptedPlanRunLocked(command.requestId(), events, acceptance);
+        }
+        try {
+            executor.submit(() -> executeAcceptedPlanRun(run));
+        } catch (RuntimeException enqueueFailure) {
+            application.releaseAcceptedPlan(acceptance);
+            synchronized (lock) {
+                if (activeRun == run) { activeRun = null; state = State.READY; }
+            }
+            throw protocolError("PLAN_ENQUEUE_FAILED", command, "Plan 已批准但执行未入队，可显式恢复");
+        }
+        ObjectNode accepted = codec.objectNode();
+        accepted.put("planId", planId); accepted.put("status", "approved");
+        accepted.put("revision", acceptance.brief().approvedRevision());
+        accepted.put("contentDigest", contentDigest);
+        accepted.put("contextPolicy", contextPolicy.name().toLowerCase(Locale.ROOT));
+        accepted.put("approvalReviewer", acceptance.brief().approvalReviewer().name().toLowerCase(Locale.ROOT));
+        events.emit("plan.execution.accepted", command.requestId(), Optional.of(application.sessionId().value()),
+                Optional.empty(), accepted);
+        return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    private ActiveRun startAcceptedPlanRunLocked(String requestId, StdioProtocol.EventEmitter events,
+            HeadlessRuntimeSession.PlanExecutionAcceptance acceptance) {
+        ActiveRun run = new ActiveRun(requestId, 0, events);
+        run.approvedPlanExecution = true;
+        run.planAcceptance = acceptance;
+        activeRun = run;
+        state = State.RUNNING;
+        return run;
+    }
+
+    private void requirePlanReviewPayload(StdioProtocol.Command command) throws StdioProtocolException {
+        Set<String> fields = Set.of("planId", "revision", "contentDigest", "workspaceDigest", "decision",
+                "contextPolicy", "feedback");
+        JsonNode planId = command.payload().get("planId");
+        JsonNode revision = command.payload().get("revision");
+        JsonNode contentDigest = command.payload().get("contentDigest");
+        JsonNode workspaceDigest = command.payload().get("workspaceDigest");
+        JsonNode decision = command.payload().get("decision");
+        JsonNode context = command.payload().get("contextPolicy");
+        JsonNode feedback = command.payload().get("feedback");
+        if (command.payload().properties().stream().anyMatch(entry -> !fields.contains(entry.getKey()))
+                || command.payload().size() != fields.size() || planId == null || !planId.isString()
+                || planId.stringValue().isBlank() || planId.stringValue().length() > 128
+                || revision == null || !revision.isIntegralNumber() || revision.longValue() < 1
+                || contentDigest == null || !contentDigest.isString()
+                || !contentDigest.stringValue().matches("[0-9a-f]{64}")
+                || workspaceDigest == null || !workspaceDigest.isString()
+                || !workspaceDigest.stringValue().matches("[0-9a-f]{64}")
+                || decision == null || !decision.isString() || context == null || !context.isString()
+                || feedback == null || !feedback.isString()
+                || feedback.stringValue().codePointCount(0, feedback.stringValue().length()) > 8_192) {
+            throw protocolError("INVALID_PAYLOAD", command, "Plan review payload 无效");
+        }
+    }
+
+    /** 隐藏兼容入口：durable review 不再允许通过 plan.execute 触发第二次用户动作。 */
+    private StdioProtocol.Disposition executeApprovedPlan(
+            StdioProtocol.Command command, StdioProtocol.EventEmitter events) throws StdioProtocolException {
+        throw protocolError("LEGACY_PLAN_EXECUTION_DISABLED", command,
+                "durable Plan 必须使用单次 plan.review.resolve 原子交接");
     }
 
     /** 将 TUI 的类型化 Skill 命令启动为普通 Run；Java 仍生成 Run ID 并拥有终态。 */
@@ -1533,6 +1677,7 @@ public final class RuntimeStdioCommandHandler
         }
         try {
             approvals.close();
+            questions.close();
         } catch (RuntimeException closeFailure) {
             failure = retainFirstFailure(failure, closeFailure);
         }
@@ -1614,6 +1759,59 @@ public final class RuntimeStdioCommandHandler
         return StdioProtocol.Disposition.CONTINUE;
     }
 
+    /** 接受匹配当前活动 Run/callId 的结构化单选答案。 */
+    private StdioProtocol.Disposition resolveQuestion(StdioProtocol.Command command)
+            throws StdioProtocolException {
+        String callId;
+        String optionId;
+        synchronized (lock) {
+            ensureState(State.RUNNING, command);
+            requireSession(command);
+            if (activeRun == null || activeRun.runId == null || command.runId().isEmpty()
+                    || !activeRun.runId.value().equals(command.runId().orElseThrow())) {
+                throw protocolError("INVALID_STATE", command, "question.resolve 与活动 Run 不匹配");
+            }
+            JsonNode rawCallId = command.payload().get("callId");
+            JsonNode rawOptionId = command.payload().get("optionId");
+            if (command.payload().size() != 2 || rawCallId == null || !rawCallId.isString()
+                    || rawCallId.stringValue().isBlank() || rawCallId.stringValue().length() > 128
+                    || rawOptionId == null || !rawOptionId.isString()
+                    || rawOptionId.stringValue().isBlank() || rawOptionId.stringValue().length() > 64) {
+                throw protocolError("INVALID_PAYLOAD", command, "question.resolve payload 无效");
+            }
+            callId = rawCallId.stringValue();
+            optionId = rawOptionId.stringValue();
+        }
+        if (!questions.resolve(callId, optionId)) {
+            throw protocolError("STALE_QUESTION", command, "问题不存在、已结束或答案不匹配");
+        }
+        return StdioProtocol.Disposition.CONTINUE;
+    }
+
+    /** 只投影用户可见问题和选项，不输出原始 Tool JSON。 */
+    private void emitUserQuestion(io.github.liumaishenjian.ccjava.domain.UserQuestionRequest request) {
+        ActiveRun run;
+        synchronized (lock) {
+            run = activeRun;
+            if (run == null || run.runId == null || state != State.RUNNING) {
+                throw new IllegalStateException("用户问题与活动 Run 不匹配");
+            }
+        }
+        ObjectNode payload = codec.objectNode();
+        payload.put("callId", request.callId());
+        payload.put("question", request.question());
+        ArrayNode options = codec.arrayNode();
+        request.options().forEach(option -> {
+            ObjectNode item = codec.objectNode();
+            item.put("optionId", option.optionId());
+            item.put("label", option.label());
+            item.put("description", option.description());
+            options.add(item);
+        });
+        payload.set("options", options);
+        emit(run, "question.requested", payload);
+    }
+
     private void emitApprovalRequest(StdioApprovalCoordinator.Request request) {
         ActiveRun run;
         synchronized (lock) {
@@ -1671,9 +1869,24 @@ public final class RuntimeStdioCommandHandler
         }
     }
 
-    private void executeApprovedPlanRun(ActiveRun run, String planId, String workspaceDigest) {
+    private void executeAcceptedPlanRun(ActiveRun run) {
         try {
-            application.runApprovedPlan(planId, workspaceDigest);
+            application.runAcceptedPlan(run.planAcceptance);
+            application.planArtifact().ifPresent(artifact -> {
+                ObjectNode payload = codec.objectNode();
+                payload.put("planId", artifact.planId());
+                payload.put("status", artifact.status().name().toLowerCase(Locale.ROOT));
+                payload.put("requiredEvidence", artifact.evidenceLedger().requirements().stream()
+                        .filter(io.github.liumaishenjian.ccjava.domain.PlanEvidenceRequirement::required).count());
+                payload.put("satisfiedEvidence", artifact.evidenceLedger().references().stream()
+                        .filter(reference -> reference.status() == io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.PASSED
+                                || reference.status() == io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.SKIPPED).count());
+                artifact.evidenceLedger().firstBlockingRequirement()
+                        .ifPresent(requirement -> payload.put("blockingRequirementId", requirement));
+                run.events.emit(artifact.status() == io.github.liumaishenjian.ccjava.domain.PlanStatus.COMPLETED
+                                ? "plan.verification.completed" : "plan.verification.required",
+                        run.requestId, Optional.of(application.sessionId().value()), Optional.empty(), payload);
+            });
         } catch (RuntimeException exception) {
             emitUnexpectedFailure(run);
         }
@@ -1749,12 +1962,23 @@ public final class RuntimeStdioCommandHandler
             payload.put("filteredItems", after.result().metadata().filteredItems());
             Optional.ofNullable(run.toolModes.remove(after.ordinal()))
                     .ifPresent(mode -> payload.put("mode", mode));
-            after.result().error().ifPresent(error -> payload.put(
-                    "errorCode", error.code().name().toLowerCase()));
+            after.result().error().ifPresent(error -> {
+                payload.put("errorCode", error.code().name().toLowerCase());
+                payload.put("failureCategory", error.category().name().toLowerCase());
+                payload.put("retryable", error.retryable());
+            });
             String type = after.result().status()
                     == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS
                             ? "tool.completed" : "tool.failed";
             emit(run, type, payload);
+        } else if (envelope.event() instanceof LifecycleEvent.BudgetGoverned budget) {
+            ObjectNode payload = codec.objectNode();
+            payload.put("reason", budget.reason().name().toLowerCase(Locale.ROOT));
+            payload.put("modelTurns", budget.modelTurns());
+            payload.put("toolCalls", budget.toolCalls());
+            payload.put("effectiveModelLimit", budget.effectiveModelLimit());
+            payload.put("effectiveToolLimit", budget.effectiveToolLimit());
+            emit(run, "run.budget.governed", payload);
         } else if (envelope.event() instanceof LifecycleEvent.ToolOutput output) {
             ObjectNode payload = codec.objectNode();
             payload.put("ordinal", output.ordinal());
@@ -1767,6 +1991,17 @@ public final class RuntimeStdioCommandHandler
             payload.put("text", delta.text());
             payload.put("turn", delta.turnNumber());
             emit(run, "model.text.delta", payload);
+        } else if (envelope.event() instanceof io.github.liumaishenjian.ccjava.domain.PlanReviewEvent review) {
+            ObjectNode payload = codec.objectNode();
+            payload.put("planId", review.planId());
+            payload.put("status", "awaiting_approval");
+            payload.put("revision", review.revision());
+            payload.put("contentDigest", review.contentDigest());
+            payload.put("markdown", review.markdownContent());
+            payload.put("workspaceDigest", review.workspaceDigest());
+            payload.put("originalPermissionMode", review.originalPermissionMode().name().toLowerCase(Locale.ROOT));
+            payload.put("suggestedContextPolicy", review.suggestedContextPolicy().name().toLowerCase(Locale.ROOT));
+            emit(run, "plan.review.requested", payload);
         } else if (envelope.event() instanceof io.github.liumaishenjian.ccjava.domain.PlanProposalEvent proposal) {
             ObjectNode payload = codec.objectNode();
             payload.put("planId", proposal.planId());
@@ -1784,7 +2019,6 @@ public final class RuntimeStdioCommandHandler
             payload.set("steps", steps);
             emit(run, "plan.proposed", payload);
         } else if (envelope.event() instanceof LifecycleEvent.RunFinished finished) {
-            if (run.approvedPlanExecution) application.recordApprovedPlanTerminal(finished.result());
             emitTerminal(run, finished.result());
         }
     }
@@ -1794,7 +2028,7 @@ public final class RuntimeStdioCommandHandler
         payload.put("stopReason", result.stopReason().name().toLowerCase());
         payload.put("modelTurns", result.modelTurns());
         payload.put("toolCalls", result.toolCalls());
-        result.finalText().ifPresent(value -> payload.put("finalText", value));
+        if (!run.suppressModelText) result.finalText().ifPresent(value -> payload.put("finalText", value));
         result.modelFailure().ifPresent(value -> {
             ObjectNode failure = codec.objectNode();
             failure.put("category", value.category().name().toLowerCase(Locale.ROOT));
@@ -2103,6 +2337,7 @@ public final class RuntimeStdioCommandHandler
         }
         try {
             approvals.close();
+            questions.close();
         } catch (RuntimeException closeFailure) {
             failure = retainFirstFailure(failure, closeFailure);
         }
@@ -2246,6 +2481,7 @@ public final class RuntimeStdioCommandHandler
         private RunId runId;
         private boolean suppressModelText;
         private boolean approvedPlanExecution;
+        private HeadlessRuntimeSession.PlanExecutionAcceptance planAcceptance;
 
         private ActiveRun(
                 String requestId,

@@ -289,8 +289,10 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
 - FR-AGENT-003：Runtime 负责完整 Tool Loop，Spring AI Adapter 不得自动执行工具。
 - FR-AGENT-004：同一模型回合的 Assistant Message 只能追加一次。
 - FR-AGENT-005：每个 Tool Result 必须与 Tool Call ID 一一对应。
-- FR-AGENT-006：S01 实现最大模型轮次和工具次数；运行时长、流式输出和进程输出限制
-  分别在 S02、S04 完成。
+- FR-AGENT-006：调用方显式提供的模型轮次和 Tool 次数必须作为硬上限精确执行；普通
+  Interactive/Default/Auto/Plan/approved-plan Run 使用进展感知软检查点，成功 Tool 进展可以续租，
+  但仍受更高绝对 ceiling、墙钟、Token/Context/输出和取消限制。续租、无进展和绝对终止必须发布
+  类型化原因，不能静默移除全部安全界限。
 - FR-AGENT-007：S02 将取消传播到模型流；S04 将取消传播到正在运行的工具和子进程树。
 - FR-AGENT-008：运行以明确 Stop Reason 结束，不能无限循环。
 
@@ -315,16 +317,21 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
 - FR-TOOL-004：内置读工具只能访问 Workspace 允许范围。
 - FR-TOOL-005：`apply_patch` 只能修改 Workspace 内允许文件。
 - FR-TOOL-006：`run_command` 必须显示准确命令、Shell 类型和工作目录后再审批。
-- FR-TOOL-007：命令执行支持超时、取消、退出码和 stdout/stderr 上限。
+- FR-TOOL-007：命令执行支持超时、取消、退出码和 stdout/stderr 上限；非零退出必须经 Pipeline
+  返回 `FAILURE / PROCESS_EXIT` 并保留有界证据。Shell HTTP 应显式使用 fail-with-body 语义，Runtime
+  不抓取 HTML 或 stderr prose 猜测 HTTP 失败。
 - FR-TOOL-008：模型不能通过工具参数修改 Permission Policy。
 - FR-TOOL-009：`web_search` 必须作为 `NETWORK_OR_REMOTE / BUILT_IN` Tool 进入唯一 Pipeline；模型只可提供 query 和有界结果数，不能提供 Provider、endpoint、Header、credential、remote Tool name 或 fetch URL。可信本地 Provider gate 固定 Exa/Parallel hosted MCP 目标；Exa 可选 key 只能由 Adapter 形成精确编码的 `exaApiKey` query，Parallel key 只能形成 Bearer。每次出站均须经过绑定固定 scheme/host/effective port 的 `NetworkAccessPort`，使用 JSON-RPC 2.0 `tools/call`，只接受有界 `application/json`/`text/event-stream`（兼容参数，未知或缺失 media type 拒绝），redirect 不跟随，结果页不抓取，外部 textual content 以有界 untrusted provenance 返回。生产默认关闭，显式启用即表示 query 会发送给所选第三方。
+- FR-TOOL-010（S15 Batch 4）：Tool 失败必须携带正交的稳定 category 与可证明 retryable metadata；至少覆盖 Authorization、Permission、HTTP 403/4xx/429/5xx、Transport、Process Exit、Validation、Execution、Cancel、Timeout、Output 与 Protocol。每 Run 对“同 Tool + canonical args + 同 typed category”记录 fingerprint；第二次相同失败调用在执行/Permission 前返回结构化策略反馈，要求改变 query/provider/source/arguments 或解释阻塞。改变参数、不同类别或成功进展不得被惩罚。
+- FR-TOOL-011（S15 Batch 4）：Web 403 是非重试 `HTTP_FORBIDDEN`；只在受信状态/响应头可观察时细分 Authorization required、UA/ACL 或 ordinary forbidden，不记录 secret/header value/query/body。429 与 5xx 只在 Web Adapter 层共享 deadline/cancel 做固定次数、封顶退避；普通 4xx、403、redirect、协议/类型/大小失败不重试。
 
 ### 11.5 Permission
 
 - FR-PERM-001：S05 提供可由 CLI/Composition Root 选择的 `DEFAULT`、安全 `PLAN` 和
   `ACCEPT_EDITS`；模式在一次 Headless Session 装配时固定。
 - FR-PERM-002：`DEFAULT` 自动允许普通读取，修改和 Shell 默认询问。
-- FR-PERM-003：`PLAN` 禁止修改文件和执行有副作用的命令。用户以 `/plan [自然语言任务]` 启动真实只读规划；TUI 必须严格执行 `permissions query → selection PLAN → plan.start`，无参数执行 `query → PLAN → plan-status`。objective、workspace digest 与结构化步骤由 Runtime 内部生成，不属于用户输入 API。Plan proposal 必须完整展示，并提供批准执行、继续修改、拒绝退出三项选择；批准结果绑定当前 Session-owned Plan ID 与服务端事件 digest，随后必须恢复进入前公开 selection（原值为 PLAN 时使用 ASK）并等待恢复成功，才可发送同样绑定的 execute。恢复失败保持 APPROVED 且不执行；revise 保持 PLAN，reject exit 恢复 selection；迟到/不匹配结果、resume 或 transport failure 不得推进旧状态。
+- FR-PERM-003：`PLAN` 规划期必须由 capability/effect hard boundary 禁止 Workspace 修改、进程执行和未声明安全能力的外部 Tool；不是静态工具名白名单。用户以 `/plan [自然语言任务]` 在当前 Session 启动真实多轮规划；模型可执行受控本地读取、经 Permission/AutoReview 的只读网络、唯一 PlanArtifact CAS 写入、callId 结构化提问，并增量维护用户可读 Markdown。TUI/stdin 不得展示模型 Tool payload、最终 JSON 或内部 objective/title/detail/expectedDigest；review 必须读取 durable artifact revision。用户反馈执行 `AWAITING_APPROVAL -> DRAFT`，保持同一 sessionId/planId/revision chain 并可 Resume。MCP/Plugin 默认不可用，只有可信 Definition 显式声明匹配安全 capability 时才可进入双 Gate。该 hard boundary 是项目独立强化，不描述为参考产品的普遍 registry filter。Batch 2 停在 durable review event；Batch 3 已实现绑定 revision/digest 的原子批准执行交接。
+- FR-PERM-003A（S15 durable Plan 基础）：计划的长期用户可读形态是 Session-owned Markdown `PlanArtifact`，至少具有 planId/sessionId/revision/contentDigest/status/timestamps。修改必须执行 revision+digest CAS，并由不可变 Markdown generation + 单个原子替换的 authoritative manifest 发布；两个 rename 不得称为原子事务。Resume 复用 identity，Fork 复制内容但生成新 plan/session identity、revision 1 并重新等待批准，不能共享可写 artifact。项目自有 canonical Session journal 是跨文件恢复事实：合法 projection 缺失/落后/领先可确定重建、fast-forward 或丢弃指针；manifest/generation 损坏、身份或摘要冲突 Fail Closed。写前与 replay 必须复用同一 Domain 状态策略；非法初态/跳转在 journal append 前结构化拒绝，终态重复决定由调用方幂等跳过。恢复 Core 必须交叉验证 document/state/artifact 身份和状态，Fork 新 target 的失败清理只能精确处理本次新建目录，不能递归触碰 source。旧 `PlanDocument`/内部命令保持兼容，artifact 不授予执行权限、不自动重放副作用，也不解析参考产品格式。ADR-077 Batch 2 已在该基础上接入持续规划、结构化问题与 durable review；ADR-078 Batch 3 又完成批准执行交接与恢复，真实 Provider/Eval 仍缺，`PLAN-01` 保持 L1。
 - FR-PERM-004：审批支持允许一次、按可信 Tool/ToolSource/selector 当前会话允许和拒绝；
   持久规则与分层 Settings 仍属于 S08。
 - FR-PERM-005：硬拒绝优先于模式、规则和用户会话允许。
@@ -712,3 +719,28 @@ S01 已确认：
 - **可审计参考研究**：使用来源、版本和权利边界可核验的材料研究行为或机制；未核验材料不进入活动设计。
 - **独立重实现**：Java 契约、命名、实现和测试均能够由本项目需求与 ADR 独立解释。
 - **FixBug**：Runtime 的一个可能用例，不是核心架构。
+
+### FR-PLAN-04：durable review 与原子执行交接（S15 Batch 3）
+
+- `plan.review.requested` 必须绑定同一 durable 工件的 `planId + revision + contentDigest + Markdown snapshot`
+  和独立 workspace snapshot，严禁混用两个 digest；
+- 单一 picker 默认“批准并自动执行”，另含普通逐 Tool 审批、带反馈继续规划、拒绝退出；内部 approve/execute
+  命令不得展示；
+- 一次 Enter 必须由一个 Java 命令完成精确 revision 校验、`AWAITING_APPROVAL → APPROVED`、执行权限选择、
+  `ExecutionBrief` 构造和执行入队；入队接受前不得回送成功；
+- 批准 Markdown 直接作为不可信自然语言上下文进入普通 Agent Runtime，不解析成命令/步骤三元组；
+- AUTO 只替换最终 ASK reviewer，Hard Denial、显式 Deny、PLAN capability boundary 和 Tool 安全校验保持最终；
+- keep/clear 都保留批准工件；`APPROVED` 只能显式恢复，`EXECUTING` 崩溃必须进入 recovery gate，绝不自动重放。
+
+### FR-PLAN-05：durable Evidence Gate（S15 Batch 5）
+
+- 规划期只能通过受控 Tool 声明有界交付物相对路径和验证 Tool 名；不得从 Markdown 解析命令、
+  executable triple、checkbox 或证据；声明不能写 Workspace。
+- `PlanEvidenceLedger` 绑定 sessionId、planId、批准 revision、ExecutionBrief digest 与批准时 workspace
+  revision，并为每项 required evidence 保存有界隐私安全生命周期和引用。
+- 普通 Agent Run `COMPLETED` 只表示循环正常停止。只有确定性文件验证和 canonical 成功 ToolResult
+  满足全部 required evidence 时，Plan 才能进入 `COMPLETED`；否则进入 `NEEDS_VERIFICATION`。
+- 用户可在策略允许时对具体 requirement 显式批准 typed skip；skip 必须使用独立 decision identity、
+  durable/auditable，不能从模型文本暗示或批量推断。
+- Surface 必须显示 actionable 非完成状态；Evidence Gate 不改变 Permission、AutoReview、Hard Denial、
+  Hook、Checkpoint、MCP/Plugin/Skill Pipeline 或 EXECUTING restart no-replay。

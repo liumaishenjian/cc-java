@@ -22,7 +22,7 @@
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 >
-> Plan gate 当前为 S15 的 L1 内存切片：真实 Headless PLAN Run 复用唯一 AgentRuntime/ModelGateway/Context Projection/Pipeline，只发布五个有界 Workspace read/search Tool；最终 Assistant 在追加前由 Java 严格解析、规范化为 Session-owned `PlanDocument` 并发布 `plan.proposed`，畸形提案失败关闭。既有显式 Plan 命令保持兼容，`plan-step-begin` 只在显式批准后按 bounded workspaceDigest 原子领取步骤；258k Context compaction 有独立证据，但 durable checkpoint/restart 与真实 Provider proposal Eval 尚未实现，保持 documented gap。
+> Plan gate 当前仍为 S15 L1。ADR-076 提供 durable Markdown artifact；ADR-077 以同一 Session 的正常多轮 loop、capability/effect 双 Gate、CAS 控制 Tool、callId 结构化问题和 durable review 取代用户严格 JSON/静态五 Tool 路径。旧 `PlanDocument`/parser/命令只保留内部兼容。Batch 3 durable approval-to-execution 已实现；Evidence Gate 与真实 Provider Eval 仍未完成，不提前提升等级。
 >
 > PERM-05 Eval 采用默认离线 registered-seed harness：只聚合 typed decision、failure kind、latency、usage-derived cost、gateway/fast-path/circuit counters，不保存 Prompt、模型输出、原始 Tool args、文件正文或 Secret。真实 Provider suite 必须显式 opt-in；环境变量或凭证缺失时结构化报告为 `SKIPPED`，普通 CI 不受影响，且只断言安全阈值而不依赖固定自然语言。
 
@@ -509,6 +509,34 @@ Tool Call 可能跨多个流式 Chunk，必须聚合后才能进入 Pipeline。
 
 所有错误恢复都有次数和总时间限制。
 
+### 9.6 S15 Batch 4 自适应预算与失败策略治理
+
+普通 Headless Interactive、Default、Auto、Plan 与 approved-plan Run 显式装配
+`AgentLimits.interactive(timeout)`。其 16/32 为本项目软检查点：每个成功 Tool batch 分别为模型回合
+与 Tool 数量窗口提供进展租约，窗口按 8/16 递增，绝对不超过 128/256；失败 batch 不续租。
+达到显式上限、无进展或绝对 ceiling 时仍使用既有 `TURN_LIMIT_REACHED`/`TOOL_LIMIT_REACHED`，并先
+发布不含正文的 `BudgetGoverned(reason, counts, effective limits)`。兼容构造器、SDK/Daemon/稳定协议、
+Sub-Agent requested budget 继续使用 `EXPLICIT_HARD`，因此显式上限不会被隐式放宽。取消、Run deadline、
+Context/Token/output ceiling 完全正交且保持既有优先级。
+
+每个 Run 在唯一 `ToolExecutionPipeline` 内拥有短生命周期 `ToolFailureFingerprintGovernance`。参数校验后，
+它把 Tool 名、递归键排序且类型保真的 JSON 参数摘要与 `ToolFailureCategory` 组成 SHA-256 fingerprint；
+不使用错误 message、stdout/stderr、网页正文或 Secret。第一次执行失败按正常 Result 进入模型；第二个
+相同调用在 Pre Hook、Permission、AutoReview 与 Adapter 前以 `REPEATED_FAILURE` 结算，details 只包含
+`requiredStrategyChange` 与允许的变化维度。changed args/tool/category 和成功调用不匹配。Run finally 清除
+内存状态，不形成 Session Grant 或跨 Session cache。
+
+`ToolErrorCode` 保留具体纠正语义，新增正交 taxonomy/retryable。Provider Mapper 将
+`code/category/retryable/message/details` 与可选有界失败证据投影给模型；Session JSONL 新记录持久化
+category/retryable，旧记录缺失字段时由 code 的保守映射兼容恢复。stdio/TUI 只投影枚举、boolean 和计数。
+
+Web Adapter 对 403 直接映射非重试 `HTTP_FORBIDDEN`，仅根据受信 `WWW-Authenticate` 或固定代理阻断头
+区分认证、UA/ACL 与普通 forbidden，不读取或记录正文/Header 值。429/5xx 最多三次，使用共享 deadline、
+CancellationToken、封顶退避与可注入 sleeper；每次 attempt 重新调用 NetworkAccessPort。普通 4xx、403、
+重定向、协议、媒体类型和大小失败不重试。`run_command` 非零退出保留有界 stdout/stderr 但返回
+`FAILURE/PROCESS_EXIT`；timeout/cancel 优先分类。Shell HTTP 依赖命令显式 fail-with-body 语义，Runtime
+绝不抓 HTML 猜测状态。
+
 ## 10. Spring AI 适配
 
 Spring AI 公开文档描述了 Framework-Controlled、Advisor-Controlled 和
@@ -658,7 +686,7 @@ Workspace-relative 目标。同名同参数 Tool 变更来源后不会复用 Gra
 - 用户通过 `/plan [自然语言任务]` 进入该路径；TUI 先以绑定 commandId 的 `permissions query` 保存当前公开 selection，再等待 PLAN selection 成功。带参数时随后发送专用 `plan.start(task)`，无参数则发送 `plan-status`；不得并发发送 selection 与 Run；
 - 最终 Assistant 必须是精确 `{objective,steps[{title,detail}]}` JSON；Java 在追加 Assistant 前严格校验、生成 plan ID/ordinal/digest/status，并安装为同一 Session 的 `PlanDocument`；
 - 畸形、超限或附加执行字段以 `INVALID_MODEL_RESPONSE` 失败关闭，不产生 Plan proposal；
-- 规范提案通过 `PlanProposalEvent` 与 stdio `plan.proposed` 投影给 TUI；规划模型的内部 JSON 不投影为 `model.text.delta`，TUI 只展示计划面板并提供批准执行、继续修改、拒绝退出三项选择；
+- 新 Plan UX 通过 `PlanReviewEvent` 与 stdio `plan.review.requested` 读取已提交 Markdown revision；`question.requested/question.resolve` 用 callId 恢复同一 Run。模型 Tool/final JSON 不投影为 console 文本；旧 `PlanProposalEvent/plan.proposed` 仅兼容内部协议；
 - `workspaceDigest`、结构化步骤与内部 plan 运维命令不是用户 API。批准必须绑定当前 Session-owned plan ID 和事件 digest，服务端再核对实时 digest；approve 成功后 TUI 先恢复进入前 selection（若原值为 PLAN 则安全使用 ASK），并等待该 permissions command 成功，随后才启动同样绑定 planId+digest 的 `plan.execute` 普通 Agent Run。自然语言步骤由该 Run 使用完整 Tool Registry 逐步落实，不再默认执行 `git_status`；只有 Run 正常完成才标记 Plan `COMPLETED`，工具仍走统一 Permission/Approval/Hook/Pipeline；
 - `plan-approve/plan-reject/plan-step-begin/plan-step-complete/plan-execute` 保留 Java 协议兼容但不进入 Slash suggestions/help；`plan-execute` 还必须绑定当前已批准的 planId+workspaceDigest。迟到或不匹配的 commandId/planId/digest 不推进状态，Session resume 与 transport failure 清除 TUI pending 状态；显式批准且退出 PLAN 前仍不允许任何副作用。
 
@@ -803,7 +831,7 @@ S04 通过 `ShellAdapter` 隔离平台差异：
 
 - `run_command(command, timeoutSeconds=30)` 只允许模型提供命令正文和 1～120 秒期限；
 - stdout/stderr 由两个虚拟线程并发消费并逐步发布 Tool Output Event；
-- 保留退出码，非零退出属于可恢复验证证据；
+- 保留退出码，非零退出通过 Pipeline 映射为 `FAILURE/PROCESS_EXIT`，并保留有界 stdout/stderr 作为可恢复验证证据；
 - `Ctrl+C` 和 timeout 共用进程树终止；Windows 先立即强制终止已捕获后代，再使用
   `taskkill /T /F` 清扫整树并以 `ProcessHandle` 兜底，其他平台处理后代和主进程；
 - stdin 立即关闭，S04 禁用交互式 TTY 和后台执行；
@@ -1046,7 +1074,17 @@ ADR-042 已按 ADR-022 完成新的采纳边界；历史 ADR-019 继续保持 Su
 
 不兼容或解析商业产品内部 JSONL。稳定 Export、Retention、SQLite 与跨版本 Migration 属于 S14。
 
-### 17.3 File Checkpoint、Diff 与 Undo
+### 17.3 Durable Markdown PlanArtifact 基础
+
+ADR-076 在既有 S06 canonical Session 之上增加项目自有 `PlanArtifact`，但不改变消息 Transcript：Domain 值含 `planId/sessionId/revision/markdownContent/contentDigest/status/createdAt/updatedAt`；Core `PlanArtifactStore` 只表达 load、revision+digest CAS save 和 create-only missing recovery，不携带 Path/JSON。
+
+CLI `FilePlanArtifactStore` 固定使用 Session 私有目录中的不可变 Markdown generation 与 authoritative `plan.manifest.json`，执行 NOFOLLOW/realpath/普通文件/UTF-8/上限/identity 校验。发布先 force generation，再 force manifest stage，最后只用一次 `ATOMIC_MOVE` 切换 manifest 并重读；不支持原子移动时失败关闭，两个 rename 不构成事务。stable `plan.md` 不存在，若未来提供只能是非权威投影。orphan generation/temp 采用 64 条目、一小时 grace 的有界清理。
+
+Session 保存顺序为 generation prepare → 完整 `plan.artifact.saved`（生产路径同时聚合兼容 projection）单条 JSONL append+force → manifest commit。journal 是跨文件 authoritative source：journal 领先时重建 projection；合法 projection 领先 journal 时移除 manifest 并安全忽略 generation orphan；manifest/generation 损坏、身份或摘要冲突 Fail Closed。恢复只收敛 projection，不执行 Plan、不自动重放 Tool。Fork 移除来源 plan artifact/snapshot 链，创建新 plan/session identity、revision 1、`AWAITING_APPROVAL` 的独立链，不继承源批准或终态。
+
+`PlanLifecyclePolicy` 是写前和 replay 共用的唯一状态链：首态限 `DRAFT/AWAITING_APPROVAL`，非终态同状态 Markdown revision 合法，终态无自环；重复 approve/reject 与 approved 后 reject 比较前后状态并跳过持久化。`AWAITING_APPROVAL -> DRAFT` 由 ADR-077 用于反馈后继续同一 planId/sessionId/revision chain。Core 的 `PlanRecoveryProjection`/`SessionRecoverySnapshot` 构造器交叉验证 document/state/artifact 的 planId、sessionId、status、digest、Gate 与游标，plan-only/artifact-only legacy 仍合法。旧 `plan.snapshot` 允许多次 append 并恢复最后一个合法状态；旧 Session 无 artifact 记录时按空值兼容。journal 比旧 manifest 快一版会 fast-forward。Fork 新 target 失败回滚只删除本次新建目录中的固定一级文件并最后删除 journal；若无法证明精确清理则保留可 Resume journal，不递归、不碰 source、不自动重放。严格 JSON proposal/parser 只作为旧内部 `PlanDocument` 兼容桥；TUI `/plan task` 只走持续 Markdown flow。artifact 不是执行步骤、Permission、Checkpoint 或 Sandbox，也绝不自动重放 Tool。
+
+### 17.4 File Checkpoint、Diff 与 Undo
 
 `FileCheckpointCoordinator` 通过统一 Tool Pipeline 在 `WRITE_WORKSPACE` 执行前接收 Tool 显式声明的
 `CheckpointTarget`；没有可信目标时 Fail Closed。当前 `apply_patch` 和 `write_file` 接入：
@@ -1819,6 +1857,7 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | [ADR-066](./adr/ADR-066-s14-production-harness-contract.md) | Accepted | Provider/OTel、stable v1/SDK/Daemon/Session、Governance/Plugin/Distribution 独立契约 |
 | [ADR-067](./adr/ADR-067-s15-dual-source-web-search-study.md) | Accepted | TOOL-18 双源研究、托管搜索偏离、来源/许可证/Unknown 与可证伪边界 |
 | [ADR-068](./adr/ADR-068-s15-controlled-web-search-contract.md) | Accepted | 固定 endpoint、BUILT_IN Network Tool、NetworkAccessPort、JDK HTTP、结果与隐私上限的独立契约 |
+| [ADR-076](./adr/ADR-076-s15-durable-markdown-plan-artifact.md) | Accepted | 部分取代 ADR-074 主体；固定 Session-owned Markdown artifact、revision/digest CAS、generation/manifest 单提交点、journal projection recovery、Fork 新 identity/重新审批与旧协议兼容 |
 
 ## 26. 需求追踪
 
@@ -1894,3 +1933,51 @@ Stage Exit 为 Accepted。S03-S14 也已按各自 Evidence 完成 Commit-scoped 
 6. 只有标准工具链可复现，且剩余差距和跨 Stage 工作已说明后，才进入下一 Stage。
 
 在 S01 离线协议测试完成前不接真实模型；在 S03 安全测试完成前不在私有仓库运行；在 S04 检查点跑通后不得宣称参考能力对等；MCP、Sub-Agent、Sandbox 和 Production Harness 分别只能按 S10、S12、S13、S14 的矩阵范围进入实现。
+
+
+### 17.4 Continuous Plan Runtime（Batch 2）
+
+`HeadlessRuntimeSession.runPlan` 复用当前 Session、Canonical Transcript、ModelGateway、Context 和 AgentRuntime，临时 Scope 以 `PlanEligibilityPolicy` 同时过滤 definitions 并在 `ToolExecutionPipeline` 重检。可信 `ToolDefinition.planCapabilities` 区分 `READ_ONLY_LOCAL`、`READ_ONLY_NETWORK`、`PLAN_ARTIFACT_WRITE`、`USER_QUESTION` 与尚未启用的 bounded read-only subagent；Workspace write/process/system 固定拒绝，外部 Tool 未显式声明 capability 默认隐藏。受控 `web_search` 声明只读网络能力但继续进入 Permission/AutoReview。
+
+三个独立控制 Tool 是 `revise_plan_artifact`、`ask_plan_question` 与 `request_plan_review`。前者只经 `SessionPlanArtifactStore` 写 canonical journal/manifest，不接受路径或身份；问题通过 Core `UserQuestionHandler` 适配 stdio/Ink picker，duplicate/late/cancel/disconnect fail closed；review 事件只来自 `AWAITING_APPROVAL` durable revision。Plan stdio Run 抑制 `model.text.delta` 和 terminal `finalText`，防止模型 JSON/payload 旁路展示。反馈命令只接受 planId/revision/contentDigest 并推进 `AWAITING_APPROVAL -> DRAFT`。Batch 2 本节本身不实现批准执行；Batch 3 已由后续 `plan.review.resolve`/ExecutionBrief 路径完成，legacy execute 仍不作为新 Markdown flow 的完成声明。
+
+## 30. durable Plan review 与 ExecutionBrief 原子交接（ADR-078）
+
+Batch 3 用 `plan.review.resolve` 取代 durable review 的客户端 `plan-approve → permissions → plan.execute`
+临时链。命令携带精确 `planId/revision/contentDigest/workspaceDigest`、封闭 decision、显式 keep/clear 和有界
+feedback；Java 在 lifecycle lock 内先构造完整 execution scope，再以 canonical journal + manifest CAS 提交
+携带 `ExecutionBrief` 的 APPROVED revision，最后领取 ActiveRun 并交给 executor。只有 enqueue 接受后才发布
+`plan.execution.accepted`；失败保留 APPROVED 可恢复状态，不伪造 EXECUTING。
+
+`ExecutionBrief` 是 Domain 不可变值：工件 snapshot/hash、Plan/Session、planning/transcript locator、原始/
+有效 permission、ASK reviewer、context policy、feedback 和 workspace snapshot。持久层只存一份 Markdown，
+brief 解码引用同一工件正文。执行 projection 将 Markdown 当作不可信自然语言；不恢复 legacy JSON triple。
+keep 保留 canonical conversation；clear 只给模型基础 System、当前执行 User message 和批准工件，canonical
+journal 不删除。Context 使用率 70% 只生成默认建议，picker 显式选择优先。
+
+执行期 `AUTO_REVIEW` 仍位于既有 Permission/Hook 求值后的 ASK seam，不能覆盖 Hard Denial/explicit DENY；
+USER 保留普通审批。APPROVED restart 需要显式领取；EXECUTING restart 由 `PLAN_EXECUTION_RECOVERY` 阻止可写
+resume，避免副作用重放。legacy `plan.execute` 只保留协议识别并固定拒绝，Surface 不暴露。
+
+## 31. Batch 5 PlanEvidenceLedger 与安装版构建身份
+
+`PlanEvidenceLedger` 是 codej 独立增强，并非观察到的参考内部类型。Domain 值绑定
+`SessionId + planId + approved Plan revision + ExecutionBrief canonical digest + workspace digest`，保存最多
+64 个 `DELIVERABLE/VERIFICATION` requirement 及每项最新 `PASSED/FAILED/SKIPPED` reference。
+reference 只允许相对路径或 callId、SHA-256、封闭 reason 与时间，不保存正文、Prompt、命令输出、Secret
+或异常文本。
+
+规划 Runtime 新增 `declare_plan_evidence`，Effect 仍是 `PLAN_ARTIFACT_WRITE`，只更新 Session-owned
+artifact/Ledger；locator 分别是后续 WorkspaceGuard 校验的相对普通文件或匹配 canonical ToolResult 的 Tool
+名。它不接受命令、路径外身份或正文，也不写 Workspace。批准 revision 以 ExecutionBrief digest 和
+workspace digest 固定 Ledger；journal 与 manifest 完整持久化。
+
+执行 Run 正常终止后，Java 验证器重新解析 Workspace 普通文件并计算 digest，或从规范消息查找同名
+`SUCCESS` ToolResult。最终回答、Markdown、stderr 与模型自述永不构成证据。required 项为空或存在未通过
+项时，Plan 写 `NEEDS_VERIFICATION`；全部 PASSED，或每个缺失项都有具体 `decision-*` typed skip，才写
+`COMPLETED`。skip 是独立 Application API，活动 Run 中拒绝，并作为新 artifact revision 持久化。
+
+Ink 的 provider login 使用同步 ref 锁阻止重复副作用，同时保持 `useInput` 活跃，使 one-shot stdin 保存
+完成页的 Enter 可收敛；Plan review 用单一四项 picker 和真实 Arrow/Tab/Enter。发行构建把 current commit、
+生产输入 digest、CLI JAR 与编译 TUI digest 写入 manifest；launcher `--version` 重新计算两个包内 digest，
+漂移 exit 1。安装版 smoke 真实启动该包的 Java stdio initialize/shutdown；这不是 Provider 或网络证据。

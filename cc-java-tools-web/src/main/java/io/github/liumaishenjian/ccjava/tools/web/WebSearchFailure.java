@@ -7,6 +7,7 @@ public enum WebSearchFailure {
     /** 当前路径无法由 NetworkAccessPort 完整控制。 */ NETWORK_UNCONTROLLED,
     /** 固定 endpoint 与授权目标不一致。 */ INVALID_TARGET,
     /** 服务端要求重定向，但第一切片禁止跟随。 */ REDIRECT_REFUSED,
+    /** 服务端返回 403，禁止原样重试。 */ FORBIDDEN,
     /** 服务端返回 429。 */ RATE_LIMITED,
     /** 服务端返回其他 4xx。 */ REMOTE_CLIENT_ERROR,
     /** 服务端返回 5xx。 */ REMOTE_SERVER_ERROR,

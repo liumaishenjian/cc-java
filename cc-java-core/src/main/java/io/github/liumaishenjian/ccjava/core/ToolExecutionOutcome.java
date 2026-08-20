@@ -85,10 +85,13 @@ public record ToolExecutionOutcome(
      * @return 失败 Outcome
      */
     public static ToolExecutionOutcome failure(ToolError error) {
-        return new ToolExecutionOutcome(
-                false,
-                "",
+        return failure("", error, ToolResultMetadata.complete(""));
+    }
+
+    /** 创建保留有界失败证据的业务结果。 */
+    public static ToolExecutionOutcome failure(String content, ToolError error, ToolResultMetadata metadata) {
+        return new ToolExecutionOutcome(false, Objects.requireNonNull(content, "content 不能为空"),
                 Optional.of(Objects.requireNonNull(error, "error 不能为空")),
-                ToolResultMetadata.complete(""));
+                Objects.requireNonNull(metadata, "metadata 不能为空"));
     }
 }

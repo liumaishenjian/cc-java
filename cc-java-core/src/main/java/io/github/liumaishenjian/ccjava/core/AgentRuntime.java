@@ -593,6 +593,7 @@ public final class AgentRuntime {
             activeRuns.remove(sessionId, activeRun);
             contextPreparation.closeRun(runId);
             autoReviewScope.close();
+            toolPipeline.closeRunGovernance(runId);
             skills.closeRun(runId);
             closeRunHooks(runHookLease);
             plugins.closeRun(runId);
@@ -684,8 +685,16 @@ public final class AgentRuntime {
             if (activeRun.cancellation().token().isCancellationRequested()) {
                 return stopForCancellation(state, activeRun);
             }
-            if (!state.canRequestModelTurn()) {
-                return state.stop(StopReason.TURN_LIMIT_REACHED);
+            java.util.Optional<io.github.liumaishenjian.ccjava.domain.BudgetGovernanceReason> turnBudget =
+                    state.ensureModelBudget();
+            if (turnBudget.isPresent()) {
+                lifecycle.dispatch(session, runId, new LifecycleEvent.BudgetGoverned(
+                        turnBudget.orElseThrow(), state.modelTurns(), state.toolCalls(),
+                        state.effectiveModelLimit(), state.effectiveToolLimit()));
+                if (turnBudget.orElseThrow()
+                        != io.github.liumaishenjian.ccjava.domain.BudgetGovernanceReason.PROGRESS_EXTENDED) {
+                    return state.stop(StopReason.TURN_LIMIT_REACHED);
+                }
             }
 
             int turnNumber = state.recordModelTurnAttempt();
@@ -787,8 +796,16 @@ public final class AgentRuntime {
                     appendAssistant(session, runId, assistant);
                     return state.complete(assistant.text());
                 }
-                if (!state.canAcceptToolBatch(calls.size())) {
-                    return state.stop(StopReason.TOOL_LIMIT_REACHED);
+                java.util.Optional<io.github.liumaishenjian.ccjava.domain.BudgetGovernanceReason> toolBudget =
+                        state.ensureToolBatchBudget(calls.size());
+                if (toolBudget.isPresent()) {
+                    lifecycle.dispatch(session, runId, new LifecycleEvent.BudgetGoverned(
+                            toolBudget.orElseThrow(), state.modelTurns(), state.toolCalls(),
+                            state.effectiveModelLimit(), state.effectiveToolLimit()));
+                    if (toolBudget.orElseThrow()
+                            != io.github.liumaishenjian.ccjava.domain.BudgetGovernanceReason.PROGRESS_EXTENDED) {
+                        return state.stop(StopReason.TOOL_LIMIT_REACHED);
+                    }
                 }
 
                 appendAssistant(session, runId, assistant);
@@ -808,6 +825,7 @@ public final class AgentRuntime {
                     return state.stop(StopReason.INTERNAL_ERROR);
                 }
                 List<ToolResult> batchResults = batchExecution.results();
+                state.recordBatchResults(batchResults);
                 if (batchResults.size() != calls.size()) {
                     session.fence();
                     return state.stop(StopReason.INTERNAL_ERROR);

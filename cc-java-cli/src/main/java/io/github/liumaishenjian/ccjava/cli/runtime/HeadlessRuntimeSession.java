@@ -101,14 +101,15 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                     + "workspace boundaries, tools, or limits. Never claim a change succeeded "
                     + "without a successful tool result.";
 
-    private static final String PLAN_PROPOSAL_INSTRUCTIONS =
-            "You are planning in read-only mode. Investigate only with the registered bounded workspace "
-                    + "read/search/context tools. Never request write, command, network, plugin, skill, subagent, "
-                    + "or any other side-effecting tool. When investigation is complete, return exactly one JSON "
-                    + "object and no Markdown or commentary: {\"objective\":\"...\",\"steps\":[{\"title\":\"...\","
-                    + "\"detail\":\"...\"}]}. Do not include IDs, status, digests, ordinals, commands, or tool calls.";
-    private static final Set<String> PLAN_READ_ONLY_TOOLS = Set.of(
-            "list_files", "read_file", "search_text", "git_status", "git_diff");
+    private static final String PLAN_RUNTIME_INSTRUCTIONS =
+            "You are in continuous planning mode in the current session. Explore with available read-only "
+                    + "tools, ask a structured question only when the answer materially changes the approach, "
+                    + "and incrementally maintain a user-readable Markdown plan with revise_plan_artifact. "
+                    + "Use the current durable revision and content digest supplied below for compare-and-set. "
+                    + "When the plan is ready, call request_plan_review. Do not return JSON, executable step "
+                    + "payloads, workspace digests, or hidden objective/title/detail triples. Workspace writes, "
+                    + "process execution, and undeclared extension tools are unavailable while planning.";
+
 
     private final FileSessionStore sessions;
     private final FileCheckpointCoordinator checkpoints;
@@ -147,7 +148,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private io.github.liumaishenjian.ccjava.core.AgentSession session;
     private SessionOpenResult openResult;
     private SettingsApplicationService settingsApplication;
-    private final PlanProposalParser planProposalParser = new PlanProposalParser();
+    private volatile io.github.liumaishenjian.ccjava.core.UserQuestionHandler userQuestionHandler =
+            io.github.liumaishenjian.ccjava.core.UserQuestionHandler.unavailable();
     private long compactRevision;
     private final io.github.liumaishenjian.ccjava.cli.mentions.FileMentionService fileMentions;
     private final io.github.liumaishenjian.ccjava.cli.governance.ManagedGovernance governance;
@@ -760,38 +762,34 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     public AgentRunResult run(UserMessage userMessage) {
         return run(new AgentRunRequest(
                 userMessage,
-                new AgentLimits(
-                        AgentLimits.DEFAULT.maxModelTurns(),
-                        AgentLimits.DEFAULT.maxToolCalls(),
-                        options.timeout()),
+                AgentLimits.interactive(options.timeout()),
                 Optional.empty()), null);
     }
 
     /**
-     * 以真实 AgentRuntime 执行只读探索，并把最终模型提案规范化为 Session-owned Plan。
+     * 在当前 Session 中执行持续、多轮 Plan Runtime。
      *
-     * <p>本入口复用当前 Session、ModelGateway、Context Projection、Tool Pipeline 和 Canonical
-     * transcript。临时 Scope 只发布五个有界 Workspace read/search Tool，并固定 PLAN Permission；
-     * 因而模型即使请求已知写工具或任何扩展/未知 Tool，也会在执行前得到结构化拒绝。只有正常完成、
-     * 严格 JSON 提案通过 Java 校验且当前 Run 身份仍匹配时，才安装计划并发布
-     * {@link io.github.liumaishenjian.ccjava.domain.PlanProposalEvent}。</p>
+     * <p>Run 使用 capability/effect Gate 而非工具名白名单：本地只读、受控只读网络、PlanArtifact
+     * CAS 写入和结构化用户问题可用；Workspace mutation、进程与未声明安全能力的扩展 Tool 在
+     * definitions 与 Pipeline 两处拒绝。Markdown 工件增量提交到 canonical Session journal；只有
+     * request_plan_review 成功后才发布读取该 durable revision 的 review 事件。</p>
      *
-     * @param prompt 用户的规划目标
-     * @return Agent Runtime 的权威终态；proposal 无效时返回 {@code INVALID_MODEL_RESPONSE}
+     * @param prompt 自然语言规划任务或对当前计划的反馈
+     * @return Agent Runtime 权威终态；未请求 review 时仍以普通完成结束，不伪造提案
      */
     public AgentRunResult runPlan(String prompt) {
         validatePrompt(Objects.requireNonNull(prompt, "prompt 不能为空"));
         UserMessage userMessage = fileMentions.resolve(prompt);
+        PlanRunResources planning = preparePlanRun();
         ActiveRun captured;
         synchronized (lifecycleMonitor) {
             requireOpenLocked();
             if (activeRun != null) throw new IllegalStateException("Headless Session 已有活动 Run");
-            captured = new ActiveRun(createPlanRuntimeScope(), session.id());
+            captured = new ActiveRun(createPlanRuntimeScope(planning), session.id());
             activeRun = captured;
             runEventSink = null;
         }
         io.github.liumaishenjian.ccjava.core.RunScopedModelGateway.RunScope modelRun = null;
-        AgentRunResult result;
         try {
             if (configuredGateway instanceof io.github.liumaishenjian.ccjava.core.RunScopedModelGateway runScoped) {
                 modelRun = runScoped.openRun(options.timeout());
@@ -799,8 +797,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             }
             return captured.scope().runtime().run(captured.sessionId(), new AgentRunRequest(
                     userMessage,
-                    new AgentLimits(AgentLimits.DEFAULT.maxModelTurns(), AgentLimits.DEFAULT.maxToolCalls(),
-                            options.timeout()),
+                    AgentLimits.interactive(options.timeout()),
                     Optional.empty()));
         } finally {
             try {
@@ -811,25 +808,67 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         }
     }
 
-    private HeadlessRuntimeScope createPlanRuntimeScope() {
-        List<io.github.liumaishenjian.ccjava.core.AgentTool> readTools = workspaceBootstrap.tools().stream()
-                .filter(tool -> PLAN_READ_ONLY_TOOLS.contains(tool.definition().name()))
-                .toList();
+    private PlanRunResources preparePlanRun() {
+        requireOpen();
+        io.github.liumaishenjian.ccjava.cli.session.SessionPlanArtifactStore store =
+                new io.github.liumaishenjian.ccjava.cli.session.SessionPlanArtifactStore(sessions, session.id());
+        java.util.Optional<io.github.liumaishenjian.ccjava.domain.PlanArtifact> current = store.load(session.id());
+        if (current.isPresent() && current.orElseThrow().status()
+                == io.github.liumaishenjian.ccjava.domain.PlanStatus.AWAITING_APPROVAL) {
+            var previous = current.orElseThrow();
+            var draft = previous.nextRevision(previous.markdownContent(),
+                    io.github.liumaishenjian.ccjava.domain.PlanStatus.DRAFT, java.time.Instant.now());
+            current = java.util.Optional.of(store.save(draft, previous.revision(), previous.contentDigest()));
+        }
+        if (current.isPresent() && current.orElseThrow().status()
+                != io.github.liumaishenjian.ccjava.domain.PlanStatus.DRAFT) {
+            throw new IllegalStateException("当前 Plan 状态不能继续规划");
+        }
+        String planId = current.map(io.github.liumaishenjian.ccjava.domain.PlanArtifact::planId)
+                .orElseGet(() -> "plan-" + java.util.UUID.randomUUID());
+        var update = new io.github.liumaishenjian.ccjava.core.PlanArtifactUpdateTool(
+                store, session.id(), planId, java.time.Clock.systemUTC());
+        var review = new io.github.liumaishenjian.ccjava.core.PlanReviewRequestTool(
+                store, session.id(), java.time.Clock.systemUTC());
+        var evidence = new io.github.liumaishenjian.ccjava.core.PlanEvidenceDeclarationTool(
+                store, session.id(), java.time.Clock.systemUTC());
+        var ask = new io.github.liumaishenjian.ccjava.core.PlanAskUserTool(userQuestionHandler);
+        return new PlanRunResources(store, current, update, review, evidence, ask);
+    }
+
+    private HeadlessRuntimeScope createPlanRuntimeScope(PlanRunResources planning) {
+        io.github.liumaishenjian.ccjava.core.PlanEligibilityPolicy eligibility =
+                new io.github.liumaishenjian.ccjava.core.PlanEligibilityPolicy();
+        List<io.github.liumaishenjian.ccjava.core.AgentTool> candidates =
+                java.util.stream.Stream.concat(registeredTools().stream(),
+                        java.util.stream.Stream.of(planning.update(), planning.review(), planning.evidence(), planning.ask()))
+                        .filter(tool -> eligibility.eligible(tool.definition()))
+                        .toList();
+        HeadlessRuntimeScope current = scope.get();
+        List<String> enabled = candidates.stream()
+                .filter(tool -> tool.definition().source() == ToolSource.BUILT_IN)
+                .map(tool -> tool.definition().name()).toList();
         RuntimeConfiguration planConfiguration = new RuntimeConfiguration(
                 Optional.of(options.model()), io.github.liumaishenjian.ccjava.domain.PermissionMode.PLAN,
-                List.of(), readTools.stream().map(tool -> tool.definition().name()).toList(), Map.of(), List.of(),
-                RuntimeDiagnosticsVerbosity.SUMMARY);
+                current.configuration().approvalReviewer(), current.configuration().permissionRules(),
+                enabled, Map.of(), current.configuration().compactAnchors(), RuntimeDiagnosticsVerbosity.SUMMARY);
         io.github.liumaishenjian.ccjava.core.instructions.InstructionContextService planInstructions =
                 new io.github.liumaishenjian.ccjava.core.instructions.InstructionContextService() {
                     @Override
                     public io.github.liumaishenjian.ccjava.domain.ModelRequest project(
                             io.github.liumaishenjian.ccjava.domain.ModelRequest request,
                             io.github.liumaishenjian.ccjava.core.CancellationToken cancellationToken) {
+                        String revision = planning.initial().map(value -> Long.toString(value.revision())).orElse("0");
+                        String digest = planning.initial().map(
+                                io.github.liumaishenjian.ccjava.domain.PlanArtifact::contentDigest).orElse("");
                         List<io.github.liumaishenjian.ccjava.domain.AgentMessage> messages =
                                 new java.util.ArrayList<>(request.messages());
-                        messages.add(1, new io.github.liumaishenjian.ccjava.domain.SystemMessage(PLAN_PROPOSAL_INSTRUCTIONS));
-                        return new io.github.liumaishenjian.ccjava.domain.ModelRequest(request.sessionId(), request.runId(),
-                                request.turnNumber(), messages, request.toolDefinitions());
+                        messages.add(1, new io.github.liumaishenjian.ccjava.domain.SystemMessage(
+                                PLAN_RUNTIME_INSTRUCTIONS + " Current plan revision: " + revision
+                                        + "; current content digest: " + digest + "."));
+                        return new io.github.liumaishenjian.ccjava.domain.ModelRequest(
+                                request.sessionId(), request.runId(), request.turnNumber(), messages,
+                                request.toolDefinitions());
                     }
 
                     @Override
@@ -837,32 +876,103 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                             io.github.liumaishenjian.ccjava.domain.ToolCall call,
                             io.github.liumaishenjian.ccjava.domain.ToolResult result,
                             io.github.liumaishenjian.ccjava.core.CancellationToken cancellationToken) {
-                        // Plan exploration 不激活目录级写入相关 Instructions。
+                        // Plan Tool 不激活目录级写入 Instructions；最新版本由 Tool Result 反馈模型。
                     }
                 };
-        io.github.liumaishenjian.ccjava.core.FinalAssistantHandler proposalHandler =
+        io.github.liumaishenjian.ccjava.core.FinalAssistantHandler finalHandler =
                 (sessionId, runId, assistant) -> {
-                    try {
-                        String digest = currentWorkspaceDigest();
-                        io.github.liumaishenjian.ccjava.domain.PlanDocument document = planProposalParser.parse(
-                                assistant.text(), "plan-" + runId.value(), digest);
-                        var installed = session.createPlanDuringRun(runId,
-                                new io.github.liumaishenjian.ccjava.core.PlanModeCoordinator(document));
-                        if (installed.isEmpty()) return false;
+                    var artifact = planning.review().reviewArtifact();
+                    artifact.ifPresent(value -> {
+                        io.github.liumaishenjian.ccjava.domain.PermissionMode original =
+                                scope.get().configuration().permissionMode() ==
+                                        io.github.liumaishenjian.ccjava.domain.PermissionMode.PLAN
+                                        ? io.github.liumaishenjian.ccjava.domain.PermissionMode.DEFAULT
+                                        : scope.get().configuration().permissionMode();
                         lifecycle.dispatch(session, runId,
-                                io.github.liumaishenjian.ccjava.domain.PlanProposalEvent.from(
-                                        installed.orElseThrow().document()));
-                        return true;
-                    } catch (RuntimeException malformedProposal) {
-                        return false;
-                    }
+                                io.github.liumaishenjian.ccjava.domain.PlanReviewEvent.from(
+                                        value, currentWorkspaceDigest(), original, suggestedPlanContextPolicy()));
+                    });
+                    return true;
                 };
-        return HeadlessRuntimeScope.create(planConfiguration, options.model(), configuredGateway, contextPreparation,
-                readTools, sessions, checkpoints, lifecycle, ids, approvalHandler, permissionState,
-                workspaceBootstrap.workspaceGuard(), memoryContext, planInstructions, extensions.hooks(),
-                io.github.liumaishenjian.ccjava.core.skill.SkillRunCoordinator.disabled(),
+        return HeadlessRuntimeScope.create(planConfiguration, options.model(), configuredGateway,
+                contextPreparation, candidates, sessions, checkpoints, lifecycle, ids, approvalHandler,
+                permissionState, workspaceBootstrap.workspaceGuard(), memoryContext, planInstructions,
+                extensions.hooks(), io.github.liumaishenjian.ccjava.core.skill.SkillRunCoordinator.disabled(),
                 io.github.liumaishenjian.ccjava.core.plugin.PluginRunCoordinator.disabled(),
-                io.github.liumaishenjian.ccjava.core.plugin.PluginRunHooks.none(), proposalHandler);
+                io.github.liumaishenjian.ccjava.core.plugin.PluginRunHooks.none(), finalHandler, eligibility);
+    }
+
+    /** 在 Session 打开前安装结构化用户问题 Surface。 */
+    public void installUserQuestionHandler(io.github.liumaishenjian.ccjava.core.UserQuestionHandler handler) {
+        synchronized (lifecycleMonitor) {
+            if (session != null) throw new IllegalStateException("Session 打开后不能替换用户问题端口");
+            userQuestionHandler = Objects.requireNonNull(handler, "handler 不能为空");
+        }
+    }
+
+    private record PlanRunResources(
+            io.github.liumaishenjian.ccjava.core.PlanArtifactStore store,
+            java.util.Optional<io.github.liumaishenjian.ccjava.domain.PlanArtifact> initial,
+            io.github.liumaishenjian.ccjava.core.PlanArtifactUpdateTool update,
+            io.github.liumaishenjian.ccjava.core.PlanReviewRequestTool review,
+            io.github.liumaishenjian.ccjava.core.PlanEvidenceDeclarationTool evidence,
+            io.github.liumaishenjian.ccjava.core.PlanAskUserTool ask) {
+    }
+
+    /**
+     * 把 Surface 当前展示的 durable review revision 退回 DRAFT，供下一次 /plan 反馈 Run 继续修改。
+     *
+     * <p>身份、revision 与 digest 必须全部匹配；该迁移不创建新 Session/planId，不执行 Tool，
+     * 也不批准或启动 Batch 3 的执行路径。</p>
+     */
+    public Optional<io.github.liumaishenjian.ccjava.domain.PlanArtifact> returnPlanForFeedback(
+            String planId, long revision, String contentDigest) {
+        requireOpen();
+        var store = new io.github.liumaishenjian.ccjava.cli.session.SessionPlanArtifactStore(
+                sessions, session.id());
+        var current = store.load(session.id());
+        if (current.isEmpty()) return Optional.empty();
+        var artifact = current.orElseThrow();
+        if (!artifact.planId().equals(planId) || artifact.revision() != revision
+                || !artifact.contentDigest().equals(contentDigest)
+                || artifact.status() != io.github.liumaishenjian.ccjava.domain.PlanStatus.AWAITING_APPROVAL) {
+            return Optional.empty();
+        }
+        var draft = artifact.nextRevision(artifact.markdownContent(),
+                io.github.liumaishenjian.ccjava.domain.PlanStatus.DRAFT, java.time.Instant.now());
+        return Optional.of(store.save(draft, revision, contentDigest));
+    }
+
+    /** Context 使用率达到 70% 时默认 clear，否则默认 keep；Surface 可在 picker 中显式覆盖。 */
+    private io.github.liumaishenjian.ccjava.domain.PlanContextPolicy suggestedPlanContextPolicy() {
+        return latestContextUsage().filter(view -> view.usage().totalTokens() * 10L
+                        >= view.availableInputTokens() * 7L)
+                .map(ignored -> io.github.liumaishenjian.ccjava.domain.PlanContextPolicy.CLEAR)
+                .orElse(io.github.liumaishenjian.ccjava.domain.PlanContextPolicy.KEEP);
+    }
+
+    /** 仅拒绝 Surface 展示的精确 durable review revision。 */
+    public Optional<io.github.liumaishenjian.ccjava.domain.PlanArtifact> rejectDurablePlan(
+            String planId, long revision, String contentDigest) {
+        requireOpen();
+        var store = new io.github.liumaishenjian.ccjava.cli.session.SessionPlanArtifactStore(sessions, session.id());
+        var current = store.load(session.id());
+        if (current.isEmpty()) return Optional.empty();
+        var artifact = current.orElseThrow();
+        if (!artifact.planId().equals(planId) || artifact.revision() != revision
+                || !artifact.contentDigest().equals(contentDigest)
+                || artifact.status() != io.github.liumaishenjian.ccjava.domain.PlanStatus.AWAITING_APPROVAL) {
+            return Optional.empty();
+        }
+        var rejected = artifact.nextRevision(artifact.markdownContent(),
+                io.github.liumaishenjian.ccjava.domain.PlanStatus.REJECTED, java.time.Instant.now());
+        return Optional.of(store.save(rejected, revision, contentDigest));
+    }
+
+    /** 返回当前 Session 已提交的 Markdown PlanArtifact，不读取模型输出。 */
+    public Optional<io.github.liumaishenjian.ccjava.domain.PlanArtifact> planArtifact() {
+        requireOpen();
+        return sessions.planArtifacts(session.id()).load(session.id());
     }
 
     /** 返回当前受 WorkspaceGuard 保护的工作区摘要，供 Plan 命令原子校验使用。 */
@@ -951,10 +1061,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             Optional<io.github.liumaishenjian.ccjava.domain.skill.ExplicitSkillInvocation> explicitSkill) {
         return run(new AgentRunRequest(
                 Objects.requireNonNull(userMessage, "userMessage 不能为空"),
-                new AgentLimits(
-                        AgentLimits.DEFAULT.maxModelTurns(),
-                        AgentLimits.DEFAULT.maxToolCalls(),
-                        options.timeout()),
+                AgentLimits.interactive(options.timeout()),
                 Objects.requireNonNull(explicitSkill, "explicitSkill 不能为空")), null);
     }
 
@@ -1013,9 +1120,12 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     public Optional<io.github.liumaishenjian.ccjava.core.PlanModeCoordinator> createPlan(
             String id, String objective, List<io.github.liumaishenjian.ccjava.domain.PlanStep> steps, String digest) {
         requireOpen();
-        return session.createPlan(new io.github.liumaishenjian.ccjava.core.PlanModeCoordinator(
-                new io.github.liumaishenjian.ccjava.domain.PlanDocument(id, objective, steps,
-                        io.github.liumaishenjian.ccjava.domain.PlanStatus.DRAFT, digest)));
+        Optional<io.github.liumaishenjian.ccjava.core.PlanModeCoordinator> created =
+                session.createPlan(new io.github.liumaishenjian.ccjava.core.PlanModeCoordinator(
+                        new io.github.liumaishenjian.ccjava.domain.PlanDocument(id, objective, steps,
+                                io.github.liumaishenjian.ccjava.domain.PlanStatus.DRAFT, digest)));
+        created.ifPresent(value -> persistCurrentPlan(value, true));
+        return created;
     }
 
     /**
@@ -1036,7 +1146,12 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             if (!plan.document().workspaceDigest().equals(digest)) return Optional.empty();
             String current = currentWorkspaceDigest();
             if (!digest.equals(current)) return Optional.empty();
-            return session.approvePlan(current);
+            io.github.liumaishenjian.ccjava.domain.PlanExecutionState before = plan.state();
+            Optional<io.github.liumaishenjian.ccjava.core.PlanModeCoordinator> approved =
+                    session.approvePlan(current);
+            approved.filter(value -> !value.state().equals(before))
+                    .ifPresent(value -> persistCurrentPlan(value, false));
+            return approved;
         });
     }
 
@@ -1048,8 +1163,17 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     /** 仅拒绝 Surface 实际展示的当前 Plan；空 planId 保留旧内部协议兼容。 */
     public Optional<io.github.liumaishenjian.ccjava.core.PlanModeCoordinator> rejectPlan(String planId) {
         requireOpen();
-        return session.plan().filter(plan -> planId.isEmpty() || plan.document().id().equals(planId))
-                .flatMap(ignored -> session.rejectPlan());
+        Optional<io.github.liumaishenjian.ccjava.core.PlanModeCoordinator> rejected =
+                session.plan().filter(plan -> planId.isEmpty() || plan.document().id().equals(planId))
+                        .flatMap(plan -> {
+                            io.github.liumaishenjian.ccjava.domain.PlanExecutionState before = plan.state();
+                            Optional<io.github.liumaishenjian.ccjava.core.PlanModeCoordinator> decision =
+                                    session.rejectPlan();
+                            decision.filter(value -> !value.state().equals(before))
+                                    .ifPresent(value -> persistCurrentPlan(value, false));
+                            return decision;
+                        });
+        return rejected;
     }
 
     /** 旧内部协议兼容入口。 */
@@ -1081,39 +1205,335 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     }
 
     /**
-     * 用正常 Agent Runtime 执行当前已批准的自然语言 Plan。
+     * 在一个服务端线性化边界批准精确 durable revision、恢复执行策略并领取执行 Run。
      *
-     * <p>Plan ID、批准摘要和实时工作区摘要全部匹配后才启动。执行阶段恢复完整 Tool Registry，
-     * 每次 Tool 调用仍经过 Permission、Approval、Hook 与 Pipeline；只有 Run 正常完成才把 Plan
-     * 标记为 COMPLETED。</p>
+     * <p>方法返回时 APPROVED 已可靠进入 canonical journal，执行 Scope 已捕获且 Run 已被接受；
+     * 调用方随后在其专属执行线程调用 {@link #runAcceptedPlan(PlanExecutionAcceptance)}。若入队失败，
+     * 调用方必须调用 {@link #releaseAcceptedPlan(PlanExecutionAcceptance)}，工件保持 APPROVED 可显式恢复。
+     * Markdown 不解析为命令或步骤；它仅作为不可信自然语言执行上下文。</p>
+     *
+     * @param planId Surface 展示的 Plan 身份
+     * @param revision Surface 展示的 revision
+     * @param contentDigest Surface 展示的正文摘要
+     * @param workspaceDigest review 事件绑定的工作区摘要
+     * @param decision 两类批准决定之一
+     * @param contextPolicy 显式 keep/clear 策略
+     * @param feedback 有界用户反馈
+     * @return 已可靠接受、尚未开始模型调用的执行句柄
      */
-    public AgentRunResult runApprovedPlan(String planId, String workspaceDigest) {
-        requireOpen();
-        var coordinator = session.plan().orElseThrow(() -> new IllegalStateException("Plan 不存在"));
-        var document = coordinator.document();
-        if (!document.id().equals(planId)
-                || coordinator.state().approvalGate()
-                    != io.github.liumaishenjian.ccjava.domain.PlanApprovalGate.APPROVED
-                || coordinator.state().status() != io.github.liumaishenjian.ccjava.domain.PlanStatus.APPROVED
-                || coordinator.state().nextStep() == null
-                || !document.workspaceDigest().equals(workspaceDigest)
-                || !currentWorkspaceDigest().equals(workspaceDigest)
-                || document.steps().stream().anyMatch(step -> !step.action().agentRun())) {
-            throw new IllegalStateException("Plan 未批准、摘要冲突或不是自然语言执行计划");
+    public PlanExecutionAcceptance acceptPlanExecution(
+            String planId, long revision, String contentDigest, String workspaceDigest,
+            io.github.liumaishenjian.ccjava.domain.PlanReviewDecision decision,
+            io.github.liumaishenjian.ccjava.domain.PlanContextPolicy contextPolicy, String feedback) {
+        Objects.requireNonNull(decision, "decision 不能为空");
+        if (decision != io.github.liumaishenjian.ccjava.domain.PlanReviewDecision.APPROVE_AUTO
+                && decision != io.github.liumaishenjian.ccjava.domain.PlanReviewDecision.APPROVE_USER) {
+            throw new IllegalArgumentException("只有批准决定可以领取执行");
         }
-        coordinator.beginAgentRun(workspaceDigest);
-        AgentRunResult result;
+        validatePlanBinding(planId, revision, contentDigest, workspaceDigest);
+        io.github.liumaishenjian.ccjava.domain.ApprovalReviewer reviewer =
+                decision == io.github.liumaishenjian.ccjava.domain.PlanReviewDecision.APPROVE_AUTO
+                        ? io.github.liumaishenjian.ccjava.domain.ApprovalReviewer.AUTO_REVIEW
+                        : io.github.liumaishenjian.ccjava.domain.ApprovalReviewer.USER;
+        synchronized (lifecycleMonitor) {
+            requireOpenLocked();
+            if (activeRun != null || session.isFenced()) {
+                throw new IllegalStateException("Session 当前不能领取 Plan 执行");
+            }
+            var store = new io.github.liumaishenjian.ccjava.cli.session.SessionPlanArtifactStore(sessions, session.id());
+            var artifact = store.load(session.id()).orElseThrow(() -> new IllegalStateException("PlanArtifact 缺失"));
+            if (!artifact.planId().equals(planId) || artifact.revision() != revision
+                    || !artifact.contentDigest().equals(contentDigest)
+                    || artifact.status() != io.github.liumaishenjian.ccjava.domain.PlanStatus.AWAITING_APPROVAL
+                    || !workspaceDigest.equals(currentWorkspaceDigest())) {
+                throw new IllegalStateException("Plan revision、摘要、状态或工作区已变化");
+            }
+            RuntimeConfiguration original = scope.get().configuration();
+            io.github.liumaishenjian.ccjava.domain.PermissionMode effectiveMode =
+                    original.permissionMode() == io.github.liumaishenjian.ccjava.domain.PermissionMode.PLAN
+                            ? io.github.liumaishenjian.ccjava.domain.PermissionMode.DEFAULT
+                            : original.permissionMode();
+            RuntimeConfiguration executionConfiguration = new RuntimeConfiguration(
+                    original.modelName(), effectiveMode, reviewer, original.permissionRules(),
+                    original.enabledBuiltinTools(), original.toolConfigurations(), original.compactAnchors(),
+                    original.diagnosticsVerbosity());
+            HeadlessRuntimeScope executionScope = buildExecutionScope(
+                    executionConfiguration, artifact, Objects.requireNonNull(contextPolicy, "contextPolicy 不能为空"));
+            var brief = new io.github.liumaishenjian.ccjava.domain.ExecutionBrief(
+                    artifact.planId(), session.id(), artifact.revision(), artifact.contentDigest(),
+                    artifact.markdownContent(), original.permissionMode(), effectiveMode, reviewer, contextPolicy,
+                    planningRunLocator(), Optional.of("session:" + session.id().value()),
+                    Objects.requireNonNull(feedback, "feedback 不能为空"), workspaceDigest,
+                    java.time.Instant.now());
+            var approved = artifact.approve(brief, brief.evidenceBindingDigest(), java.time.Instant.now());
+            store.save(approved, artifact.revision(), artifact.contentDigest());
+            ActiveRun accepted = new ActiveRun(executionScope, session.id());
+            activeRun = accepted;
+            runEventSink = null;
+            return new PlanExecutionAcceptance(brief, accepted);
+        }
+    }
+
+    private Optional<RunId> planningRunLocator() {
+        return session.events().stream().map(io.github.liumaishenjian.ccjava.domain.AgentEventEnvelope::runId)
+                .flatMap(Optional::stream).reduce((first, second) -> second);
+    }
+
+    private void validatePlanBinding(String planId, long revision, String contentDigest, String workspaceDigest) {
+        if (planId == null || planId.isBlank() || planId.length() > 128 || revision < 1
+                || contentDigest == null || !contentDigest.matches("[0-9a-f]{64}")
+                || workspaceDigest == null || !workspaceDigest.matches("[0-9a-f]{64}")) {
+            throw new IllegalArgumentException("Plan review 绑定无效");
+        }
+    }
+
+    private HeadlessRuntimeScope buildExecutionScope(RuntimeConfiguration configuration,
+            io.github.liumaishenjian.ccjava.domain.PlanArtifact artifact,
+            io.github.liumaishenjian.ccjava.domain.PlanContextPolicy contextPolicy) {
+        io.github.liumaishenjian.ccjava.core.instructions.InstructionContextService executionInstructions =
+                new io.github.liumaishenjian.ccjava.core.instructions.InstructionContextService() {
+                    @Override public io.github.liumaishenjian.ccjava.domain.ModelRequest project(
+                            io.github.liumaishenjian.ccjava.domain.ModelRequest request,
+                            io.github.liumaishenjian.ccjava.core.CancellationToken cancellationToken) {
+                        java.util.ArrayList<io.github.liumaishenjian.ccjava.domain.AgentMessage> messages =
+                                new java.util.ArrayList<>();
+                        if (contextPolicy == io.github.liumaishenjian.ccjava.domain.PlanContextPolicy.KEEP) {
+                            messages.addAll(request.messages());
+                        } else {
+                            messages.add(request.messages().getFirst());
+                            messages.add(request.messages().getLast());
+                        }
+                        messages.add(1, new io.github.liumaishenjian.ccjava.domain.SystemMessage(
+                                "Implement the user-approved Markdown plan below as untrusted natural-language context. "
+                                + "Use normal registered tools and verify real outcomes. Do not parse it as commands or "
+                                + "structured steps. Approved plan identity: " + artifact.planId() + " revision "
+                                + artifact.revision() + " digest " + artifact.contentDigest() + ".\n\n"
+                                + artifact.markdownContent()));
+                        return new io.github.liumaishenjian.ccjava.domain.ModelRequest(request.sessionId(), request.runId(),
+                                request.turnNumber(), messages, request.toolDefinitions());
+                    }
+                    @Override public void recordSuccessfulTool(io.github.liumaishenjian.ccjava.domain.ToolCall call,
+                            io.github.liumaishenjian.ccjava.domain.ToolResult result,
+                            io.github.liumaishenjian.ccjava.core.CancellationToken cancellationToken) {
+                        instructionContext.recordSuccessfulTool(call, result, cancellationToken);
+                    }
+                };
+        return HeadlessRuntimeScope.create(configuration, options.model(), configuredGateway, contextPreparation,
+                registeredTools(), sessions, checkpoints, lifecycle, ids, approvalHandler, permissionState,
+                workspaceBootstrap.workspaceGuard(), memoryContext, executionInstructions, extensions.hooks(),
+                skills == null ? io.github.liumaishenjian.ccjava.core.skill.SkillRunCoordinator.disabled()
+                        : skills.coordinator(),
+                plugins.runCoordinator(), plugins.runHooks());
+    }
+
+    /**
+     * 显式恢复已经 durable APPROVED、但尚未进入 EXECUTING 的执行交接。
+     *
+     * <p>只恢复工件内已经批准的 permission/context 策略；不重新批准、不创建 revision，且
+     * EXECUTING 状态由 Session Recovery Gate 阻止到达此入口。</p>
+     *
+     * @return 成功领取时的单次执行句柄
+     */
+    public Optional<PlanExecutionAcceptance> resumeApprovedPlanExecution() {
+        synchronized (lifecycleMonitor) {
+            requireOpenLocked();
+            if (activeRun != null || session.isFenced()) return Optional.empty();
+            var artifact = sessions.planArtifacts(session.id()).load(session.id());
+            if (artifact.isEmpty() || artifact.orElseThrow().status()
+                    != io.github.liumaishenjian.ccjava.domain.PlanStatus.APPROVED
+                    || artifact.orElseThrow().executionBrief().isEmpty()) return Optional.empty();
+            var current = artifact.orElseThrow();
+            var brief = current.executionBrief().orElseThrow();
+            RuntimeConfiguration base = scope.get().configuration();
+            RuntimeConfiguration execution = new RuntimeConfiguration(base.modelName(), brief.effectivePermissionMode(),
+                    brief.approvalReviewer(), base.permissionRules(), base.enabledBuiltinTools(),
+                    base.toolConfigurations(), base.compactAnchors(), base.diagnosticsVerbosity());
+            ActiveRun accepted = new ActiveRun(buildExecutionScope(execution, current, brief.contextPolicy()), session.id());
+            activeRun = accepted;
+            runEventSink = null;
+            return Optional.of(new PlanExecutionAcceptance(brief, accepted));
+        }
+    }
+
+    /** 在已领取句柄上启动唯一正常 Agent Run。 */
+    public AgentRunResult runAcceptedPlan(PlanExecutionAcceptance acceptance) {
+        Objects.requireNonNull(acceptance, "acceptance 不能为空");
+        ActiveRun captured = acceptance.activeRun;
+        synchronized (lifecycleMonitor) {
+            requireOpenLocked();
+            if (activeRun != captured || captured.runId() != null) {
+                throw new IllegalStateException("Plan 执行句柄已失效");
+            }
+        }
+        var store = new io.github.liumaishenjian.ccjava.cli.session.SessionPlanArtifactStore(sessions, session.id());
+        var approved = store.load(session.id()).orElseThrow();
+        if (approved.status() != io.github.liumaishenjian.ccjava.domain.PlanStatus.APPROVED
+                || !approved.executionBrief().equals(Optional.of(acceptance.brief))) {
+            releaseAcceptedPlan(acceptance);
+            throw new IllegalStateException("Plan 执行交接已变化");
+        }
+        var executing = approved.nextRevision(approved.markdownContent(),
+                io.github.liumaishenjian.ccjava.domain.PlanStatus.EXECUTING, java.time.Instant.now());
+        store.save(executing, approved.revision(), approved.contentDigest());
+        int executionMessageStart = session.messages().size();
+        io.github.liumaishenjian.ccjava.core.RunScopedModelGateway.RunScope modelRun = null;
         try {
-            result = run(new AgentRunRequest(new UserMessage(approvedPlanPrompt(document)),
-                    new AgentLimits(AgentLimits.DEFAULT.maxModelTurns(), AgentLimits.DEFAULT.maxToolCalls(),
-                            options.timeout()), Optional.empty()), null);
+            if (configuredGateway instanceof io.github.liumaishenjian.ccjava.core.RunScopedModelGateway runScoped) {
+                modelRun = runScoped.openRun(options.timeout());
+                modelRun.bindCancellation(this::cancelActive);
+            }
+            AgentRunResult result = captured.scope().runtime().run(captured.sessionId(), new AgentRunRequest(
+                    new UserMessage(executionUserMessage(acceptance.brief)),
+                    AgentLimits.interactive(options.timeout()), Optional.empty()));
+            recordDurablePlanTerminal(result, executionMessageStart);
+            return result;
         } catch (RuntimeException failure) {
-            coordinator.failAgentRun(io.github.liumaishenjian.ccjava.domain.PlanStatus.FAILED,
-                    currentWorkspaceDigest());
+            recordDurablePlanFailure(io.github.liumaishenjian.ccjava.domain.PlanStatus.FAILED);
             throw failure;
+        } finally {
+            try {
+                if (modelRun != null) modelRun.close();
+            } finally {
+                releaseActiveRun(captured);
+            }
         }
-        recordApprovedPlanTerminal(result);
-        return result;
+    }
+
+    private static String executionUserMessage(io.github.liumaishenjian.ccjava.domain.ExecutionBrief brief) {
+        return brief.userFeedback().isBlank()
+                ? "Implement the approved plan and report verified results."
+                : "Implement the approved plan. Additional user feedback:\n" + brief.userFeedback();
+    }
+
+    /** 入队失败时释放尚未开始的句柄；APPROVED 保持可显式恢复。 */
+    public void releaseAcceptedPlan(PlanExecutionAcceptance acceptance) {
+        Objects.requireNonNull(acceptance, "acceptance 不能为空");
+        synchronized (lifecycleMonitor) {
+            if (activeRun == acceptance.activeRun && acceptance.activeRun.runId() == null) {
+                activeRun = null;
+                runEventSink = null;
+                lifecycleMonitor.notifyAll();
+            }
+        }
+    }
+
+    private void recordDurablePlanTerminal(AgentRunResult result, int executionMessageStart) {
+        if (result.stopReason() != io.github.liumaishenjian.ccjava.domain.StopReason.COMPLETED) {
+            recordDurablePlanFailure(planFailureStatus(result.stopReason()));
+            return;
+        }
+        var store = new io.github.liumaishenjian.ccjava.cli.session.SessionPlanArtifactStore(sessions, session.id());
+        var current = store.load(session.id()).orElseThrow();
+        if (current.status() != io.github.liumaishenjian.ccjava.domain.PlanStatus.EXECUTING) return;
+        var validated = validatePlanEvidence(current, result.runId(), executionMessageStart);
+        io.github.liumaishenjian.ccjava.domain.PlanStatus status = validated.completionSatisfied()
+                ? io.github.liumaishenjian.ccjava.domain.PlanStatus.COMPLETED
+                : io.github.liumaishenjian.ccjava.domain.PlanStatus.NEEDS_VERIFICATION;
+        var terminal = current.withEvidenceLedger(validated, status, java.time.Instant.now());
+        store.save(terminal, current.revision(), current.contentDigest());
+    }
+
+    private io.github.liumaishenjian.ccjava.domain.PlanEvidenceLedger validatePlanEvidence(
+            io.github.liumaishenjian.ccjava.domain.PlanArtifact artifact,
+            io.github.liumaishenjian.ccjava.domain.RunId runId, int executionMessageStart) {
+        var ledger = artifact.evidenceLedger();
+        java.time.Instant now = java.time.Instant.now();
+        for (var requirement : ledger.requirements()) {
+            if (requirement.kind() == io.github.liumaishenjian.ccjava.domain.PlanEvidenceKind.DELIVERABLE) {
+                try {
+                    var path = workspaceBootstrap.workspaceGuard().requireRegularFile(requirement.locator());
+                    long size = java.nio.file.Files.size(path.realPath());
+                    if (size > 16L * 1024L * 1024L) throw new java.io.IOException("evidence file too large");
+                    byte[] bytes = java.nio.file.Files.readAllBytes(path.realPath());
+                    var rechecked = workspaceBootstrap.workspaceGuard().requireRegularFile(requirement.locator());
+                    if (!rechecked.realPath().equals(path.realPath()) || java.nio.file.Files.size(rechecked.realPath()) != size
+                            || bytes.length != size) throw new java.io.IOException("evidence file changed");
+                    String digest = java.util.HexFormat.of().formatHex(
+                            java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+                    ledger = ledger.record(new io.github.liumaishenjian.ccjava.domain.PlanEvidenceReference(
+                            requirement.requirementId(), io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.PASSED,
+                            "WORKSPACE_FILE", path.protocolPath(), Optional.of(digest), "FILE_PRESENT", now), now);
+                } catch (Exception invalid) {
+                    ledger = ledger.record(new io.github.liumaishenjian.ccjava.domain.PlanEvidenceReference(
+                            requirement.requirementId(), io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.FAILED,
+                            "WORKSPACE_FILE", requirement.requirementId(), Optional.empty(), "FILE_MISSING_OR_UNSAFE", now), now);
+                }
+            } else {
+                java.util.List<io.github.liumaishenjian.ccjava.domain.AgentMessage> executionMessages =
+                        session.messages().subList(executionMessageStart, session.messages().size());
+                Optional<io.github.liumaishenjian.ccjava.domain.ToolResult> match = executionMessages.stream()
+                        .filter(io.github.liumaishenjian.ccjava.domain.ToolResultMessage.class::isInstance)
+                        .map(io.github.liumaishenjian.ccjava.domain.ToolResultMessage.class::cast)
+                        .map(io.github.liumaishenjian.ccjava.domain.ToolResultMessage::result)
+                        .filter(tool -> tool.toolName().equals(requirement.locator()))
+                        .filter(tool -> tool.status() == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS)
+                        .reduce((first, second) -> second);
+                if (match.isPresent()) {
+                    var tool = match.orElseThrow();
+                    ledger = ledger.record(new io.github.liumaishenjian.ccjava.domain.PlanEvidenceReference(
+                            requirement.requirementId(), io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.PASSED,
+                            "TOOL_RESULT", tool.callId(), Optional.of(io.github.liumaishenjian.ccjava.domain.PlanArtifact.digest(tool.content())),
+                            "TOOL_SUCCEEDED", now), now);
+                } else {
+                    ledger = ledger.record(new io.github.liumaishenjian.ccjava.domain.PlanEvidenceReference(
+                            requirement.requirementId(), io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.FAILED,
+                            "TOOL_RESULT", runId.value(), Optional.empty(), "SUCCESSFUL_TOOL_RESULT_MISSING", now), now);
+                }
+            }
+        }
+        return ledger;
+    }
+
+    /**
+     * 记录用户对具体 requirement 的显式 typed verification skip。
+     *
+     * <p>调用方必须提供独立 decisionId；本方法不从模型文本推断 skip，也不允许批量隐式跳过。</p>
+     */
+    public io.github.liumaishenjian.ccjava.domain.PlanArtifact skipPlanVerification(
+            String requirementId, String decisionId) {
+        synchronized (lifecycleMonitor) {
+            requireOpenLocked();
+            if (activeRun != null) throw new IllegalStateException("活动 Run 中不能跳过验证");
+            var store = new io.github.liumaishenjian.ccjava.cli.session.SessionPlanArtifactStore(sessions, session.id());
+            var current = store.load(session.id()).orElseThrow();
+            if (current.status() != io.github.liumaishenjian.ccjava.domain.PlanStatus.NEEDS_VERIFICATION) {
+                throw new IllegalStateException("当前 Plan 不等待验证决定");
+            }
+            boolean declared = current.evidenceLedger().requirements().stream()
+                    .anyMatch(item -> item.requirementId().equals(requirementId) && item.required());
+            if (!declared || decisionId == null || !decisionId.matches("decision-[A-Za-z0-9-]{1,119}")) {
+                throw new IllegalArgumentException("verification skip 绑定无效");
+            }
+            java.time.Instant now = java.time.Instant.now();
+            var ledger = current.evidenceLedger().record(new io.github.liumaishenjian.ccjava.domain.PlanEvidenceReference(
+                    requirementId, io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.SKIPPED,
+                    "USER_SKIP_DECISION", decisionId, Optional.empty(), "USER_APPROVED_SKIP", now), now);
+            var next = current.withEvidenceLedger(ledger, ledger.completionSatisfied()
+                    ? io.github.liumaishenjian.ccjava.domain.PlanStatus.COMPLETED
+                    : io.github.liumaishenjian.ccjava.domain.PlanStatus.NEEDS_VERIFICATION, now);
+            return store.save(next, current.revision(), current.contentDigest());
+        }
+    }
+
+    private void recordDurablePlanFailure(io.github.liumaishenjian.ccjava.domain.PlanStatus status) {
+        var store = new io.github.liumaishenjian.ccjava.cli.session.SessionPlanArtifactStore(sessions, session.id());
+        var current = store.load(session.id()).orElseThrow();
+        if (current.status() != io.github.liumaishenjian.ccjava.domain.PlanStatus.EXECUTING) return;
+        var terminal = current.nextRevision(current.markdownContent(), status, java.time.Instant.now());
+        store.save(terminal, current.revision(), current.contentDigest());
+    }
+
+    /** 服务端已 durable 接受但尚未开始模型调用的单次句柄。 */
+    public static final class PlanExecutionAcceptance {
+        private final io.github.liumaishenjian.ccjava.domain.ExecutionBrief brief;
+        private final ActiveRun activeRun;
+        private PlanExecutionAcceptance(io.github.liumaishenjian.ccjava.domain.ExecutionBrief brief,
+                                        ActiveRun activeRun) {
+            this.brief = brief;
+            this.activeRun = activeRun;
+        }
+        /** 返回不可变执行交接。 */
+        public io.github.liumaishenjian.ccjava.domain.ExecutionBrief brief() { return brief; }
     }
 
     /**
@@ -1131,6 +1551,39 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         } else {
             coordinator.failAgentRun(planFailureStatus(result.stopReason()), currentWorkspaceDigest());
         }
+        persistCurrentPlan(coordinator, false);
+    }
+
+    private void persistCurrentPlan(
+            io.github.liumaishenjian.ccjava.core.PlanModeCoordinator coordinator, boolean create) {
+        var document = coordinator.document();
+        var artifactStore = sessions.planArtifacts(session.id());
+        java.time.Instant now = java.time.Instant.now();
+        io.github.liumaishenjian.ccjava.domain.PlanArtifact artifact;
+        long expectedRevision;
+        String expectedDigest;
+        if (create) {
+            artifact = io.github.liumaishenjian.ccjava.domain.PlanArtifact.create(
+                    document.id(), session.id(), planMarkdown(document), document.status(), now);
+            expectedRevision = 0;
+            expectedDigest = "";
+        } else {
+            var current = artifactStore.load(session.id()).orElseThrow(
+                    () -> new IllegalStateException("PlanArtifact 缺失"));
+            artifact = current.nextRevision(current.markdownContent(), document.status(), now);
+            expectedRevision = current.revision();
+            expectedDigest = current.contentDigest();
+        }
+        sessions.savePlanArtifact(
+                artifact, document, coordinator.state(), expectedRevision, expectedDigest);
+    }
+
+    private static String planMarkdown(io.github.liumaishenjian.ccjava.domain.PlanDocument document) {
+        StringBuilder markdown = new StringBuilder("# Plan\n\n## Objective\n\n")
+                .append(document.objective()).append("\n\n## Steps\n");
+        document.steps().forEach(step -> markdown.append('\n').append(step.ordinal()).append(". **")
+                .append(step.title()).append("** — ").append(step.detail()).append('\n'));
+        return markdown.toString();
     }
 
     private static String approvedPlanPrompt(io.github.liumaishenjian.ccjava.domain.PlanDocument document) {

@@ -94,6 +94,9 @@ public enum ToolErrorCode {
     /** Web 搜索服务要求重定向但当前契约禁止跟随。 */
     WEB_SEARCH_REDIRECT_REFUSED,
 
+    /** Web 搜索服务返回 403；具体原因只有受信 Adapter 信号存在时才细分。 */
+    WEB_SEARCH_FORBIDDEN,
+
     /** Web 搜索服务返回 429 限流。 */
     WEB_SEARCH_RATE_LIMITED,
 
@@ -114,6 +117,12 @@ public enum ToolErrorCode {
 
     /** hosted MCP 没有返回可用搜索内容。 */
     WEB_SEARCH_NO_RESULTS,
+
+    /** 子进程已启动但以非零状态退出。 */
+    PROCESS_EXIT,
+
+    /** Runtime 阻止了没有策略变化的相同失败调用。 */
+    REPEATED_FAILURE,
 
     /** Runtime 无法归类的内部错误。 */
     INTERNAL_ERROR

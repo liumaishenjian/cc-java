@@ -187,7 +187,7 @@ final class SpringAiPromptMapper {
         String response = result.status() == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS
                 ? result.content()
                 : result.error()
-                        .map(error -> error.code().name() + ": " + error.message())
+                        .map(error -> failureResponse(result.content(), error))
                         .orElse("");
         return ToolResponseMessage.builder()
                 .responses(List.of(new ToolResponseMessage.ToolResponse(
@@ -195,6 +195,19 @@ final class SpringAiPromptMapper {
                         result.toolName(),
                         response)))
                 .build();
+    }
+
+    private static String failureResponse(String evidence,
+            io.github.liumaishenjian.ccjava.domain.ToolError error) {
+        StringBuilder response = new StringBuilder()
+                .append(error.code().name()).append(" [")
+                .append(error.category().name()).append(", retryable=")
+                .append(error.retryable()).append("]: ").append(error.message());
+        if (!error.details().values().isEmpty()) {
+            response.append(" details=").append(SpringAiJson.write(error.details().values()));
+        }
+        if (!evidence.isBlank()) response.append("\n").append(evidence);
+        return response.toString();
     }
 
     /**

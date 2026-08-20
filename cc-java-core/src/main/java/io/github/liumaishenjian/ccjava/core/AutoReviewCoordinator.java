@@ -89,7 +89,9 @@ public final class AutoReviewCoordinator {
                 || request.source() != ToolSource.BUILT_IN) {
             return false;
         }
-        if (request.effect() == ToolEffect.READ_WORKSPACE) {
+        if (request.effect() == ToolEffect.READ_WORKSPACE
+                || request.effect() == ToolEffect.PLAN_ARTIFACT_WRITE
+                || request.effect() == ToolEffect.USER_INTERACTION) {
             return SAFE_READ_TOOLS.contains(request.toolName());
         }
         // web_search 仅在宿主以 BUILT_IN 注册受控 Provider 时允许 fast path。
