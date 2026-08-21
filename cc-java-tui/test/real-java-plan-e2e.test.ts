@@ -58,8 +58,29 @@ describe('real Java stdio plan flow', () => {
       expect(events.some(event => event.type === 'plan.proposed')).toBe(false);
       expect(events.some(event => event.type === 'model.text.delta' && event.requestId === requestId)).toBe(false);
 
-      const executionRequest = client.resolvePlanReview({
+      const feedbackRequest = client.resolvePlanReview({
         planId, revision, contentDigest, workspaceDigest,
+        decision: 'CONTINUE_PLANNING', contextPolicy: 'CLEAR', feedback: 'add rollback verification',
+      });
+      await waitFor(() => events.some(event => event.type === 'plan.feedback.accepted'
+        && event.requestId === feedbackRequest && event.payload.planId === planId),
+      () => diagnostic(events, failures, exit));
+      await waitFor(() => events.some(event => event.type === 'run.started'
+        && event.requestId === feedbackRequest), () => diagnostic(events, failures, exit));
+      await waitFor(() => events.some(event => event.type === 'plan.review.requested'
+        && event.requestId === feedbackRequest), () => diagnostic(events, failures, exit));
+      await waitFor(() => events.some(event => event.type === 'run.completed'
+        && event.requestId === feedbackRequest), () => diagnostic(events, failures, exit));
+      const revisedReview = events.find(event => event.type === 'plan.review.requested'
+        && event.requestId === feedbackRequest)!;
+      expect(revisedReview.payload.planId).toBe(planId);
+      expect(revisedReview.payload.revision).toBe(6);
+      expect(String(revisedReview.payload.markdown)).toContain('Verify rollback behavior');
+
+      const executionRequest = client.resolvePlanReview({
+        planId, revision: Number(revisedReview.payload.revision),
+        contentDigest: String(revisedReview.payload.contentDigest),
+        workspaceDigest: String(revisedReview.payload.workspaceDigest),
         decision: 'APPROVE_USER', contextPolicy: 'KEEP', feedback: '',
       });
       await waitFor(() => events.some(event => event.type === 'plan.execution.accepted'
@@ -88,6 +109,59 @@ describe('real Java stdio plan flow', () => {
     expect(exit?.signal).toBeNull();
     expect(exit?.stderrBytes).toBe(0);
   }, 30_000);
+
+  it('uses allow once then allow for session and suppresses the second same-scope prompt', async () => {
+    const classpath = process.env.CC_JAVA_TEST_CLASSPATH;
+    expect(classpath, 'CC_JAVA_TEST_CLASSPATH must point to compiled Java classes and dependencies').toBeTruthy();
+    const workspace = workspacePath.replaceAll('\\', '/');
+    const dependencyClasspath = process.env.CC_JAVA_TEST_DEPENDENCY_CLASSPATH;
+    const planFakeClasspath = process.env.CC_JAVA_PLAN_FAKE_CLASSPATH;
+    const effectiveClasspath = dependencyClasspath === undefined
+      ? classpath!
+      : [...moduleClassDirectories, dependencyClasspath].join(path.delimiter);
+    expect(planFakeClasspath,
+      'CC_JAVA_PLAN_FAKE_CLASSPATH must point to the deterministic Java fixture classes').toBeTruthy();
+    const launchClasspath = [planFakeClasspath!, effectiveClasspath].join(path.delimiter);
+    const client = new StdioClient({
+      executable: 'java',
+      args: ['-cp', launchClasspath,
+        'io.github.liumaishenjian.ccjava.cli.stdio.StdioProtocolFixtureMain', 'permission-runtime', workspace],
+      cwd: workspace,
+      env: {...process.env, CC_JAVA_PLAN_FAKE_CLASSPATH: planFakeClasspath!},
+    }, {shutdownTimeoutMs: 2_000});
+    const events: ProtocolEvent[] = [];
+    const failures: string[] = [];
+    let exit: {code: number | null; signal: NodeJS.Signals | null; stderrBytes: number} | undefined;
+    client.onEvent(event => events.push(event));
+    client.onFailure(message => failures.push(message));
+    client.onExit(result => { exit = result; });
+    try {
+      client.initialize();
+      await waitFor(() => events.some(event => event.type === 'initialized'),
+        () => diagnostic(events, failures, exit));
+      const requestId = client.startRun('apply the two fixture patches');
+      await waitFor(() => events.filter(event => event.type === 'approval.requested').length === 1,
+        () => diagnostic(events, failures, exit));
+      const first = events.find(event => event.type === 'approval.requested')!;
+      client.resolveApproval(String(first.payload.approvalId), 'allow_once');
+      await waitFor(() => events.filter(event => event.type === 'approval.requested').length === 2,
+        () => diagnostic(events, failures, exit));
+      const second = events.filter(event => event.type === 'approval.requested')[1]!;
+      client.resolveApproval(String(second.payload.approvalId), 'allow_session');
+      await waitFor(() => events.some(event => event.type === 'run.completed' && event.requestId === requestId),
+        () => diagnostic(events, failures, exit));
+      expect(events.filter(event => event.type === 'approval.requested')).toHaveLength(2);
+      expect(events.filter(event => event.type === 'tool.completed'
+        && event.payload.toolName === 'apply_patch'), diagnostic(events, failures, exit)).toHaveLength(3);
+      expect(failures).toEqual([]);
+    } finally {
+      await client.shutdown();
+    }
+    await waitFor(() => exit !== undefined, () => diagnostic(events, failures, exit));
+    expect(exit?.code).toBe(0);
+    expect(exit?.signal).toBeNull();
+    expect(exit?.stderrBytes).toBe(0);
+  }, 30_000);
 });
 
 async function waitForEvent(events: ProtocolEvent[], requestId: string): Promise<ProtocolEvent> {
@@ -105,6 +179,37 @@ function diagnostic(
   events: readonly ProtocolEvent[], failures: readonly string[],
   exit: {code: number | null; signal: NodeJS.Signals | null; stderrBytes: number} | undefined,
 ): string {
-  const eventSummary = events.map(event => `${event.type}#${event.requestId}(${event.sequence})`).join(', ');
-  return `等待真实 Java 事件超时；events=[${eventSummary}], failures=[${failures.join(' | ')}], exit=${JSON.stringify(exit)}`;
+  const counts = new Map<string, number>();
+  for (const event of events) counts.set(safeEventType(event.type),
+    (counts.get(safeEventType(event.type)) ?? 0) + 1);
+  const eventCounts = [...counts.entries()].sort(([left], [right]) => left.localeCompare(right))
+    .map(([type, count]) => `${type}=${count}`).join(',');
+  const terminalReasons = events.filter(event => event.type === 'run.completed' || event.type === 'run.failed')
+    .map(event => safeStopReason(event.payload.stopReason)).join(',');
+  const completedTools = events.filter(event => event.type === 'tool.completed')
+    .map(event => safeToolName(event.payload.toolName)).join(',');
+  const exitMetadata = exit === undefined ? 'pending'
+    : `code=${exit.code ?? 'null'}:signal=${safeSignal(exit.signal)}:stderrBytes=${Math.min(exit.stderrBytes, 999_999)}`;
+  return `等待真实 Java 事件超时；eventCount=${events.length}, eventTypes=[${eventCounts}], terminalReasons=[${terminalReasons}], completedTools=[${completedTools}], failureCount=${failures.length}, exit=${exitMetadata}`;
+}
+
+function safeEventType(type: string): string {
+  const known = new Set([
+    'plan.execution.accepted', 'plan.feedback.submitted', 'plan.review.requested',
+    'plan.verification.completed', 'plan.verification.required', 'run.completed', 'run.failed',
+    'session.command.result', 'tool.completed',
+  ]);
+  return known.has(type) ? type : 'other';
+}
+
+function safeStopReason(value: unknown): string {
+  return typeof value === 'string' && /^[a-z][a-z0-9_]{0,63}$/.test(value) ? value : 'unknown';
+}
+
+function safeToolName(value: unknown): string {
+  return typeof value === 'string' && /^[A-Za-z][A-Za-z0-9_.:-]{0,127}$/.test(value) ? value : 'unknown';
+}
+
+function safeSignal(signal: NodeJS.Signals | null): string {
+  return signal !== null && /^SIG[A-Z0-9]+$/.test(signal) ? signal : 'null-or-other';
 }

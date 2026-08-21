@@ -87,6 +87,18 @@ public record PlanEvidenceLedger(SessionId sessionId, String planId, long approv
         return new PlanEvidenceLedger(sessionId, planId, 0, "", "", next, references, createdAt, monotonic(now));
     }
 
+    /**
+     * Workspace 漂移后清除旧审批与执行证据，同时保留用户仍可重新审批的 requirement 声明。
+     *
+     * @param now 重新打开审批的 durable 时间
+     * @return 未绑定、无引用的新 Ledger
+     */
+    public PlanEvidenceLedger resetForReapproval(Instant now) {
+        if (approvedPlanRevision == 0) throw new IllegalStateException("未绑定 Ledger 无需重置");
+        return new PlanEvidenceLedger(sessionId, planId, 0, "", "", requirements, List.of(),
+                createdAt, monotonic(now));
+    }
+
     /** 在批准原子提交中固定 ExecutionBrief 与 Workspace revision。 */
     public PlanEvidenceLedger bind(long planRevision, String briefDigest, String workspaceDigest, Instant now) {
         if (approvedPlanRevision != 0 || planRevision < 1) throw new IllegalStateException("Ledger 已绑定或 revision 无效");

@@ -646,7 +646,7 @@ public final class ToolExecutionPipeline {
                 && result.error().isPresent()) {
             governance.record(call, result.error().orElseThrow());
         } else if (result.status() == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS) {
-            governance.recordProgress();
+            governance.recordSuccess(call, definition.effect());
         }
         if (reviewer == ApprovalReviewer.USER
                 && result.status() == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS) {

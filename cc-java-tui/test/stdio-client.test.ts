@@ -28,6 +28,66 @@ describe('StdioClient', () => {
       .map(event => event.payload.text).join('')).toBe('你好 agent');
   });
 
+  it('继续规划登记服务端返回的 requestId 为唯一预期新 Run', async () => {
+    const client = createClient();
+    const events: ProtocolEvent[] = [];
+    const failures: string[] = [];
+    client.onEvent(event => events.push(event));
+    client.onFailure(message => failures.push(message));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+
+    const requestId = client.resolvePlanReview({
+      planId: 'plan-1', revision: 3, contentDigest: 'a'.repeat(64),
+      workspaceDigest: 'b'.repeat(64), decision: 'CONTINUE_PLANNING',
+      contextPolicy: 'KEEP', feedback: 'verify rollback',
+    });
+    await waitFor(() => events.some(event => event.type === 'run.started'));
+
+    expect(events.find(event => event.type === 'run.started')?.requestId).toBe(requestId);
+    expect(failures).toEqual([]);
+    expect(client.isClosed()).toBe(false);
+    await client.shutdown();
+  });
+
+  it.each(['APPROVE_AUTO', 'APPROVE_USER'] as const)(
+    '%s 仍把服务端执行 requestId 登记为预期新 Run',
+    async decision => {
+      const client = createClient('plan-review-unexpected-start');
+      const events: ProtocolEvent[] = [];
+      const failures: string[] = [];
+      client.onEvent(event => events.push(event));
+      client.onFailure(message => failures.push(message));
+      client.initialize();
+      await waitFor(() => events.some(event => event.type === 'initialized'));
+      const requestId = client.resolvePlanReview({
+        planId: 'plan-1', revision: 3, contentDigest: 'a'.repeat(64),
+        workspaceDigest: 'b'.repeat(64), decision, contextPolicy: 'KEEP', feedback: '',
+      });
+      await waitFor(() => events.some(event => event.type === 'run.started'));
+      expect(events.find(event => event.type === 'run.started')?.requestId).toBe(requestId);
+      expect(failures).toEqual([]);
+      await client.shutdown();
+    },
+  );
+
+  it('REJECT 不把服务端意外 run.started 误登记为预期新 Run', async () => {
+    const client = createClient('plan-review-unexpected-start');
+    const events: ProtocolEvent[] = [];
+    const failures: string[] = [];
+    client.onEvent(event => events.push(event));
+    client.onFailure(message => failures.push(message));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+    client.resolvePlanReview({
+      planId: 'plan-1', revision: 3, contentDigest: 'a'.repeat(64),
+      workspaceDigest: 'b'.repeat(64), decision: 'REJECT', contextPolicy: 'KEEP', feedback: '',
+    });
+    await waitFor(() => failures.length === 1);
+    expect(failures[0]).toContain('run.started');
+    expect(client.isClosed()).toBe(true);
+  });
+
   it('按实际 NDJSON 编码大小分块并保持 Unicode 无损', async () => {
     const client = createClient();
     const events: ProtocolEvent[] = [];

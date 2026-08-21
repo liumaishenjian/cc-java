@@ -336,7 +336,7 @@ export class StdioClient {
       throw new Error('只有就绪 Session 可以决定 Plan review');
     }
     const requestId = this.#send('plan.review.resolve', input, this.#sessionId);
-    if (input.decision === 'APPROVE_AUTO' || input.decision === 'APPROVE_USER') {
+    if (input.decision !== 'REJECT') {
       this.#pendingRunStartRequestId = requestId;
     }
     return requestId;

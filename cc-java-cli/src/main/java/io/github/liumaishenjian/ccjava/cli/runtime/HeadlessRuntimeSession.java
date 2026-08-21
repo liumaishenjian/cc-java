@@ -150,6 +150,10 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     private SettingsApplicationService settingsApplication;
     private volatile io.github.liumaishenjian.ccjava.core.UserQuestionHandler userQuestionHandler =
             io.github.liumaishenjian.ccjava.core.UserQuestionHandler.unavailable();
+    private volatile io.github.liumaishenjian.ccjava.core.PlanVerificationSkipCoordinator verificationSkipCoordinator =
+            io.github.liumaishenjian.ccjava.core.PlanVerificationSkipCoordinator.unavailable();
+    private final java.util.Map<String, io.github.liumaishenjian.ccjava.domain.PlanVerificationSkipDecision>
+            pendingVerificationSkipDecisions = new java.util.HashMap<>();
     private long compactRevision;
     private final io.github.liumaishenjian.ccjava.cli.mentions.FileMentionService fileMentions;
     private final io.github.liumaishenjian.ccjava.cli.governance.ManagedGovernance governance;
@@ -902,6 +906,15 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 io.github.liumaishenjian.ccjava.core.plugin.PluginRunHooks.none(), finalHandler, eligibility);
     }
 
+    /** 在 Session 打开前安装 verification skip 的可信用户决定端口。 */
+    public void installPlanVerificationSkipCoordinator(
+            io.github.liumaishenjian.ccjava.core.PlanVerificationSkipCoordinator coordinator) {
+        synchronized (lifecycleMonitor) {
+            if (session != null) throw new IllegalStateException("Session 打开后不能替换 verification skip 端口");
+            verificationSkipCoordinator = Objects.requireNonNull(coordinator, "coordinator 不能为空");
+        }
+    }
+
     /** 在 Session 打开前安装结构化用户问题 Surface。 */
     public void installUserQuestionHandler(io.github.liumaishenjian.ccjava.core.UserQuestionHandler handler) {
         synchronized (lifecycleMonitor) {
@@ -975,20 +988,23 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         return sessions.planArtifacts(session.id()).load(session.id());
     }
 
-    /** 返回当前受 WorkspaceGuard 保护的工作区摘要，供 Plan 命令原子校验使用。 */
+    /**
+     * 返回安全实时 Workspace 摘要，供批准到执行之间的二次 Gate 使用。
+     *
+     * <p>Git Workspace 的摘要覆盖 index/porcelain 状态，以及 tracked 与遵循 standard excludes
+     * 的 untracked 路径当前内容；ignored 构建树不会触发漂移。只有非 Git Workspace 才执行排除
+     * {@code .git} 与内部 Session 目录的有界全树扫描。摘要不保存或发布路径、正文；链接、读取
+     * 竞争、Git 输入变化、文件数或总字节超限一律 fail closed。</p>
+     *
+     * @return 当前 Workspace 的隐私安全 SHA-256 摘要
+     * @throws IllegalStateException 无法安全捕获一致快照时
+     */
     public String currentWorkspaceDigest() {
-        io.github.liumaishenjian.ccjava.tools.local.WorkspaceSnapshot snapshot =
-                io.github.liumaishenjian.ccjava.tools.local.WorkspaceSnapshot.capture(
-                        new io.github.liumaishenjian.ccjava.tools.local.git.GitReadClient(
-                                workspaceBootstrap.workspaceGuard().workspace()));
-        String material = snapshot.repository() + "\n" + snapshot.branch() + "\n" + snapshot.staged()
-                + "\n" + snapshot.unstaged() + "\n" + snapshot.untracked();
         try {
-            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
-                    .digest(material.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            return java.util.HexFormat.of().formatHex(digest);
-        } catch (java.security.NoSuchAlgorithmException impossible) {
-            throw new IllegalStateException("SHA-256 不可用", impossible);
+            return new io.github.liumaishenjian.ccjava.tools.local.git.WorkspaceStateDigest(
+                    workspaceBootstrap.workspaceGuard(), options.sessionStoreRoot()).capture();
+        } catch (io.github.liumaishenjian.ccjava.tools.local.git.WorkspaceStateDigest.WorkspaceDigestException failure) {
+            throw new IllegalStateException("无法安全计算实时 Workspace 摘要", failure);
         }
     }
 
@@ -1344,6 +1360,11 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                     || artifact.orElseThrow().executionBrief().isEmpty()) return Optional.empty();
             var current = artifact.orElseThrow();
             var brief = current.executionBrief().orElseThrow();
+            String currentDigest = currentWorkspaceDigest();
+            if (!brief.workspaceDigest().equals(currentDigest)) {
+                reopenPlanApprovalAfterWorkspaceDrift(current, brief, currentDigest);
+                return Optional.empty();
+            }
             RuntimeConfiguration base = scope.get().configuration();
             RuntimeConfiguration execution = new RuntimeConfiguration(base.modelName(), brief.effectivePermissionMode(),
                     brief.approvalReviewer(), base.permissionRules(), base.enabledBuiltinTools(),
@@ -1372,6 +1393,18 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             releaseAcceptedPlan(acceptance);
             throw new IllegalStateException("Plan 执行交接已变化");
         }
+        String currentDigest = currentWorkspaceDigest();
+        if (!acceptance.brief.workspaceDigest().equals(currentDigest)) {
+            synchronized (lifecycleMonitor) {
+                var latest = store.load(session.id()).orElseThrow();
+                if (latest.status() == io.github.liumaishenjian.ccjava.domain.PlanStatus.APPROVED
+                        && latest.executionBrief().equals(Optional.of(acceptance.brief))) {
+                    reopenPlanApprovalAfterWorkspaceDrift(latest, acceptance.brief, currentDigest);
+                }
+            }
+            releaseAcceptedPlan(acceptance);
+            throw new PlanExecutionWorkspaceDriftException("Workspace 在 Plan 审批后发生变化");
+        }
         var executing = approved.nextRevision(approved.markdownContent(),
                 io.github.liumaishenjian.ccjava.domain.PlanStatus.EXECUTING, java.time.Instant.now());
         store.save(executing, approved.revision(), approved.contentDigest());
@@ -1397,6 +1430,20 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 releaseActiveRun(captured);
             }
         }
+    }
+
+    private void reopenPlanApprovalAfterWorkspaceDrift(
+            io.github.liumaishenjian.ccjava.domain.PlanArtifact approved,
+            io.github.liumaishenjian.ccjava.domain.ExecutionBrief brief,
+            String currentDigest) {
+        var store = new io.github.liumaishenjian.ccjava.cli.session.SessionPlanArtifactStore(sessions, session.id());
+        var reopened = approved.reopenApprovalAfterWorkspaceDrift(java.time.Instant.now());
+        store.save(reopened, approved.revision(), approved.contentDigest());
+        pendingVerificationSkipDecisions.clear();
+        lifecycle.dispatch(session, new io.github.liumaishenjian.ccjava.domain.PlanExecutionBlockedEvent(
+                brief.planId(), brief.approvedRevision(), brief.workspaceDigest(), currentDigest,
+                io.github.liumaishenjian.ccjava.domain.PlanExecutionBlockReason.WORKSPACE_DRIFT,
+                io.github.liumaishenjian.ccjava.domain.PlanStatus.AWAITING_APPROVAL));
     }
 
     private static String executionUserMessage(io.github.liumaishenjian.ccjava.domain.ExecutionBrief brief) {
@@ -1485,34 +1532,85 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     }
 
     /**
-     * 记录用户对具体 requirement 的显式 typed verification skip。
+     * 通过可信用户决定端口签发一个精确绑定、一次性的 verification skip 决定。
      *
-     * <p>调用方必须提供独立 decisionId；本方法不从模型文本推断 skip，也不允许批量隐式跳过。</p>
+     * <p>默认端口拒绝，因此未提供 skip UX 的 Surface 不会得到决定。模型与普通 Java 字符串
+     * 无法自行制造可消费能力。</p>
+     *
+     * @param requirementId 用户正在决定的唯一 verification requirement
+     * @return 用户批准后的单次能力；拒绝时为空
+     */
+    public Optional<io.github.liumaishenjian.ccjava.domain.PlanVerificationSkipDecision>
+            requestPlanVerificationSkip(String requirementId) {
+        synchronized (lifecycleMonitor) {
+            requireOpenLocked();
+            if (activeRun != null) throw new IllegalStateException("活动 Run 中不能请求跳过验证");
+            var current = sessions.planArtifacts(session.id()).load(session.id()).orElseThrow();
+            if (current.status() != io.github.liumaishenjian.ccjava.domain.PlanStatus.NEEDS_VERIFICATION
+                    || current.executionBrief().isEmpty()) {
+                throw new IllegalStateException("当前 Plan 不等待验证决定");
+            }
+            boolean declared = current.evidenceLedger().requirements().stream().anyMatch(item ->
+                    item.requirementId().equals(requirementId) && item.required()
+                            && item.kind() == io.github.liumaishenjian.ccjava.domain.PlanEvidenceKind.VERIFICATION);
+            if (!declared) throw new IllegalArgumentException("verification requirement 绑定无效");
+            var proposed = new io.github.liumaishenjian.ccjava.domain.PlanVerificationSkipDecision(
+                    "decision-" + java.util.UUID.randomUUID(), session.id(), current.planId(),
+                    current.executionBrief().orElseThrow().approvedRevision(), requirementId);
+            if (!verificationSkipCoordinator.approve(proposed)) return Optional.empty();
+            pendingVerificationSkipDecisions.put(proposed.decisionId(), proposed);
+            return Optional.of(proposed);
+        }
+    }
+
+    /**
+     * 消费由可信端口签发的单次 typed 用户决定。
+     *
+     * @param decision 完整绑定的用户决定能力
+     * @return 写入 SKIPPED 引用后的工件
      */
     public io.github.liumaishenjian.ccjava.domain.PlanArtifact skipPlanVerification(
-            String requirementId, String decisionId) {
+            io.github.liumaishenjian.ccjava.domain.PlanVerificationSkipDecision decision) {
         synchronized (lifecycleMonitor) {
             requireOpenLocked();
             if (activeRun != null) throw new IllegalStateException("活动 Run 中不能跳过验证");
+            Objects.requireNonNull(decision, "decision 不能为空");
             var store = new io.github.liumaishenjian.ccjava.cli.session.SessionPlanArtifactStore(sessions, session.id());
             var current = store.load(session.id()).orElseThrow();
-            if (current.status() != io.github.liumaishenjian.ccjava.domain.PlanStatus.NEEDS_VERIFICATION) {
-                throw new IllegalStateException("当前 Plan 不等待验证决定");
-            }
-            boolean declared = current.evidenceLedger().requirements().stream()
-                    .anyMatch(item -> item.requirementId().equals(requirementId) && item.required());
-            if (!declared || decisionId == null || !decisionId.matches("decision-[A-Za-z0-9-]{1,119}")) {
-                throw new IllegalArgumentException("verification skip 绑定无效");
-            }
+            var issued = pendingVerificationSkipDecisions.get(decision.decisionId());
+            boolean bound = issued == decision
+                    && current.status() == io.github.liumaishenjian.ccjava.domain.PlanStatus.NEEDS_VERIFICATION
+                    && current.executionBrief().isPresent()
+                    && decision.sessionId().equals(session.id())
+                    && decision.planId().equals(current.planId())
+                    && decision.approvedPlanRevision() == current.executionBrief().orElseThrow().approvedRevision()
+                    && current.evidenceLedger().requirements().stream().anyMatch(item ->
+                            item.requirementId().equals(decision.requirementId()) && item.required()
+                                    && item.kind() == io.github.liumaishenjian.ccjava.domain.PlanEvidenceKind.VERIFICATION);
+            if (!bound) throw new IllegalArgumentException(
+                    "verification skip 决定未签发、已消费或绑定不匹配");
             java.time.Instant now = java.time.Instant.now();
             var ledger = current.evidenceLedger().record(new io.github.liumaishenjian.ccjava.domain.PlanEvidenceReference(
-                    requirementId, io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.SKIPPED,
-                    "USER_SKIP_DECISION", decisionId, Optional.empty(), "USER_APPROVED_SKIP", now), now);
+                    decision.requirementId(), io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.SKIPPED,
+                    "USER_SKIP_DECISION", decision.decisionId(), Optional.empty(), "USER_APPROVED_SKIP", now), now);
             var next = current.withEvidenceLedger(ledger, ledger.completionSatisfied()
                     ? io.github.liumaishenjian.ccjava.domain.PlanStatus.COMPLETED
                     : io.github.liumaishenjian.ccjava.domain.PlanStatus.NEEDS_VERIFICATION, now);
-            return store.save(next, current.revision(), current.contentDigest());
+            var saved = store.save(next, current.revision(), current.contentDigest());
+            pendingVerificationSkipDecisions.remove(decision.decisionId());
+            return saved;
         }
+    }
+
+    /**
+     * 旧字符串入口不再具有授权语义；所有调用 fail closed。
+     *
+     * @deprecated 使用可信端口签发并消费 typed 决定
+     */
+    @Deprecated
+    public io.github.liumaishenjian.ccjava.domain.PlanArtifact skipPlanVerification(
+            String requirementId, String decisionId) {
+        throw new IllegalArgumentException("字符串 decisionId 不能授权 verification skip");
     }
 
     private void recordDurablePlanFailure(io.github.liumaishenjian.ccjava.domain.PlanStatus status) {
@@ -1521,6 +1619,11 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
         if (current.status() != io.github.liumaishenjian.ccjava.domain.PlanStatus.EXECUTING) return;
         var terminal = current.nextRevision(current.markdownContent(), status, java.time.Instant.now());
         store.save(terminal, current.revision(), current.contentDigest());
+    }
+
+    /** Workspace 漂移在任何模型或 Tool 副作用前阻止执行。 */
+    public static final class PlanExecutionWorkspaceDriftException extends IllegalStateException {
+        private PlanExecutionWorkspaceDriftException(String message) { super(message); }
     }
 
     /** 服务端已 durable 接受但尚未开始模型调用的单次句柄。 */

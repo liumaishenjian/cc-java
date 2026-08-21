@@ -5,6 +5,7 @@ import io.github.liumaishenjian.ccjava.domain.ToolCall;
 import io.github.liumaishenjian.ccjava.domain.ToolError;
 import io.github.liumaishenjian.ccjava.domain.ToolErrorCode;
 import io.github.liumaishenjian.ccjava.domain.ToolFailureCategory;
+import io.github.liumaishenjian.ccjava.domain.ToolEffect;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -20,31 +21,52 @@ import java.util.Set;
 /**
  * 在单个 Run 内阻止同一失败调用被模型原样重复。
  *
- * <p>fingerprint 只由 Tool 名、类型保真且键排序的参数摘要和失败类别组成；不读取错误文案、
- * stdout/stderr、网页正文或 Secret。实例不得跨 Run 复用或持久化。</p>
+ * <p>失败记录只由 Tool 名、类型保真且键排序的参数摘要和失败类别组成；不读取错误文案、
+ * stdout/stderr、网页正文或 Secret。由于执行前无法预知重试将产生的类别，Pre Gate 以
+ * Tool 名和参数匹配任一既有类型化失败记录；类别用于限制后续成功调用可证明恢复的范围。
+ * 实例不得跨 Run 复用或持久化。</p>
  *
  * @since 0.15.0
  */
 public final class ToolFailureFingerprintGovernance {
-    private final Set<String> failed = new HashSet<>();
+    private final Set<FailureFingerprint> failed = new HashSet<>();
 
-    /** 返回该调用是否已以某个稳定失败类别失败过。 */
+    /** 返回该 Tool 与规范参数是否已有任一类型化失败记录；执行前不猜测下一次失败类别。 */
     public synchronized boolean repeated(ToolCall call) {
         Objects.requireNonNull(call, "call 不能为空");
-        String prefix = digest(call.name(), canonical(call.arguments().values())) + ":";
-        return failed.stream().anyMatch(value -> value.startsWith(prefix));
+        String arguments = argumentsDigest(call);
+        return failed.stream().anyMatch(value ->
+                value.tool().equals(call.name()) && value.arguments().equals(arguments));
     }
 
-    /** 记录规范失败；成功调用由调用方忽略。 */
+    /** 记录由 Tool、规范参数与类型化失败类别共同组成的 fingerprint。 */
     public synchronized void record(ToolCall call, ToolError error) {
         Objects.requireNonNull(call, "call 不能为空");
         Objects.requireNonNull(error, "error 不能为空");
-        failed.add(digest(call.name(), canonical(call.arguments().values())) + ":" + error.category().name());
+        failed.add(new FailureFingerprint(call.name(), argumentsDigest(call), error.category()));
     }
 
-    /** 成功 Tool 证明策略或环境已进展，清除此前失败窗口。 */
-    public synchronized void recordProgress() {
-        failed.clear();
+    /**
+     * 记录真实成功，并按可证明的恢复范围清理失败窗口。
+     *
+     * <p>同一 Tool 变参成功证明其策略已经改变，因此清除该 Tool 的旧 fingerprint；成功写入
+     * Workspace 或改变系统状态只会释放可能由本地内容导致的进程失败。纯读取、PlanArtifact
+     * 写入、用户交互以及跨 Tool 的 HTTP/Permission 失败都没有得到恢复证明，仍须拦截。</p>
+     *
+     * @param call 已由 Adapter 真实执行成功的调用
+     * @param effect Tool 声明的最高副作用等级
+     */
+    public synchronized void recordSuccess(ToolCall call, ToolEffect effect) {
+        Objects.requireNonNull(call, "call 不能为空");
+        Objects.requireNonNull(effect, "effect 不能为空");
+        failed.removeIf(value -> value.tool().equals(call.name())
+                || recoversCrossToolFailure(effect, value.category()));
+    }
+
+    private static boolean recoversCrossToolFailure(ToolEffect effect, ToolFailureCategory category) {
+        return category == ToolFailureCategory.PROCESS_EXIT
+                && (effect == ToolEffect.WRITE_WORKSPACE
+                        || effect == ToolEffect.SYSTEM_OR_DESTRUCTIVE);
     }
 
     /** 构造不泄漏参数的策略反馈。 */
@@ -55,14 +77,24 @@ public final class ToolFailureFingerprintGovernance {
                         "allowedChanges", List.of("query", "provider", "source", "arguments", "explanation"))));
     }
 
-    private static String digest(String tool, String arguments) {
+    private static String argumentsDigest(ToolCall call) {
+        return digest(canonical(call.arguments().values()));
+    }
+
+    private static String digest(String arguments) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             return java.util.HexFormat.of().formatHex(digest.digest(
-                    (tool + "|" + arguments).getBytes(StandardCharsets.UTF_8)));
+                    arguments.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException impossible) {
             throw new IllegalStateException("JDK 缺少 SHA-256", impossible);
         }
+    }
+
+    private record FailureFingerprint(
+            String tool,
+            String arguments,
+            ToolFailureCategory category) {
     }
 
     private static String canonical(Object value) {

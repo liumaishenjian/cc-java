@@ -88,6 +88,11 @@ import {
 const PRODUCT_VERSION = '0.1.0';
 
 type PublicPermissionSelection = 'PLAN' | 'ASK' | 'AUTO' | 'ADVANCED';
+
+interface PlanFeedbackInputState {
+  readonly review: PlanReviewPickerState;
+  readonly text: string;
+}
 type PlanEntryState = {
   readonly phase: 'query' | 'enter' | 'restore-after-start-failure';
   readonly commandId: string;
@@ -235,8 +240,10 @@ export function AgentTui({client}: AgentTuiProps) {
   const [permissionPicker, setPermissionPicker] = useState<PermissionPickerState | undefined>(undefined);
   const [approvalPicker, setApprovalPicker] = useState<ApprovalPickerState>(() => initialApprovalPickerState());
   const [planReviewPicker, setPlanReviewPicker] = useState<PlanReviewPickerState | undefined>(undefined);
+  const [planFeedbackInput, setPlanFeedbackInput] = useState<PlanFeedbackInputState | undefined>(undefined);
   const [questionPicker, setQuestionPicker] = useState<QuestionPickerState | undefined>(undefined);
   const planReviewPickerRef = useRef<PlanReviewPickerState | undefined>(undefined);
+  const planFeedbackInputRef = useRef<PlanFeedbackInputState | undefined>(undefined);
   const composerRef = useRef(composer);
   const permissionPickerSubmittedRef = useRef(false);
   const historySessionIdRef = useRef<string | undefined>(undefined);
@@ -289,6 +296,10 @@ export function AgentTui({client}: AgentTuiProps) {
   const replaceConnectWizard = (next: ModelSetupState | undefined) => {
     connectWizardRef.current = next;
     setConnectWizard(next);
+  };
+  const replacePlanFeedbackInput = (next: PlanFeedbackInputState | undefined) => {
+    planFeedbackInputRef.current = next;
+    setPlanFeedbackInput(next);
   };
   const replacePlanReviewPicker = (next: PlanReviewPickerState | undefined) => {
     planReviewPickerRef.current = next;
@@ -575,10 +586,16 @@ export function AgentTui({client}: AgentTuiProps) {
       }
       if (event.type === 'plan.review.requested') {
         pendingPlanDecisionRef.current = undefined;
+        replacePlanFeedbackInput(undefined);
         replacePlanReviewPicker(createPlanReviewPicker(
           String(event.payload.planId), Number(event.payload.revision), String(event.payload.contentDigest),
           String(event.payload.workspaceDigest), String(event.payload.suggestedContextPolicy) as 'keep' | 'clear',
         ));
+      }
+      if (event.type === 'plan.feedback.accepted') {
+        replacePlanFeedbackInput(undefined);
+        replacePlanReviewPicker(undefined);
+        dispatch({type: 'slash.notice', message: '反馈已接受，正在为同一计划启动新的规划回合'});
       }
       if (event.type === 'plan.execution.accepted') {
         replacePlanReviewPicker(undefined);
@@ -653,6 +670,7 @@ export function AgentTui({client}: AgentTuiProps) {
       pendingPlanDecisionRef.current = undefined;
       planSessionRef.current = undefined;
       replacePlanReviewPicker(undefined);
+      replacePlanFeedbackInput(undefined);
       if (!transportFailureRef.current) {
         transportFailureRef.current = true;
         dispatch({type: 'transport.failed', message});
@@ -666,6 +684,7 @@ export function AgentTui({client}: AgentTuiProps) {
       pendingPlanDecisionRef.current = undefined;
       planSessionRef.current = undefined;
       replacePlanReviewPicker(undefined);
+      replacePlanFeedbackInput(undefined);
       if (transportFailureRef.current) {
         return;
       }
@@ -719,7 +738,9 @@ export function AgentTui({client}: AgentTuiProps) {
 
   usePaste(pasted => {
     const setup = connectWizardRef.current;
-    if (setup?.phase === 'form') {
+    if (planFeedbackInput !== undefined) {
+      replacePlanFeedbackInput({...planFeedbackInput, text: boundedPlanFeedback(planFeedbackInput.text + pasted)});
+    } else if (setup?.phase === 'form') {
       replaceConnectWizard(editModelSetup(setup, {kind: 'append', text: pasted}));
     } else if (setup?.phase === 'credential') {
       updateSetupCredential(setupCredentialBytesRef.current, pasted);
@@ -750,6 +771,40 @@ export function AgentTui({client}: AgentTuiProps) {
       } else {
         dispatch({type: 'closing'});
         void client.shutdown();
+      }
+      return;
+    }
+    const currentPlanFeedback = planFeedbackInputRef.current;
+    if (currentPlanFeedback !== undefined) {
+      if (key.escape) {
+        replacePlanFeedbackInput(undefined);
+      } else if (key.return) {
+        const feedback = currentPlanFeedback.text.trim();
+        if (feedback.length === 0) {
+          dispatch({type: 'slash.notice', message: '继续规划需要非空反馈；Esc 可返回计划选项'});
+          return;
+        }
+        try {
+          const review = currentPlanFeedback.review;
+          const requestId = client.resolvePlanReview!({
+            planId: review.planId,
+            revision: review.revision,
+            contentDigest: review.contentDigest,
+            workspaceDigest: review.workspaceDigest,
+            decision: 'CONTINUE_PLANNING',
+            contextPolicy: review.contextPolicy.toUpperCase() as 'KEEP' | 'CLEAR',
+            feedback,
+          });
+          replacePlanFeedbackInput(undefined);
+          replacePlanReviewPicker({...review, submitted: true});
+          dispatch({type: 'run.submitted', requestId, prompt: `继续规划 ${review.planId}`});
+        } catch {
+          dispatch({type: 'slash.notice', message: 'Plan 反馈未被连接接受；可修改后重新提交'});
+        }
+      } else if (key.backspace || key.delete) {
+        replacePlanFeedbackInput({...currentPlanFeedback, text: removeLastCodePoint(currentPlanFeedback.text)});
+      } else if (!key.ctrl && !key.meta && text.length > 0) {
+        replacePlanFeedbackInput({...currentPlanFeedback, text: boundedPlanFeedback(currentPlanFeedback.text + text)});
       }
       return;
     }
@@ -809,9 +864,12 @@ export function AgentTui({client}: AgentTuiProps) {
           return;
         }
         const decision = selectedPlanReviewDecision(planReviewPicker);
+        if (decision === 'continue_planning') {
+          replacePlanFeedbackInput({review: planReviewPicker, text: ''});
+          return;
+        }
         const protocolDecision = decision === 'approve_auto' ? 'APPROVE_AUTO'
-          : decision === 'approve_user' ? 'APPROVE_USER'
-            : decision === 'continue_planning' ? 'CONTINUE_PLANNING' : 'REJECT';
+          : decision === 'approve_user' ? 'APPROVE_USER' : 'REJECT';
         try {
           client.resolvePlanReview({
             planId: planReviewPicker.planId,
@@ -1213,6 +1271,7 @@ export function AgentTui({client}: AgentTuiProps) {
     {...(permissionPicker === undefined ? {} : {permissionPicker})}
     {...(pendingApproval === undefined ? {} : {approvalPicker: effectiveApprovalPicker})}
     {...(planReviewPicker === undefined ? {} : {planReviewPicker})}
+    {...(planFeedbackInput === undefined ? {} : {planFeedbackInput})}
     {...(questionPicker === undefined ? {} : {questionPicker})}
   />;
 }
@@ -1230,6 +1289,7 @@ export interface AgentViewProps {
   readonly permissionPicker?: PermissionPickerState;
   readonly approvalPicker?: ApprovalPickerState;
   readonly planReviewPicker?: PlanReviewPickerState;
+  readonly planFeedbackInput?: PlanFeedbackInputState;
   readonly questionPicker?: QuestionPickerState;
 }
 
@@ -1257,7 +1317,7 @@ export function maskedCredentialPreview(value: readonly number[]): string {
 /**
  * 纯展示组件，使宽字符、窄窗口和各 Run 终态无需真实终端即可验证。
  */
-export function AgentView({state, composer, input = '', columns, rows, composerLayout, connectWizard, permissionPicker, approvalPicker, planReviewPicker, questionPicker}: AgentViewProps) {
+export function AgentView({state, composer, input = '', columns, rows, composerLayout, connectWizard, permissionPicker, approvalPicker, planReviewPicker, planFeedbackInput, questionPicker}: AgentViewProps) {
   const width = Math.max(20, columns);
   const viewportRows = rows === undefined
     ? undefined
@@ -1365,7 +1425,7 @@ export function AgentView({state, composer, input = '', columns, rows, composerL
             : <PlanReviewPanel proposal={run.planProposal} picker={planReviewPicker} />}
           {run.planReview === undefined
             ? null
-            : <DurablePlanReviewPanel review={run.planReview} picker={planReviewPicker} />}
+            : <DurablePlanReviewPanel review={run.planReview} picker={planReviewPicker} feedbackInput={planFeedbackInput} />}
           {run.pendingQuestion === undefined
             ? null
             : <QuestionPrompt question={run.pendingQuestion} picker={questionPicker} />}
@@ -1653,9 +1713,10 @@ function CheckpointRow({
   );
 }
 
-function DurablePlanReviewPanel({review, picker}: {
+function DurablePlanReviewPanel({review, picker, feedbackInput}: {
   readonly review: NonNullable<RunView['planReview']>;
   readonly picker: PlanReviewPickerState | undefined;
+  readonly feedbackInput: PlanFeedbackInputState | undefined;
 }) {
   const active = picker?.planId === review.planId;
   return <Box marginTop={1} marginLeft={2} flexDirection="column"
@@ -1663,6 +1724,11 @@ function DurablePlanReviewPanel({review, picker}: {
     <Text bold color="cyan">实施计划 · revision {review.revision}</Text>
     <AssistantMarkdown text={review.markdown} />
     {!active ? <Text dimColor>该计划已不再等待当前窗口决定</Text>
+      : feedbackInput?.review.planId === review.planId ? <Box marginTop={1} flexDirection="column">
+          <Text bold color="yellow">请输入计划反馈</Text>
+          <Text>{feedbackInput.text.length === 0 ? '› ' : `› ${feedbackInput.text}`}</Text>
+          <Text dimColor>输入非空反馈后 Enter 提交　Esc 取消并返回四项审批</Text>
+        </Box>
       : picker.submitted ? <Text dimColor>决定已发送，等待 Java 核对 durable revision</Text>
         : <><Box marginTop={1} flexDirection="column">
           {PLAN_REVIEW_PICKER_ITEMS.map((item, index) => <Text key={item.decision}
@@ -1959,6 +2025,10 @@ function checkpointPhaseLabel(phase: CheckpointPhase): string {
     case 'undo_journal_uncertain': return 'Undo 记录不确定';
     case 'undone': return '已 Undo';
   }
+}
+
+export function boundedPlanFeedback(text: string): string {
+  return Array.from(text).slice(0, 4_000).join('');
 }
 
 export function approvalDecision(

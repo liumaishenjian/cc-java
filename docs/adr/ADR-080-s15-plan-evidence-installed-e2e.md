@@ -33,17 +33,21 @@
 3. 执行 Run `COMPLETED` 后，确定性验证器通过 WorkspaceGuard 验证普通文件，并从 canonical
    ToolResult 查找同名成功结果。模型 prose、Markdown checkbox、finalText 与错误输出都不是证据。
 4. required evidence 全部 PASSED 或独立 typed user skip 后才写 `COMPLETED`；否则写
-   `NEEDS_VERIFICATION`。skip 必须绑定具体 requirement 和 `decision-*`，durable 且可审计。
+   `NEEDS_VERIFICATION`。skip 只能由可信用户决定端口批准，绑定 session/plan/approved revision/
+   requirement 完整身份，并由 Runtime 一次性登记与消费；`decision-*` 只是有界 opaque ID 格式，字符串
+   本身没有授权力。最终 skip 结果随 artifact revision durable 且可审计。
 5. Evidence Gate 不改变 PlanArtifact/ExecutionBrief CAS、原子 approval/enqueue、Permission/
    AutoReview/Hard Denial、预算、Hook/Checkpoint/MCP/Plugin/Skill Pipeline；EXECUTING restart 继续禁止重放。
 6. Ink picker 用真实 Arrow/Tab/Enter 覆盖默认自动执行、普通审批、继续规划和 keep/clear；连接向导的
    one-shot stdin 登录完成页保持输入监听，使用 ref 阻止重复副作用而不是关闭整个 useInput。
-7. 发行 manifest 记录当前 commit、生产输入 digest、实际 CLI JAR/TUI digest；`--version` 重新计算包内
-   digest，不匹配即 exit 1。安装版测试启动真实 Java stdio initialize/shutdown，stderr 必须为 0。
+7. 发行 manifest 记录当前 commit、生产输入 digest、实际 CLI JAR/TUI digest；launcher 在所有会执行
+   包内 Java/TUI 代码的路径前重新计算并校验包内 digest，不匹配即 exit 1；`--version` 是可见身份投影
+   之一。安装版测试启动真实 Java stdio initialize/shutdown，stderr 必须为 0。
 
 ## 可证伪验证与边界
 
 - Fake/真实 Java Plan 测试覆盖 evidence pass、缺失→NEEDS_VERIFICATION、显式 skip 与 restart；
 - stdio/TUI 覆盖 question、durable review、Arrow/Tab/Enter、真实 Tool delivery、唯一终态与干净 child exit；
-- packaged launcher 对 current commit/source/JAR/TUI digest 对账，并用篡改 manifest 负例失败关闭；
+- packaged launcher 对 current commit/source/JAR/TUI digest 对账，并用篡改 manifest、attestation、JAR 与普通
+  code-executing 入口负例证明失败关闭；
 - 不声称真实 Provider 默认验证、在线 Plan 质量、多人并发、多平台安装或 L4 收益已经完成。

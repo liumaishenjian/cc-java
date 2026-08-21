@@ -437,6 +437,51 @@ class SessionCommandDispatcherTest {
     }
 
     @Test
+    void approvedWritePlanBlocksTrackedUntrackedAndIndexDriftBeforeToolExecution() throws Exception {
+        for (String drift : List.of("tracked", "untracked", "index")) {
+            Path workspace = Files.createDirectory(root.resolve("plan-" + drift + "-drift-workspace"));
+            git(workspace, "init");
+            Files.writeString(workspace.resolve("tracked.txt"), "baseline\n");
+            git(workspace, "add", "tracked.txt");
+            Path target = workspace.resolve("created.txt");
+            JsonObject arguments = new JsonObject(java.util.Map.of("path", "created.txt", "content", "approved\n"));
+            try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(
+                    request -> ModelTurn.text("done"), AgentEventSink.noop(),
+                    options(workspace, root.resolve("plan-" + drift + "-drift-sessions")),
+                    (invocation, definition, outcome) ->
+                            io.github.liumaishenjian.ccjava.domain.ApprovalResponse.allowOnce())) {
+                runtime.open();
+                SessionCommandDispatcher dispatcher = dispatcher(runtime);
+                String digest = runtime.currentWorkspaceDigest();
+                runtime.createPlan("plan-" + drift + "-drift", "write", List.of(new PlanStep(
+                        1, "write", "write", digest,
+                        new PlanStepAction("write_file", arguments, "create created.txt"))), digest);
+                assertThat(dispatcher.dispatch(new CommandId(drift + "-approve"),
+                        new SessionCommandIntent.PlanApprove("plan-" + drift + "-drift", digest),
+                        CancellationToken.none()).event().status()).as(drift).isEqualTo(SessionCommandStatus.SUCCEEDED);
+
+                switch (drift) {
+                    case "tracked" -> Files.writeString(workspace.resolve("tracked.txt"), "changed\n");
+                    case "untracked" -> Files.writeString(workspace.resolve("external.txt"), "appeared\n");
+                    case "index" -> {
+                        Files.writeString(workspace.resolve("staged.txt"), "staged\n");
+                        git(workspace, "add", "staged.txt");
+                    }
+                    default -> throw new IllegalStateException("unknown fixture drift");
+                }
+
+                var result = dispatcher.dispatch(new CommandId(drift + "-execute"),
+                        new SessionCommandIntent.PlanExecute("plan-" + drift + "-drift", digest, 1),
+                        CancellationToken.none());
+                assertThat(result.event().status()).as(drift).isEqualTo(SessionCommandStatus.SUCCEEDED);
+                assertThat(((io.github.liumaishenjian.ccjava.domain.command.SessionCommandEvent.PlanPayload)
+                        result.event().payload()).status()).as(drift).isEqualTo("DIGEST_CONFLICT");
+                assertThat(target).as(drift).doesNotExist();
+            }
+        }
+    }
+
+    @Test
     void planStepBeginRejectsWorkspaceDigestConflict() throws Exception {
         Path workspace = Files.createDirectory(root.resolve("plan-conflict-workspace"));
         try (HeadlessRuntimeSession runtime = runtime(workspace, root.resolve("plan-conflict-sessions"))) {
@@ -503,6 +548,16 @@ class SessionCommandDispatcherTest {
 
     private static SessionCommandDispatcher dispatcher(HeadlessRuntimeSession runtime) {
         return new SessionCommandDispatcher(runtime, new DoctorReportService(runtime));
+    }
+
+    private static void git(Path directory, String... arguments) throws Exception {
+        String[] command = new String[arguments.length + 1];
+        command[0] = "git";
+        System.arraycopy(arguments, 0, command, 1, arguments.length);
+        Process process = new ProcessBuilder(command).directory(directory.toFile())
+                .redirectErrorStream(true).start();
+        String output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        if (process.waitFor() != 0) throw new IllegalStateException("Fixture Git failed: " + output);
     }
 
     private HeadlessRuntimeSession runtime(Path workspace, Path sessions) {

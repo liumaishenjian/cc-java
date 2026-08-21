@@ -73,6 +73,18 @@ reader.on('line', line => {
     };
     inputAssembly = undefined;
   }
+  if (command.type === 'plan.review.resolve') {
+    if (command.payload.decision === 'CONTINUE_PLANNING') {
+      activeRunId = 'run-plan-feedback';
+      emit('run.started', command.requestId, {}, sessionId, activeRunId);
+    } else if (mode === 'plan-review-unexpected-start') {
+      activeRunId = 'run-plan-unexpected';
+      emit('run.started', command.requestId, {}, sessionId, activeRunId);
+    } else {
+      emit('protocol.error', command.requestId, {code: 'PLAN_REVIEW_RESOLVED'}, sessionId);
+    }
+    return;
+  }
   if (command.type === 'run.start') {
     if (activeRunId !== undefined && mode.startsWith('steering')) {
       if (mode === 'steering-invalid-payload') {

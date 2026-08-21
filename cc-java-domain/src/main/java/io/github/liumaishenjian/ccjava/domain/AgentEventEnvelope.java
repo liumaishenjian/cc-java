@@ -44,7 +44,8 @@ public record AgentEventEnvelope(
         runId = Objects.requireNonNull(runId, "runId 不能为空");
         event = Objects.requireNonNull(event, "event 不能为空");
         boolean sessionLevel = event instanceof LifecycleEvent.SessionStarted
-                || event instanceof LifecycleEvent.SessionEnded;
+                || event instanceof LifecycleEvent.SessionEnded
+                || event instanceof PlanExecutionBlockedEvent;
         if (sessionLevel && runId.isPresent()) {
             throw new IllegalArgumentException("Session 级事件不能携带 runId");
         }

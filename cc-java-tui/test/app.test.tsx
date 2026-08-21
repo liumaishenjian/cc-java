@@ -1763,7 +1763,7 @@ describe('continuous plan Ink interaction', () => {
     view.stdin.write('\r');
     await waitForFrame(() => client.planReviewResolutions.length === 1);
     expect(client.planReviewResolutions).toEqual([
-      `plan-a:3:${'a'.repeat(64)}:${'b'.repeat(64)}:APPROVE_USER:KEEP`,
+      `plan-a:3:${'a'.repeat(64)}:${'b'.repeat(64)}:APPROVE_USER:KEEP:`,
     ]);
     view.unmount();
   });
@@ -1790,7 +1790,7 @@ describe('continuous plan Ink interaction', () => {
     view.unmount();
   });
 
-  it('continue planning uses its distinct arrow-selected decision', async () => {
+  it('selects feedback, accepts keyboard input, and receives a fresh run for the same plan', async () => {
     const client = new FakeAgentClient();
     const view = await initializedTui(client);
     view.stdin.write('plan task'); view.stdin.write(String.fromCharCode(13));
@@ -1809,8 +1809,51 @@ describe('continuous plan Ink interaction', () => {
     view.stdin.write(String.fromCharCode(27) + '[B');
     await waitForFrame(() => (view.lastFrame() ?? '').includes('❯ 带反馈继续规划'));
     view.stdin.write(String.fromCharCode(13));
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('请输入计划反馈'));
+    view.stdin.write(String.fromCharCode(13));
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('继续规划需要非空反馈'));
+    expect(client.planReviewResolutions).toEqual([]);
+    view.stdin.write('refine rollback verification');
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('refine rollback verification'));
+    view.stdin.write(String.fromCharCode(13));
     await waitForFrame(() => client.planReviewResolutions.length === 1);
-    expect(client.planReviewResolutions[0]).toContain(':CONTINUE_PLANNING:CLEAR');
+    expect(client.planReviewResolutions[0]).toContain(':CONTINUE_PLANNING:CLEAR:refine rollback verification');
+    client.emit({version: 0, type: 'plan.feedback.accepted', requestId: 'tui-plan-review-1', sessionId: 'session-1',
+      sequence: 5, payload: {planId: 'plan-choice', status: 'draft', revision: 5, contentDigest: '1'.repeat(64)}});
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-plan-review-1', sessionId: 'session-1',
+      runId: 'run-feedback', sequence: 6, payload: {}});
+    client.emit({version: 0, type: 'model.text.delta', requestId: 'tui-plan-review-1', sessionId: 'session-1',
+      runId: 'run-feedback', sequence: 7, payload: {text: 'refined planning round'}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('refined planning round'));
+    expect(view.lastFrame()).toContain('反馈已接受，正在为同一计划启动新的规划回合');
+    expect(view.lastFrame()).not.toContain('决定已发送');
+    expect(view.lastFrame()).not.toContain('带反馈继续规划');
+    expect(view.lastFrame()).not.toContain('请输入计划反馈');
+    view.unmount();
+  });
+
+  it('Escape cancels feedback input and returns to all four review choices', async () => {
+    const client = new FakeAgentClient();
+    const view = await initializedTui(client);
+    view.stdin.write('plan cancel task'); view.stdin.write(String.fromCharCode(13));
+    await waitForFrame(() => client.prompts.length === 1);
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-review', sequence: 2, payload: {}});
+    client.emit({version: 0, type: 'plan.review.requested', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-review', sequence: 3, payload: {planId: 'plan-cancel', status: 'awaiting_approval', revision: 2,
+        contentDigest: '2'.repeat(64), markdown: '# Cancel feedback', workspaceDigest: '3'.repeat(64),
+        originalPermissionMode: 'default', suggestedContextPolicy: 'keep'}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('Cancel feedback'));
+    view.stdin.write(String.fromCharCode(27) + '[B');
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('❯ 批准并执行（后续 Tool 正常逐项询问）'));
+    view.stdin.write(String.fromCharCode(27) + '[B');
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('❯ 带反馈继续规划'));
+    view.stdin.write(String.fromCharCode(13));
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('请输入计划反馈'));
+    view.stdin.write('discard me'); view.stdin.write(String.fromCharCode(27));
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('批准并自动执行'));
+    expect(view.lastFrame()).toContain('拒绝并退出');
+    expect(client.planReviewResolutions).toEqual([]);
     view.unmount();
   });
 
@@ -1877,7 +1920,7 @@ class FakeAgentClient implements AgentClient {
     readonly decision: 'APPROVE_AUTO' | 'APPROVE_USER' | 'CONTINUE_PLANNING' | 'REJECT';
     readonly contextPolicy: 'KEEP' | 'CLEAR'; readonly feedback: string;
   }): string {
-    this.planReviewResolutions.push(`${input.planId}:${input.revision}:${input.contentDigest}:${input.workspaceDigest}:${input.decision}:${input.contextPolicy}`);
+    this.planReviewResolutions.push(`${input.planId}:${input.revision}:${input.contentDigest}:${input.workspaceDigest}:${input.decision}:${input.contextPolicy}:${input.feedback}`);
     return `tui-plan-review-${this.planReviewResolutions.length}`;
   }
 

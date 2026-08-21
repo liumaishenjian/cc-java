@@ -55,12 +55,39 @@ final class AgentRunState {
         return ++modelTurns;
     }
 
+    /**
+     * 在追加 Assistant Tool Call 批次前原子预留整个批次预算。
+     *
+     * <p>一次成功进展可以把软窗口按固定步长连续推进到容纳该批次所需的位置；方法绝不返回
+     * {@link BudgetGovernanceReason#PROGRESS_EXTENDED} 后再让批内计数失败。显式上限或绝对
+     * ceiling 无法容纳整批时不允许部分执行，以保持 Assistant Message 与全部 Tool Result
+     * 一一配对。</p>
+     *
+     * @param batchSize 同一 Assistant Message 中的 Tool Call 数量
+     * @return 空表示现有窗口足够；否则返回续租或确定性终止原因
+     */
     Optional<BudgetGovernanceReason> ensureToolBatchBudget(int batchSize) {
         if (batchSize < 0) throw new IllegalArgumentException("batchSize 不能小于 0");
-        if (toolCalls + batchSize <= effectiveToolLimit) return Optional.empty();
-        Optional<BudgetGovernanceReason> reason = extendOrReason(false);
-        return toolCalls + batchSize <= effectiveToolLimit
-                ? Optional.of(BudgetGovernanceReason.PROGRESS_EXTENDED) : reason;
+        long required = (long) toolCalls + batchSize;
+        if (required <= effectiveToolLimit) return Optional.empty();
+        if (limits.budgetPolicy() == AgentBudgetPolicy.EXPLICIT_HARD) {
+            return Optional.of(BudgetGovernanceReason.EXPLICIT_LIMIT);
+        }
+        if (required > limits.absoluteMaxToolCalls()) {
+            effectiveToolLimit = limits.absoluteMaxToolCalls();
+            return Optional.of(BudgetGovernanceReason.ABSOLUTE_LIMIT);
+        }
+        if (!toolProgressSinceGovernance) {
+            return Optional.of(BudgetGovernanceReason.NO_PROGRESS);
+        }
+
+        long missing = required - effectiveToolLimit;
+        long extensions = (missing + TOOL_EXTENSION - 1L) / TOOL_EXTENSION;
+        effectiveToolLimit = (int) Math.min(
+                limits.absoluteMaxToolCalls(),
+                (long) effectiveToolLimit + extensions * TOOL_EXTENSION);
+        toolProgressSinceGovernance = false;
+        return Optional.of(BudgetGovernanceReason.PROGRESS_EXTENDED);
     }
 
     int recordToolCall() {

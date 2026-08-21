@@ -122,6 +122,38 @@ public final class WorkspaceGuard {
     }
 
     /**
+     * 仅为 Workspace revision 捕获验证路径身份，不应用正文读取所需的敏感名称拒绝。
+     *
+     * <p>该入口仍拒绝绝对路径、traversal、缺失目标和链接逃逸，只允许摘要器读取文件系统
+     * metadata；它不是文件 Tool 的读取授权，调用方不得据此打开文件正文。</p>
+     *
+     * @param input 由固定 Git 枚举返回的 Workspace-relative 路径
+     * @return 已验证、仍位于 Workspace 内的真实路径
+     * @throws WorkspaceAccessException 路径非法、缺失或链接逃逸时
+     */
+    public ValidatedWorkspacePath requireMetadataOnlyForWorkspaceDigest(String input)
+            throws WorkspaceAccessException {
+        Path logicalRelative = parseRelative(input);
+        Path logicalTarget = workspace.resolve(logicalRelative).normalize();
+        if (!logicalTarget.startsWith(workspace)) {
+            throw error(ToolErrorCode.WORKSPACE_BOUNDARY_VIOLATION, "路径不能越过 Workspace");
+        }
+        if (!Files.exists(logicalTarget, LinkOption.NOFOLLOW_LINKS)) {
+            throw error(ToolErrorCode.PATH_NOT_FOUND, "目标路径不存在");
+        }
+        Path realTarget;
+        try {
+            realTarget = logicalTarget.toRealPath();
+        } catch (IOException exception) {
+            throw error(ToolErrorCode.PATH_NOT_FOUND, "目标路径无法解析");
+        }
+        if (!realTarget.startsWith(workspace)) {
+            throw error(ToolErrorCode.LINK_ESCAPE, "链接目标位于 Workspace 外");
+        }
+        return new ValidatedWorkspacePath(realTarget, protocol(logicalRelative));
+    }
+
+    /**
      * 要求目标是普通文件。
      *
      * @param input 模型路径

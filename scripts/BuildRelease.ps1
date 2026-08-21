@@ -37,22 +37,78 @@ if ($out -eq $releaseRoot) {
     throw 'OutputDirectory is invalid'
 }
 
-if (-not $SkipBuild) {
-    & $mavenWrapper -DskipTests package
-    if ($LASTEXITCODE -ne 0) { throw 'Maven package failed' }
+function Get-SourceDigest {
+    $inputs = @(Get-ChildItem -LiteralPath $root -File -Recurse | Where-Object {
+        $relative = [IO.Path]::GetRelativePath($root, $_.FullName).Replace('\','/')
+        ($relative -match '^(cc-java-[^/]+/src/(main|test)/|cc-java-tui/(src|test)/|scripts/).+') -and
+        $relative -notmatch '(^|/)(target|dist|node_modules|\.claude)(/|$)' -and
+        $relative -ne 'generate_henan_weather_xlsx.py'
+    } | Sort-Object FullName)
+    $accumulator = [Text.StringBuilder]::new()
+    foreach ($file in $inputs) {
+        $relative = [IO.Path]::GetRelativePath($root, $file.FullName).Replace('\','/')
+        [void]$accumulator.Append($relative).Append(':').Append(
+            (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash.ToLowerInvariant()).Append("`n")
+    }
+    return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+        [Text.Encoding]::UTF8.GetBytes($accumulator.ToString()))).ToLowerInvariant()
 }
 
+function Get-TreeDigest([string]$Directory) {
+    if (-not (Test-Path -LiteralPath $Directory -PathType Container)) { throw 'Compiled TUI directory missing' }
+    $accumulator = [Text.StringBuilder]::new()
+    foreach ($file in (Get-ChildItem -LiteralPath $Directory -File -Recurse | Sort-Object FullName)) {
+        $relative = [IO.Path]::GetRelativePath($Directory, $file.FullName).Replace('\','/')
+        [void]$accumulator.Append($relative).Append(':').Append(
+            (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash.ToLowerInvariant()).Append("`n")
+    }
+    return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+        [Text.Encoding]::UTF8.GetBytes($accumulator.ToString()))).ToLowerInvariant()
+}
+
+$commit = (& git -C $root rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[0-9a-f]{40}$') { throw 'Current Git commit unavailable' }
 $tuiRoot = Join-Path $root 'cc-java-tui'
+$tuiDirectory = Join-Path $tuiRoot 'dist/src'
+$cli = Join-Path $root 'cc-java-cli/target/cc-java-cli-0.1.0.jar'
+$attestationPath = Join-Path $root 'target/codej-build-attestation.json'
+
+$sourceDigest = Get-SourceDigest
+$priorAttestation = $null
+if ($SkipBuild -or $SkipTuiBuild) {
+    try { $priorAttestation = Get-Content -LiteralPath $attestationPath -Raw | ConvertFrom-Json }
+    catch { throw 'Skipped build requires a valid build attestation; rebuild the Java and TUI artifacts' }
+    if ($priorAttestation.schema -ne 'codej-build-attestation-v1' `
+            -or $priorAttestation.currentCommit -ne $commit -or $priorAttestation.sourceDigest -ne $sourceDigest) {
+        throw 'Skipped build source identity mismatch; rebuild the Java and TUI artifacts'
+    }
+}
+if (-not $SkipBuild) {
+    & $mavenWrapper -q -pl cc-java-cli -am install -DskipTests
+    if ($LASTEXITCODE -ne 0) { throw 'Maven install failed' }
+}
 if (-not $SkipTuiBuild) {
     $npm = if ($IsWindows) { 'npm.cmd' } else { 'npm' }
     & $npm --prefix $tuiRoot run build
     if ($LASTEXITCODE -ne 0) { throw 'TUI build failed' }
 }
-$tuiEntry = Join-Path $tuiRoot 'dist/src/index.js'
-if (-not (Test-Path -LiteralPath $tuiEntry -PathType Leaf)) { throw 'Compiled TUI entry missing' }
-
-$cli = Join-Path $root 'cc-java-cli/target/cc-java-cli-0.1.0.jar'
 if (-not (Test-Path -LiteralPath $cli -PathType Leaf)) { throw 'CLI JAR missing' }
+if (-not (Test-Path -LiteralPath (Join-Path $tuiDirectory 'index.js') -PathType Leaf)) { throw 'Compiled TUI entry missing' }
+
+$cliDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath $cli).Hash.ToLowerInvariant()
+$tuiDigest = Get-TreeDigest $tuiDirectory
+if (($SkipBuild -and $priorAttestation.cliDigest -ne $cliDigest) `
+        -or ($SkipTuiBuild -and $priorAttestation.tuiDigest -ne $tuiDigest)) {
+    throw 'Skipped build artifact identity mismatch; rebuild the Java and TUI artifacts'
+}
+[ordered]@{
+    schema = 'codej-build-attestation-v1'
+    currentCommit = $commit
+    sourceDigest = $sourceDigest
+    cliDigest = $cliDigest
+    tuiDigest = $tuiDigest
+} | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath $attestationPath -Encoding utf8NoBOM
+
 $runtimeDependencies = Join-Path $root 'cc-java-cli/target/release-dependency'
 Remove-Item -LiteralPath $runtimeDependencies -Recurse -Force -ErrorAction SilentlyContinue
 & $mavenWrapper -q -pl cc-java-cli -am install -DskipTests
@@ -258,28 +314,12 @@ $sbom = [ordered]@{
 }
 $sbom | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $staging 'sbom.cdx.json') -Encoding utf8NoBOM
 
-# 构建身份在复制完成后由当前 Git HEAD、生产输入摘要和发行物摘要共同固定。
-# dirty 工作树仍可构建测试候选，但 currentCommit + sourceDigest 可证明它不是陈旧 JAR/TUI。
-$commit = (& git -C $root rev-parse HEAD).Trim()
-if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[0-9a-f]{40}$') { throw 'Current Git commit unavailable' }
-$sourceInputs = @(
-    Get-ChildItem -LiteralPath $root -File -Recurse | Where-Object {
-        $relative = [IO.Path]::GetRelativePath($root, $_.FullName).Replace('\','/')
-        ($relative -match '^(cc-java-[^/]+/src/(main|test)/|cc-java-tui/(src|test)/|scripts/).+') -and
-        $relative -notmatch '(^|/)(target|dist|node_modules|\.claude)(/|$)' -and
-        $relative -ne 'generate_henan_weather_xlsx.py'
-    } | Sort-Object FullName
-)
-$sourceAccumulator = [Text.StringBuilder]::new()
-foreach ($file in $sourceInputs) {
-    $relative = [IO.Path]::GetRelativePath($root, $file.FullName).Replace('\','/')
-    [void]$sourceAccumulator.Append($relative).Append(':').Append(
-        (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash.ToLowerInvariant()).Append("`n")
+# staging 必须再次对账受控 build attestation，复制不能改变被证明的产物身份。
+$stagedCliDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $staging 'app/cc-java-cli.jar')).Hash.ToLowerInvariant()
+$stagedTuiDigest = Get-TreeDigest (Join-Path $staging 'tui/dist/src')
+if ($stagedCliDigest -ne $cliDigest -or $stagedTuiDigest -ne $tuiDigest) {
+    throw 'Staged artifacts do not match the build attestation'
 }
-$sourceDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
-    [Text.Encoding]::UTF8.GetBytes($sourceAccumulator.ToString()))).ToLowerInvariant()
-$cliDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $staging 'app/cc-java-cli.jar')).Hash.ToLowerInvariant()
-$tuiDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $staging 'tui/dist/src/index.js')).Hash.ToLowerInvariant()
 
 $artifactFiles = Get-ChildItem -LiteralPath $staging -File -Recurse |
     Where-Object Name -ne 'SHA256SUMS' |

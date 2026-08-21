@@ -33,12 +33,26 @@ class PlanModeCoordinatorTest {
         assertThat(coordinator.completeStep("digest-a").status()).isEqualTo(PlanStatus.COMPLETED);
     }
 
-    @Test void completionRequiresMatchingDigestAndRollsForwardExpectedDigest() {
+    @Test void successfulStepAcceptsItsOwnWorkspaceChangeAndRollsDigestForward() {
         PlanModeCoordinator coordinator = new PlanModeCoordinator(plan());
         coordinator.approve("digest-a");
         coordinator.beginNext("digest-a");
-        assertThat(coordinator.completeStep("digest-b").status()).isEqualTo(PlanStatus.DIGEST_CONFLICT);
-        assertThat(coordinator.completeStep("digest-a").status()).isEqualTo(PlanStatus.DIGEST_CONFLICT);
+
+        assertThat(coordinator.completeStep("digest-after-write").status()).isEqualTo(PlanStatus.APPROVED);
+        assertThat(coordinator.document().steps().get(1).expectedDigest()).isEqualTo("digest-after-write");
+        assertThat(coordinator.beginNext("digest-after-write")).contains(coordinator.document().steps().get(1));
+        assertThat(coordinator.completeStep("digest-after-second-write").status()).isEqualTo(PlanStatus.COMPLETED);
+        assertThat(coordinator.document().workspaceDigest()).isEqualTo("digest-after-second-write");
+    }
+
+    @Test void driftBeforeNextStepRemainsBlockedAfterSuccessfulWrite() {
+        PlanModeCoordinator coordinator = new PlanModeCoordinator(plan());
+        coordinator.approve("digest-a");
+        coordinator.beginNext("digest-a");
+        coordinator.completeStep("digest-after-write");
+
+        assertThat(coordinator.beginNext("digest-external-drift")).isEmpty();
+        assertThat(coordinator.state().status()).isEqualTo(PlanStatus.DIGEST_CONFLICT);
     }
 
     @Test void legacyCompletionFailsClosed() {

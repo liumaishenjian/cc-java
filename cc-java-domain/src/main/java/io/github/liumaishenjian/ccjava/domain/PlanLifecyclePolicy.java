@@ -48,6 +48,7 @@ public final class PlanLifecyclePolicy {
                     || to == PlanStatus.REJECTED
                     || to == PlanStatus.DIGEST_CONFLICT;
             case APPROVED -> to == PlanStatus.EXECUTING
+                    || to == PlanStatus.AWAITING_APPROVAL
                     || to == PlanStatus.REJECTED
                     || to == PlanStatus.DIGEST_CONFLICT;
             case EXECUTING -> to == PlanStatus.APPROVED

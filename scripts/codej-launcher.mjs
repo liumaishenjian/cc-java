@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
-import {existsSync, readFileSync} from 'node:fs';
-import {dirname, isAbsolute, join, resolve} from 'node:path';
+import {existsSync, readFileSync, readdirSync} from 'node:fs';
+import {dirname, isAbsolute, join, relative, resolve, sep} from 'node:path';
 import process from 'node:process';
 import {fileURLToPath} from 'node:url';
 
@@ -16,10 +16,13 @@ main();
 function main() {
   const args = process.argv.slice(2);
   if (args.length === 1 && args[0] === '--help') return printHelp();
-  if (args.length === 1 && args[0] === '--version') return printVersion();
-  if (args.length === 1 && args[0] === 'doctor') return doctor();
   if (args.length === 1 && args[0] === 'update') return manageInstallation(false);
   if (args.length === 1 && args[0] === 'uninstall') return manageInstallation(true);
+
+  const identity = verifyReleaseIdentity();
+  if (identity === undefined) return exitWith(1);
+  if (args.length === 1 && args[0] === '--version') return printVersion(identity);
+  if (args.length === 1 && args[0] === 'doctor') return doctor();
 
   const java = resolveJava();
   if (isJavaControlCommand(args) || isHeadlessCommand(args)) {
@@ -140,26 +143,47 @@ function manageInstallation(uninstall) {
   return exitWith(run('sh', [join(installationRoot, 'install.sh'), ...(uninstall ? ['--uninstall'] : [])]));
 }
 
-function printVersion() {
+function verifyReleaseIdentity() {
   try {
     const manifest = JSON.parse(readFileSync(join(installationRoot, 'release-manifest.json'), 'utf8'));
     const build = manifest.build ?? {};
     const cli = fileDigest(join(installationRoot, 'app', 'cc-java-cli.jar'));
-    const tui = fileDigest(join(installationRoot, 'tui', 'dist', 'src', 'index.js'));
-    if (build.cliDigest !== cli || build.tuiDigest !== tui || !/^[0-9a-f]{40}$/.test(build.currentCommit ?? '')
+    const tui = treeDigest(join(installationRoot, 'tui', 'dist', 'src'));
+    if (manifest.schema !== 'cc-java-release-manifest-v1' || build.cliDigest !== cli || build.tuiDigest !== tui
+      || !/^[0-9a-f]{40}$/.test(build.currentCommit ?? '')
       || !/^[0-9a-f]{64}$/.test(build.sourceDigest ?? '')) {
-      process.stderr.write('codej: packaged build identity drift detected\n');
-      return exitWith(1);
+      throw new Error('identity drift');
     }
-    process.stdout.write(`codej ${manifest.version} commit=${build.currentCommit} source=${build.sourceDigest} cli=${cli} tui=${tui}\n`);
+    return {manifest, build, cli, tui};
   } catch {
-    process.stderr.write('codej: release manifest unavailable or invalid\n');
-    return exitWith(1);
+    process.stderr.write('codej: packaged build identity drift detected\n');
+    return undefined;
   }
+}
+
+function printVersion(identity) {
+  const {manifest, build, cli, tui} = identity;
+  process.stdout.write(`codej ${manifest.version} commit=${build.currentCommit} source=${build.sourceDigest} cli=${cli} tui=${tui}\n`);
 }
 
 function fileDigest(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+function treeDigest(directory) {
+  const files = [];
+  const visit = current => {
+    for (const entry of readdirSync(current, {withFileTypes: true})) {
+      const path = join(current, entry.name);
+      if (entry.isDirectory()) visit(path);
+      else if (entry.isFile()) files.push(path);
+      else throw new Error('unsupported TUI entry');
+    }
+  };
+  visit(directory);
+  const accumulator = files.sort().map(path =>
+    `${relative(directory, path).split(sep).join('/')}:${fileDigest(path)}\n`).join('');
+  return createHash('sha256').update(accumulator, 'utf8').digest('hex');
 }
 
 function printHelp() {

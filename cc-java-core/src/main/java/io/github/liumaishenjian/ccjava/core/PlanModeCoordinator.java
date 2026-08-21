@@ -89,13 +89,16 @@ public final class PlanModeCoordinator {
     }
 
     /**
-     * 完成活动步骤并以完成后的真实摘要推进下一步预期摘要。
-     * 旧版无参数调用保留为兼容入口，但不会伪造摘要推进。
+     * 完成活动步骤并以成功执行后的真实摘要推进下一步预期摘要。
+     *
+     * <p>步骤开始前的实时漂移由 {@link #beginNext(String)} 与调用方的 Tool 前置 Gate 拦截；
+     * 成功 Tool 本身可以产生预期副作用，因此完成摘要不要求等于步骤开始摘要。下一步只接受这里
+     * 记录的新摘要，从而继续阻止两个步骤之间的外部漂移。旧版无参数调用保留为兼容入口，但不会
+     * 伪造摘要推进。</p>
      */
     public synchronized PlanExecutionState completeStep(String completedDigest) {
         Objects.requireNonNull(completedDigest, "completedDigest 不能为空");
         if (state.activeStep() == null || state.status() != PlanStatus.EXECUTING) return state;
-        if (!state.workspaceDigest().equals(completedDigest)) return conflict(completedDigest);
         int next = state.activeStep() + 1;
         boolean done = next > document.steps().size();
         List<PlanStep> steps = new ArrayList<>(document.steps());

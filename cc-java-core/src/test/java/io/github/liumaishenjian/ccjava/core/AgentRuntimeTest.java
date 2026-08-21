@@ -79,6 +79,60 @@ class AgentRuntimeTest {
     }
 
     @Test
+    void adaptiveToolBudgetRenewsAcrossMultipleStepsBeforeExecutingLargeBatch() {
+        List<ToolCall> largeBatch = java.util.stream.IntStream.range(0, 48)
+                .mapToObj(index -> call("large-" + index, "echo"))
+                .toList();
+        ScriptedModelGateway model = ScriptedModelGateway.of(
+                ModelTurn.tools(List.of(call("progress", "echo"))),
+                ModelTurn.tools(largeBatch),
+                ModelTurn.text("done after large batch"));
+        Harness harness = newHarness(model, successfulTool("echo"));
+
+        AgentRunResult result = harness.run("large progressing batch",
+                AgentLimits.interactive(Duration.ofMinutes(1)));
+
+        assertThat(result.status()).isEqualTo(RunStatus.COMPLETED);
+        assertThat(result.toolCalls()).isEqualTo(49);
+        assertThat(toolResults(harness.session())).hasSize(49);
+        assertThat(harness.events().envelopes()).extracting(AgentEventEnvelope::event)
+                .filteredOn(LifecycleEvent.BudgetGoverned.class::isInstance)
+                .map(LifecycleEvent.BudgetGoverned.class::cast)
+                .filteredOn(event -> event.reason()
+                        == io.github.liumaishenjian.ccjava.domain.BudgetGovernanceReason.PROGRESS_EXTENDED)
+                .singleElement()
+                .satisfies(event -> assertThat(event.effectiveToolLimit()).isEqualTo(64));
+    }
+
+    @Test
+    void adaptiveToolBatchStopsBeforeAppendingWhenAbsoluteCeilingCannotFitWholeBatch() {
+        List<ToolCall> batchNearCeiling = java.util.stream.IntStream.range(0, 46)
+                .mapToObj(index -> call("near-ceiling-" + index, "echo"))
+                .toList();
+        List<ToolCall> batchBeyondCeiling = List.of(
+                call("beyond-ceiling-1", "echo"), call("beyond-ceiling-2", "echo"));
+        ScriptedModelGateway model = ScriptedModelGateway.of(
+                ModelTurn.tools(List.of(call("progress", "echo"))),
+                ModelTurn.tools(batchNearCeiling),
+                ModelTurn.tools(batchBeyondCeiling));
+        Harness harness = newHarness(model, successfulTool("echo"));
+        AgentLimits bounded = new AgentLimits(4, 32, Duration.ofMinutes(1),
+                io.github.liumaishenjian.ccjava.domain.AgentBudgetPolicy.INTERACTIVE_ADAPTIVE, 4, 48);
+
+        AgentRunResult result = harness.run("absolute batch ceiling", bounded);
+
+        assertThat(result.stopReason()).isEqualTo(StopReason.TOOL_LIMIT_REACHED);
+        assertThat(result.toolCalls()).isEqualTo(47);
+        assertThat(toolResults(harness.session())).hasSize(47);
+        assertThat(harness.session().messages()).filteredOn(AssistantMessage.class::isInstance).hasSize(2);
+        assertThat(harness.events().envelopes()).extracting(AgentEventEnvelope::event)
+                .filteredOn(LifecycleEvent.BudgetGoverned.class::isInstance)
+                .map(LifecycleEvent.BudgetGoverned.class::cast)
+                .extracting(LifecycleEvent.BudgetGoverned::reason)
+                .contains(io.github.liumaishenjian.ccjava.domain.BudgetGovernanceReason.ABSOLUTE_LIMIT);
+    }
+
+    @Test
     void adaptiveAbsoluteCeilingStillTerminatesWithExplicitReason() {
         ScriptedModelGateway model = ScriptedModelGateway.of(
                 ModelTurn.tools(List.of(call("absolute-1", "echo"))),
@@ -112,6 +166,71 @@ class AgentRuntimeTest {
 
         assertThat(result.stopReason()).isEqualTo(StopReason.TOOL_LIMIT_REACHED);
         assertThat(result.toolCalls()).isEqualTo(1);
+    }
+
+    @Test
+    void explicitToolCapRejectsWholeOversizedBatchWithoutPartialProtocol() {
+        List<ToolCall> batch = List.of(call("hard-batch-1", "echo"), call("hard-batch-2", "echo"));
+        Harness harness = newHarness(ScriptedModelGateway.of(ModelTurn.tools(batch)), successfulTool("echo"));
+
+        AgentRunResult result = harness.run("explicit batch cap", new AgentLimits(2, 1));
+
+        assertThat(result.stopReason()).isEqualTo(StopReason.TOOL_LIMIT_REACHED);
+        assertThat(result.toolCalls()).isZero();
+        assertThat(toolResults(harness.session())).isEmpty();
+        assertThat(harness.session().messages()).filteredOn(AssistantMessage.class::isInstance).isEmpty();
+        assertThat(harness.events().envelopes()).extracting(AgentEventEnvelope::event)
+                .filteredOn(LifecycleEvent.BudgetGoverned.class::isInstance)
+                .map(LifecycleEvent.BudgetGoverned.class::cast)
+                .extracting(LifecycleEvent.BudgetGoverned::reason)
+                .containsExactly(io.github.liumaishenjian.ccjava.domain.BudgetGovernanceReason.EXPLICIT_LIMIT);
+    }
+
+    @Test
+    void runtimeKeepsForbiddenFingerprintAcrossUnrelatedSuccessAndRecoversAfterSameToolSuccess() {
+        AtomicInteger webExecutions = new AtomicInteger();
+        AgentTool webSearch = new AgentTool() {
+            @Override public io.github.liumaishenjian.ccjava.domain.ToolDefinition definition() {
+                return io.github.liumaishenjian.ccjava.domain.ToolDefinition.readOnlyText(
+                        "web_search", "fingerprint fixture", "{\"type\":\"object\"}");
+            }
+            @Override public ToolValidationResult validate(JsonObject arguments) {
+                return ToolValidationResult.validResult();
+            }
+            @Override public ToolExecutionOutcome execute(ToolInvocation invocation) {
+                webExecutions.incrementAndGet();
+                return invocation.call().arguments().values().get("query").equals("blocked")
+                        ? ToolExecutionOutcome.failure(ToolError.of(
+                                ToolErrorCode.WEB_SEARCH_FORBIDDEN, "typed 403"))
+                        : ToolExecutionOutcome.success("strategy succeeded");
+            }
+        };
+        ToolCall blocked = new ToolCall("blocked-1", "web_search",
+                new JsonObject(Map.of("query", "blocked")));
+        ToolCall status = new ToolCall("status", "git_status", JsonObject.empty());
+        ToolCall repeated = new ToolCall("blocked-2", "web_search",
+                new JsonObject(Map.of("query", "blocked")));
+        ToolCall changed = new ToolCall("changed", "web_search",
+                new JsonObject(Map.of("query", "allowed")));
+        ToolCall retriedAfterSuccess = new ToolCall("blocked-3", "web_search",
+                new JsonObject(Map.of("query", "blocked")));
+        ScriptedModelGateway model = ScriptedModelGateway.of(
+                ModelTurn.tools(List.of(blocked)),
+                ModelTurn.tools(List.of(status)),
+                ModelTurn.tools(List.of(repeated)),
+                ModelTurn.tools(List.of(changed)),
+                ModelTurn.tools(List.of(retriedAfterSuccess)),
+                ModelTurn.text("done"));
+        Harness harness = newHarness(model, webSearch, successfulTool("git_status"));
+
+        AgentRunResult result = harness.run("fingerprint runtime", new AgentLimits(8, 8));
+        List<ToolResult> results = toolResults(harness.session());
+
+        assertThat(result.status()).isEqualTo(RunStatus.COMPLETED);
+        assertThat(results).extracting(value -> value.error().map(ToolError::code).orElse(null))
+                .containsExactly(ToolErrorCode.WEB_SEARCH_FORBIDDEN, null,
+                        ToolErrorCode.REPEATED_FAILURE, null, ToolErrorCode.WEB_SEARCH_FORBIDDEN);
+        assertThat(webExecutions).hasValue(3);
     }
 
     @Test

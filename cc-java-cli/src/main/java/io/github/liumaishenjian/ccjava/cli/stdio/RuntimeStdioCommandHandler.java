@@ -1887,6 +1887,8 @@ public final class RuntimeStdioCommandHandler
                                 ? "plan.verification.completed" : "plan.verification.required",
                         run.requestId, Optional.of(application.sessionId().value()), Optional.empty(), payload);
             });
+        } catch (HeadlessRuntimeSession.PlanExecutionWorkspaceDriftException drift) {
+            // typed session-level plan.execution.blocked 已在抛出前发布；不得再伪造成 run.failed。
         } catch (RuntimeException exception) {
             emitUnexpectedFailure(run);
         }
@@ -2002,6 +2004,15 @@ public final class RuntimeStdioCommandHandler
             payload.put("originalPermissionMode", review.originalPermissionMode().name().toLowerCase(Locale.ROOT));
             payload.put("suggestedContextPolicy", review.suggestedContextPolicy().name().toLowerCase(Locale.ROOT));
             emit(run, "plan.review.requested", payload);
+        } else if (envelope.event() instanceof io.github.liumaishenjian.ccjava.domain.PlanExecutionBlockedEvent blocked) {
+            ObjectNode payload = codec.objectNode();
+            payload.put("planId", blocked.planId());
+            payload.put("approvedRevision", blocked.approvedRevision());
+            payload.put("approvedWorkspaceDigest", blocked.approvedWorkspaceDigest());
+            payload.put("currentWorkspaceDigest", blocked.currentWorkspaceDigest());
+            payload.put("reason", blocked.reason().name().toLowerCase(Locale.ROOT));
+            payload.put("recoveryStatus", blocked.recoveryStatus().name().toLowerCase(Locale.ROOT));
+            emit(run, "plan.execution.blocked", payload);
         } else if (envelope.event() instanceof io.github.liumaishenjian.ccjava.domain.PlanProposalEvent proposal) {
             ObjectNode payload = codec.objectNode();
             payload.put("planId", proposal.planId());

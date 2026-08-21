@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
 $builder = Join-Path $PSScriptRoot 'BuildRelease.ps1'
 
-& $builder -SkipBuild
+& $builder
 if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }
 
 $release = Join-Path $root 'target/release'
@@ -79,11 +79,31 @@ if ($LASTEXITCODE -eq 0 -or ($driftVersion -join "`n") -notlike '*packaged build
     throw 'Launcher did not fail closed on packaged build identity drift'
 }
 $originalManifestText | Set-Content -LiteralPath $manifestPath -Encoding utf8NoBOM
+
+# 所有会执行包内 Java/TUI 的入口都必须先验证身份，而不只 --version。
+$originalCliBytes = [IO.File]::ReadAllBytes((Join-Path $release 'app/cc-java-cli.jar'))
+try {
+    [IO.File]::WriteAllBytes((Join-Path $release 'app/cc-java-cli.jar'), [byte[]](1, 2, 3))
+    $driftStart = & (Join-Path $release 'codej.cmd') --stdio 2>&1
+    if ($LASTEXITCODE -eq 0 -or ($driftStart -join "`n") -notlike '*packaged build identity drift detected*') {
+        throw 'Ordinary launcher start did not fail closed on packaged build identity drift'
+    }
+} finally {
+    [IO.File]::WriteAllBytes((Join-Path $release 'app/cc-java-cli.jar'), $originalCliBytes)
+}
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 $reportedVersion = & (Join-Path $release 'codej.cmd') --version
 $currentCommit = (& git -C $root rev-parse HEAD).Trim()
 $releaseCliDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $release 'app/cc-java-cli.jar')).Hash.ToLowerInvariant()
-$releaseTuiDigest = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $release 'tui/dist/src/index.js')).Hash.ToLowerInvariant()
+$tuiDirectory = Join-Path $release 'tui/dist/src'
+$tuiAccumulator = [Text.StringBuilder]::new()
+foreach ($file in (Get-ChildItem -LiteralPath $tuiDirectory -File -Recurse | Sort-Object FullName)) {
+    $relative = [IO.Path]::GetRelativePath($tuiDirectory, $file.FullName).Replace('\','/')
+    [void]$tuiAccumulator.Append($relative).Append(':').Append(
+        (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash.ToLowerInvariant()).Append("`n")
+}
+$releaseTuiDigest = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+    [Text.Encoding]::UTF8.GetBytes($tuiAccumulator.ToString()))).ToLowerInvariant()
 if ($LASTEXITCODE -ne 0 -or $manifest.build.currentCommit -ne $currentCommit `
         -or $manifest.build.cliDigest -ne $releaseCliDigest -or $manifest.build.tuiDigest -ne $releaseTuiDigest `
         -or $reportedVersion -notlike "codej $($manifest.version) commit=$currentCommit source=* cli=$releaseCliDigest tui=$releaseTuiDigest") {
@@ -105,6 +125,31 @@ if ($stdioProcess.ExitCode -ne 0 -or @($stdioEvents | Where-Object type -eq 'ini
     throw 'Installed launcher Java stdio smoke failed'
 }
 Remove-Item -LiteralPath $stdioInput,$stdioOut,$stdioErr -Force
+
+$attestationPath = Join-Path $root 'target/codej-build-attestation.json'
+$attestationText = Get-Content -LiteralPath $attestationPath -Raw
+try {
+    $tampered = $attestationText | ConvertFrom-Json
+    $tampered.cliDigest = '0' * 64
+    $tampered | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $attestationPath -Encoding utf8NoBOM
+    $failedClosed = $false
+    try { & $builder -SkipBuild -SkipTuiBuild -OutputDirectory 'target/release/attestation-negative' }
+    catch { $failedClosed = $_.Exception.Message -like '*build artifact identity mismatch*' }
+    if (-not $failedClosed) { throw 'Tampered build attestation did not fail closed' }
+} finally {
+    $attestationText | Set-Content -LiteralPath $attestationPath -Encoding utf8NoBOM
+}
+
+$sourceProbe = Join-Path $root 'scripts/.release-source-drift-probe'
+try {
+    'drift' | Set-Content -LiteralPath $sourceProbe -Encoding ascii
+    $failedClosed = $false
+    try { & $builder -SkipBuild -SkipTuiBuild -OutputDirectory 'target/release/source-negative' }
+    catch { $failedClosed = $_.Exception.Message -like '*build source identity mismatch*' }
+    if (-not $failedClosed) { throw 'Stale source/build artifacts did not fail closed' }
+} finally {
+    Remove-Item -LiteralPath $sourceProbe -Force -ErrorAction SilentlyContinue
+}
 
 $escaped = Join-Path $root 'target/release-escape-negative'
 $failedClosed = $false

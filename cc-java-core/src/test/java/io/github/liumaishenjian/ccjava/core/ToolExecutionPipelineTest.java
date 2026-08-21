@@ -19,6 +19,7 @@ import io.github.liumaishenjian.ccjava.domain.RunId;
 import io.github.liumaishenjian.ccjava.domain.SessionSpec;
 import io.github.liumaishenjian.ccjava.domain.ToolCall;
 import io.github.liumaishenjian.ccjava.domain.ToolError;
+import io.github.liumaishenjian.ccjava.domain.ToolErrorCode;
 import io.github.liumaishenjian.ccjava.domain.ToolDefinition;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
 import io.github.liumaishenjian.ccjava.domain.ToolResultMetadata;
@@ -45,6 +46,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class ToolExecutionPipelineTest {
@@ -132,6 +134,45 @@ class ToolExecutionPipelineTest {
                 cancellation.token());
 
         assertThat(observed.get()).isSameAs(cancellation.token());
+    }
+
+    @Test
+    void unrelatedSuccessDoesNotReleaseForbiddenFingerprintButSameToolStrategySuccessDoes() {
+        AtomicInteger webExecutions = new AtomicInteger();
+        AgentTool webSearch = new RecordingAgentTool(
+                "web_search",
+                ignored -> ToolValidationResult.validResult(),
+                invocation -> {
+                    webExecutions.incrementAndGet();
+                    String query = (String) invocation.call().arguments().values().get("query");
+                    return query.equals("blocked")
+                            ? ToolExecutionOutcome.failure(ToolError.of(
+                                    ToolErrorCode.WEB_SEARCH_FORBIDDEN, "typed 403"))
+                            : ToolExecutionOutcome.success("policy success");
+                });
+        AgentTool gitStatus = RecordingAgentTool.succeeding("git_status", "clean");
+        PipelineFixture fixture = fixture(List.of(webSearch, gitStatus));
+        RunId runId = new RunId("run-fingerprint");
+
+        ToolResult first = fixture.execute(runId, 1, "first", "web_search",
+                new JsonObject(Map.of("query", "blocked")));
+        ToolResult unrelated = fixture.execute(runId, 2, "status", "git_status", JsonObject.empty());
+        ToolResult stillBlocked = fixture.execute(runId, 3, "retry", "web_search",
+                new JsonObject(Map.of("query", "blocked")));
+        ToolResult changed = fixture.execute(runId, 4, "changed", "web_search",
+                new JsonObject(Map.of("query", "allowed")));
+        ToolResult retriedAfterPolicySuccess = fixture.execute(runId, 5, "retry-after-success", "web_search",
+                new JsonObject(Map.of("query", "blocked")));
+
+        assertThat(first.error()).get().extracting(ToolError::code)
+                .isEqualTo(ToolErrorCode.WEB_SEARCH_FORBIDDEN);
+        assertThat(unrelated.status()).isEqualTo(ToolResultStatus.SUCCESS);
+        assertThat(stillBlocked.error()).get().extracting(ToolError::code)
+                .isEqualTo(ToolErrorCode.REPEATED_FAILURE);
+        assertThat(changed.status()).isEqualTo(ToolResultStatus.SUCCESS);
+        assertThat(retriedAfterPolicySuccess.error()).get().extracting(ToolError::code)
+                .isEqualTo(ToolErrorCode.WEB_SEARCH_FORBIDDEN);
+        assertThat(webExecutions).hasValue(3);
     }
 
     @Test
@@ -411,6 +452,21 @@ class ToolExecutionPipelineTest {
                         io.github.liumaishenjian.ccjava.domain.ApprovalResponse.allowOnce());
     }
 
+    private static PipelineFixture fixture(List<AgentTool> tools) {
+        RecordingAgentEventSink events = new RecordingAgentEventSink();
+        LifecycleDispatcher lifecycle = new LifecycleDispatcher(CLOCK, events);
+        InMemorySessionStore sessions = new InMemorySessionStore(new SequentialAgentIdGenerator(), lifecycle);
+        AgentSession session = sessions.create(SessionSpec.of("test"));
+        ToolExecutionPipeline pipeline = new ToolExecutionPipeline(
+                new ToolRegistry(tools),
+                (ignoredInvocation, definition) -> PermissionOutcome.of(PermissionDecision.ALLOW,
+                        PermissionReason.EFFECT_DEFAULT,
+                        PermissionSelector.toolWide(definition.name(), definition.source())),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) -> ApprovalResponse.allowOnce(),
+                lifecycle);
+        return new PipelineFixture(pipeline, session, tools.get(0).definition().name());
+    }
+
     private static PipelineFixture fixtureWithPlan(AgentTool tool, PlanModeCoordinator plan) {
         RecordingAgentEventSink events = new RecordingAgentEventSink();
         LifecycleDispatcher lifecycle = new LifecycleDispatcher(CLOCK, events);
@@ -468,11 +524,11 @@ class ToolExecutionPipelineTest {
             String toolName) {
 
         ToolResult execute() {
-            return pipeline.execute(
-                    session,
-                    new RunId("run-1"),
-                    1,
-                    new ToolCall("call-1", toolName, JsonObject.empty()));
+            return execute(new RunId("run-1"), 1, "call-1", toolName, JsonObject.empty());
+        }
+
+        ToolResult execute(RunId runId, int ordinal, String callId, String name, JsonObject arguments) {
+            return pipeline.execute(session, runId, ordinal, new ToolCall(callId, name, arguments));
         }
     }
 }

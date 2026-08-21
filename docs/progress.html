@@ -223,7 +223,7 @@
     }
   </style>
 </head>
-<body data-matrix-digest="47c34586456c" data-state-digest="3a73e2ed7e71" data-code-digest="9ab000ed3cac">
+<body data-matrix-digest="3453989652bb" data-state-digest="41ce826ae411" data-code-digest="d0bbc3643289">
   <main class="shell">
     <section class="hero">
       <p class="eyebrow">Reference-driven Java Agent Runtime</p>
@@ -330,13 +330,13 @@
         </div>
       </div>
       <dl class="evidence-grid">
-        <div class="evidence-item"><dt>Last change</dt><dd>ADR-080 Batch 5：Plan 完成只接受 WorkspaceGuard 文件或 canonical 成功 ToolResult 证据；typed user skip durable/auditable；安装包绑定 commit/source/JAR/TUI digest 并 fail closed；提交前修正两个 Java 字符校验中的 NUL 源文件字节并完成全量回归。能力等级无变化。</dd></div>
+        <div class="evidence-item"><dt>Last change</dt><dd>修复真实 Java Plan review 的 Workspace revision 捕获：Git-aware digest 对敏感名称路径只绑定 Git 状态与稳定 metadata、不读取正文，避免合法仓库因 SENSITIVE_PATH 在 review 发布阶段收敛为 internal_error；真实 Java E2E 超时诊断新增受限 stopReason 与成功 Tool 名。能力等级无变化。</dd></div>
         <div class="evidence-item"><dt>Evidence stage</dt><dd><code>S15</code></dd></div>
         <div class="evidence-item"><dt>Evidence class</dt><dd><code>WORKTREE_VERIFIED</code></dd></div>
         <div class="evidence-item"><dt>Code commit</dt><dd><code>2cc4fc65c9a8571b350a70bc4ff142fa46f6cdce</code></dd></div>
         <div class="evidence-item"><dt>Standard command</dt><dd><code>./mvnw.cmd clean verify；npm --prefix cc-java-tui run check；real Java Plan E2E；TestBuildRelease；TestCodejDevLauncher；PackageDistribution/TestInstallDistribution；dashboard generate/check/self-test；git diff --check</code></dd></div>
         <div class="evidence-item"><dt>Result</dt><dd>Batch 5 Maven clean verify 1121 tests/36 skips、0 failure/error；TUI 221/221 + real Java 1/1；release 77 components/4810 checksums、dev launcher 60 assertions、安装 lifecycle 通过；Dashboard/diff 待最终对账。Capability Level 无变化。</dd></div>
-        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix 47c34586456c</code><br><code>state 3a73e2ed7e71</code><br><code>code/build 9ab000ed3cac</code></dd></div>
+        <div class="evidence-item"><dt>Source digests</dt><dd><code>matrix 3453989652bb</code><br><code>state 41ce826ae411</code><br><code>code/build d0bbc3643289</code></dd></div>
       </dl>
     </section>
 

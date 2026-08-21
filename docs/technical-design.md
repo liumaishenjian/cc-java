@@ -22,7 +22,7 @@
 >
 > 阶段与能力权威：[功能对照矩阵](./feature-parity-matrix.md)
 >
-> Plan gate 当前仍为 S15 L1。ADR-076 提供 durable Markdown artifact；ADR-077 以同一 Session 的正常多轮 loop、capability/effect 双 Gate、CAS 控制 Tool、callId 结构化问题和 durable review 取代用户严格 JSON/静态五 Tool 路径。旧 `PlanDocument`/parser/命令只保留内部兼容。Batch 3 durable approval-to-execution 已实现；Evidence Gate 与真实 Provider Eval 仍未完成，不提前提升等级。
+> Plan gate 当前仍为 S15 L1。ADR-076 提供 durable Markdown artifact；ADR-077 以同一 Session 的正常多轮 loop、capability/effect 双 Gate、CAS 控制 Tool、callId 结构化问题和 durable review 取代用户严格 JSON/静态五 Tool 路径。旧 `PlanDocument`/parser/命令只保留内部兼容。Batch 3 durable approval-to-execution 与 Batch 5 Evidence Gate/安装版构建身份闭环均已实现；真实 Provider Plan 质量与 S15 L4 A/B Eval 仍未完成，不提前提升等级。
 >
 > PERM-05 Eval 采用默认离线 registered-seed harness：只聚合 typed decision、failure kind、latency、usage-derived cost、gateway/fast-path/circuit counters，不保存 Prompt、模型输出、原始 Tool args、文件正文或 Secret。真实 Provider suite 必须显式 opt-in；环境变量或凭证缺失时结构化报告为 `SKIPPED`，普通 CI 不受影响，且只断言安全阈值而不依赖固定自然语言。
 
@@ -520,11 +520,14 @@ Sub-Agent requested budget 继续使用 `EXPLICIT_HARD`，因此显式上限不�
 Context/Token/output ceiling 完全正交且保持既有优先级。
 
 每个 Run 在唯一 `ToolExecutionPipeline` 内拥有短生命周期 `ToolFailureFingerprintGovernance`。参数校验后，
-它把 Tool 名、递归键排序且类型保真的 JSON 参数摘要与 `ToolFailureCategory` 组成 SHA-256 fingerprint；
-不使用错误 message、stdout/stderr、网页正文或 Secret。第一次执行失败按正常 Result 进入模型；第二个
-相同调用在 Pre Hook、Permission、AutoReview 与 Adapter 前以 `REPEATED_FAILURE` 结算，details 只包含
-`requiredStrategyChange` 与允许的变化维度。changed args/tool/category 和成功调用不匹配。Run finally 清除
-内存状态，不形成 Session Grant 或跨 Session cache。
+它以 Tool 名、递归键排序且类型保真的 JSON 参数摘要与 `ToolFailureCategory` 保存类型化失败记录；不使用
+错误 message、stdout/stderr、网页正文或 Secret。第一次执行失败按正常 Result 进入模型。由于执行前无法
+预知重试将产生的类别，第二个同 Tool+参数调用只要匹配任一既有失败记录，就在 Pre Hook、Permission、
+AutoReview 与 Adapter 前以 `REPEATED_FAILURE` 结算；Adapter 内对同一次 HTTP 调用执行的 429/5xx 有界
+重试不属于模型再次发起 Tool call，不经过该第二次调用 Gate。details 只包含 `requiredStrategyChange` 与允许
+的变化维度。变更 Tool/参数会形成新策略；同 Tool 的真实变参成功清除该 Tool 旧记录，Workspace/System
+成功只可跨 Tool 清除 `PROCESS_EXIT`，无关读取、Plan 控制或 HTTP/Permission 成功不清除。Run finally
+清空全部内存状态，不形成 Session Grant 或跨 Session cache。
 
 `ToolErrorCode` 保留具体纠正语义，新增正交 taxonomy/retryable。Provider Mapper 将
 `code/category/retryable/message/details` 与可选有界失败证据投影给模型；Session JSONL 新记录持久化
@@ -1974,10 +1977,14 @@ workspace digest 固定 Ledger；journal 与 manifest 完整持久化。
 
 执行 Run 正常终止后，Java 验证器重新解析 Workspace 普通文件并计算 digest，或从规范消息查找同名
 `SUCCESS` ToolResult。最终回答、Markdown、stderr 与模型自述永不构成证据。required 项为空或存在未通过
-项时，Plan 写 `NEEDS_VERIFICATION`；全部 PASSED，或每个缺失项都有具体 `decision-*` typed skip，才写
-`COMPLETED`。skip 是独立 Application API，活动 Run 中拒绝，并作为新 artifact revision 持久化。
+项时，Plan 写 `NEEDS_VERIFICATION`；全部 PASSED，或每个缺失项都由可信用户决定端口批准一个绑定
+`sessionId + planId + approved revision + requirementId` 的 typed one-time decision，才写 `COMPLETED`。
+`decision-*` 只是有界 opaque ID 格式，字符串本身没有授权力；Runtime 签发后在内存登记并一次性消费，
+伪造同值对象、跨 requirement 使用与重放均拒绝。skip 是独立 Application API，活动 Run 中拒绝，并作为
+新 artifact revision 持久化审计结果。
 
 Ink 的 provider login 使用同步 ref 锁阻止重复副作用，同时保持 `useInput` 活跃，使 one-shot stdin 保存
 完成页的 Enter 可收敛；Plan review 用单一四项 picker 和真实 Arrow/Tab/Enter。发行构建把 current commit、
-生产输入 digest、CLI JAR 与编译 TUI digest 写入 manifest；launcher `--version` 重新计算两个包内 digest，
-漂移 exit 1。安装版 smoke 真实启动该包的 Java stdio initialize/shutdown；这不是 Provider 或网络证据。
+生产输入 digest、CLI JAR 与编译 TUI digest 写入 manifest；launcher 在所有会执行包内 Java/TUI 代码的
+入口前重新计算两个包内 digest 并对账，漂移即 exit 1；`--version` 是该身份的可见投影路径之一。安装版
+smoke 真实启动该包的 Java stdio initialize/shutdown；这不是 Provider 或网络证据。

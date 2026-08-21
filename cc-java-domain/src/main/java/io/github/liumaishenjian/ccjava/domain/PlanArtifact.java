@@ -146,6 +146,26 @@ public record PlanArtifact(
     }
 
     /**
+     * 在执行前发现 Workspace 漂移时撤销旧执行交接并重新打开审批。
+     *
+     * <p>正文与 requirement 保持不变；ExecutionBrief、审批绑定和旧证据全部清除，避免旧批准
+     * 在新 Workspace 上被恢复或重放。</p>
+     *
+     * @param timestamp 漂移被确定性 Gate 发现的时间
+     * @return 状态为 AWAITING_APPROVAL 的下一 revision
+     */
+    public PlanArtifact reopenApprovalAfterWorkspaceDrift(Instant timestamp) {
+        if (status != PlanStatus.APPROVED || executionBrief.isEmpty()) {
+            throw new IllegalStateException("只有已批准且未执行的工件可以因 Workspace 漂移重新审批");
+        }
+        Instant requested = Objects.requireNonNull(timestamp, "timestamp 不能为空");
+        Instant monotonic = requested.isBefore(updatedAt) ? updatedAt : requested;
+        return new PlanArtifact(planId, sessionId, Math.addExact(revision, 1), markdownContent, contentDigest,
+                PlanStatus.AWAITING_APPROVAL, createdAt, monotonic, java.util.Optional.empty(),
+                evidenceLedger.resetForReapproval(monotonic));
+    }
+
+    /**
      * 以已经验证的 Ledger 生成下一 revision；调用方仍须通过 store CAS 持久化。
      *
      * @param ledger 同一 Plan/Session/brief 绑定的新 Ledger

@@ -27,6 +27,7 @@ public final class GitReadClient {
     /** Git stdout 最大字节数。 */
     public static final int MAX_STDOUT_BYTES = 2 * 1024 * 1024;
     private static final int MAX_STDERR_BYTES = 16 * 1024;
+    private static final int MAX_DIGEST_STDOUT_BYTES = 8 * 1024 * 1024;
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
 
     private final Path workspace;
@@ -81,14 +82,50 @@ public final class GitReadClient {
      */
     public boolean isRepository() {
         try {
-            GitReadResult result = execute(List.of("rev-parse", "--is-inside-work-tree"));
-            return result.stdout().strip().equals("true");
+            return requireRepository();
         } catch (GitReadException exception) {
             return false;
         }
     }
 
+    /**
+     * 严格判断当前 Workspace 是否位于 Git work tree，避免 Git 故障静默退化为全树扫描。
+     *
+     * @return 只读 rev-parse 明确返回 true 时为 {@code true}
+     * @throws GitReadException Git 不可用、超时、非仓库或命令失败时
+     */
+    public boolean requireRepository() throws GitReadException {
+        GitReadResult result = execute(List.of("rev-parse", "--is-inside-work-tree"));
+        return result.stdout().strip().equals("true");
+    }
+
+    /**
+     * 读取实时 Workspace 摘要所需的固定 Git 输入。
+     *
+     * <p>只枚举 index tracked 与遵循 standard excludes 的 untracked；index 与 porcelain
+     * 状态单独纳入摘要，使 staged mode/blob/删除变化可被检测。</p>
+     *
+     * @return 有界的 NUL 分隔路径、index 状态与 porcelain v2 状态
+     * @throws GitReadException Git 不可用、超时、失败或输出超限时
+     */
+    public WorkspaceDigestInputs workspaceDigestInputs() throws GitReadException {
+        byte[] paths = executeBytes(List.of(
+                "ls-files", "-z", "--cached", "--others", "--exclude-standard"),
+                MAX_DIGEST_STDOUT_BYTES).stdout();
+        byte[] index = executeBytes(List.of("ls-files", "-z", "--stage"),
+                MAX_DIGEST_STDOUT_BYTES).stdout();
+        byte[] status = executeBytes(List.of(
+                "status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignored=no"),
+                MAX_DIGEST_STDOUT_BYTES).stdout();
+        return new WorkspaceDigestInputs(paths, index, status);
+    }
+
     private GitReadResult execute(List<String> operation) throws GitReadException {
+        GitReadBytes result = executeBytes(operation, MAX_STDOUT_BYTES);
+        return new GitReadResult(new String(result.stdout(), StandardCharsets.UTF_8), result.stderrTruncated());
+    }
+
+    private GitReadBytes executeBytes(List<String> operation, int maximumStdout) throws GitReadException {
         ArrayList<String> command = new ArrayList<>(List.of(
                 "git", "--no-pager",
                 "-c", "color.ui=false",
@@ -96,6 +133,9 @@ public final class GitReadClient {
                 "-c", "pager.diff=false",
                 "-c", "diff.external=",
                 "-c", "diff.trustExitCode=false",
+                "-c", "core.fsmonitor=false",
+                "-c", "core.untrackedCache=false",
+                "-c", "status.renames=false",
                 "-C", workspace.toString()));
         command.addAll(operation);
         Process process;
@@ -114,7 +154,7 @@ public final class GitReadClient {
                     ToolErrorCode.GIT_UNAVAILABLE, "Git 程序不可用"));
         }
 
-        BoundedBytes stdout = new BoundedBytes(process.getInputStream(), MAX_STDOUT_BYTES);
+        BoundedBytes stdout = new BoundedBytes(process.getInputStream(), maximumStdout);
         BoundedBytes stderr = new BoundedBytes(process.getErrorStream(), MAX_STDERR_BYTES);
         Thread stdoutThread = Thread.ofVirtual().start(stdout);
         Thread stderrThread = Thread.ofVirtual().start(stderr);
@@ -141,12 +181,14 @@ public final class GitReadClient {
                     ToolErrorCode.OUTPUT_LIMIT_EXCEEDED, "Git 输出超过字节上限"));
         }
         if (process.exitValue() != 0) {
-            ToolErrorCode code = stderr.text().toLowerCase(Locale.ROOT).contains("not a git repository")
+            String errorText = stderr.text().toLowerCase(Locale.ROOT);
+            ToolErrorCode code = errorText.contains("not a git repository")
+                    || errorText.contains("not a git work tree")
                     ? ToolErrorCode.NOT_A_GIT_REPOSITORY
                     : ToolErrorCode.GIT_READ_FAILED;
             throw new GitReadException(ToolError.of(code, "Git 只读命令失败"));
         }
-        return new GitReadResult(stdout.text(), stderr.exceeded());
+        return new GitReadBytes(stdout.bytes(), stderr.exceeded());
     }
 
     private static void join(Thread thread) throws GitReadException {
@@ -157,6 +199,23 @@ public final class GitReadClient {
             throw new GitReadException(ToolError.of(
                     ToolErrorCode.OPERATION_TIMED_OUT, "Git 输出读取被中断"));
         }
+    }
+
+    /** Git 摘要原始输入；所有数组均防御性复制。 */
+    public record WorkspaceDigestInputs(byte[] paths, byte[] indexState, byte[] porcelainState) {
+        public WorkspaceDigestInputs {
+            paths = paths.clone();
+            indexState = indexState.clone();
+            porcelainState = porcelainState.clone();
+        }
+        @Override public byte[] paths() { return paths.clone(); }
+        @Override public byte[] indexState() { return indexState.clone(); }
+        @Override public byte[] porcelainState() { return porcelainState.clone(); }
+    }
+
+    private record GitReadBytes(byte[] stdout, boolean stderrTruncated) {
+        private GitReadBytes { stdout = stdout.clone(); }
+        @Override public byte[] stdout() { return stdout.clone(); }
     }
 
     /**
@@ -220,6 +279,10 @@ public final class GitReadClient {
 
         boolean exceeded() {
             return exceeded;
+        }
+
+        byte[] bytes() {
+            return bytes.toByteArray();
         }
 
         String text() {

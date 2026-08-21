@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-08-21
-- Stage: S15 Evaluated Innovation（Batch 3）
+- Stage: S15 Independent Innovation（Batch 3）
 - Capability IDs: `PLAN-01`（保持 L1）、`PERM-05`（保持 L1）、`SESSION-08`、`CTX-06/07`
 - Reference Behavior Baseline: `R2026.03`
 - Authorized Snapshot ID: `AUTH-SRC-2026-07-29-A`
