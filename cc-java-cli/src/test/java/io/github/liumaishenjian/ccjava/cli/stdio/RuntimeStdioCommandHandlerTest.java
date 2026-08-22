@@ -231,6 +231,70 @@ class RuntimeStdioCommandHandlerTest {
     }
 
     @Test
+    void evidenceCorrectionIsObservableAndWithholdsUnverifiedFinalTextUntilTerminalDecision() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        AtomicInteger calls = new AtomicInteger();
+        String markdown = "# Plan\n\nCreate the exact deliverable.\n";
+        String digest = io.github.liumaishenjian.ccjava.domain.PlanArtifact.digest(markdown);
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request ->
+                switch (calls.getAndIncrement()) {
+                    case 0 -> ModelTurn.tools(List.of(new ToolCall("update-correction", "revise_plan_artifact",
+                            new JsonObject(java.util.Map.of("markdown", markdown)))));
+                    case 1 -> ModelTurn.tools(List.of(new ToolCall("evidence-correction", "declare_plan_evidence",
+                            new JsonObject(java.util.Map.of("requirementId", "exact-file", "kind", "DELIVERABLE",
+                                    "locator", "exact.txt", "label", "exact file", "required", true)))));
+                    case 2 -> ModelTurn.tools(List.of(new ToolCall("review-correction", "request_plan_review",
+                            JsonObject.empty())));
+                    case 3 -> ModelTurn.text("plan ready");
+                    case 4 -> ModelTurn.text("FIRST_UNVERIFIED_FINAL");
+                    default -> ModelTurn.text("SECOND_UNVERIFIED_FINAL");
+                }, testOptions())) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"plan.start\","
+                    + "\"requestId\":\"plan\",\"sessionId\":\"%s\",\"sequence\":2,"
+                    + "\"payload\":{\"prompt\":\"plan\"}}").formatted(sessionId)), emitter);
+            CapturedEvent review = awaitEvent(events, "plan.review.requested");
+            awaitTerminal(events);
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"plan.review.resolve\","
+                    + "\"requestId\":\"decision\",\"sessionId\":\"%s\",\"sequence\":3,"
+                    + "\"payload\":{\"planId\":\"%s\",\"revision\":%d,\"contentDigest\":\"%s\","
+                    + "\"workspaceDigest\":\"%s\",\"decision\":\"APPROVE_USER\","
+                    + "\"contextPolicy\":\"KEEP\",\"feedback\":\"\"}}").formatted(
+                            sessionId,
+                            review.payload().get("planId").stringValue(),
+                            review.payload().get("revision").longValue(),
+                            digest,
+                            review.payload().get("workspaceDigest").stringValue())), emitter);
+
+            CapturedEvent correction = awaitEvent(events, "plan.verification.correction");
+            CapturedEvent required = awaitEvent(events, "plan.verification.required");
+            awaitTerminalCount(events, 2);
+            CapturedEvent executionTerminal = events.stream().filter(event -> event.type().equals("run.completed"))
+                    .reduce((first, second) -> second).orElseThrow();
+
+            assertThat(correction.payload().toString()).isEqualTo("{\"attempt\":1,\"maxAttempts\":2,"
+                    + "\"failures\":[{\"requirementId\":\"exact-file\",\"kind\":\"deliverable\","
+                    + "\"locator\":\"exact.txt\",\"reason\":\"FILE_MISSING_OR_UNSAFE\"}]}");
+            assertThat(required.payload().toString()).contains("\"status\":\"needs_verification\"", "\"requiredEvidence\":1", "\"satisfiedEvidence\":0");
+            assertThat(executionTerminal.payload().toString())
+                    .doesNotContain("finalText", "FIRST_UNVERIFIED_FINAL", "SECOND_UNVERIFIED_FINAL");
+            assertThat(events).noneMatch(event -> event.type().equals("model.text.delta")
+                    && (event.payload().toString().contains("FIRST_UNVERIFIED_FINAL")
+                            || event.payload().toString().contains("SECOND_UNVERIFIED_FINAL")));
+            int requiredIndex = events.indexOf(required);
+            int terminalIndex = events.indexOf(executionTerminal);
+            assertThat(requiredIndex).isLessThan(terminalIndex);
+            assertThat(events).filteredOn(event -> event.type().equals("plan.verification.correction")).hasSize(1);
+            assertThat(calls).hasValue(6);
+        }
+    }
+
+    @Test
     void acceptedPlanModelFailureIsNotProjectedAsVerificationRequired() throws Exception {
         StdioProtocolCodec codec = new StdioProtocolCodec();
         CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();

@@ -51,8 +51,10 @@ public final class StdioProtocolFixtureMain {
             java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
             java.util.concurrent.atomic.AtomicInteger executionCalls = new java.util.concurrent.atomic.AtomicInteger();
             java.util.concurrent.atomic.AtomicBoolean directExecution = new java.util.concurrent.atomic.AtomicBoolean();
-            String markdown = "# Cross-process plan\n\n1. Inspect workspace safely.\n";
-            String revisedMarkdown = "# Cross-process plan\n\n1. Inspect workspace safely.\n2. Verify rollback behavior.\n";
+            String markdown = "# Cross-process plan\n\n1. Create the exact weather workbook.\n";
+            String revisedMarkdown = "# Cross-process plan\n\n1. Create the exact weather workbook.\n2. Verify rollback behavior.\n";
+            String expectedWorkbook = "河南各市7天天气.xlsx";
+            String wrongWorkbook = "河南各市7天天气预报.xlsx";
             io.github.liumaishenjian.ccjava.core.ModelGateway model = request -> {
                 String latestUser = request.messages().stream()
                         .filter(io.github.liumaishenjian.ccjava.domain.UserMessage.class::isInstance)
@@ -66,10 +68,19 @@ public final class StdioProtocolFixtureMain {
                     int executionCall = executionCalls.getAndIncrement();
                     if (executionCall == 0) return io.github.liumaishenjian.ccjava.domain.ModelTurn.tools(List.of(
                             new io.github.liumaishenjian.ccjava.domain.ToolCall(
-                                    "approved-plan-tool", "git_status",
-                                    io.github.liumaishenjian.ccjava.domain.JsonObject.empty())));
+                                    "wrong-workbook", "write_file",
+                                    new io.github.liumaishenjian.ccjava.domain.JsonObject(Map.of(
+                                            "path", wrongWorkbook, "content", "wrong-name")))));
                     if (executionCall == 1) {
-                        return io.github.liumaishenjian.ccjava.domain.ModelTurn.text("approved plan executed");
+                        return io.github.liumaishenjian.ccjava.domain.ModelTurn.text("FIRST_UNVERIFIED_FINAL");
+                    }
+                    if (executionCall == 2) return io.github.liumaishenjian.ccjava.domain.ModelTurn.tools(List.of(
+                            new io.github.liumaishenjian.ccjava.domain.ToolCall(
+                                    "correct-workbook", "write_file",
+                                    new io.github.liumaishenjian.ccjava.domain.JsonObject(Map.of(
+                                            "path", expectedWorkbook, "content", "correct-name")))));
+                    if (executionCall == 3) {
+                        return io.github.liumaishenjian.ccjava.domain.ModelTurn.text("approved plan corrected and verified");
                     }
                     throw new IllegalStateException("Plan fixture 收到过多执行请求");
                 }
@@ -83,8 +94,8 @@ public final class StdioProtocolFixtureMain {
                 if (call == 1) return io.github.liumaishenjian.ccjava.domain.ModelTurn.tools(List.of(
                         new io.github.liumaishenjian.ccjava.domain.ToolCall("plan-evidence", "declare_plan_evidence",
                                 new io.github.liumaishenjian.ccjava.domain.JsonObject(Map.of(
-                                        "requirementId", "git-check", "kind", "VERIFICATION", "locator", "git_status",
-                                        "label", "workspace status inspected", "required", true)))));
+                                        "requirementId", "weather-xlsx", "kind", "DELIVERABLE", "locator", expectedWorkbook,
+                                        "label", "exact weather workbook", "required", true)))));
                 if (call == 2) return io.github.liumaishenjian.ccjava.domain.ModelTurn.tools(List.of(
                         new io.github.liumaishenjian.ccjava.domain.ToolCall("plan-review", "request_plan_review",
                                 io.github.liumaishenjian.ccjava.domain.JsonObject.empty())));

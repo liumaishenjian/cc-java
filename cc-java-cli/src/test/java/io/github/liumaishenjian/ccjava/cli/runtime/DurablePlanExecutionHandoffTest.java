@@ -29,7 +29,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -127,6 +130,252 @@ class DurablePlanExecutionHandoffTest {
                     awaiting.contentDigest(), runtime.currentWorkspaceDigest(), PlanReviewDecision.APPROVE_USER,
                     PlanContextPolicy.CLEAR, "")).isInstanceOf(IllegalStateException.class);
             assertThat(runtime.planArtifact().orElseThrow().status()).isEqualTo(PlanStatus.NEEDS_VERIFICATION);
+        }
+    }
+
+    @Test
+    void deliverableFilenameMismatchContinuesSameRunAndWithholdsFirstFinalUntilCorrected() throws Exception {
+        Path workspace = Files.createDirectory(temporary.resolve("workspace-correction"));
+        Path root = temporary.resolve("sessions-correction");
+        String expected = "河南各市7天天气.xlsx";
+        String wrong = "河南各市7天天气预报.xlsx";
+        AtomicInteger calls = new AtomicInteger();
+        List<io.github.liumaishenjian.ccjava.domain.ModelRequest> requests = new ArrayList<>();
+        List<io.github.liumaishenjian.ccjava.domain.AgentEventEnvelope> events = new ArrayList<>();
+        ModelGateway model = request -> {
+            requests.add(request);
+            return switch (calls.getAndIncrement()) {
+                case 0 -> ModelTurn.tools(List.of(new ToolCall("plan", "revise_plan_artifact",
+                        new JsonObject(Map.of("markdown", "# Plan\n\nCreate the weather workbook.\n")))));
+                case 1 -> ModelTurn.tools(List.of(new ToolCall("evidence", "declare_plan_evidence",
+                        new JsonObject(Map.of("requirementId", "weather-xlsx", "kind", "DELIVERABLE",
+                                "locator", expected, "label", "weather workbook", "required", true)))));
+                case 2 -> ModelTurn.tools(List.of(new ToolCall("review", "request_plan_review", JsonObject.empty())));
+                case 3 -> ModelTurn.text("planning complete");
+                case 4 -> ModelTurn.tools(List.of(new ToolCall("wrong-file", "write_file",
+                        new JsonObject(Map.of("path", wrong, "content", "wrong-name")))));
+                case 5 -> ModelTurn.text("已完成并交付天气工作簿");
+                case 6 -> ModelTurn.tools(List.of(new ToolCall("correct-file", "write_file",
+                        new JsonObject(Map.of("path", expected, "content", "correct-name")))));
+                default -> ModelTurn.text("已按精确文件名完成并验证");
+            };
+        };
+        try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(model, events::add,
+                options(workspace, root, SessionOpenRequest.create()),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.allowOnce())) {
+            runtime.open();
+            runtime.runPlan("prepare weather workbook plan");
+            PlanArtifact awaiting = runtime.planArtifact().orElseThrow();
+            var acceptance = runtime.acceptPlanExecution(awaiting.planId(), awaiting.revision(),
+                    awaiting.contentDigest(), runtime.currentWorkspaceDigest(), PlanReviewDecision.APPROVE_USER,
+                    PlanContextPolicy.KEEP, "");
+            var result = runtime.runAcceptedPlan(acceptance);
+
+            assertThat(result.finalText()).hasValueSatisfying(text -> assertThat(text).contains("精确文件名"));
+            assertThat(runtime.planArtifact().orElseThrow().status()).isEqualTo(PlanStatus.COMPLETED);
+            assertThat(workspace.resolve(wrong)).exists();
+            assertThat(workspace.resolve(expected)).exists();
+            assertThat(events).extracting(io.github.liumaishenjian.ccjava.domain.AgentEventEnvelope::event)
+                    .anyMatch(io.github.liumaishenjian.ccjava.domain.LifecycleEvent.PlanVerificationCorrectionRequested.class::isInstance);
+            assertThat(requests.get(6).messages().toString())
+                    .contains("weather-xlsx", expected, "FILE_MISSING_OR_UNSAFE")
+                    .contains("Do not repeat already successful side effects");
+            assertThat(requests).filteredOn(request -> request.messages().toString().contains("已完成并交付天气工作簿"))
+                    .isEmpty();
+            assertThat(runtime.planArtifact().orElseThrow().evidenceLedger().references())
+                    .filteredOn(reference -> reference.requirementId().equals("weather-xlsx"))
+                    .singleElement().satisfies(reference -> {
+                        assertThat(reference.status().name()).isEqualTo("PASSED");
+                        assertThat(reference.contentDigest()).isPresent();
+                        assertThat(reference.sourceReference()).isEqualTo(expected);
+                    });
+        }
+    }
+
+    @Test
+    void repeatedMissingDeliverableStopsCorrectionWithoutUnboundedModelLoop() throws Exception {
+        Path workspace = Files.createDirectory(temporary.resolve("workspace-correction-bounded"));
+        Path root = temporary.resolve("sessions-correction-bounded");
+        AtomicInteger calls = new AtomicInteger();
+        List<io.github.liumaishenjian.ccjava.domain.AgentEventEnvelope> events = new ArrayList<>();
+        ModelGateway model = request -> switch (calls.getAndIncrement()) {
+            case 0 -> ModelTurn.tools(List.of(new ToolCall("plan", "revise_plan_artifact",
+                    new JsonObject(Map.of("markdown", "# Plan\n\nCreate `missing.txt`.\n")))));
+            case 1 -> ModelTurn.tools(List.of(new ToolCall("evidence", "declare_plan_evidence",
+                    new JsonObject(Map.of("requirementId", "missing-file", "kind", "DELIVERABLE",
+                            "locator", "missing.txt", "label", "missing file", "required", true)))));
+            case 2 -> ModelTurn.tools(List.of(new ToolCall("review", "request_plan_review", JsonObject.empty())));
+            case 3 -> ModelTurn.text("planning complete");
+            case 4 -> ModelTurn.text("unverified first final");
+            default -> ModelTurn.text("unverified repeated final");
+        };
+        try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(model, events::add,
+                options(workspace, root, SessionOpenRequest.create()))) {
+            runtime.open();
+            runtime.runPlan("prepare bounded correction plan");
+            PlanArtifact awaiting = runtime.planArtifact().orElseThrow();
+            var acceptance = runtime.acceptPlanExecution(awaiting.planId(), awaiting.revision(),
+                    awaiting.contentDigest(), runtime.currentWorkspaceDigest(), PlanReviewDecision.APPROVE_USER,
+                    PlanContextPolicy.KEEP, "");
+
+            var result = runtime.runAcceptedPlan(acceptance);
+
+            assertThat(result.stopReason().name()).isEqualTo("COMPLETED");
+            assertThat(result.finalText()).contains("unverified repeated final");
+            assertThat(runtime.planArtifact().orElseThrow().status()).isEqualTo(PlanStatus.NEEDS_VERIFICATION);
+            assertThat(workspace.resolve("missing.txt")).doesNotExist();
+            assertThat(calls).hasValue(6);
+            assertThat(events).extracting(io.github.liumaishenjian.ccjava.domain.AgentEventEnvelope::event)
+                    .filteredOn(io.github.liumaishenjian.ccjava.domain.LifecycleEvent.PlanVerificationCorrectionRequested.class::isInstance)
+                    .hasSize(1);
+        }
+    }
+
+    @Test
+    void failedVerificationToolContinuesAndRequiresLaterSuccessfulToolResult() throws Exception {
+        Path workspace = Files.createDirectory(temporary.resolve("workspace-verification-correction"));
+        Path root = temporary.resolve("sessions-verification-correction");
+        AtomicInteger calls = new AtomicInteger();
+        List<io.github.liumaishenjian.ccjava.domain.ModelRequest> requests = new ArrayList<>();
+        ModelGateway model = request -> {
+            requests.add(request);
+            return switch (calls.getAndIncrement()) {
+                case 0 -> ModelTurn.tools(List.of(new ToolCall("plan", "revise_plan_artifact",
+                        new JsonObject(Map.of("markdown", "# Plan\n\nRun a write verification.\n")))));
+                case 1 -> ModelTurn.tools(List.of(new ToolCall("evidence", "declare_plan_evidence",
+                        new JsonObject(Map.of("requirementId", "write-check", "kind", "VERIFICATION",
+                                "locator", "write_file", "label", "write succeeds", "required", true)))));
+                case 2 -> ModelTurn.tools(List.of(new ToolCall("review", "request_plan_review", JsonObject.empty())));
+                case 3 -> ModelTurn.text("planning complete");
+                case 4 -> ModelTurn.tools(List.of(new ToolCall("unsafe-write", "write_file",
+                        new JsonObject(Map.of("path", "../escape.txt", "content", "unsafe")))));
+                case 5 -> ModelTurn.text("incorrectly claimed verification success");
+                case 6 -> ModelTurn.tools(List.of(new ToolCall("safe-write", "write_file",
+                        new JsonObject(Map.of("path", "verified.txt", "content", "verified")))));
+                default -> ModelTurn.text("verification corrected");
+            };
+        };
+        try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(model, AgentEventSink.noop(),
+                options(workspace, root, SessionOpenRequest.create()),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.allowOnce())) {
+            runtime.open();
+            runtime.runPlan("prepare verification correction plan");
+            PlanArtifact awaiting = runtime.planArtifact().orElseThrow();
+            var acceptance = runtime.acceptPlanExecution(awaiting.planId(), awaiting.revision(),
+                    awaiting.contentDigest(), runtime.currentWorkspaceDigest(), PlanReviewDecision.APPROVE_USER,
+                    PlanContextPolicy.KEEP, "");
+
+            var result = runtime.runAcceptedPlan(acceptance);
+
+            assertThat(result.finalText()).contains("verification corrected");
+            assertThat(workspace.resolve("verified.txt")).hasContent("verified");
+            assertThat(temporary.resolve("escape.txt")).doesNotExist();
+            assertThat(requests.get(6).messages().toString())
+                    .contains("write-check", "SUCCESSFUL_TOOL_RESULT_MISSING")
+                    .doesNotContain("incorrectly claimed verification success");
+            assertThat(runtime.planArtifact().orElseThrow()).satisfies(artifact -> {
+                assertThat(artifact.status()).isEqualTo(PlanStatus.COMPLETED);
+                assertThat(artifact.evidenceLedger().references()).filteredOn(reference ->
+                        reference.requirementId().equals("write-check")).singleElement().satisfies(reference -> {
+                            assertThat(reference.status().name()).isEqualTo("PASSED");
+                            assertThat(reference.sourceReference()).isEqualTo("safe-write");
+                            assertThat(reference.contentDigest()).isPresent();
+                        });
+            });
+        }
+    }
+
+    @Test
+    void modelFailureDuringCorrectionTerminatesPlanWithoutAcceptingTheWithheldFinal() throws Exception {
+        Path workspace = Files.createDirectory(temporary.resolve("workspace-correction-model-error"));
+        Path root = temporary.resolve("sessions-correction-model-error");
+        AtomicInteger calls = new AtomicInteger();
+        List<io.github.liumaishenjian.ccjava.domain.ModelRequest> requests = new ArrayList<>();
+        ModelGateway model = request -> {
+            requests.add(request);
+            return switch (calls.getAndIncrement()) {
+            case 0 -> ModelTurn.tools(List.of(new ToolCall("plan", "revise_plan_artifact",
+                    new JsonObject(Map.of("markdown", "# Plan\n\nCreate `result.txt`.\n")))));
+            case 1 -> ModelTurn.tools(List.of(new ToolCall("evidence", "declare_plan_evidence",
+                    new JsonObject(Map.of("requirementId", "result-file", "kind", "DELIVERABLE",
+                            "locator", "result.txt", "label", "result file", "required", true)))));
+            case 2 -> ModelTurn.tools(List.of(new ToolCall("review", "request_plan_review", JsonObject.empty())));
+            case 3 -> ModelTurn.text("planning complete");
+            case 4 -> ModelTurn.text("withheld completion claim");
+            default -> throw new io.github.liumaishenjian.ccjava.core.ModelGatewayException("correction failed");
+            };
+        };
+        try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(model, AgentEventSink.noop(),
+                options(workspace, root, SessionOpenRequest.create()))) {
+            runtime.open();
+            runtime.runPlan("prepare model failure plan");
+            PlanArtifact awaiting = runtime.planArtifact().orElseThrow();
+            var acceptance = runtime.acceptPlanExecution(awaiting.planId(), awaiting.revision(),
+                    awaiting.contentDigest(), runtime.currentWorkspaceDigest(), PlanReviewDecision.APPROVE_USER,
+                    PlanContextPolicy.KEEP, "");
+
+            var result = runtime.runAcceptedPlan(acceptance);
+
+            assertThat(result.stopReason().name()).isEqualTo("MODEL_ERROR");
+            assertThat(result.finalText()).isEmpty();
+            assertThat(runtime.planArtifact().orElseThrow().status()).isEqualTo(PlanStatus.FAILED);
+            assertThat(requests.getLast().messages().toString()).doesNotContain("withheld completion claim");
+        }
+    }
+
+    @Test
+    void cancellationDuringCorrectionTerminatesWithoutReplayingCompletedSideEffects() throws Exception {
+        Path workspace = Files.createDirectory(temporary.resolve("workspace-correction-cancel"));
+        Path root = temporary.resolve("sessions-correction-cancel");
+        AtomicInteger calls = new AtomicInteger();
+        CountDownLatch correctionEntered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ModelGateway model = request -> switch (calls.getAndIncrement()) {
+            case 0 -> ModelTurn.tools(List.of(new ToolCall("plan", "revise_plan_artifact",
+                    new JsonObject(Map.of("markdown", "# Plan\n\nCreate exact deliverable.\n")))));
+            case 1 -> ModelTurn.tools(List.of(new ToolCall("evidence", "declare_plan_evidence",
+                    new JsonObject(Map.of("requirementId", "exact-file", "kind", "DELIVERABLE",
+                            "locator", "exact.txt", "label", "exact file", "required", true)))));
+            case 2 -> ModelTurn.tools(List.of(new ToolCall("review", "request_plan_review", JsonObject.empty())));
+            case 3 -> ModelTurn.text("planning complete");
+            case 4 -> ModelTurn.tools(List.of(new ToolCall("side-effect", "write_file",
+                    new JsonObject(Map.of("path", "already-written.txt", "content", "once")))));
+            case 5 -> ModelTurn.text("withheld completion claim");
+            default -> {
+                correctionEntered.countDown();
+                try {
+                    release.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+                yield ModelTurn.text("must not complete");
+            }
+        };
+        try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(model, AgentEventSink.noop(),
+                options(workspace, root, SessionOpenRequest.create()),
+                (ignoredInvocation, ignoredDefinition, ignoredOutcome) ->
+                        io.github.liumaishenjian.ccjava.domain.ApprovalResponse.allowOnce())) {
+            runtime.open();
+            runtime.runPlan("prepare cancellation plan");
+            PlanArtifact awaiting = runtime.planArtifact().orElseThrow();
+            var acceptance = runtime.acceptPlanExecution(awaiting.planId(), awaiting.revision(),
+                    awaiting.contentDigest(), runtime.currentWorkspaceDigest(), PlanReviewDecision.APPROVE_USER,
+                    PlanContextPolicy.KEEP, "");
+            AtomicReference<io.github.liumaishenjian.ccjava.domain.AgentRunResult> result = new AtomicReference<>();
+            Thread runner = Thread.ofPlatform().start(() -> result.set(runtime.runAcceptedPlan(acceptance)));
+            assertThat(correctionEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+            assertThat(runtime.cancelActive()).isTrue();
+            release.countDown();
+            runner.join(5_000);
+
+            assertThat(result.get().stopReason().name()).isEqualTo("USER_CANCELLED");
+            assertThat(runtime.planArtifact().orElseThrow().status()).isEqualTo(PlanStatus.CANCELLED);
+            assertThat(workspace.resolve("already-written.txt")).hasContent("once");
+            assertThat(workspace.resolve("exact.txt")).doesNotExist();
+            assertThat(calls).hasValue(7);
         }
     }
 

@@ -790,8 +790,12 @@ public final class AgentRuntime {
                     return state.stop(StopReason.INVALID_MODEL_RESPONSE);
                 }
                 if (calls.isEmpty()) {
-                    if (!finalAssistantHandler.handle(session.id(), runId, assistant)) {
+                    FinalAssistantDecision finalDecision = finalAssistantHandler.decide(session.id(), runId, assistant);
+                    if (finalDecision.outcome() == FinalAssistantDecision.Outcome.REJECT) {
                         return state.stop(StopReason.INVALID_MODEL_RESPONSE);
+                    }
+                    if (finalDecision.outcome() == FinalAssistantDecision.Outcome.CONTINUE) {
+                        continue;
                     }
                     appendAssistant(session, runId, assistant);
                     return state.complete(assistant.text());

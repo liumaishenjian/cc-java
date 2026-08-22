@@ -219,6 +219,41 @@ describe('reduceTuiState', () => {
     expect(state.notice).not.toContain('需要验证');
   });
 
+  it('Plan evidence correction 保持同一 Run 运行且不会展示未验证 final', () => {
+    let state = reduceTuiState(initialTuiState, {
+      type: 'event.received', event: event('initialized', 1, {}, 'init', 'session-1'),
+    });
+    state = reduceTuiState(state, {type: 'run.submitted', requestId: 'req-plan', prompt: '执行计划'});
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('run.started', 2, {}, 'req-plan', 'session-1', 'run-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('plan.verification.correction', 3, {
+        attempt: 1, maxAttempts: 2, failures: [{requirementId: 'weather-xlsx', kind: 'deliverable',
+          locator: '河南各市7天天气.xlsx', reason: 'FILE_MISSING_OR_UNSAFE'}],
+      }, 'req-plan', 'session-1', 'run-1'),
+    });
+    expect(state.phase).toBe('running');
+    expect(state.notice).toContain('同一 Run 内纠正（1/2）');
+    expect(state.notice).toContain('不会自动重放');
+    expect(state.runs[0]?.text).toBe('');
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('plan.verification.required', 4, {
+        planId: 'plan-1', status: 'needs_verification', requiredEvidence: 1, satisfiedEvidence: 0,
+      }, 'req-plan', 'session-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('run.completed', 5, {
+        stopReason: 'completed', modelTurns: 2, toolCalls: 0,
+      }, 'req-plan', 'session-1', 'run-1'),
+    });
+    expect(state.phase).toBe('ready');
+    expect(state.runs[0]).toEqual(expect.objectContaining({
+      text: '', status: 'completed',
+      planVerification: '计划尚未完成：需要验证 required-evidence-not-declared（0/1）',
+    }));
+  });
+
   it('在没有流式 delta 时使用 Java 终态 finalText', () => {
     let state = reduceTuiState(initialTuiState, {
       type: 'event.received',

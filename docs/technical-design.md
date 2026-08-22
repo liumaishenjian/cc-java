@@ -2099,3 +2099,36 @@ Ink 的 provider login 使用同步 ref 锁阻止重复副作用，同时保持 
 生产输入 digest、CLI JAR 与编译 TUI digest 写入 manifest；launcher 在所有会执行包内 Java/TUI 代码的
 入口前重新计算两个包内 digest 并对账，漂移即 exit 1；`--version` 是该身份的可见投影路径之一。安装版
 smoke 真实启动该包的 Java stdio initialize/shutdown；这不是 Provider 或网络证据。
+
+### 31.1 Evidence correction continuation 与 final delivery 线性化
+
+ADR-086 把 Evidence Gate 前移到 `AgentRuntime` 接受无 Tool Call final 的线性化点。新的
+`FinalAssistantDecision` 允许 `ACCEPT/REJECT/CONTINUE`；旧 `FinalAssistantHandler.handle` 通过 default
+adapter 保持 boolean 兼容。`CONTINUE` 不 append 当前 Assistant、不产生 `RunFinished`、不创建新 Run，也不自动
+执行 Tool；Runtime 只继续下一 Model Turn，因此同一 Run 的预算、deadline、取消、Permission、Approval、Hook、
+Skill/Plugin/MCP 与 Tool Pipeline 不变。
+
+approved Plan 的 `PlanExecutionCorrectionController` 在每个候选 final 上重新调用确定性验证，并在语义变化时把 Ledger
+以 `EXECUTING` durable revision 保存。blocking failure 由 required requirement 与最新 reference 生成，只含
+`requirementId/kind/locator/reason`；transient Instructions projection 把它插入下一次 Model Request，但不进入
+canonical transcript。correction 独立上限为 2；相同字段构成的稳定指纹再次出现时立即终止自动 correction，外层
+terminal 把 Plan 写为 `NEEDS_VERIFICATION`。该数值和指纹是本项目安全默认值，不来自参考常量。
+
+```text
+Assistant final candidate
+  -> validate deliverable digest / successful canonical ToolResult
+  -> satisfied: ACCEPT -> append final -> Plan COMPLETED
+  -> fresh blocking failure: persist EXECUTING ledger -> correction lifecycle -> CONTINUE same Run
+  -> repeated fingerprint / bound: ACCEPT Run stop only -> Plan NEEDS_VERIFICATION
+```
+
+stdio 对 approved Plan 设置 `suppressModelText`，且 `RunFinished` 不直接发布 terminal。execution worker 根据 durable
+Plan terminal 先发布 `plan.verification.completed|required`，再发布唯一 Run terminal；只有 `COMPLETED` 分支带
+`finalText`。模型错误、取消、deadline、limit 和 incomplete stream 仍先写 durable failure 并发布
+`plan.execution.failed`，不进入 verification correction，也不携带模型完成声明。
+
+TUI 对 `plan.verification.correction` 使用 exact schema：`attempt/maxAttempts/failures[]`，failure 项只允许四个固定
+字段和 `deliverable|verification` kind。Reducer 保持 phase 为 running，显示同一 Run 次数与 no-replay notice；
+`plan.verification.required` 后才在 terminal 回 ready，并显示 actionable 非完成状态。真实 Java Fixture 先经
+`write_file` 创建错误中文文件名，correction 后再次经过 Approval/Pipeline 创建精确 locator；两个 Tool 各执行一次，
+第一份 final 不出现在 stdio event、TUI 或下一 canonical request。

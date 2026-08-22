@@ -16,7 +16,7 @@ class StdioProtocolFixtureCleanupTest {
     @TempDir Path temporary;
 
     @Test
-    void isolatedPlanFixtureRunsRealGitToolAndCleansTemporaryWorkspace() throws Exception {
+    void isolatedPlanFixtureCorrectsDeliverableThroughRealToolsAndCleansTemporaryWorkspace() throws Exception {
         Files.writeString(temporary.resolve("parent-sentinel.txt"), "outside plan workspace");
         java.util.Set<String> beforePlan = fixtureDirectories(temporary, "plan-runtime-");
         StdioProtocol.CommandHandler plan = StdioProtocolFixtureMain.planRuntimeHandlerForTest(temporary);
@@ -54,20 +54,40 @@ class StdioProtocolFixtureCleanupTest {
                             reviewPayload.get("workspaceDigest").stringValue())), emitter);
 
             awaitEvent(events, "plan.execution.accepted", "execute");
-            awaitEvent(events, "run.started", "execute");
-            CapturedEvent toolStarted = awaitEvent(events, "tool.started", "execute");
-            CapturedEvent toolCompleted = awaitEvent(events, "tool.completed", "execute");
-            awaitEvent(events, "run.completed", "execute");
+            CapturedEvent executionStarted = awaitEvent(events, "run.started", "execute");
+            CapturedEvent firstApproval = awaitEvent(events, "approval.requested", "execute");
+            plan.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"approval.resolve\","
+                    + "\"requestId\":\"approval-1\",\"sessionId\":\"%s\",\"runId\":\"%s\","
+                    + "\"sequence\":4,\"payload\":{\"approvalId\":\"%s\",\"decision\":\"allow_once\"}}")
+                    .formatted(sessionId, executionStarted.runId().orElseThrow(),
+                            firstApproval.payload().get("approvalId").stringValue())), emitter);
+            awaitEventCount(events, "tool.completed", "execute", 1);
+            awaitEvent(events, "plan.verification.correction", "execute");
+            CapturedEvent secondApproval = awaitEventCount(events, "approval.requested", "execute", 2);
+            plan.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"approval.resolve\","
+                    + "\"requestId\":\"approval-2\",\"sessionId\":\"%s\",\"runId\":\"%s\","
+                    + "\"sequence\":5,\"payload\":{\"approvalId\":\"%s\",\"decision\":\"allow_once\"}}")
+                    .formatted(sessionId, executionStarted.runId().orElseThrow(),
+                            secondApproval.payload().get("approvalId").stringValue())), emitter);
+            awaitEventCount(events, "tool.completed", "execute", 2);
             awaitEvent(events, "plan.verification.completed", "execute");
+            CapturedEvent terminal = awaitEvent(events, "run.completed", "execute");
 
-            assertThat(toolStarted.payload().get("toolName").stringValue()).isEqualTo("git_status");
-            assertThat(toolCompleted.payload().get("toolName").stringValue()).isEqualTo("git_status");
+            assertThat(events.stream().filter(event -> event.type().equals("tool.started")
+                    && event.requestId().equals("execute"))).allSatisfy(event ->
+                            assertThat(event.payload().get("toolName").stringValue()).isEqualTo("write_file"));
+            assertThat(events.stream().filter(event -> event.type().equals("tool.completed")
+                    && event.requestId().equals("execute"))).hasSize(2);
             assertThat(events.stream().filter(event -> event.requestId().equals("execute"))
                     .map(CapturedEvent::type)).containsSubsequence(
                             "plan.execution.accepted", "run.started", "tool.started", "tool.completed",
-                            "run.completed", "plan.verification.completed");
-            assertThat(events.stream().filter(event -> event.requestId().equals("execute")
-                    && event.type().equals("run.completed"))).hasSize(1);
+                            "plan.verification.correction", "tool.started", "tool.completed",
+                            "plan.verification.completed", "run.completed");
+            assertThat(terminal.payload().get("finalText").stringValue())
+                    .isEqualTo("approved plan corrected and verified");
+            assertThat(events.toString()).doesNotContain("FIRST_UNVERIFIED_FINAL");
+            assertThat(fixtureRoot.resolve("workspace/河南各市7天天气预报.xlsx")).hasContent("wrong-name");
+            assertThat(fixtureRoot.resolve("workspace/河南各市7天天气.xlsx")).hasContent("correct-name");
             assertThat(temporary.resolve("parent-sentinel.txt")).hasContent("outside plan workspace");
         } finally {
             plan.close();
@@ -119,6 +139,19 @@ class StdioProtocolFixtureCleanupTest {
             Thread.sleep(10);
         }
         throw new AssertionError("未收到事件 " + type + " for " + requestId + ": " + events);
+    }
+
+    private static CapturedEvent awaitEventCount(
+            CopyOnWriteArrayList<CapturedEvent> events, String type, String requestId, int count) throws Exception {
+        long deadline = System.nanoTime() + Duration.ofSeconds(3).toNanos();
+        while (System.nanoTime() < deadline) {
+            java.util.List<CapturedEvent> matched = events.stream()
+                    .filter(event -> event.type().equals(type) && event.requestId().equals(requestId))
+                    .toList();
+            if (matched.size() >= count) return matched.get(count - 1);
+            Thread.sleep(10);
+        }
+        throw new AssertionError("未收到第 " + count + " 个事件 " + type + " for " + requestId + ": " + events);
     }
 
     private static java.util.Set<String> fixtureDirectories(Path parent, String prefix) throws Exception {

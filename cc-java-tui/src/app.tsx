@@ -696,6 +696,9 @@ export function AgentTui({client}: AgentTuiProps) {
       if (event.type === 'plan.execution.failed') {
         dispatch({type: 'slash.notice', message: `计划执行失败（${String(event.payload.stopReason)}），不会自动重放；可通过显式恢复重新处理`});
       }
+      if (event.type === 'plan.verification.correction') {
+        dispatch({type: 'slash.notice', message: `计划证据校验失败，正在同一 Run 内纠正（${String(event.payload.attempt)}/${String(event.payload.maxAttempts)}）；不会自动重放既有副作用`});
+      }
       if (event.type === 'plan.verification.required') {
         dispatch({type: 'slash.notice', message: `计划尚未完成：需要验证 ${String(event.payload.blockingRequirementId ?? 'required-evidence-not-declared')}（${String(event.payload.satisfiedEvidence)}/${String(event.payload.requiredEvidence)}）`});
       }

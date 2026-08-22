@@ -2088,6 +2088,37 @@ describe('continuous plan Ink interaction', () => {
     view.unmount();
   });
 
+  it('renders correction continuation without exposing a withheld completion claim', async () => {
+    const client = new FakeAgentClient();
+    const view = await initializedTui(client);
+    view.stdin.write('execute approved plan'); view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 1);
+    const requestId = 'tui-2';
+    client.emit({version: 0, type: 'run.started', requestId, sessionId: 'session-1',
+      runId: 'run-correction', sequence: 2, payload: {}});
+    client.emit({version: 0, type: 'plan.verification.correction', requestId, sessionId: 'session-1',
+      runId: 'run-correction', sequence: 3, payload: {attempt: 1, maxAttempts: 2, failures: [{
+        requirementId: 'weather-xlsx', kind: 'deliverable', locator: '河南各市7天天气.xlsx',
+        reason: 'FILE_MISSING_OR_UNSAFE',
+      }]}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('同一 Run 内纠正（1/2）'));
+    expect(view.lastFrame()).toContain('不会自动重放既有副作用');
+    expect(view.lastFrame()).toContain('运行中');
+    expect(view.lastFrame()).not.toContain('FIRST_UNVERIFIED_FINAL');
+
+    client.emit({version: 0, type: 'plan.verification.required', requestId, sessionId: 'session-1',
+      sequence: 4, payload: {planId: 'plan-1', status: 'needs_verification',
+        requiredEvidence: 1, satisfiedEvidence: 0}});
+    client.emit({version: 0, type: 'run.completed', requestId, sessionId: 'session-1',
+      runId: 'run-correction', sequence: 5, payload: {stopReason: 'completed', modelTurns: 2, toolCalls: 0}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('计划尚未完成')
+      && (view.lastFrame() ?? '').includes('0/1') && (view.lastFrame() ?? '').includes('就绪'));
+    const frame = view.lastFrame() ?? '';
+    expect(frame).not.toContain('FIRST_UNVERIFIED_FINAL');
+    expect(frame).not.toContain('已完成并交付');
+    view.unmount();
+  });
+
   it('用专用组合键选择和折叠 Tool 详情且不抢 Approval picker', async () => {
     const client = new FakeAgentClient();
     const view = await initializedTui(client);

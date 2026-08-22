@@ -13,7 +13,7 @@ const FIXTURE_CLASSES_ENV = 'CODEJ_INSTALLED_E2E_TEST_CLASSES';
  * classes 与安装包 app/*.jar 交给 Java，避免源码 classes 或 Maven dependency classpath 掩盖漏包。
  */
 describe('installed Plan TUI to Java flow', () => {
-  it('drives natural Plan review through installed Ink and executes installed git_status', async () => {
+  it('drives installed Plan correction through approved write tools', async () => {
     const installedRootValue = process.env[INSTALLED_ROOT_ENV];
     const fixtureClassesValue = process.env[FIXTURE_CLASSES_ENV];
     expect(installedRootValue, `${INSTALLED_ROOT_ENV} must name the validated installed copy`).toBeTruthy();
@@ -74,35 +74,48 @@ describe('installed Plan TUI to Java flow', () => {
       () => diagnostic(view.lastFrame(), events, failures, exitResult));
       await new Promise(resolve => setTimeout(resolve, 50));
 
+      view.stdin.write('[B');
+      await new Promise(resolve => setTimeout(resolve, 10));
       view.stdin.write('\r');
       await waitFor(() => events.some(event => event.type === 'plan.execution.accepted'),
         () => diagnostic(view.lastFrame(), events, failures, exitResult));
       const executionRequestId = events.find(event => event.type === 'plan.execution.accepted')!.requestId;
-      await waitFor(() => events.some(event => event.type === 'tool.completed'
-        && event.requestId === executionRequestId && event.payload.toolName === 'git_status'),
+      await waitFor(() => events.filter(event => event.type === 'approval.requested'
+        && event.requestId === executionRequestId).length === 1,
       () => diagnostic(view.lastFrame(), events, failures, exitResult));
-      await waitFor(() => events.some(event => event.type === 'run.completed'
-        && event.requestId === executionRequestId
-        && String(event.payload.finalText).includes('approved plan executed')),
+      view.stdin.write('\r');
+      await waitFor(() => events.some(event => event.type === 'plan.verification.correction'
+        && event.requestId === executionRequestId),
       () => diagnostic(view.lastFrame(), events, failures, exitResult));
+      await waitFor(() => view.lastFrame()?.includes('同一 Run 内纠正（1/2）') === true,
+        () => diagnostic(view.lastFrame(), events, failures, exitResult));
+      expect(view.lastFrame()).not.toContain('FIRST_UNVERIFIED_FINAL');
+      await waitFor(() => events.filter(event => event.type === 'approval.requested'
+        && event.requestId === executionRequestId).length === 2,
+      () => diagnostic(view.lastFrame(), events, failures, exitResult));
+      view.stdin.write('\r');
       await waitFor(() => events.some(event => event.type === 'plan.verification.completed'
         && event.requestId === executionRequestId),
       () => diagnostic(view.lastFrame(), events, failures, exitResult));
-      await waitFor(() => view.lastFrame()?.includes('检查工作区') === true
-        && view.lastFrame()?.includes('approved plan executed') === true
+      await waitFor(() => events.some(event => event.type === 'run.completed'
+        && event.requestId === executionRequestId
+        && String(event.payload.finalText).includes('approved plan corrected and verified')),
+      () => diagnostic(view.lastFrame(), events, failures, exitResult));
+      await waitFor(() => view.lastFrame()?.includes('approved plan corrected and verified') === true
         && view.lastFrame()?.includes('已完成') === true,
       () => diagnostic(view.lastFrame(), events, failures, exitResult));
 
       const finalFrame = view.lastFrame() ?? '';
       expect(finalFrame).not.toContain('无法关联');
       expect(finalFrame).not.toContain('连接已关闭');
+      expect(finalFrame).not.toContain('FIRST_UNVERIFIED_FINAL');
       expect(finalFrame).toContain('计划证据已验证');
       expect(events.filter(event => event.type === 'tool.completed'
-        && event.requestId === executionRequestId && event.payload.toolName === 'git_status')).toHaveLength(1);
+        && event.requestId === executionRequestId && event.payload.toolName === 'write_file')).toHaveLength(2);
+      expect(events.filter(event => event.type === 'plan.verification.correction'
+        && event.requestId === executionRequestId)).toHaveLength(1);
       expect(events.some(event => event.type === 'plan.verification.required'
         && event.requestId === executionRequestId)).toBe(false);
-      expect(events.some(event => event.type === 'tool.completed'
-        && event.requestId === executionRequestId && event.payload.toolName === 'git_status')).toBe(true);
       expect(failures).toEqual([]);
     } finally {
       await client.shutdown();
@@ -147,8 +160,9 @@ function diagnostic(
 
 function safeEventType(type: string): string {
   const known = new Set([
-    'plan.execution.accepted', 'plan.verification.completed', 'plan.verification.required',
-    'run.completed', 'run.failed', 'session.command.result', 'tool.completed',
+    'approval.requested', 'plan.execution.accepted', 'plan.verification.completed',
+    'plan.verification.correction', 'plan.verification.required', 'run.completed', 'run.failed',
+    'session.command.result', 'tool.completed',
   ]);
   return known.has(type) ? type : 'other';
 }

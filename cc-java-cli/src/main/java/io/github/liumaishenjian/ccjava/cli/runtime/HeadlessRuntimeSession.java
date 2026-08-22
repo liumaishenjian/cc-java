@@ -1277,8 +1277,10 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                     original.modelName(), effectiveMode, reviewer, original.permissionRules(),
                     original.enabledBuiltinTools(), original.toolConfigurations(), original.compactAnchors(),
                     original.diagnosticsVerbosity());
+            PlanExecutionCorrectionController correction = new PlanExecutionCorrectionController();
             HeadlessRuntimeScope executionScope = buildExecutionScope(
-                    executionConfiguration, artifact, Objects.requireNonNull(contextPolicy, "contextPolicy 不能为空"));
+                    executionConfiguration, artifact, Objects.requireNonNull(contextPolicy, "contextPolicy 不能为空"),
+                    correction);
             var brief = new io.github.liumaishenjian.ccjava.domain.ExecutionBrief(
                     artifact.planId(), session.id(), artifact.revision(), artifact.contentDigest(),
                     artifact.markdownContent(), original.permissionMode(), effectiveMode, reviewer, contextPolicy,
@@ -1290,7 +1292,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             ActiveRun accepted = new ActiveRun(executionScope, session.id());
             activeRun = accepted;
             runEventSink = null;
-            return new PlanExecutionAcceptance(brief, accepted);
+            return new PlanExecutionAcceptance(brief, accepted, correction);
         }
     }
 
@@ -1309,7 +1311,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
 
     private HeadlessRuntimeScope buildExecutionScope(RuntimeConfiguration configuration,
             io.github.liumaishenjian.ccjava.domain.PlanArtifact artifact,
-            io.github.liumaishenjian.ccjava.domain.PlanContextPolicy contextPolicy) {
+            io.github.liumaishenjian.ccjava.domain.PlanContextPolicy contextPolicy,
+            PlanExecutionCorrectionController correction) {
         io.github.liumaishenjian.ccjava.core.instructions.InstructionContextService executionInstructions =
                 new io.github.liumaishenjian.ccjava.core.instructions.InstructionContextService() {
                     @Override public io.github.liumaishenjian.ccjava.domain.ModelRequest project(
@@ -1329,6 +1332,8 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                                 + "structured steps. Approved plan identity: " + artifact.planId() + " revision "
                                 + artifact.revision() + " digest " + artifact.contentDigest() + ".\n\n"
                                 + artifact.markdownContent()));
+                        correction.currentProjection().ifPresent(value -> messages.add(2,
+                                new io.github.liumaishenjian.ccjava.domain.SystemMessage(value)));
                         return new io.github.liumaishenjian.ccjava.domain.ModelRequest(request.sessionId(), request.runId(),
                                 request.turnNumber(), messages, request.toolDefinitions());
                     }
@@ -1343,7 +1348,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 workspaceBootstrap.workspaceGuard(), memoryContext, executionInstructions, extensions.hooks(),
                 skills == null ? io.github.liumaishenjian.ccjava.core.skill.SkillRunCoordinator.disabled()
                         : skills.coordinator(),
-                plugins.runCoordinator(), plugins.runHooks());
+                plugins.runCoordinator(), plugins.runHooks(), correction);
     }
 
     /**
@@ -1373,10 +1378,12 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             RuntimeConfiguration execution = new RuntimeConfiguration(base.modelName(), brief.effectivePermissionMode(),
                     brief.approvalReviewer(), base.permissionRules(), base.enabledBuiltinTools(),
                     base.toolConfigurations(), base.compactAnchors(), base.diagnosticsVerbosity());
-            ActiveRun accepted = new ActiveRun(buildExecutionScope(execution, current, brief.contextPolicy()), session.id());
+            PlanExecutionCorrectionController correction = new PlanExecutionCorrectionController();
+            ActiveRun accepted = new ActiveRun(
+                    buildExecutionScope(execution, current, brief.contextPolicy(), correction), session.id());
             activeRun = accepted;
             runEventSink = null;
-            return Optional.of(new PlanExecutionAcceptance(brief, accepted));
+            return Optional.of(new PlanExecutionAcceptance(brief, accepted, correction));
         }
     }
 
@@ -1413,6 +1420,7 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 io.github.liumaishenjian.ccjava.domain.PlanStatus.EXECUTING, java.time.Instant.now());
         store.save(executing, approved.revision(), approved.contentDigest());
         int executionMessageStart = session.messages().size();
+        acceptance.correction.begin(executionMessageStart);
         io.github.liumaishenjian.ccjava.core.RunScopedModelGateway.RunScope modelRun = null;
         try {
             if (configuredGateway instanceof io.github.liumaishenjian.ccjava.core.RunScopedModelGateway runScoped) {
@@ -1501,13 +1509,18 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                             || bytes.length != size) throw new java.io.IOException("evidence file changed");
                     String digest = java.util.HexFormat.of().formatHex(
                             java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
-                    ledger = ledger.record(new io.github.liumaishenjian.ccjava.domain.PlanEvidenceReference(
-                            requirement.requirementId(), io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.PASSED,
-                            "WORKSPACE_FILE", path.protocolPath(), Optional.of(digest), "FILE_PRESENT", now), now);
+                    ledger = recordPlanEvidenceIfChanged(ledger,
+                            new io.github.liumaishenjian.ccjava.domain.PlanEvidenceReference(
+                                    requirement.requirementId(),
+                                    io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.PASSED,
+                                    "WORKSPACE_FILE", path.protocolPath(), Optional.of(digest), "FILE_PRESENT", now), now);
                 } catch (Exception invalid) {
-                    ledger = ledger.record(new io.github.liumaishenjian.ccjava.domain.PlanEvidenceReference(
-                            requirement.requirementId(), io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.FAILED,
-                            "WORKSPACE_FILE", requirement.requirementId(), Optional.empty(), "FILE_MISSING_OR_UNSAFE", now), now);
+                    ledger = recordPlanEvidenceIfChanged(ledger,
+                            new io.github.liumaishenjian.ccjava.domain.PlanEvidenceReference(
+                                    requirement.requirementId(),
+                                    io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.FAILED,
+                                    "WORKSPACE_FILE", requirement.requirementId(), Optional.empty(),
+                                    "FILE_MISSING_OR_UNSAFE", now), now);
                 }
             } else {
                 java.util.List<io.github.liumaishenjian.ccjava.domain.AgentMessage> executionMessages =
@@ -1521,18 +1534,165 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                         .reduce((first, second) -> second);
                 if (match.isPresent()) {
                     var tool = match.orElseThrow();
-                    ledger = ledger.record(new io.github.liumaishenjian.ccjava.domain.PlanEvidenceReference(
-                            requirement.requirementId(), io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.PASSED,
-                            "TOOL_RESULT", tool.callId(), Optional.of(io.github.liumaishenjian.ccjava.domain.PlanArtifact.digest(tool.content())),
-                            "TOOL_SUCCEEDED", now), now);
+                    ledger = recordPlanEvidenceIfChanged(ledger,
+                            new io.github.liumaishenjian.ccjava.domain.PlanEvidenceReference(
+                                    requirement.requirementId(),
+                                    io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.PASSED,
+                                    "TOOL_RESULT", tool.callId(), Optional.of(
+                                            io.github.liumaishenjian.ccjava.domain.PlanArtifact.digest(tool.content())),
+                                    "TOOL_SUCCEEDED", now), now);
                 } else {
-                    ledger = ledger.record(new io.github.liumaishenjian.ccjava.domain.PlanEvidenceReference(
-                            requirement.requirementId(), io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.FAILED,
-                            "TOOL_RESULT", runId.value(), Optional.empty(), "SUCCESSFUL_TOOL_RESULT_MISSING", now), now);
+                    ledger = recordPlanEvidenceIfChanged(ledger,
+                            new io.github.liumaishenjian.ccjava.domain.PlanEvidenceReference(
+                                    requirement.requirementId(),
+                                    io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.FAILED,
+                                    "TOOL_RESULT", runId.value(), Optional.empty(),
+                                    "SUCCESSFUL_TOOL_RESULT_MISSING", now), now);
                 }
             }
         }
         return ledger;
+    }
+
+    /** 只有确定性 evidence 语义变化时才更新时间，避免重复验证制造无意义 revision。 */
+    private io.github.liumaishenjian.ccjava.domain.PlanEvidenceLedger recordPlanEvidenceIfChanged(
+            io.github.liumaishenjian.ccjava.domain.PlanEvidenceLedger ledger,
+            io.github.liumaishenjian.ccjava.domain.PlanEvidenceReference candidate,
+            java.time.Instant now) {
+        boolean unchanged = ledger.references().stream()
+                .filter(existing -> existing.requirementId().equals(candidate.requirementId()))
+                .anyMatch(existing -> existing.status() == candidate.status()
+                        && existing.sourceType().equals(candidate.sourceType())
+                        && existing.sourceReference().equals(candidate.sourceReference())
+                        && existing.contentDigest().equals(candidate.contentDigest())
+                        && existing.reasonCode().equals(candidate.reasonCode()));
+        return unchanged ? ledger : ledger.record(candidate, now);
+    }
+
+    /**
+     * 在同一个 approved-plan Run 内把 Evidence Gate 失败收敛为有界纠正 continuation。
+     *
+     * <p>控制器不接受模型 prose、不自动执行或重放任何 Tool。它只重新运行确定性验证、持久化
+     * 当前 Ledger，并把已批准 requirement 的身份、locator 与封闭原因作为短生命周期 System
+     * projection 反馈下一模型回合。相同失败指纹不会重复 continuation，次数也受独立上限控制。</p>
+     */
+    private final class PlanExecutionCorrectionController
+            implements io.github.liumaishenjian.ccjava.core.FinalAssistantHandler {
+        private static final int MAX_CORRECTIONS = 2;
+        private int executionMessageStart = -1;
+        private int corrections;
+        private String previousFingerprint;
+        private String projection;
+
+        /** 绑定当前唯一 Run 的 canonical execution 消息起点。 */
+        synchronized void begin(int messageStart) {
+            if (executionMessageStart >= 0 || messageStart < 0) {
+                throw new IllegalStateException("Plan correction controller 已绑定或起点无效");
+            }
+            executionMessageStart = messageStart;
+        }
+
+        /** 返回下一模型回合可见、但不进入 canonical transcript 的有界纠正投影。 */
+        synchronized Optional<String> currentProjection() {
+            return Optional.ofNullable(projection);
+        }
+
+        @Override
+        public boolean handle(io.github.liumaishenjian.ccjava.domain.SessionId ignoredSession,
+                io.github.liumaishenjian.ccjava.domain.RunId ignoredRun,
+                io.github.liumaishenjian.ccjava.domain.AssistantMessage ignoredAssistant) {
+            return true;
+        }
+
+        @Override
+        public synchronized io.github.liumaishenjian.ccjava.core.FinalAssistantDecision decide(
+                io.github.liumaishenjian.ccjava.domain.SessionId checkedSession,
+                io.github.liumaishenjian.ccjava.domain.RunId runId,
+                io.github.liumaishenjian.ccjava.domain.AssistantMessage ignoredAssistant) {
+            if (!session.id().equals(checkedSession) || executionMessageStart < 0) {
+                return io.github.liumaishenjian.ccjava.core.FinalAssistantDecision.reject();
+            }
+            projection = null;
+            var store = new io.github.liumaishenjian.ccjava.cli.session.SessionPlanArtifactStore(
+                    sessions, session.id());
+            var current = store.load(session.id()).orElseThrow();
+            if (current.status() != io.github.liumaishenjian.ccjava.domain.PlanStatus.EXECUTING) {
+                return io.github.liumaishenjian.ccjava.core.FinalAssistantDecision.reject();
+            }
+            var validated = validatePlanEvidence(current, runId, executionMessageStart);
+            if (!validated.equals(current.evidenceLedger())) {
+                var revised = current.withEvidenceLedger(validated,
+                        io.github.liumaishenjian.ccjava.domain.PlanStatus.EXECUTING, java.time.Instant.now());
+                current = store.save(revised, current.revision(), current.contentDigest());
+            }
+            if (validated.completionSatisfied()) {
+                return io.github.liumaishenjian.ccjava.core.FinalAssistantDecision.accept();
+            }
+            var failures = blockingFailures(validated);
+            if (failures.isEmpty()) {
+                return io.github.liumaishenjian.ccjava.core.FinalAssistantDecision.accept();
+            }
+            String fingerprint = failures.stream()
+                    .map(item -> item.requirementId() + "|" + item.kind().name() + "|" + item.locator()
+                            + "|" + item.reason())
+                    .collect(java.util.stream.Collectors.joining("\n"));
+            if (corrections >= MAX_CORRECTIONS || fingerprint.equals(previousFingerprint)) {
+                return io.github.liumaishenjian.ccjava.core.FinalAssistantDecision.accept();
+            }
+            corrections++;
+            previousFingerprint = fingerprint;
+            projection = correctionProjection(failures, corrections);
+            lifecycle.dispatch(session, runId,
+                    new io.github.liumaishenjian.ccjava.domain.LifecycleEvent.PlanVerificationCorrectionRequested(
+                            corrections, MAX_CORRECTIONS, failures));
+            return io.github.liumaishenjian.ccjava.core.FinalAssistantDecision.continueRun();
+        }
+
+        private java.util.List<io.github.liumaishenjian.ccjava.domain.PlanEvidenceCorrectionFailure>
+                blockingFailures(io.github.liumaishenjian.ccjava.domain.PlanEvidenceLedger ledger) {
+            java.util.Map<String, io.github.liumaishenjian.ccjava.domain.PlanEvidenceReference> references =
+                    ledger.references().stream().collect(java.util.stream.Collectors.toMap(
+                            io.github.liumaishenjian.ccjava.domain.PlanEvidenceReference::requirementId,
+                            java.util.function.Function.identity()));
+            java.util.ArrayList<io.github.liumaishenjian.ccjava.domain.PlanEvidenceCorrectionFailure> failures =
+                    new java.util.ArrayList<>();
+            for (var requirement : ledger.requirements()) {
+                if (!requirement.required()) continue;
+                var reference = references.get(requirement.requirementId());
+                if (reference != null && (reference.status()
+                        == io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.PASSED
+                        || reference.status() == io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.SKIPPED)) {
+                    continue;
+                }
+                failures.add(new io.github.liumaishenjian.ccjava.domain.PlanEvidenceCorrectionFailure(
+                        requirement.requirementId(), requirement.kind(), requirement.locator(),
+                        reference == null ? "EVIDENCE_NOT_RECORDED" : reference.reasonCode()));
+            }
+            return java.util.List.copyOf(failures);
+        }
+
+        private String correctionProjection(
+                java.util.List<io.github.liumaishenjian.ccjava.domain.PlanEvidenceCorrectionFailure> failures,
+                int attempt) {
+            StringBuilder message = new StringBuilder(512)
+                    .append("The previous final response is withheld because deterministic Plan evidence validation failed. ")
+                    .append("Continue the same run and correct only the missing evidence. Do not repeat already successful ")
+                    .append("side effects. Correction attempt ").append(attempt).append('/')
+                    .append(MAX_CORRECTIONS).append(".\n");
+            for (var failure : failures) {
+                message.append("- requirementId=").append(failure.requirementId())
+                        .append(" kind=").append(failure.kind().name())
+                        .append(" locator=").append(safeProjectionValue(failure.locator()))
+                        .append(" reason=").append(failure.reason()).append('\n');
+            }
+            message.append("Use registered tools through the normal Permission/Approval/Pipeline and provide a new final ")
+                    .append("response only after the exact locator and verification requirements are satisfied.");
+            return message.toString();
+        }
+
+        private String safeProjectionValue(String value) {
+            return value.replace('\t', ' ').replace('\r', ' ').replace('\n', ' ');
+        }
     }
 
     /**
@@ -1631,13 +1791,16 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     }
 
     /** 服务端已 durable 接受但尚未开始模型调用的单次句柄。 */
-    public static final class PlanExecutionAcceptance {
+    public final class PlanExecutionAcceptance {
         private final io.github.liumaishenjian.ccjava.domain.ExecutionBrief brief;
         private final ActiveRun activeRun;
+        private final PlanExecutionCorrectionController correction;
         private PlanExecutionAcceptance(io.github.liumaishenjian.ccjava.domain.ExecutionBrief brief,
-                                        ActiveRun activeRun) {
+                                        ActiveRun activeRun,
+                                        PlanExecutionCorrectionController correction) {
             this.brief = brief;
             this.activeRun = activeRun;
+            this.correction = correction;
         }
         /** 返回不可变执行交接。 */
         public io.github.liumaishenjian.ccjava.domain.ExecutionBrief brief() { return brief; }

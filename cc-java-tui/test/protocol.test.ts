@@ -69,6 +69,27 @@ describe('decodeEvent', () => {
     }}), 3)).toThrowError(/plan\.execution\.failed/);
   });
 
+  it('严格接受有界 Plan evidence correction 并拒绝额外或非法字段', () => {
+    const correction = {
+      version: 0, type: 'plan.verification.correction', requestId: 'req-plan',
+      sessionId: 'session-1', runId: 'run-1', sequence: 4,
+      payload: {attempt: 1, maxAttempts: 2, failures: [{
+        requirementId: 'weather-xlsx', kind: 'deliverable', locator: '河南各市7天天气.xlsx',
+        reason: 'FILE_MISSING_OR_UNSAFE',
+      }]},
+    };
+    expect(decodeEvent(JSON.stringify(correction), 4).payload.failures).toEqual(correction.payload.failures);
+    expect(() => decodeEvent(JSON.stringify({...correction, payload: {
+      ...correction.payload, prompt: 'PRIVATE_PROMPT',
+    }}), 4)).toThrowError(/plan verification correction/);
+    expect(() => decodeEvent(JSON.stringify({...correction, payload: {
+      attempt: 2, maxAttempts: 1, failures: correction.payload.failures,
+    }}), 4)).toThrowError(/correction/);
+    expect(() => decodeEvent(JSON.stringify({...correction, payload: {
+      ...correction.payload, failures: [{...correction.payload.failures[0], output: 'SECRET_OUTPUT'}],
+    }}), 4)).toThrowError(/correction/);
+  });
+
   it('接受关联 Run 的类型化预算治理事件', () => {
     const event = decodeEvent(JSON.stringify({
       version: 0, type: 'run.budget.governed', requestId: 'req-budget',

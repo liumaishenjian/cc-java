@@ -638,6 +638,11 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
         ...state,
         notice: `计划执行失败（${String(event.payload.stopReason)}），不会自动重放；可通过显式恢复重新处理`,
       };
+    case 'plan.verification.correction':
+      return {
+        ...state,
+        notice: `计划证据校验失败，正在同一 Run 内纠正（${String(event.payload.attempt)}/${String(event.payload.maxAttempts)}）；不会自动重放既有副作用`,
+      };
     case 'plan.verification.required':
       return annotatePlanVerification(state, event,
         `计划尚未完成：需要验证 ${String(event.payload.blockingRequirementId ?? 'required-evidence-not-declared')}（${String(event.payload.satisfiedEvidence)}/${String(event.payload.requiredEvidence)}）`);

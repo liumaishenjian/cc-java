@@ -94,30 +94,52 @@ describe('real Java stdio plan flow', () => {
         && event.requestId === executionRequest), () => diagnostic(events, failures, exit));
       await waitFor(() => events.some(event => event.type === 'run.started'
         && event.requestId === executionRequest), () => diagnostic(events, failures, exit));
-      await waitFor(() => events.some(event => event.type === 'tool.started'
-        && event.requestId === executionRequest && event.payload.toolName === 'git_status'),
-      () => diagnostic(events, failures, exit));
+      await waitFor(() => events.filter(event => event.type === 'approval.requested'
+        && event.requestId === executionRequest).length === 1, () => diagnostic(events, failures, exit));
+      const firstApproval = events.find(event => event.type === 'approval.requested'
+        && event.requestId === executionRequest)!;
+      client.resolveApproval(String(firstApproval.payload.approvalId), 'allow_once');
       await waitFor(() => events.some(event => event.type === 'tool.completed'
-        && event.requestId === executionRequest && event.payload.toolName === 'git_status'),
+        && event.requestId === executionRequest && event.payload.toolName === 'write_file'),
       () => diagnostic(events, failures, exit));
+      await waitFor(() => events.some(event => event.type === 'plan.verification.correction'
+        && event.requestId === executionRequest), () => diagnostic(events, failures, exit));
+      const correction = events.find(event => event.type === 'plan.verification.correction'
+        && event.requestId === executionRequest)!;
+      expect(correction.payload).toEqual({attempt: 1, maxAttempts: 2, failures: [{
+        requirementId: 'weather-xlsx', kind: 'deliverable', locator: '河南各市7天天气.xlsx',
+        reason: 'FILE_MISSING_OR_UNSAFE',
+      }]});
+      expect(events.some(event => JSON.stringify(event.payload).includes('FIRST_UNVERIFIED_FINAL'))).toBe(false);
+      await waitFor(() => events.filter(event => event.type === 'approval.requested'
+        && event.requestId === executionRequest).length === 2, () => diagnostic(events, failures, exit));
+      const secondApproval = events.filter(event => event.type === 'approval.requested'
+        && event.requestId === executionRequest)[1]!;
+      client.resolveApproval(String(secondApproval.payload.approvalId), 'allow_once');
+      await waitFor(() => events.filter(event => event.type === 'tool.completed'
+        && event.requestId === executionRequest && event.payload.toolName === 'write_file').length === 2,
+      () => diagnostic(events, failures, exit));
+      await waitFor(() => events.some(event => event.type === 'plan.verification.completed'
+        && event.requestId === executionRequest), () => diagnostic(events, failures, exit));
       await waitFor(() => events.some(event => event.type === 'run.completed'
         && event.requestId === executionRequest), () => diagnostic(events, failures, exit));
       expect(events.some(event => event.type === 'run.completed'
         && event.requestId === executionRequest
-        && String(event.payload.finalText).includes('approved plan executed'))).toBe(true);
+        && String(event.payload.finalText).includes('approved plan corrected and verified'))).toBe(true);
       expect(events.filter(event => event.type === 'tool.completed'
-        && event.requestId === executionRequest && event.payload.toolName === 'git_status')).toHaveLength(1);
-      await waitFor(() => events.some(event => event.type === 'plan.verification.completed'
-        && event.requestId === executionRequest), () => diagnostic(events, failures, exit));
+        && event.requestId === executionRequest && event.payload.toolName === 'write_file')).toHaveLength(2);
       const executionTypes = events.filter(event => event.requestId === executionRequest)
         .map(event => event.type);
       expect(executionTypes.indexOf('plan.execution.accepted')).toBeLessThan(
         executionTypes.indexOf('run.started'));
       expect(executionTypes.indexOf('run.started')).toBeLessThan(executionTypes.indexOf('tool.started'));
-      expect(executionTypes.indexOf('tool.started')).toBeLessThan(executionTypes.indexOf('tool.completed'));
-      expect(executionTypes.indexOf('tool.completed')).toBeLessThan(executionTypes.indexOf('run.completed'));
-      expect(executionTypes.indexOf('run.completed')).toBeLessThan(
+      expect(executionTypes.indexOf('tool.started')).toBeLessThan(executionTypes.indexOf('plan.verification.correction'));
+      expect(executionTypes.indexOf('plan.verification.correction')).toBeLessThan(
+        executionTypes.lastIndexOf('tool.started'));
+      expect(executionTypes.lastIndexOf('tool.completed')).toBeLessThan(
         executionTypes.indexOf('plan.verification.completed'));
+      expect(executionTypes.indexOf('plan.verification.completed')).toBeLessThan(
+        executionTypes.indexOf('run.completed'));
       expect(events.some(event => event.type === 'plan.verification.required')).toBe(false);
       expect(events.filter(event => event.requestId === executionRequest)
         .some(event => event.type === 'plan.proposed')).toBe(false);
@@ -141,6 +163,10 @@ describe('real Java stdio plan flow', () => {
       const fixtureRoot = (await fs.readdir(fixtureParent, {withFileTypes: true}))
         .find(entry => entry.isDirectory() && entry.name.startsWith('plan-runtime-'));
       expect(fixtureRoot, 'Plan fixture root must remain available until shutdown').toBeDefined();
+      await expect(fs.readFile(path.join(fixtureParent, fixtureRoot!.name, 'workspace',
+        '河南各市7天天气预报.xlsx'), 'utf8')).resolves.toBe('wrong-name');
+      await expect(fs.readFile(path.join(fixtureParent, fixtureRoot!.name, 'workspace',
+        '河南各市7天天气.xlsx'), 'utf8')).resolves.toBe('correct-name');
       const journalPath = path.join(
         fixtureParent, fixtureRoot!.name, 'sessions', sessionId, 'session.jsonl',
       );
@@ -210,13 +236,25 @@ describe('real Java stdio plan flow', () => {
       await waitFor(() => events.some(event => event.type === 'run.completed'
         && event.requestId === events.find(item => item.type === 'plan.review.requested')?.requestId),
       () => diagnostic(events, failures, exit));
+      view.stdin.write('[B');
+      await new Promise(resolve => setTimeout(resolve, 10));
       view.stdin.write('\r');
-      await waitFor(() => view.lastFrame()?.includes('检查工作区') === true
-        && view.lastFrame()?.includes('approved plan executed') === true
+      await waitFor(() => events.filter(event => event.type === 'approval.requested').length === 1,
+        () => diagnostic(events, failures, exit));
+      view.stdin.write('\r');
+      await waitFor(() => events.some(event => event.type === 'plan.verification.correction'),
+        () => diagnostic(events, failures, exit));
+      await waitFor(() => view.lastFrame()?.includes('同一 Run 内纠正（1/2）') === true
+        && view.lastFrame()?.includes('不会自动重放既有副作用') === true,
+      () => diagnostic(events, failures, exit));
+      expect(view.lastFrame()).not.toContain('FIRST_UNVERIFIED_FINAL');
+      await waitFor(() => events.filter(event => event.type === 'approval.requested').length === 2,
+        () => diagnostic(events, failures, exit));
+      view.stdin.write('\r');
+      await waitFor(() => view.lastFrame()?.includes('approved plan corrected and verified') === true
+        && view.lastFrame()?.includes('计划证据已验证') === true
         && view.lastFrame()?.includes('已完成') === true,
       () => diagnostic(events, failures, exit));
-      await waitFor(() => view.lastFrame()?.includes('计划证据已验证') === true,
-        () => diagnostic(events, failures, exit));
       await waitFor(() => view.lastFrame()?.includes('· 就绪') === true,
         () => diagnostic(events, failures, exit));
 

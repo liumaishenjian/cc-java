@@ -781,6 +781,12 @@ S01 已确认：
   revision，并为每项 required evidence 保存有界隐私安全生命周期和引用。
 - 普通 Agent Run `COMPLETED` 只表示循环正常停止。只有确定性文件验证和 canonical 成功 ToolResult
   满足全部 required evidence 时，Plan 才能进入 `COMPLETED`；否则进入 `NEEDS_VERIFICATION`。
+- 候选最终 Assistant 必须在写入 canonical transcript 和形成 Surface terminal 前经过 Evidence Gate。验证失败时，
+  Runtime 应在同一 Run 内提供有界、可观察的 correction continuation：只反馈批准 requirement 的身份、kind、locator
+  与封闭 reason，不自动执行或重放任何既有 Tool；相同失败指纹或次数上限必须收敛为清晰用户决定。
+- correction 期间沿用原 Run 的预算、deadline、取消、Permission、Approval、Hook 和 Tool Pipeline；第一份未验证
+  final 不得进入后续 canonical request。Surface 必须抑制或明确标记未验证 prose，只有 evidence 全部满足后的
+  terminal 才可把最终文本作为完成交付展示；`NEEDS_VERIFICATION` terminal 不得携带模型完成声明。
 - accepted Plan 的模型失败、重试耗尽、取消、deadline、limit 与 incomplete stream 必须进入 durable
   failure status 并投影 `plan.execution.failed`；只有正常完成后才允许投影 `plan.verification.required/completed`。
   Surface 必须明确“不自动重放”，恢复仍需显式领取并经过既有 recovery gate。

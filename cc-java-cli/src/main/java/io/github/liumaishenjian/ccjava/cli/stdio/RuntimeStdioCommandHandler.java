@@ -673,6 +673,7 @@ public final class RuntimeStdioCommandHandler
             HeadlessRuntimeSession.PlanExecutionAcceptance acceptance) {
         ActiveRun run = new ActiveRun(requestId, 0, events);
         run.approvedPlanExecution = true;
+        run.suppressModelText = true;
         run.planAcceptance = acceptance;
         activeRun = run;
         state = State.RUNNING;
@@ -1974,25 +1975,27 @@ public final class RuntimeStdioCommandHandler
     private void executeAcceptedPlanRun(ActiveRun run) {
         try {
             AgentRunResult result = application.runAcceptedPlan(run.planAcceptance);
-            application.planArtifact().ifPresent(artifact -> {
-                if (result.stopReason() != io.github.liumaishenjian.ccjava.domain.StopReason.COMPLETED) {
-                    emitPlanExecutionFailure(run, result, artifact);
-                    return;
-                }
-                ObjectNode payload = codec.objectNode();
-                payload.put("planId", artifact.planId());
-                payload.put("status", artifact.status().name().toLowerCase(Locale.ROOT));
-                payload.put("requiredEvidence", artifact.evidenceLedger().requirements().stream()
-                        .filter(io.github.liumaishenjian.ccjava.domain.PlanEvidenceRequirement::required).count());
-                payload.put("satisfiedEvidence", artifact.evidenceLedger().references().stream()
-                        .filter(reference -> reference.status() == io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.PASSED
-                                || reference.status() == io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.SKIPPED).count());
-                artifact.evidenceLedger().firstBlockingRequirement()
-                        .ifPresent(requirement -> payload.put("blockingRequirementId", requirement));
-                run.events.emit(artifact.status() == io.github.liumaishenjian.ccjava.domain.PlanStatus.COMPLETED
-                                ? "plan.verification.completed" : "plan.verification.required",
-                        run.requestId, Optional.of(application.sessionId().value()), Optional.empty(), payload);
-            });
+            var artifact = application.planArtifact().orElseThrow(
+                    () -> new IllegalStateException("Plan 执行终态缺少 durable artifact"));
+            if (result.stopReason() != io.github.liumaishenjian.ccjava.domain.StopReason.COMPLETED) {
+                emitPlanExecutionFailure(run, result, artifact);
+                emitTerminal(run, result, false);
+                return;
+            }
+            ObjectNode payload = codec.objectNode();
+            payload.put("planId", artifact.planId());
+            payload.put("status", artifact.status().name().toLowerCase(Locale.ROOT));
+            payload.put("requiredEvidence", artifact.evidenceLedger().requirements().stream()
+                    .filter(io.github.liumaishenjian.ccjava.domain.PlanEvidenceRequirement::required).count());
+            payload.put("satisfiedEvidence", artifact.evidenceLedger().references().stream()
+                    .filter(reference -> reference.status() == io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.PASSED
+                            || reference.status() == io.github.liumaishenjian.ccjava.domain.PlanEvidenceStatus.SKIPPED).count());
+            artifact.evidenceLedger().firstBlockingRequirement()
+                    .ifPresent(requirement -> payload.put("blockingRequirementId", requirement));
+            boolean completed = artifact.status() == io.github.liumaishenjian.ccjava.domain.PlanStatus.COMPLETED;
+            run.events.emit(completed ? "plan.verification.completed" : "plan.verification.required",
+                    run.requestId, Optional.of(application.sessionId().value()), Optional.empty(), payload);
+            emitTerminal(run, result, completed);
         } catch (HeadlessRuntimeSession.PlanExecutionWorkspaceDriftException drift) {
             // typed session-level plan.execution.blocked 已在抛出前发布；不得再伪造成 run.failed。
         } catch (RuntimeException exception) {
@@ -2143,6 +2146,20 @@ public final class RuntimeStdioCommandHandler
                     == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS
                             ? "tool.completed" : "tool.failed";
             emit(run, type, payload);
+        } else if (envelope.event()
+                instanceof LifecycleEvent.PlanVerificationCorrectionRequested correction) {
+            ObjectNode payload = codec.objectNode();
+            payload.put("attempt", correction.attempt());
+            payload.put("maxAttempts", correction.maxAttempts());
+            ArrayNode failures = payload.putArray("failures");
+            for (var failure : correction.failures()) {
+                ObjectNode item = failures.addObject();
+                item.put("requirementId", failure.requirementId());
+                item.put("kind", failure.kind().name().toLowerCase(Locale.ROOT));
+                item.put("locator", failure.locator());
+                item.put("reason", failure.reason());
+            }
+            emit(run, "plan.verification.correction", payload);
         } else if (envelope.event() instanceof LifecycleEvent.BudgetGoverned budget) {
             ObjectNode payload = codec.objectNode();
             payload.put("reason", budget.reason().name().toLowerCase(Locale.ROOT));
@@ -2200,16 +2217,22 @@ public final class RuntimeStdioCommandHandler
             payload.set("steps", steps);
             emit(run, "plan.proposed", payload);
         } else if (envelope.event() instanceof LifecycleEvent.RunFinished finished) {
-            emitTerminal(run, finished.result());
+            if (!run.approvedPlanExecution) {
+                emitTerminal(run, finished.result());
+            }
         }
     }
 
     private void emitTerminal(ActiveRun run, AgentRunResult result) {
+        emitTerminal(run, result, !run.suppressModelText);
+    }
+
+    private void emitTerminal(ActiveRun run, AgentRunResult result, boolean includeFinalText) {
         ObjectNode payload = codec.objectNode();
         payload.put("stopReason", result.stopReason().name().toLowerCase());
         payload.put("modelTurns", result.modelTurns());
         payload.put("toolCalls", result.toolCalls());
-        if (!run.suppressModelText) result.finalText().ifPresent(value -> payload.put("finalText", value));
+        if (includeFinalText) result.finalText().ifPresent(value -> payload.put("finalText", value));
         result.modelFailure().ifPresent(value -> {
             ObjectNode failure = codec.objectNode();
             failure.put("category", value.category().name().toLowerCase(Locale.ROOT));

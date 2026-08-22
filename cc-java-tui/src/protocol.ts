@@ -52,6 +52,7 @@ const EVENT_TYPES = new Set([
   'plan.execution.failed',
   'plan.review.rejected',
   'plan.verification.required',
+  'plan.verification.correction',
   'plan.verification.completed',
   'plan.feedback.accepted',
   'question.requested',
@@ -96,6 +97,7 @@ export type EventType =
   | 'plan.execution.failed'
   | 'plan.review.rejected'
   | 'plan.verification.required'
+  | 'plan.verification.correction'
   | 'plan.verification.completed'
   | 'plan.feedback.accepted'
   | 'question.requested'
@@ -346,6 +348,20 @@ function validateEventShape(
       || !Number.isSafeInteger(payload.requiredEvidence) || !Number.isSafeInteger(payload.satisfiedEvidence)
       || (payload.blockingRequirementId !== undefined && typeof payload.blockingRequirementId !== 'string')) {
       throw new ProtocolViolation('plan verification 投影无效');
+    }
+  }
+  if (type === 'plan.verification.correction') {
+    if (!hasExactFields(payload, new Set(['attempt', 'maxAttempts', 'failures']))
+      || !Number.isSafeInteger(payload.attempt) || (payload.attempt as number) < 1
+      || !Number.isSafeInteger(payload.maxAttempts)
+      || (payload.maxAttempts as number) < (payload.attempt as number)
+      || !Array.isArray(payload.failures) || payload.failures.length < 1 || payload.failures.length > 64
+      || payload.failures.some(failure => !isRecord(failure)
+        || !hasExactFields(failure, new Set(['requirementId', 'kind', 'locator', 'reason']))
+        || typeof failure.requirementId !== 'string'
+        || (failure.kind !== 'deliverable' && failure.kind !== 'verification')
+        || typeof failure.locator !== 'string' || typeof failure.reason !== 'string')) {
+      throw new ProtocolViolation('plan verification correction 投影无效');
     }
   }
   if (type === 'plan.review.rejected') {
