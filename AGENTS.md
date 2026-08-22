@@ -45,6 +45,7 @@
    [ADR-059](./docs/adr/ADR-059-s11-skill-runtime-contract.md)、
    [ADR-060](./docs/adr/ADR-060-s11-plugin-host-contract.md)、
    [ADR-084](./docs/adr/ADR-084-s15-model-request-retry-hardening.md)、
+   [ADR-085](./docs/adr/ADR-085-s15-run-command-acceptance-handshake.md)、
    [ADR-021](./docs/adr/ADR-021-s02-model-streaming-cli-scope.md)、
    [ADR-018](./docs/adr/ADR-018-authorized-reference-study.md)、
    [ADR-019](./docs/adr/ADR-019-s07-progressive-context-reduction.md)与

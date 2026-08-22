@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -29,10 +30,11 @@ describe('real Java stdio plan flow', () => {
     expect(planFakeClasspath,
       'CC_JAVA_PLAN_FAKE_CLASSPATH must point to the deterministic Plan model fixture').toBeTruthy();
     const launchClasspath = [planFakeClasspath!, effectiveClasspath].join(path.delimiter);
+    const fixtureParent = await fs.mkdtemp(path.join(os.tmpdir(), 'codej-plan-acceptance-'));
     const client = new StdioClient({
       executable: 'java',
       args: ['-cp', launchClasspath,
-        'io.github.liumaishenjian.ccjava.cli.stdio.StdioProtocolFixtureMain', 'plan-runtime', os.tmpdir()],
+        'io.github.liumaishenjian.ccjava.cli.stdio.StdioProtocolFixtureMain', 'plan-runtime', fixtureParent],
       cwd: workspace,
       env: {...process.env, CC_JAVA_PLAN_FAKE_CLASSPATH: planFakeClasspath!},
     }, {shutdownTimeoutMs: 2_000});
@@ -46,6 +48,7 @@ describe('real Java stdio plan flow', () => {
       client.initialize();
       await waitFor(() => events.some(event => event.type === 'initialized'),
         () => diagnostic(events, failures, exit));
+      const sessionId = events.find(event => event.type === 'initialized')!.sessionId!;
 
       const requestId = client.startPlan('分析当前项目并给出只读实施计划');
       await waitFor(() => events.some(event => event.type === 'plan.review.requested'
@@ -118,9 +121,52 @@ describe('real Java stdio plan flow', () => {
       expect(events.some(event => event.type === 'plan.verification.required')).toBe(false);
       expect(events.filter(event => event.requestId === executionRequest)
         .some(event => event.type === 'plan.proposed')).toBe(false);
+
+      const followUpRequest = client.startRun('计划验证完成后的普通输入');
+      await waitFor(() => events.some(event => event.type === 'run.command.result'
+        && event.requestId === followUpRequest), () => diagnostic(events, failures, exit));
+      await waitFor(() => events.some(event => event.type === 'run.started'
+        && event.requestId === followUpRequest), () => diagnostic(events, failures, exit));
+      await waitFor(() => events.some(event => event.type === 'run.completed'
+        && event.requestId === followUpRequest), () => diagnostic(events, failures, exit));
+      const followUpEvents = events.filter(event => event.requestId === followUpRequest);
+      expect(followUpEvents.filter(event => event.type === 'run.command.result')).toHaveLength(1);
+      expect(followUpEvents.find(event => event.type === 'run.command.result')?.payload.disposition)
+        .toMatch(/accepted|queued/u);
+      expect(followUpEvents.filter(event => event.type === 'run.started')).toHaveLength(1);
+      expect(followUpEvents.filter(event => event.type === 'run.completed')).toHaveLength(1);
+      expect(followUpEvents.findIndex(event => event.type === 'run.command.result')).toBeLessThan(
+        followUpEvents.findIndex(event => event.type === 'run.started'));
+      const followUpRunId = followUpEvents.find(event => event.type === 'run.started')!.runId!;
+      const fixtureRoot = (await fs.readdir(fixtureParent, {withFileTypes: true}))
+        .find(entry => entry.isDirectory() && entry.name.startsWith('plan-runtime-'));
+      expect(fixtureRoot, 'Plan fixture root must remain available until shutdown').toBeDefined();
+      const journalPath = path.join(
+        fixtureParent, fixtureRoot!.name, 'sessions', sessionId, 'session.jsonl',
+      );
+      try {
+        await waitFor(async () => {
+          try {
+            const journal = await fs.readFile(journalPath, 'utf8');
+            return journal.split(/\r?\n/u).filter(Boolean).map(line => JSON.parse(line) as {
+              recordType?: string; runId?: string;
+            }).some(record => record.recordType === 'run.started' && record.runId === followUpRunId);
+          } catch {
+            return false;
+          }
+        }, () => diagnostic(events, failures, exit));
+      } catch (failure) {
+        const records = await safeJournalLifecycle(journalPath);
+        throw new Error(`${String(failure)}; journal=[${records}]`);
+      }
+      const journal = (await fs.readFile(journalPath, 'utf8')).split(/\r?\n/u).filter(Boolean)
+        .map(line => JSON.parse(line) as {recordType?: string; runId?: string});
+      expect(journal.filter(record => record.recordType === 'run.started'
+        && record.runId === followUpRunId)).toHaveLength(1);
       expect(failures).toEqual([]);
     } finally {
       await client.shutdown();
+      await fs.rm(fixtureParent, {recursive: true, force: true});
     }
     await waitFor(() => exit !== undefined, () => diagnostic(events, failures, exit));
     expect(exit?.code).toBe(0);
@@ -171,7 +217,31 @@ describe('real Java stdio plan flow', () => {
       () => diagnostic(events, failures, exit));
       await waitFor(() => view.lastFrame()?.includes('计划证据已验证') === true,
         () => diagnostic(events, failures, exit));
+      await waitFor(() => view.lastFrame()?.includes('· 就绪') === true,
+        () => diagnostic(events, failures, exit));
+
+      const eventBoundary = events.length;
+      view.stdin.write('计划完成后的普通输入');
+      view.stdin.write('\r');
+      await waitFor(() => events.slice(eventBoundary).some(event => event.type === 'run.command.result'
+        && event.payload.commandType === 'run.start'), () => diagnostic(events, failures, exit));
+      const followUpResult = events.slice(eventBoundary).find(event => event.type === 'run.command.result'
+        && event.payload.commandType === 'run.start')!;
+      const followUpRequest = followUpResult.requestId;
+      await waitFor(() => events.some(event => event.type === 'run.started'
+        && event.requestId === followUpRequest), () => diagnostic(events, failures, exit));
+      await waitFor(() => events.some(event => event.type === 'run.completed'
+        && event.requestId === followUpRequest), () => diagnostic(events, failures, exit));
+      await waitFor(() => view.lastFrame()?.includes('follow-up completed') === true,
+        () => diagnostic(events, failures, exit));
+      const followUpTypes = events.filter(event => event.requestId === followUpRequest)
+        .map(event => event.type);
+      expect(followUpTypes.filter(type => type === 'run.command.result')).toHaveLength(1);
+      expect(followUpTypes.filter(type => type === 'run.started')).toHaveLength(1);
+      expect(followUpTypes.filter(type => type === 'run.completed')).toHaveLength(1);
+      expect(followUpTypes.indexOf('run.command.result')).toBeLessThan(followUpTypes.indexOf('run.started'));
       const frame = view.lastFrame() ?? '';
+      expect(frame).not.toContain('上一条输入仍在等待 Java 接受');
       expect(frame).not.toContain('无法关联');
       expect(frame).not.toContain('连接已关闭');
       expect(failures).toEqual([]);
@@ -242,9 +312,12 @@ async function waitForEvent(events: ProtocolEvent[], requestId: string): Promise
   await waitFor(() => events.some(event => event.type === 'session.command.result' && event.requestId === requestId));
   return events.find(event => event.type === 'session.command.result' && event.requestId === requestId)!;
 }
-async function waitFor(predicate: () => boolean, onTimeout?: () => string): Promise<void> {
+async function waitFor(
+  predicate: () => boolean | Promise<boolean>,
+  onTimeout?: () => string,
+): Promise<void> {
   const deadline = Date.now() + 15_000;
-  while (!predicate()) {
+  while (!(await predicate())) {
     if (Date.now() >= deadline) throw new Error(onTimeout?.() ?? '等待真实 Java stdio 事件超时');
     await new Promise(resolve => setTimeout(resolve, 10));
   }
@@ -264,9 +337,30 @@ function diagnostic(
     .map(event => safeToolName(event.payload.toolName)).join(',');
   const completedTools = events.filter(event => event.type === 'tool.completed')
     .map(event => safeToolName(event.payload.toolName)).join(',');
+  const commandResults = events.filter(event => event.type === 'run.command.result')
+    .map(event => `${safeWireToken(event.payload.commandType)}:${safeWireToken(event.payload.disposition)}`)
+    .join(',');
+  const startedRunIds = events.filter(event => event.type === 'run.started')
+    .map(event => typeof event.runId === 'string' ? event.runId : 'missing').join(',');
   const exitMetadata = exit === undefined ? 'pending'
     : `code=${exit.code ?? 'null'}:signal=${safeSignal(exit.signal)}:stderrBytes=${Math.min(exit.stderrBytes, 999_999)}`;
-  return `等待真实 Java 事件超时；eventCount=${events.length}, eventTypes=[${eventCounts}], terminalReasons=[${terminalReasons}], startedTools=[${startedTools}], completedTools=[${completedTools}], failureCount=${failures.length}, exit=${exitMetadata}`;
+  return `等待真实 Java 事件超时；eventCount=${events.length}, eventTypes=[${eventCounts}], terminalReasons=[${terminalReasons}], startedTools=[${startedTools}], completedTools=[${completedTools}], commandResults=[${commandResults}], startedRunIds=[${startedRunIds}], failureCount=${failures.length}, exit=${exitMetadata}`;
+}
+
+async function safeJournalLifecycle(journalPath: string): Promise<string> {
+  try {
+    const content = await fs.readFile(journalPath, 'utf8');
+    return content.split(/\r?\n/u).filter(Boolean).flatMap(line => {
+      try {
+        const record = JSON.parse(line) as {recordType?: unknown; runId?: unknown};
+        return [`${safeWireToken(record.recordType)}:${typeof record.runId === 'string' ? record.runId : '-'}`];
+      } catch {
+        return ['invalid-json'];
+      }
+    }).join(',');
+  } catch {
+    return 'unavailable';
+  }
 }
 
 function safeEventType(type: string): string {
@@ -277,6 +371,10 @@ function safeEventType(type: string): string {
     'session.command.result', 'tool.completed', 'tool.failed', 'tool.started',
   ]);
   return known.has(type) ? type : 'other';
+}
+
+function safeWireToken(value: unknown): string {
+  return typeof value === 'string' && /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/.test(value) ? value : 'unknown';
 }
 
 function safeStopReason(value: unknown): string {

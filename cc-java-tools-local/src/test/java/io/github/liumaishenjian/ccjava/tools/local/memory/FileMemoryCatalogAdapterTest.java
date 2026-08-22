@@ -451,11 +451,17 @@ class FileMemoryCatalogAdapterTest {
     }
 
     private static void createJunction(Path link, Path target) throws Exception {
-        Process process = new ProcessBuilder(
-                "cmd.exe", "/d", "/c", "mklink", "/J",
-                link.toString(), target.toString())
-                .redirectErrorStream(true)
-                .start();
+        Process process;
+        try {
+            process = new ProcessBuilder(
+                    "cmd.exe", "/d", "/c", "mklink", "/J",
+                    link.toString(), target.toString())
+                    .redirectErrorStream(true)
+                    .start();
+        } catch (java.io.IOException unavailable) {
+            Assumptions.abort("当前 Windows 策略禁止启动 Junction 探测进程");
+            return;
+        }
         byte[] outputBytes = process.getInputStream().readAllBytes();
         int exit = process.waitFor();
         if (exit != 0) {

@@ -30,6 +30,8 @@ export interface StdioClientOptions {
   readonly shutdownTimeoutMs?: number;
   readonly cancelTimeoutMs?: number;
   readonly providerLoginTimeoutMs?: number;
+  /** Run-producing command 等待 Java acceptance 的有界期限。 */
+  readonly runHandshakeTimeoutMs?: number;
   /** 仅供确定性生命周期测试注入 Windows 进程树终止结果。 */
   readonly windowsTreeKiller?: (pid: number) => boolean;
   /** 仅供确定性跨平台测试覆盖当前平台判断。 */
@@ -45,6 +47,11 @@ export interface ProviderLoginRequest {
   readonly secretBytes?: Uint8Array;
   /** 仅显式 true 时把 profile 持久设为该 Provider 默认；省略保持旧接口的非默认语义。 */
   readonly setDefault?: boolean;
+}
+
+export interface RunHandshakeNotice {
+  readonly requestId: string;
+  readonly kind: 'timed_out' | 'late';
 }
 
 export interface ProviderLoginResult {
@@ -214,6 +221,7 @@ export class StdioClient {
   readonly #cancelTimeoutMs: number;
   readonly #loginSpec: ChildProcessSpec;
   readonly #providerLoginTimeoutMs: number;
+  readonly #runHandshakeTimeoutMs: number;
   readonly #windowsTreeKiller: (pid: number) => boolean;
   readonly #platform: NodeJS.Platform;
   #loginBridge: ProviderLoginBridge | undefined;
@@ -233,13 +241,19 @@ export class StdioClient {
   #issuedSessionCommandIds = new Set<string>();
   #pendingSessionCommands = new Map<string, string>();
   #pendingProviderControls = new Map<string, string>();
-  #pendingRunStartRequestId: string | undefined;
-  #pendingSteeringRequests = new Map<string, 'awaiting_queued' | 'queued'>();
+  #pendingRunCommands = new Map<string, {
+    readonly commandType: 'run.start' | 'plan.start' | 'plan.review.resolve' | 'skill.invoke';
+    disposition: 'submitting' | 'accepted' | 'queued';
+    legacyQueuedSeen: boolean;
+    timer: NodeJS.Timeout;
+  }>();
+  #terminalRunCommands = new Map<string, 'timed_out' | 'rejected'>();
   #pendingFileSuggestions = new Map<string, string>();
   #completedFileSuggestionIds = new Set<string>();
   static readonly #MAX_ISSUED_SESSION_COMMAND_IDS = 256;
   static readonly #MAX_PENDING_FILE_SUGGESTIONS = 256;
   static readonly #MAX_COMPLETED_FILE_SUGGESTIONS = 256;
+  static readonly #MAX_TERMINAL_RUN_COMMANDS = 256;
 
   public constructor(spec: ChildProcessSpec, options: StdioClientOptions = {}) {
     this.#maxLineBytes = options.maxLineBytes ?? MAX_LINE_BYTES;
@@ -247,6 +261,11 @@ export class StdioClient {
     this.#cancelTimeoutMs = options.cancelTimeoutMs ?? 2_000;
     this.#loginSpec = spec;
     this.#providerLoginTimeoutMs = options.providerLoginTimeoutMs ?? 300_000;
+    this.#runHandshakeTimeoutMs = options.runHandshakeTimeoutMs ?? 5_000;
+    if (!Number.isSafeInteger(this.#runHandshakeTimeoutMs)
+      || this.#runHandshakeTimeoutMs < 50 || this.#runHandshakeTimeoutMs > 30_000) {
+      throw new Error('Run acceptance timeout 必须在 50..30000ms');
+    }
     this.#windowsTreeKiller = options.windowsTreeKiller ?? killWindowsProcessTree;
     this.#platform = options.platform ?? process.platform;
     this.#child = spawn(spec.executable, [...spec.args], {
@@ -282,8 +301,8 @@ export class StdioClient {
       }
       this.#pendingSessionCommands.clear();
       this.#pendingProviderControls.clear();
-      this.#pendingRunStartRequestId = undefined;
-      this.#pendingSteeringRequests.clear();
+      this.#clearRunCommands();
+      this.#terminalRunCommands.clear();
       this.#pendingFileSuggestions.clear();
       this.#completedFileSuggestionIds.clear();
       this.#issuedSessionCommandIds.clear();
@@ -299,6 +318,12 @@ export class StdioClient {
   public onFailure(listener: (message: string) => void): () => void {
     this.#events.on('failure', listener);
     return () => this.#events.off('failure', listener);
+  }
+
+  /** 监听本地 acceptance watchdog 与迟到结果；该通知不会重放命令。 */
+  public onRunHandshake(listener: (notice: RunHandshakeNotice) => void): () => void {
+    this.#events.on('run-handshake', listener);
+    return () => this.#events.off('run-handshake', listener);
   }
 
   public onExit(
@@ -332,21 +357,16 @@ export class StdioClient {
     readonly feedback: string;
   }): string {
     if (this.#sessionId === undefined || this.#activeRunId !== undefined
-      || this.#pendingRunStartRequestId !== undefined) {
+      || this.#pendingRunCommands.size > 0) {
       throw new Error('只有就绪 Session 可以决定 Plan review');
     }
     const requestId = `tui-${this.#nextRequestNumber++}`;
-    if (input.decision !== 'REJECT') {
-      this.#pendingRunStartRequestId = requestId;
-    }
-    try {
+    const createsRun = input.decision === 'APPROVE_AUTO' || input.decision === 'APPROVE_USER'
+      || (input.decision === 'CONTINUE_PLANNING' && input.feedback.trim().length > 0);
+    if (!createsRun) {
       return this.#send('plan.review.resolve', input, this.#sessionId, undefined, requestId);
-    } catch (error) {
-      if (this.#pendingRunStartRequestId === requestId) {
-        this.#pendingRunStartRequestId = undefined;
-      }
-      throw error;
     }
+    return this.#sendRunCommand('plan.review.resolve', input, requestId);
   }
 
   /** 隐藏兼容方法；durable review 的 UI 不再调用第二次 plan.execute。 */
@@ -363,48 +383,49 @@ export class StdioClient {
     const direct = this.#command(
       type, {prompt}, requestId, this.#nextCommandSequence, this.#sessionId,
     );
-    if (commandBytes(direct) < this.#maxLineBytes) {
-      this.#write(direct);
-    } else {
-      if (type === 'plan.start') throw new Error('Plan 任务超过单条安全协议预算');
-      const inputId = `input-${requestId}`;
-      const chunks = protocolTextChunks(
-        prompt,
-        this.#maxLineBytes,
-        (text, ordinal, sequence) => this.#command(
-          'input.chunk', {inputId, ordinal, text}, requestId, sequence, this.#sessionId,
-        ),
-        this.#nextCommandSequence + 1,
-      );
-      if (chunks.length > 64) throw new Error('输入编码后需要超过 64 个协议分块');
-      this.#write(this.#command('input.begin', {
-        inputId,
-        byteCount: encoded.byteLength,
-        chunkCount: chunks.length,
-        sha256: createHash('sha256').update(encoded).digest('hex'),
-      }, requestId, this.#nextCommandSequence, this.#sessionId));
-      chunks.forEach((text, ordinal) => {
+    this.#registerRunCommand(requestId, type);
+    try {
+      if (commandBytes(direct) < this.#maxLineBytes) {
+        this.#write(direct);
+      } else {
+        if (type === 'plan.start') throw new Error('Plan 任务超过单条安全协议预算');
+        const inputId = `input-${requestId}`;
+        const chunks = protocolTextChunks(
+          prompt,
+          this.#maxLineBytes,
+          (text, ordinal, sequence) => this.#command(
+            'input.chunk', {inputId, ordinal, text}, requestId, sequence, this.#sessionId,
+          ),
+          this.#nextCommandSequence + 1,
+        );
+        if (chunks.length > 64) throw new Error('输入编码后需要超过 64 个协议分块');
+        this.#write(this.#command('input.begin', {
+          inputId,
+          byteCount: encoded.byteLength,
+          chunkCount: chunks.length,
+          sha256: createHash('sha256').update(encoded).digest('hex'),
+        }, requestId, this.#nextCommandSequence, this.#sessionId));
+        chunks.forEach((text, ordinal) => {
+          this.#write(this.#command(
+            'input.chunk', {inputId, ordinal, text}, requestId,
+            this.#nextCommandSequence, this.#sessionId,
+          ));
+        });
         this.#write(this.#command(
-          'input.chunk', {inputId, ordinal, text}, requestId,
-          this.#nextCommandSequence, this.#sessionId,
+          'input.commit', {inputId}, requestId, this.#nextCommandSequence, this.#sessionId,
         ));
-      });
-      this.#write(this.#command(
-        'input.commit', {inputId}, requestId, this.#nextCommandSequence, this.#sessionId,
-      ));
+      }
+      return requestId;
+    } catch (error) {
+      this.#removeRunCommand(requestId);
+      throw error;
     }
-    if (this.#activeRunId !== undefined || this.#pendingRunStartRequestId !== undefined) {
-      this.#pendingSteeringRequests.set(requestId, 'awaiting_queued');
-    } else {
-      this.#pendingRunStartRequestId = requestId;
-    }
-    return requestId;
   }
 
   /** 将当前 durable review revision 返回 DRAFT，随后可在同一 Session 继续 /plan。 */
   public returnPlanFeedback(planId: string, revision: number, contentDigest: string): string {
     if (this.#sessionId === undefined || this.#activeRunId !== undefined
-      || this.#pendingRunStartRequestId !== undefined) {
+      || this.#pendingRunCommands.size > 0) {
       throw new Error('只有就绪 Session 可以返回 Plan 反馈');
     }
     return this.#send('plan.feedback', {planId, revision, contentDigest}, this.#sessionId);
@@ -413,12 +434,11 @@ export class StdioClient {
   /** 启动 Java 权威的显式 Skill Run。 */
   public invokeSkill(name: string, arguments_: string): string {
     if (this.#sessionId === undefined || this.#activeRunId !== undefined
-      || this.#pendingRunStartRequestId !== undefined) {
+      || this.#pendingRunCommands.size > 0) {
       throw new Error('只有就绪 Session 可以显式调用 Skill');
     }
-    const requestId = this.#send('skill.invoke', {name, arguments: arguments_}, this.#sessionId);
-    this.#pendingRunStartRequestId = requestId;
-    return requestId;
+    const requestId = `tui-${this.#nextRequestNumber++}`;
+    return this.#sendRunCommand('skill.invoke', {name, arguments: arguments_}, requestId);
   }
 
   public sessionCommand(
@@ -435,12 +455,18 @@ export class StdioClient {
     if (this.#issuedSessionCommandIds.size >= StdioClient.#MAX_ISSUED_SESSION_COMMAND_IDS) {
       throw new Error('session.command commandId 签发数量超过上限');
     }
-    const requestId = this.#send('session.command', {
-      protocolVersion: PROTOCOL_VERSION, commandId, intent, arguments: arguments_,
-    }, this.#sessionId);
+    const requestId = `tui-${this.#nextRequestNumber++}`;
     this.#issuedSessionCommandIds.add(commandId);
     this.#pendingSessionCommands.set(commandId, requestId);
-    return requestId;
+    try {
+      return this.#send('session.command', {
+        protocolVersion: PROTOCOL_VERSION, commandId, intent, arguments: arguments_,
+      }, this.#sessionId, undefined, requestId);
+    } catch (error) {
+      this.#pendingSessionCommands.delete(commandId);
+      this.#issuedSessionCommandIds.delete(commandId);
+      throw error;
+    }
   }
 
   /** 发送不含 secret 的 Provider/Auth 本地控制命令。 */
@@ -451,9 +477,15 @@ export class StdioClient {
   ): string {
     if (this.#sessionId === undefined) throw new Error('Session 尚未初始化');
     if (this.#pendingProviderControls.has(controlId)) throw new Error('provider.control controlId 重复');
-    const requestId = this.#send('provider.control', {controlId, intent, arguments: arguments_}, this.#sessionId);
+    const requestId = `tui-${this.#nextRequestNumber++}`;
     this.#pendingProviderControls.set(controlId, requestId);
-    return requestId;
+    try {
+      return this.#send('provider.control', {controlId, intent, arguments: arguments_},
+        this.#sessionId, undefined, requestId);
+    } catch (error) {
+      this.#pendingProviderControls.delete(controlId);
+      throw error;
+    }
   }
   /** 通过继承终端的一次性 Java 进程执行登录；Agent stdio 连接不承载 secret。 */
   public providerLogin(request: ProviderLoginRequest): Promise<ProviderLoginResult> {
@@ -476,9 +508,14 @@ export class StdioClient {
     if (this.#pendingFileSuggestions.size >= StdioClient.#MAX_PENDING_FILE_SUGGESTIONS) {
       throw new Error('file.suggest 待处理请求超过上限');
     }
-    const requestId = this.#send('file.suggest', {query}, this.#sessionId);
+    const requestId = `tui-${this.#nextRequestNumber++}`;
     this.#pendingFileSuggestions.set(requestId, query);
-    return requestId;
+    try {
+      return this.#send('file.suggest', {query}, this.#sessionId, undefined, requestId);
+    } catch (error) {
+      this.#pendingFileSuggestions.delete(requestId);
+      throw error;
+    }
   }
 
   public listCheckpoints(): string {
@@ -666,6 +703,67 @@ export class StdioClient {
     return this.#processExited;
   }
 
+  #sendRunCommand(
+    type: 'run.start' | 'plan.start' | 'plan.review.resolve' | 'skill.invoke',
+    payload: Readonly<Record<string, unknown>>,
+    requestId: string,
+  ): string {
+    this.#registerRunCommand(requestId, type);
+    try {
+      return this.#send(type, payload, this.#sessionId, undefined, requestId);
+    } catch (error) {
+      this.#removeRunCommand(requestId);
+      throw error;
+    }
+  }
+
+  #registerRunCommand(
+    requestId: string,
+    commandType: 'run.start' | 'plan.start' | 'plan.review.resolve' | 'skill.invoke',
+  ): void {
+    if (this.#pendingRunCommands.has(requestId)) {
+      throw new Error('Run command requestId 重复');
+    }
+    const timer = setTimeout(() => {
+      const pending = this.#pendingRunCommands.get(requestId);
+      if (pending === undefined || pending.disposition !== 'submitting') return;
+      this.#pendingRunCommands.delete(requestId);
+      this.#rememberRunCommandTerminal(requestId, 'timed_out');
+      this.#events.emit('run-handshake', {requestId, kind: 'timed_out'} satisfies RunHandshakeNotice);
+      // stdin 写入成功但 Java 没有给出 correlated disposition 时，执行结果属于 unknown。
+      // 继续复用连接并允许重提可能让两个 Run 执行同一副作用，因此必须关闭 transport，
+      // 由 Session recovery gate 决定后续动作，绝不在当前连接内自动重放。
+      this.#fail('Java 未在期限内确认 Run 请求；连接已关闭以避免结果未知时重复执行');
+    }, this.#runHandshakeTimeoutMs);
+    timer.unref();
+    this.#pendingRunCommands.set(requestId, {
+      commandType, disposition: 'submitting', legacyQueuedSeen: false, timer,
+    });
+  }
+
+  #removeRunCommand(requestId: string): void {
+    const pending = this.#pendingRunCommands.get(requestId);
+    if (pending !== undefined) clearTimeout(pending.timer);
+    this.#pendingRunCommands.delete(requestId);
+  }
+
+  /**
+   * 保留已超时或已拒绝请求的有界墓碑，使迟到的 acceptance/start 不能复活为不可见 Run。
+   */
+  #rememberRunCommandTerminal(requestId: string, terminal: 'timed_out' | 'rejected'): void {
+    this.#terminalRunCommands.delete(requestId);
+    this.#terminalRunCommands.set(requestId, terminal);
+    while (this.#terminalRunCommands.size > StdioClient.#MAX_TERMINAL_RUN_COMMANDS) {
+      const oldest = this.#terminalRunCommands.keys().next().value;
+      if (oldest !== undefined) this.#terminalRunCommands.delete(oldest);
+    }
+  }
+
+  #clearRunCommands(): void {
+    for (const pending of this.#pendingRunCommands.values()) clearTimeout(pending.timer);
+    this.#pendingRunCommands.clear();
+  }
+
   #send(
     type: ProtocolCommand['type'],
     payload: Readonly<Record<string, unknown>>,
@@ -749,11 +847,55 @@ export class StdioClient {
   #observeAuthority(event: ProtocolEvent): void {
     if (event.type === 'protocol.error') {
       this.#pendingFileSuggestions.delete(event.requestId);
-      if (event.requestId === this.#pendingRunStartRequestId) {
-        this.#pendingRunStartRequestId = undefined;
-      } else {
-        this.#pendingSteeringRequests.delete(event.requestId);
+      if (this.#pendingRunCommands.has(event.requestId)) {
+        this.#removeRunCommand(event.requestId);
+        this.#rememberRunCommandTerminal(event.requestId, 'rejected');
       }
+      for (const [commandId, requestId] of this.#pendingSessionCommands) {
+        if (requestId === event.requestId) this.#pendingSessionCommands.delete(commandId);
+      }
+      for (const [controlId, requestId] of this.#pendingProviderControls) {
+        if (requestId === event.requestId) this.#pendingProviderControls.delete(controlId);
+      }
+    } else if (event.type === 'run.command.result') {
+      if (event.sessionId !== this.#sessionId) {
+        throw new ProtocolViolation('run.command.result 与当前 Session 不匹配');
+      }
+      const pending = this.#pendingRunCommands.get(event.requestId);
+      if (pending === undefined) {
+        const terminal = this.#terminalRunCommands.get(event.requestId);
+        if (terminal === 'timed_out') {
+          if (event.payload.disposition !== 'rejected') {
+            throw new ProtocolViolation('迟到的 accepted/queued acceptance 无法安全关联，连接已关闭');
+          }
+          this.#events.emit('run-handshake', {
+            requestId: event.requestId, kind: 'late',
+          } satisfies RunHandshakeNotice);
+          return;
+        }
+        if (terminal === 'rejected') {
+          throw new ProtocolViolation('已拒绝 Run command 收到重复 acceptance，连接已关闭');
+        }
+        throw new ProtocolViolation('run.command.result 与待处理请求不匹配');
+      }
+      if (event.payload.commandType !== pending.commandType || pending.disposition !== 'submitting') {
+        throw new ProtocolViolation('run.command.result 重复、乱序或命令类型错配');
+      }
+      clearTimeout(pending.timer);
+      if (event.payload.disposition === 'rejected') {
+        this.#pendingRunCommands.delete(event.requestId);
+        this.#rememberRunCommandTerminal(event.requestId, 'rejected');
+      } else {
+        pending.disposition = event.payload.disposition as 'accepted' | 'queued';
+      }
+    } else if (event.type === 'run.launch.failed') {
+      const pending = this.#pendingRunCommands.get(event.requestId);
+      if (event.sessionId !== this.#sessionId
+        || (pending?.disposition !== 'accepted' && pending?.disposition !== 'queued')) {
+        throw new ProtocolViolation('run.launch.failed 与已接受请求不匹配');
+      }
+      this.#removeRunCommand(event.requestId);
+      this.#rememberRunCommandTerminal(event.requestId, 'rejected');
     } else if (event.type === 'file.suggestions') {
       const expectedQuery = this.#pendingFileSuggestions.get(event.requestId);
       if (this.#completedFileSuggestionIds.has(event.requestId)
@@ -769,21 +911,20 @@ export class StdioClient {
         if (oldest !== undefined) this.#completedFileSuggestionIds.delete(oldest);
       }
     } else if (event.type === 'steering.queued') {
-      if (
-        event.sessionId !== this.#sessionId
-        || this.#pendingSteeringRequests.get(event.requestId) !== 'awaiting_queued'
-      ) {
-        throw new ProtocolViolation('steering.queued 与待处理请求或当前 Session 不匹配');
+      const pending = this.#pendingRunCommands.get(event.requestId);
+      if (event.sessionId !== this.#sessionId || pending?.disposition !== 'queued'
+        || pending.legacyQueuedSeen) {
+        throw new ProtocolViolation('steering.queued 与 queued acceptance 不匹配');
       }
-      this.#pendingSteeringRequests.set(event.requestId, 'queued');
+      pending.legacyQueuedSeen = true;
     } else if (event.type === 'steering.discarded') {
-      if (
-        event.sessionId !== this.#sessionId
-        || this.#pendingSteeringRequests.get(event.requestId) !== 'queued'
-      ) {
-        throw new ProtocolViolation('steering.discarded 与已排队请求或当前 Session 不匹配');
+      const pending = this.#pendingRunCommands.get(event.requestId);
+      if (event.sessionId !== this.#sessionId || pending?.disposition !== 'queued'
+        || !pending.legacyQueuedSeen) {
+        throw new ProtocolViolation('steering.discarded 与 queued acceptance 不匹配');
       }
-      this.#pendingSteeringRequests.delete(event.requestId);
+      this.#removeRunCommand(event.requestId);
+      this.#rememberRunCommandTerminal(event.requestId, 'rejected');
     } else if (event.type === 'provider.control.result') {
       const controlId = event.payload.controlId;
       if (typeof controlId !== 'string' || this.#pendingProviderControls.get(controlId) !== event.requestId
@@ -809,8 +950,8 @@ export class StdioClient {
           && typeof (result as Record<string, unknown>).resumedSessionId === 'string'
           && event.sessionId === (result as Record<string, unknown>).resumedSessionId) {
           this.#sessionId = event.sessionId;
-          this.#pendingRunStartRequestId = undefined;
-          this.#pendingSteeringRequests.clear();
+          this.#clearRunCommands();
+          this.#terminalRunCommands.clear();
           this.#pendingFileSuggestions.clear();
         } else {
           throw new ProtocolViolation('session.command.result resume 与当前 Session 不匹配');
@@ -823,25 +964,20 @@ export class StdioClient {
       }
       this.#sessionId = event.sessionId;
     } else if (event.type === 'run.started') {
-      if (event.sessionId !== this.#sessionId || this.#activeRunId !== undefined) {
-        return;
+      if (this.#terminalRunCommands.has(event.requestId)) {
+        throw new ProtocolViolation('已超时或拒绝请求收到迟到的 run.started，连接已关闭');
       }
-      if (event.requestId === this.#pendingRunStartRequestId) {
-        this.#pendingRunStartRequestId = undefined;
-      } else if (this.#pendingSteeringRequests.get(event.requestId) === 'queued') {
-        this.#pendingSteeringRequests.delete(event.requestId);
-      } else {
-        return;
-      }
+      if (event.sessionId !== this.#sessionId || this.#activeRunId !== undefined) return;
+      const pending = this.#pendingRunCommands.get(event.requestId);
+      if (pending?.disposition !== 'accepted' && pending?.disposition !== 'queued') return;
+      this.#removeRunCommand(event.requestId);
       this.#activeRunId = event.runId;
     } else if (
       event.type === 'run.completed'
       || event.type === 'run.failed'
       || event.type === 'run.cancelled'
     ) {
-      if (event.sessionId !== this.#sessionId || event.runId !== this.#activeRunId) {
-        return;
-      }
+      if (event.sessionId !== this.#sessionId || event.runId !== this.#activeRunId) return;
       this.#activeRunId = undefined;
       this.#clearCancelTimer();
     }
@@ -854,8 +990,8 @@ export class StdioClient {
     this.#clearCancelTimer();
     this.#pendingSessionCommands.clear();
     this.#pendingProviderControls.clear();
-    this.#pendingRunStartRequestId = undefined;
-    this.#pendingSteeringRequests.clear();
+    this.#clearRunCommands();
+    this.#terminalRunCommands.clear();
     this.#pendingFileSuggestions.clear();
     this.#completedFileSuggestionIds.clear();
     this.#issuedSessionCommandIds.clear();

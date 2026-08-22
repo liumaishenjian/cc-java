@@ -32,6 +32,8 @@ const CHECKPOINT_UNDO_STATUSES = new Set([
 
 const EVENT_TYPES = new Set([
   'initialized',
+  'run.command.result',
+  'run.launch.failed',
   'run.started',
   'run.budget.governed',
   'skill.invoked',
@@ -74,6 +76,8 @@ const EVENT_TYPES = new Set([
 
 export type EventType =
   | 'initialized'
+  | 'run.command.result'
+  | 'run.launch.failed'
   | 'run.started'
   | 'run.budget.governed'
   | 'skill.invoked'
@@ -228,6 +232,16 @@ function validateEventShape(
 ): void {
   if (type === 'initialized' && sessionId === undefined) {
     throw new ProtocolViolation('initialized 缺少 sessionId');
+  }
+  if (type === 'run.command.result') {
+    validateRunCommandResult(sessionId, runId, payload);
+  }
+  if (type === 'run.launch.failed') {
+    if (sessionId === undefined || runId !== undefined
+      || !hasExactFields(payload, new Set(['code', 'stopReason']))
+      || payload.code !== 'RUNTIME_LAUNCH_FAILED' || payload.stopReason !== 'internal_error') {
+      throw new ProtocolViolation('run.launch.failed 包含无效启动失败投影');
+    }
   }
   if (
     (type === 'checkpoint.listed'
@@ -645,6 +659,31 @@ function validateFileSuggestions(
       throw new ProtocolViolation('file.suggestions 包含无效候选');
     }
     seen.add(candidate);
+  }
+}
+
+function validateRunCommandResult(
+  sessionId: string | undefined,
+  runId: string | undefined,
+  payload: Readonly<Record<string, unknown>>,
+): void {
+  const commandTypes = new Set(['run.start', 'plan.start', 'plan.review.resolve', 'skill.invoke']);
+  const dispositions = new Set(['accepted', 'queued', 'rejected']);
+  const expectedFields = payload.disposition === 'queued'
+    ? new Set(['commandType', 'disposition', 'code', 'queueDepth'])
+    : new Set(['commandType', 'disposition', 'code']);
+  if (sessionId === undefined || runId !== undefined
+    || !hasExactFields(payload, expectedFields)
+    || typeof payload.commandType !== 'string' || !commandTypes.has(payload.commandType)
+    || typeof payload.disposition !== 'string' || !dispositions.has(payload.disposition)
+    || typeof payload.code !== 'string' || !/^[A-Z][A-Z0-9_]{0,63}$/u.test(payload.code)
+    || (payload.disposition === 'accepted' && payload.code !== 'ACCEPTED')
+    || (payload.disposition === 'queued' && payload.code !== 'QUEUED')
+    || (payload.disposition === 'queued'
+      && (!Number.isSafeInteger(payload.queueDepth)
+        || (payload.queueDepth as number) < 1
+        || (payload.queueDepth as number) > 100))) {
+    throw new ProtocolViolation('run.command.result 包含无效 acceptance 投影');
   }
 }
 

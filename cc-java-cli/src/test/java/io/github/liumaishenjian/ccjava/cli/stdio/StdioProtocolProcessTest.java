@@ -47,8 +47,15 @@ class StdioProtocolProcessTest {
                             + "\"requestId\":\"req-2\",\"sessionId\":\"%s\","
                             + "\"sequence\":2,\"payload\":{\"prompt\":\"cancel me\"}}")
                             .formatted(sessionId));
+            JsonNode accepted = readEvent(process, output, mapper);
+            assertThat(accepted.get("type").stringValue())
+                    .isEqualTo("run.command.result");
+            assertThat(accepted.get("requestId").stringValue()).isEqualTo("req-2");
+            assertThat(accepted.at("/payload/disposition").stringValue())
+                    .isEqualTo("accepted");
             JsonNode started = readEvent(process, output, mapper);
             assertThat(started.get("type").stringValue()).isEqualTo("run.started");
+            assertThat(started.get("requestId").stringValue()).isEqualTo("req-2");
             String runId = started.get("runId").stringValue();
 
             send(input,
@@ -156,6 +163,9 @@ class StdioProtocolProcessTest {
                             + "\"requestId\":\"multi-2\",\"sessionId\":\"%s\","
                             + "\"sequence\":2,\"payload\":{\"prompt\":\"first\"}}")
                             .formatted(sessionId));
+            assertAcceptedResult(
+                    readEvent(process, output, mapper),
+                    "multi-2");
             JsonNode firstTerminal = readUntilTerminal(process, output, mapper);
             assertThat(firstTerminal.get("type").stringValue()).isEqualTo("run.completed");
             assertThat(firstTerminal.get("sessionId").stringValue()).isEqualTo(sessionId);
@@ -166,6 +176,9 @@ class StdioProtocolProcessTest {
                             + "\"requestId\":\"multi-3\",\"sessionId\":\"%s\","
                             + "\"sequence\":3,\"payload\":{\"prompt\":\"second\"}}")
                             .formatted(sessionId));
+            assertAcceptedResult(
+                    readEvent(process, output, mapper),
+                    "multi-3");
             JsonNode secondTerminal = readUntilTerminal(process, output, mapper);
             assertThat(secondTerminal.get("type").stringValue()).isEqualTo("run.completed");
             assertThat(secondTerminal.get("sessionId").stringValue()).isEqualTo(sessionId);
@@ -189,6 +202,17 @@ class StdioProtocolProcessTest {
         assertThat(new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8))
                 .isBlank();
         assertThat(descendants).noneMatch(ProcessHandle::isAlive);
+    }
+
+    private static void assertAcceptedResult(
+            JsonNode event,
+            String requestId) {
+        assertThat(event.get("type").stringValue())
+                .isEqualTo("run.command.result");
+        assertThat(event.get("requestId").stringValue())
+                .isEqualTo(requestId);
+        assertThat(event.at("/payload/disposition").stringValue())
+                .isEqualTo("accepted");
     }
 
     private static String providerControl(String requestId, String sessionId, int sequence,

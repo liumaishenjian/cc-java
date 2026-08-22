@@ -2,7 +2,7 @@ import {useEffect, useReducer, useRef, useState} from 'react';
 import {Box, Static, Text, useApp, useInput, usePaste, useWindowSize} from 'ink';
 import {initialTuiState, reduceTuiState} from './state.js';
 import type {ProtocolEvent} from './protocol.js';
-import type {ProviderLoginRequest, ProviderLoginResult} from './stdio-client.js';
+import type {ProviderLoginRequest, ProviderLoginResult, RunHandshakeNotice} from './stdio-client.js';
 import type {
   ApprovalView,
   CheckpointPhase,
@@ -98,6 +98,7 @@ type PlanEntryState = {
   readonly phase: 'query' | 'enter' | 'restore-after-start-failure';
   readonly commandId: string;
   readonly task: string | undefined;
+  readonly composer: ComposerState | undefined;
   readonly originalSelection: PublicPermissionSelection | undefined;
 };
 type PlanDecisionState = {
@@ -115,6 +116,11 @@ type PendingDurablePlanDecision = {
   readonly createsRun: boolean;
   readonly feedback: string | undefined;
 };
+type PendingDurablePlanRestore = {
+  readonly commandId: string;
+  readonly review: PlanReviewPickerState;
+  readonly decision: 'APPROVE_AUTO' | 'APPROVE_USER' | 'REJECT';
+};
 
 const CODEJ_BANNER = [
   ' ██████  ██████  ██████  ███████     ██',
@@ -131,6 +137,7 @@ export interface AgentTuiProps {
 export interface AgentClient {
   onEvent(listener: (event: ProtocolEvent) => void): () => void;
   onFailure(listener: (message: string) => void): () => void;
+  onRunHandshake?(listener: (notice: RunHandshakeNotice) => void): () => void;
   onExit(listener: () => void): () => void;
   initialize(): string;
   startRun(prompt: string): string;
@@ -254,10 +261,10 @@ export function AgentTui({client}: AgentTuiProps) {
   const composerRef = useRef(composer);
   const permissionPickerSubmittedRef = useRef(false);
   const historySessionIdRef = useRef<string | undefined>(undefined);
-  const pendingSteeringPromptsRef = useRef(new Map<string, string>());
   const pendingSubmissionsRef = useRef(new Map<string, {
     readonly composer: ComposerState;
     readonly label: string;
+    status: 'awaiting_acceptance' | 'accepted';
   }>());
   const cancelPending = useRef(false);
   const transportFailureRef = useRef(false);
@@ -266,6 +273,7 @@ export function AgentTui({client}: AgentTuiProps) {
   const pendingPlanEntryRef = useRef<PlanEntryState | undefined>(undefined);
   const pendingPlanDecisionRef = useRef<PlanDecisionState | undefined>(undefined);
   const pendingDurablePlanDecisionRef = useRef<PendingDurablePlanDecision | undefined>(undefined);
+  const pendingDurablePlanRestoreRef = useRef<PendingDurablePlanRestore | undefined>(undefined);
   const planSessionRef = useRef<PlanSessionState | undefined>(undefined);
   const connectWizardRef = useRef<ModelSetupState | undefined>(undefined);
   const providerLoginActiveRef = useRef(false);
@@ -276,7 +284,7 @@ export function AgentTui({client}: AgentTuiProps) {
     readonly mention: ActiveFileMention;
   } | undefined>(undefined);
   const fileSuggestionTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const activeRun = state.runs.findLast(run => run.status === 'running');
+  const activeRun = state.runs.findLast(run => run.status === 'running' || run.status === 'retrying');
   const pendingApproval = activeRun?.pendingApproval;
   const pendingQuestion = activeRun?.pendingQuestion;
   const effectiveApprovalPicker = pendingApproval === undefined
@@ -292,6 +300,8 @@ export function AgentTui({client}: AgentTuiProps) {
     && client.checkpointDiff !== undefined
     && client.undoCheckpoint !== undefined;
   const {exit} = useApp();
+  const exitRef = useRef(exit);
+  exitRef.current = exit;
   const {columns, rows} = useWindowSize();
   const composerLayout: ComposerLayout = {
     width: Math.max(1, columns - 6),
@@ -327,6 +337,39 @@ export function AgentTui({client}: AgentTuiProps) {
     client.providerControl(controlId, intent, arguments_);
     return controlId;
   };
+  const submitDurableReview = (
+    review: PlanReviewPickerState,
+    decision: 'APPROVE_AUTO' | 'APPROVE_USER' | 'REJECT',
+  ): boolean => {
+    if (client.resolvePlanReview === undefined) return false;
+    try {
+      const requestId = client.resolvePlanReview({
+        planId: review.planId,
+        revision: review.revision,
+        contentDigest: review.contentDigest,
+        workspaceDigest: review.workspaceDigest,
+        decision,
+        contextPolicy: review.contextPolicy.toUpperCase() as 'KEEP' | 'CLEAR',
+        feedback: '',
+      });
+      const createsRun = decision !== 'REJECT';
+      pendingDurablePlanDecisionRef.current = {
+        requestId, review, createsRun, feedback: undefined,
+      };
+      if (createsRun) {
+        dispatch({
+          type: 'run.submitted', requestId,
+          prompt: decision === 'APPROVE_AUTO'
+            ? `执行计划 ${review.planId}（自动审批）` : `执行计划 ${review.planId}`,
+          awaitingPlanVerification: true,
+        });
+      }
+      return true;
+    } catch {
+      pendingDurablePlanDecisionRef.current = undefined;
+      return false;
+    }
+  };
   const acceptCurrentCompletion = () => {
     const current = composerRef.current;
     const selected = current.completionCandidates[current.completionIndex ?? 0];
@@ -356,11 +399,11 @@ export function AgentTui({client}: AgentTuiProps) {
           const switchingSession = historySessionIdRef.current !== undefined;
           historySessionIdRef.current = event.sessionId;
           if (switchingSession) replaceComposer(createComposerState(4));
-          pendingSteeringPromptsRef.current.clear();
-          pendingSubmissionsRef.current.clear();
+      pendingSubmissionsRef.current.clear();
           pendingPlanEntryRef.current = undefined;
           pendingPlanDecisionRef.current = undefined;
           pendingDurablePlanDecisionRef.current = undefined;
+          pendingDurablePlanRestoreRef.current = undefined;
           planSessionRef.current = undefined;
           replacePlanReviewPicker(undefined);
         }
@@ -423,11 +466,15 @@ export function AgentTui({client}: AgentTuiProps) {
               ? planSessionRef.current.originalSelection
               : queriedSelection;
             if (originalSelection === undefined) {
+              if (entry.composer !== undefined) {
+                replaceComposer(restoreRejectedComposer(composerRef.current, entry.composer));
+              }
               dispatch({type: 'slash.notice', message: '无法读取当前权限选择；未进入 Plan'});
             } else {
               const enterId = `tui-plan-${nextCommandNumber.current++}-enter`;
               pendingPlanEntryRef.current = {
-                phase: 'enter', commandId: enterId, task: entry.task, originalSelection,
+                phase: 'enter', commandId: enterId, task: entry.task,
+                composer: entry.composer, originalSelection,
               };
               client.sessionCommand?.(enterId, 'permissions', {selection: 'PLAN'});
             }
@@ -435,25 +482,39 @@ export function AgentTui({client}: AgentTuiProps) {
             pendingPlanEntryRef.current = undefined;
             if (status !== 'succeeded' || result.effectiveSelection !== 'PLAN'
               || entry.originalSelection === undefined) {
+              if (entry.composer !== undefined) {
+                replaceComposer(restoreRejectedComposer(composerRef.current, entry.composer));
+              }
               dispatch({type: 'slash.notice', message: 'Plan 模式未能发布；未启动规划'});
             } else {
               planSessionRef.current = {originalSelection: entry.originalSelection};
               if (entry.task === undefined) {
                 client.sessionCommand?.(`tui-plan-${nextCommandNumber.current++}-status`, 'plan-status', {});
               } else if (client.startPlan === undefined) {
+                if (entry.composer !== undefined) {
+                  replaceComposer(restoreRejectedComposer(composerRef.current, entry.composer));
+                }
                 if (!restoreAfterPlanStartFailure(client, nextCommandNumber, pendingPlanEntryRef,
-                  entry.task, entry.originalSelection)) {
+                  entry.task, entry.originalSelection, undefined)) {
                   dispatch({type: 'slash.notice', message: 'Plan 任务未启动且恢复命令未被接受；请用 /permissions query 检查当前选择'});
                 }
               } else {
                 try {
                   const requestId = client.startPlan(entry.task);
-                  const label = `/plan ${entry.task}`;
-                  replaceComposer(acceptSubmittedComposer(composerRef.current));
+                  const label = entry.composer === undefined
+                    ? `/plan ${entry.task}` : submittedComposerLabel(entry.composer);
+                  if (entry.composer !== undefined) {
+                    pendingSubmissionsRef.current.set(requestId, {
+                      composer: entry.composer, label, status: 'awaiting_acceptance',
+                    });
+                  }
                   dispatch({type: 'run.submitted', requestId, prompt: label});
                 } catch {
+                  if (entry.composer !== undefined) {
+                    replaceComposer(restoreRejectedComposer(composerRef.current, entry.composer));
+                  }
                   if (!restoreAfterPlanStartFailure(client, nextCommandNumber, pendingPlanEntryRef,
-                    entry.task, entry.originalSelection)) {
+                    entry.task, entry.originalSelection, undefined)) {
                     dispatch({type: 'slash.notice', message: 'Plan 任务未启动且恢复命令未被接受；请用 /permissions query 检查当前选择'});
                   }
                 }
@@ -468,6 +529,22 @@ export function AgentTui({client}: AgentTuiProps) {
             } else {
               dispatch({type: 'slash.notice', message: 'Plan 任务未启动且权限恢复失败；当前可能仍为 Plan 模式'});
             }
+          }
+        }
+        const durableRestore = pendingDurablePlanRestoreRef.current;
+        if (durableRestore !== undefined && commandId === durableRestore.commandId
+          && intent === 'permissions') {
+          planTransitionHandled = true;
+          pendingDurablePlanRestoreRef.current = undefined;
+          const expectedSelection = executionSelection(planSessionRef.current?.originalSelection);
+          if (status === 'succeeded' && result.effectiveSelection === expectedSelection
+            && submitDurableReview(durableRestore.review, durableRestore.decision)) {
+            dispatch({type: 'slash.notice', message: durableRestore.decision === 'REJECT'
+              ? '已恢复进入 Plan 前的权限，正在拒绝计划'
+              : '已恢复进入 Plan 前的权限，正在提交计划执行'});
+          } else {
+            replacePlanReviewPicker({...durableRestore.review, submitted: false});
+            dispatch({type: 'slash.notice', message: '未能恢复进入 Plan 前的权限；计划仍等待决定'});
           }
         }
         const decision = pendingPlanDecisionRef.current;
@@ -552,11 +629,11 @@ export function AgentTui({client}: AgentTuiProps) {
           historySessionIdRef.current = event.sessionId;
           fileSuggestionRef.current = undefined;
           replaceComposer(createComposerState(4));
-          pendingSteeringPromptsRef.current.clear();
-          pendingSubmissionsRef.current.clear();
+      pendingSubmissionsRef.current.clear();
           pendingPlanEntryRef.current = undefined;
           pendingPlanDecisionRef.current = undefined;
           pendingDurablePlanDecisionRef.current = undefined;
+          pendingDurablePlanRestoreRef.current = undefined;
           planSessionRef.current = undefined;
           replacePlanReviewPicker(undefined);
         }
@@ -640,17 +717,40 @@ export function AgentTui({client}: AgentTuiProps) {
         && event.payload.toolName === 'ask_plan_question') {
         setQuestionPicker(undefined);
       }
+      if (event.type === 'run.command.result') {
+        const pending = pendingSubmissionsRef.current.get(event.requestId);
+        if (pending !== undefined) {
+          if (event.payload.disposition === 'rejected') {
+            replaceComposer(restoreRejectedComposer(composerRef.current, pending.composer));
+          } else {
+            replaceComposer(acceptPendingComposer(composerRef.current, pending.composer));
+            // Java 已权威接受或排队后，原始输入不得再作为“可恢复草稿”保存；
+            // 此后断连可能已经产生副作用，只能通过 Session recovery 收敛。
+            pendingSubmissionsRef.current.delete(event.requestId);
+          }
+          if (event.payload.disposition === 'rejected') {
+            pendingSubmissionsRef.current.delete(event.requestId);
+          }
+        }
+        if (event.payload.disposition === 'rejected') {
+          const pendingPlan = pendingDurablePlanDecisionRef.current;
+          if (pendingPlan?.requestId === event.requestId) {
+            pendingDurablePlanDecisionRef.current = undefined;
+            replacePlanReviewPicker({...pendingPlan.review, submitted: false});
+            if (pendingPlan.feedback !== undefined) {
+              replacePlanFeedbackInput({review: pendingPlan.review, text: pendingPlan.feedback});
+            }
+          }
+        }
+      }
       if (event.type === 'protocol.error') {
+        dispatch({
+          type: 'run.submission.rejected', requestId: event.requestId,
+          message: `Java 协议拒绝：${String(event.payload.code)}`,
+        });
         const pendingPlan = pendingDurablePlanDecisionRef.current;
         if (pendingPlan?.requestId === event.requestId) {
           pendingDurablePlanDecisionRef.current = undefined;
-          if (pendingPlan.createsRun) {
-            dispatch({
-              type: 'run.submission.rejected',
-              requestId: event.requestId,
-              message: 'Plan 决定被 Java 拒绝；durable review 保持待决定',
-            });
-          }
           replacePlanReviewPicker({...pendingPlan.review, submitted: false});
           if (pendingPlan.feedback !== undefined) {
             replacePlanFeedbackInput({review: pendingPlan.review, text: pendingPlan.feedback});
@@ -664,7 +764,6 @@ export function AgentTui({client}: AgentTuiProps) {
             applyComposer({type: 'CloseCompletion'});
           }
         }
-        pendingSteeringPromptsRef.current.delete(event.requestId);
         const rejected = pendingSubmissionsRef.current.get(event.requestId);
         if (rejected !== undefined) {
           replaceComposer(restoreRejectedComposer(composerRef.current, rejected.composer));
@@ -673,9 +772,9 @@ export function AgentTui({client}: AgentTuiProps) {
       }
       if (event.type === 'steering.queued') {
         const pending = pendingSubmissionsRef.current.get(event.requestId);
-        if (pending !== undefined) {
+        if (pending !== undefined && pending.status === 'awaiting_acceptance') {
           replaceComposer(acceptPendingComposer(composerRef.current, pending.composer));
-          pendingSubmissionsRef.current.delete(event.requestId);
+          pending.status = 'accepted';
         }
       }
       if (event.type === 'run.started') {
@@ -684,13 +783,10 @@ export function AgentTui({client}: AgentTuiProps) {
         }
         const pending = pendingSubmissionsRef.current.get(event.requestId);
         if (pending !== undefined) {
-          replaceComposer(acceptPendingComposer(composerRef.current, pending.composer));
+          if (pending.status === 'awaiting_acceptance') {
+            replaceComposer(acceptPendingComposer(composerRef.current, pending.composer));
+          }
           pendingSubmissionsRef.current.delete(event.requestId);
-        }
-        const prompt = pendingSteeringPromptsRef.current.get(event.requestId);
-        if (prompt !== undefined) {
-          pendingSteeringPromptsRef.current.delete(event.requestId);
-          dispatch({type: 'run.submitted', requestId: event.requestId, prompt, steering: true});
         }
       }
       if (
@@ -705,13 +801,42 @@ export function AgentTui({client}: AgentTuiProps) {
       }
       dispatch({type: 'event.received', event});
     });
+    const offRunHandshake = client.onRunHandshake?.(notice => {
+      if (notice.kind === 'late') {
+        dispatch({type: 'run.submission.late', requestId: notice.requestId});
+        return;
+      }
+      const pending = pendingSubmissionsRef.current.get(notice.requestId);
+      if (pending !== undefined) {
+        replaceComposer(restoreRejectedComposer(composerRef.current, pending.composer));
+        pendingSubmissionsRef.current.delete(notice.requestId);
+      }
+      const pendingPlan = pendingDurablePlanDecisionRef.current;
+      if (pendingPlan?.requestId === notice.requestId) {
+        pendingDurablePlanDecisionRef.current = undefined;
+        replacePlanReviewPicker({...pendingPlan.review, submitted: false});
+        if (pendingPlan.feedback !== undefined) {
+          replacePlanFeedbackInput({review: pendingPlan.review, text: pendingPlan.feedback});
+        }
+      }
+      dispatch({type: 'run.submission.timed_out', requestId: notice.requestId});
+    }) ?? (() => {});
     const offFailure = client.onFailure(message => {
       cancelPending.current = false;
-      pendingSteeringPromptsRef.current.clear();
+      const pendingComposers = [...pendingSubmissionsRef.current.values()]
+        .filter(pending => pending.status === 'awaiting_acceptance')
+        .map(pending => pending.composer);
+      const pendingPlanComposer = pendingPlanEntryRef.current?.composer;
+      if (pendingComposers.length > 0 || pendingPlanComposer !== undefined) {
+        replaceComposer(restorePendingSubmissionComposers(
+          composerRef.current, pendingComposers, pendingPlanComposer,
+        ));
+      }
       pendingSubmissionsRef.current.clear();
       pendingPlanEntryRef.current = undefined;
       pendingPlanDecisionRef.current = undefined;
       pendingDurablePlanDecisionRef.current = undefined;
+      pendingDurablePlanRestoreRef.current = undefined;
       planSessionRef.current = undefined;
       replacePlanReviewPicker(undefined);
       replacePlanFeedbackInput(undefined);
@@ -722,11 +847,20 @@ export function AgentTui({client}: AgentTuiProps) {
     });
     const offExit = client.onExit(() => {
       cancelPending.current = false;
-      pendingSteeringPromptsRef.current.clear();
+      const pendingComposers = [...pendingSubmissionsRef.current.values()]
+        .filter(pending => pending.status === 'awaiting_acceptance')
+        .map(pending => pending.composer);
+      const pendingPlanComposer = pendingPlanEntryRef.current?.composer;
+      if (pendingComposers.length > 0 || pendingPlanComposer !== undefined) {
+        replaceComposer(restorePendingSubmissionComposers(
+          composerRef.current, pendingComposers, pendingPlanComposer,
+        ));
+      }
       pendingSubmissionsRef.current.clear();
       pendingPlanEntryRef.current = undefined;
       pendingPlanDecisionRef.current = undefined;
       pendingDurablePlanDecisionRef.current = undefined;
+      pendingDurablePlanRestoreRef.current = undefined;
       planSessionRef.current = undefined;
       replacePlanReviewPicker(undefined);
       replacePlanFeedbackInput(undefined);
@@ -734,18 +868,19 @@ export function AgentTui({client}: AgentTuiProps) {
         return;
       }
       dispatch({type: 'closed'});
-      exit();
+      exitRef.current();
     });
     client.initialize();
     return () => {
       offEvent();
+      offRunHandshake();
       offFailure();
       offExit();
-      pendingSteeringPromptsRef.current.clear();
-          pendingSubmissionsRef.current.clear();
+      pendingSubmissionsRef.current.clear();
+      pendingDurablePlanRestoreRef.current = undefined;
       client.terminate();
     };
-  }, [client, exit]);
+  }, [client]);
 
   useEffect(() => {
     applyComposer({type: 'Resize', width: composerLayout.width, height: composerLayout.height});
@@ -922,32 +1057,19 @@ export function AgentTui({client}: AgentTuiProps) {
         const review = planReviewPickerRef.current ?? planReviewPicker;
         if (review.submitted) return;
         replacePlanReviewPicker({...review, submitted: true});
-        try {
-          const requestId = client.resolvePlanReview({
-            planId: review.planId,
-            revision: review.revision,
-            contentDigest: review.contentDigest,
-            workspaceDigest: review.workspaceDigest,
-            decision: protocolDecision,
-            contextPolicy: review.contextPolicy.toUpperCase() as 'KEEP' | 'CLEAR',
-            feedback: '',
-          });
-          const createsRun = protocolDecision !== 'REJECT';
-          pendingDurablePlanDecisionRef.current = {
-            requestId, review, createsRun, feedback: undefined,
-          };
-          if (createsRun) {
-            dispatch({
-              type: 'run.submitted',
-              requestId,
-              prompt: protocolDecision === 'APPROVE_AUTO'
-                ? `执行计划 ${review.planId}（自动审批）`
-                : `执行计划 ${review.planId}`,
-              awaitingPlanVerification: true,
-            });
+        const planSession = planSessionRef.current;
+        if (planSession !== undefined && client.sessionCommand !== undefined) {
+          const commandId = `tui-plan-${nextCommandNumber.current++}-restore-durable-review`;
+          pendingDurablePlanRestoreRef.current = {commandId, review, decision: protocolDecision};
+          try {
+            client.sessionCommand(commandId, 'permissions',
+              permissionRestoreArguments(planSession.originalSelection));
+          } catch {
+            pendingDurablePlanRestoreRef.current = undefined;
+            replacePlanReviewPicker({...review, submitted: false});
+            dispatch({type: 'slash.notice', message: 'Plan 决定未被连接接受；durable review 保持待决定'});
           }
-        } catch {
-          pendingDurablePlanDecisionRef.current = undefined;
+        } else if (!submitDurableReview(review, protocolDecision)) {
           replacePlanReviewPicker({...review, submitted: false});
           dispatch({type: 'slash.notice', message: 'Plan 决定未被连接接受；durable review 保持待决定'});
         }
@@ -1138,7 +1260,8 @@ export function AgentTui({client}: AgentTuiProps) {
         acceptCurrentCompletion();
         return;
       }
-      if (pendingSubmissionsRef.current.size > 0) {
+      if ([...pendingSubmissionsRef.current.values()]
+        .some(pending => pending.status === 'awaiting_acceptance')) {
         dispatch({type: 'slash.notice', message: '上一条输入仍在等待 Java 接受，当前草稿已保留'});
         return;
       }
@@ -1249,7 +1372,9 @@ export function AgentTui({client}: AgentTuiProps) {
           }
           const queryId = `tui-plan-${nextCommandNumber.current++}-query`;
           pendingPlanEntryRef.current = {
-            phase: 'query', commandId: queryId, task, originalSelection: undefined,
+            phase: 'query', commandId: queryId, task,
+            composer: task === undefined ? undefined : submission.state,
+            originalSelection: undefined,
           };
           try {
             client.sessionCommand(queryId, 'permissions', {});
@@ -1269,7 +1394,9 @@ export function AgentTui({client}: AgentTuiProps) {
         try {
           const requestId = client.invokeSkill(slash.name, slash.arguments);
           const label = submittedComposerLabel(submission.state);
-          pendingSubmissionsRef.current.set(requestId, {composer: submission.state, label});
+          pendingSubmissionsRef.current.set(requestId, {
+            composer: submission.state, label, status: 'awaiting_acceptance',
+          });
           replaceComposer(beginPendingComposer(submission.state));
           dispatch({type: 'run.submitted', requestId, prompt: label});
         } catch {
@@ -1283,14 +1410,11 @@ export function AgentTui({client}: AgentTuiProps) {
         try {
           const requestId = client.startRun(prompt);
           const label = submittedComposerLabel(submission.state);
-          const asSteering = state.phase !== 'ready' || pendingSubmissionsRef.current.size > 0;
-          pendingSubmissionsRef.current.set(requestId, {composer: submission.state, label});
+          pendingSubmissionsRef.current.set(requestId, {
+            composer: submission.state, label, status: 'awaiting_acceptance',
+          });
           replaceComposer(beginPendingComposer(submission.state));
-          if (asSteering) {
-            pendingSteeringPromptsRef.current.set(requestId, label);
-          } else {
-            dispatch({type: 'run.submitted', requestId, prompt: label});
-          }
+          dispatch({type: 'run.submitted', requestId, prompt: label});
         } catch {
           dispatch({type: 'slash.notice', message: '输入传输未被接受，草稿已保留'});
           return;
@@ -1539,14 +1663,15 @@ export function AgentView({state, composer, input = '', columns, rows, composerL
       <Box flexDirection="column" flexShrink={0}>
       <Box
         borderStyle="round"
-        borderColor={state.runs.findLast(run => run.status === 'running')
+        borderColor={state.runs.findLast(run => run.status === 'running' || run.status === 'retrying')
           ?.pendingApproval === undefined
           ? state.phase === 'ready' ? 'cyan' : 'gray'
           : 'yellow'}
         paddingX={1}
       >
         <Text color="cyan">❯ </Text>
-        {canEditInput(state.phase) && connectWizard === undefined ? (
+        {(canEditInput(state.phase) || effectiveComposer.text.length > 0)
+          && connectWizard === undefined ? (
           <Box flexDirection="column">
             {renderedLines.map((line, index) => (
               <Text key={`${projection.viewportTop + index}-${line.beforeCursor.length}`}>
@@ -1559,6 +1684,10 @@ export function AgentView({state, composer, input = '', columns, rows, composerL
         ) : null}
         {connectWizard !== undefined
           ? <Text dimColor>正在配置连接，请按上方提示操作</Text>
+          : state.phase === 'submitting'
+          ? <Text dimColor>正在等待 Java 接受请求；拒绝或超时会恢复草稿</Text>
+          : state.phase === 'accepted'
+          ? <Text dimColor>Java 已接受请求，正在等待 Run 启动</Text>
           : state.phase === 'running'
           ? <Text dimColor>
               正在处理… Enter 排队补充{(state.steeringQueueDepth ?? 0) > 0
@@ -1906,9 +2035,10 @@ function ApprovalPrompt({approval, picker}: {
  * 把 Java 权威终态投影为不包含 Provider 原文的稳定诊断摘要。
  */
 export function formatRunTerminal(run: RunView): string {
-  if (run.status === 'running') {
-    return '正在运行';
-  }
+  if (run.status === 'submitting') return '正在等待 Java 接受';
+  if (run.status === 'accepted') return 'Java 已接受，等待 Run 启动';
+  if (run.status === 'queued') return '已排队，等待前一 Run 终结';
+  if (run.status === 'running' || run.status === 'retrying') return '正在运行';
   const counts = [
     run.modelTurns === undefined ? undefined : `${run.modelTurns} 回合`,
     run.toolCalls === undefined ? undefined : `${run.toolCalls} 次工具`,
@@ -1956,7 +2086,8 @@ function ModelProgressLine({run}: {readonly run: RunView}) {
   const progress = run.modelProgress;
   const activeTool = run.tools.some(tool => tool.status === 'started');
   let status: string | undefined;
-  if (run.status === 'running' && !activeTool) {
+  if (run.runId !== undefined
+    && (run.status === 'running' || run.status === 'retrying') && !activeTool) {
     if (progress?.retryAttempt !== undefined && progress.retryMaxAttempts !== undefined
       && progress.retryWaitMillis !== undefined) {
       const wait = progress.retryWaitMillis >= 1000
@@ -2000,7 +2131,7 @@ function formatTokenCount(value: number): string {
  * 只有不再需要交互更新的 Run 才能进入 Ink Static；否则 picker 或流式文本会被冻结。
  */
 function isArchivedRun(run: RunView): boolean {
-  return run.status !== 'running'
+  return (run.status === 'completed' || run.status === 'cancelled' || run.status === 'failed')
     && run.pendingApproval === undefined
     && run.planProposal === undefined
     && (run.planReview === undefined || run.planReviewSettled === true)
@@ -2071,6 +2202,10 @@ function phaseLabel(phase: ReturnType<typeof reduceTuiState>['phase']): string {
       return '正在连接';
     case 'ready':
       return '就绪';
+    case 'submitting':
+      return '等待接受';
+    case 'accepted':
+      return '等待启动';
     case 'running':
       return '运行中';
     case 'closing':
@@ -2082,7 +2217,7 @@ function phaseLabel(phase: ReturnType<typeof reduceTuiState>['phase']): string {
   }
 }
 
-function runStatusLabel(status: Exclude<RunView['status'], 'running' | 'completed'>): string {
+function runStatusLabel(status: 'cancelled' | 'failed'): string {
   return status === 'cancelled' ? '已取消' : '运行失败';
 }
 
@@ -2223,16 +2358,30 @@ function permissionRestoreArguments(
   return selection === 'ADVANCED' ? {mode: 'ACCEPT_EDITS'} : {selection};
 }
 
+/** transport terminal 时按提交顺序恢复所有尚未由 run.started 消费的草稿。 */
+function restorePendingSubmissionComposers(
+  current: ComposerState,
+  pending: readonly ComposerState[],
+  planEntry: ComposerState | undefined,
+): ComposerState {
+  let restored = current;
+  for (const composer of [...pending].reverse()) {
+    restored = restoreRejectedComposer(restored, composer);
+  }
+  return planEntry === undefined ? restored : restoreRejectedComposer(restored, planEntry);
+}
+
 function restoreAfterPlanStartFailure(
   client: AgentClient,
   nextCommandNumber: {current: number},
   pendingEntry: {current: PlanEntryState | undefined},
   task: string,
   originalSelection: PublicPermissionSelection,
+  composer: ComposerState | undefined = undefined,
 ): boolean {
   const restoreId = `tui-plan-${nextCommandNumber.current++}-restore-start-failure`;
   pendingEntry.current = {
-    phase: 'restore-after-start-failure', commandId: restoreId, task, originalSelection,
+    phase: 'restore-after-start-failure', commandId: restoreId, task, composer, originalSelection,
   };
   try {
     if (client.sessionCommand === undefined) {
@@ -2257,7 +2406,8 @@ function isReviewablePlanStatus(value: unknown): boolean {
 export function canEditInput(
   phase: ReturnType<typeof reduceTuiState>['phase'],
 ): boolean {
-  return phase === 'connecting' || phase === 'ready' || phase === 'running';
+  return phase === 'connecting' || phase === 'ready' || phase === 'submitting'
+    || phase === 'accepted' || phase === 'running';
 }
 
 export function editInput(

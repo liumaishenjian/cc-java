@@ -76,9 +76,11 @@ reader.on('line', line => {
   if (command.type === 'plan.review.resolve') {
     if (command.payload.decision === 'CONTINUE_PLANNING') {
       activeRunId = 'run-plan-feedback';
+      emitRunCommandResult(command, 'accepted');
       emit('run.started', command.requestId, {}, sessionId, activeRunId);
-    } else if (mode === 'plan-review-unexpected-start') {
+    } else if (mode === 'plan-review-unexpected-start' && command.payload.decision !== 'REJECT') {
       activeRunId = 'run-plan-unexpected';
+      emitRunCommandResult(command, 'accepted');
       emit('run.started', command.requestId, {}, sessionId, activeRunId);
     } else {
       emit('protocol.error', command.requestId, {code: 'PLAN_REVIEW_RESOLVED'}, sessionId);
@@ -86,7 +88,25 @@ reader.on('line', line => {
     return;
   }
   if (command.type === 'run.start') {
+    if (mode === 'run-disconnect') process.exit(17);
+    if (mode === 'run-no-ack') return;
+    if (mode === 'run-late-ack' || mode === 'run-late-rejected') {
+      setTimeout(() => emitRunCommandResult(
+        command,
+        mode === 'run-late-rejected' ? 'rejected' : 'accepted',
+        mode === 'run-late-rejected' ? 'INVALID_STATE' : 'ACCEPTED',
+      ), 120);
+      return;
+    }
+    if (mode === 'run-rejected') {
+      emitRunCommandResult(command, 'rejected', 'INVALID_STATE');
+      return;
+    }
     if (activeRunId !== undefined && mode.startsWith('steering')) {
+      if (!mode.startsWith('steering-queue-full') || command.payload.prompt !== 'rejected') {
+        emitRunCommandResult(command, 'queued', 'QUEUED', 1);
+      }
+
       if (mode === 'steering-invalid-payload') {
         emit('steering.queued', command.requestId, {queueDepth: 1, prompt: 'LEAK'}, sessionId);
       } else if (mode === 'steering-wrong-request') {
@@ -94,8 +114,10 @@ reader.on('line', line => {
       } else if (mode === 'steering-wrong-session') {
         emit('steering.queued', command.requestId, {queueDepth: 1}, 'session-stale');
       } else if (mode === 'steering-queue-full' && command.payload.prompt === 'rejected') {
+        emitRunCommandResult(command, 'rejected', 'STEERING_QUEUE_FULL');
         emit('protocol.error', command.requestId, {code: 'STEERING_QUEUE_FULL'}, sessionId);
       } else if (mode === 'steering-queue-full-late-start' && command.payload.prompt === 'rejected') {
+        emitRunCommandResult(command, 'rejected', 'STEERING_QUEUE_FULL');
         emit('protocol.error', command.requestId, {code: 'STEERING_QUEUE_FULL'}, sessionId);
         emit('run.started', command.requestId, {promptChars: command.payload.prompt.length}, sessionId, 'run-2');
       } else if (mode === 'steering-duplicate-queued') {
@@ -115,6 +137,12 @@ reader.on('line', line => {
         emit('steering.queued', command.requestId, {queueDepth: 1}, sessionId);
         emit('steering.discarded', command.requestId, {reason: 'clear'}, sessionId);
       }
+      return;
+    }
+    emitRunCommandResult(command, 'accepted');
+    if (mode === 'run-launch-failed') {
+      emit('run.launch.failed', command.requestId,
+        {code: 'RUNTIME_LAUNCH_FAILED', stopReason: 'internal_error'}, sessionId);
       return;
     }
     activeRunId = 'run-1';
@@ -372,6 +400,15 @@ reader.on('line', line => {
     process.stdout.write('', () => process.exit(0));
   }
 });
+
+function emitRunCommandResult(command, disposition, code = 'ACCEPTED', queueDepth) {
+  emit('run.command.result', command.requestId, {
+    commandType: command.type,
+    disposition,
+    code,
+    ...(queueDepth === undefined ? {} : {queueDepth}),
+  }, sessionId);
+}
 
 function emit(type, requestId, payload, eventSessionId, runId) {
   const event = {

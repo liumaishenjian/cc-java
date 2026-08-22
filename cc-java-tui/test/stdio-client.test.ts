@@ -19,6 +19,7 @@ describe('StdioClient', () => {
 
     expect(events.map(event => event.type)).toEqual([
       'initialized',
+      'run.command.result',
       'run.started',
       'model.text.delta',
       'model.text.delta',
@@ -110,10 +111,93 @@ describe('StdioClient', () => {
       planId: 'plan-1', revision: 3, contentDigest: 'a'.repeat(64),
       workspaceDigest: 'b'.repeat(64), decision: 'REJECT', contextPolicy: 'KEEP', feedback: '',
     });
-    await waitFor(() => events.some(event => event.type === 'run.started'));
+    await waitFor(() => events.some(event => event.type === 'protocol.error'));
+    expect(events.some(event => event.type === 'run.started')).toBe(false);
     expect(failures).toEqual([]);
     expect(client.isClosed()).toBe(false);
     await client.shutdown();
+  });
+
+  it('无 acceptance 时 watchdog 终结本地 handshake 且不自动重放', async () => {
+    const client = createClient('run-no-ack', {runHandshakeTimeoutMs: 50});
+    const notices: {requestId: string; kind: string}[] = [];
+    const events: ProtocolEvent[] = [];
+    client.onEvent(event => events.push(event));
+    client.onRunHandshake(notice => notices.push(notice));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+    const requestId = client.startRun('只提交一次');
+    await waitFor(() => notices.length === 1);
+    expect(notices).toEqual([{requestId, kind: 'timed_out'}]);
+    expect(events.some(event => event.type === 'run.started')).toBe(false);
+    await client.shutdown();
+  });
+
+  it('watchdog 到期立即 fail closed，不能等待迟到 accepted 或启动不可见 Run', async () => {
+    const client = createClient('run-late-ack', {runHandshakeTimeoutMs: 50});
+    const events: ProtocolEvent[] = [];
+    const failures: string[] = [];
+    client.onEvent(event => events.push(event));
+    client.onFailure(message => failures.push(message));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+    client.startRun('迟到请求');
+    await waitFor(() => failures.length === 1);
+    expect(failures[0]).toContain('未在期限内确认');
+    expect(events.some(event => event.type === 'run.started')).toBe(false);
+    expect(client.isClosed()).toBe(true);
+  });
+
+  it('已接受但 Runtime 启动失败时终结 pending，且不伪造成 transport failure', async () => {
+    const client = createClient('run-launch-failed');
+    const events: ProtocolEvent[] = [];
+    const failures: string[] = [];
+    client.onEvent(event => events.push(event));
+    client.onFailure(message => failures.push(message));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+    const first = client.startRun('launch failure');
+    await waitFor(() => events.some(event => event.type === 'run.launch.failed'));
+
+    expect(events.filter(event => event.requestId === first).map(event => event.type))
+      .toEqual(['run.command.result', 'run.launch.failed']);
+    expect(failures).toEqual([]);
+    expect(client.isClosed()).toBe(false);
+    expect(() => client.startRun('next request')).not.toThrow();
+    await waitFor(() => events.filter(event => event.type === 'run.launch.failed').length === 2);
+    await client.shutdown();
+  });
+
+  it('watchdog 后即使服务端原本会迟到 rejected 也关闭 outcome-unknown transport', async () => {
+    const client = createClient('run-late-rejected', {runHandshakeTimeoutMs: 50});
+    const events: ProtocolEvent[] = [];
+    const notices: {requestId: string; kind: string}[] = [];
+    const failures: string[] = [];
+    client.onEvent(event => events.push(event));
+    client.onRunHandshake(notice => notices.push(notice));
+    client.onFailure(message => failures.push(message));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+    const requestId = client.startRun('迟到拒绝');
+    await waitFor(() => failures.length === 1);
+    expect(notices).toEqual([{requestId, kind: 'timed_out'}]);
+    expect(events.some(event => event.type === 'run.started')).toBe(false);
+    expect(failures[0]).toContain('避免结果未知时重复执行');
+    expect(client.isClosed()).toBe(true);
+  });
+
+  it('acceptance 前断开连接收敛为 transport terminal', async () => {
+    const client = createClient('run-disconnect', {runHandshakeTimeoutMs: 500});
+    const events: ProtocolEvent[] = [];
+    const failures: string[] = [];
+    client.onEvent(event => events.push(event));
+    client.onFailure(message => failures.push(message));
+    client.initialize();
+    await waitFor(() => events.some(event => event.type === 'initialized'));
+    client.startRun('断开');
+    await waitFor(() => failures.length === 1);
+    expect(failures[0]).toContain('意外退出');
+    expect(events.some(event => event.type === 'run.command.result')).toBe(false);
   });
 
   it('按实际 NDJSON 编码大小分块并保持 Unicode 无损', async () => {
@@ -371,7 +455,8 @@ describe('StdioClient', () => {
     valid.startRun('UNSENT_STEERING_SECRET');
     await waitFor(() => validEvents.some(event => event.type === 'steering.discarded'));
     expect(validEvents.map(event => event.type)).toEqual([
-      'initialized', 'run.started', 'steering.queued', 'steering.discarded',
+      'initialized', 'run.command.result', 'run.started',
+      'run.command.result', 'steering.queued', 'steering.discarded',
     ]);
     expect(JSON.stringify(validEvents)).not.toContain('UNSENT_STEERING_SECRET');
     await valid.shutdown();
@@ -417,7 +502,7 @@ describe('StdioClient', () => {
     await client.shutdown();
   });
 
-  it('queue-full 拒绝后的迟到 run.started 不改变 authority，也不关闭 transport', async () => {
+  it('queue-full 拒绝后的迟到 run.started fail closed，不能复活不可见 Run', async () => {
     const client = createClient('steering-queue-full-late-start');
     const events: ProtocolEvent[] = [];
     const failures: string[] = [];
@@ -428,13 +513,13 @@ describe('StdioClient', () => {
     client.startRun('first');
     await waitFor(() => events.some(event => event.type === 'run.started'));
     client.startRun('rejected');
-    await waitFor(() => events.filter(event => event.type === 'run.started').length === 2);
+    await waitFor(() => failures.length === 1);
 
     expect(events.some(event => event.type === 'protocol.error'
       && event.payload.code === 'STEERING_QUEUE_FULL')).toBe(true);
-    expect(failures).toEqual([]);
-    expect(client.isClosed()).toBe(false);
-    await client.shutdown();
+    expect(events.filter(event => event.type === 'run.started')).toHaveLength(1);
+    expect(failures[0]).toContain('迟到的 run.started');
+    expect(client.isClosed()).toBe(true);
   });
 
   it('迟到且错配的 terminal 不会清除当前 authority Run', async () => {
@@ -471,7 +556,8 @@ describe('StdioClient', () => {
     await waitFor(() => events.some(event => event.type === 'run.started'));
 
     expect(events.map(event => event.type)).toEqual([
-      'initialized', 'steering.queued', 'steering.discarded', 'run.started',
+      'initialized', 'run.command.result', 'run.command.result',
+      'steering.queued', 'steering.discarded', 'run.started',
     ]);
     await client.shutdown();
   });
@@ -676,7 +762,8 @@ describe('StdioClient', () => {
 
 function createClient(
   mode = 'normal',
-  options: {platform?: NodeJS.Platform; windowsTreeKiller?: (pid: number) => boolean} = {},
+  options: {platform?: NodeJS.Platform; windowsTreeKiller?: (pid: number) => boolean;
+    runHandshakeTimeoutMs?: number} = {},
 ): StdioClient {
   return new StdioClient({
     executable: process.execPath,

@@ -104,6 +104,17 @@ final class FakeStdioCommandHandler implements StdioProtocol.CommandHandler {
             state = State.RUNNING;
         }
 
+        ObjectNode accepted = codec.objectNode();
+        accepted.put("commandType", "run.start");
+        accepted.put("disposition", "accepted");
+        accepted.put("code", "ACCEPTED");
+        events.emit(
+                "run.command.result",
+                command.requestId(),
+                Optional.of(sessionId),
+                Optional.empty(),
+                accepted);
+
         ObjectNode started = codec.objectNode();
         started.put("promptChars", prompt.length());
         events.emit(

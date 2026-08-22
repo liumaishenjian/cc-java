@@ -62,6 +62,64 @@ class RuntimeStdioCommandHandlerTest {
     }
 
     @Test
+    void terminalCallbackImmediateSubmissionGetsQueuedDispositionThenStartsExactlyOnce() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        java.util.concurrent.atomic.AtomicReference<RuntimeStdioCommandHandler> handlerRef =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<StdioProtocol.EventEmitter> emitterRef =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicBoolean submitted = new java.util.concurrent.atomic.AtomicBoolean();
+        java.util.concurrent.atomic.AtomicReference<Throwable> submissionFailure =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) -> {
+            events.add(new CapturedEvent(type, requestId, sessionId, runId, payload.deepCopy()));
+            if (type.equals("run.completed") && requestId.equals("first")
+                    && submitted.compareAndSet(false, true)) {
+                try {
+                    handlerRef.get().handle(codec.decodeCommand(("{\"version\":0,\"type\":\"run.start\","
+                            + "\"requestId\":\"second\",\"sessionId\":\"%s\",\"sequence\":3,"
+                            + "\"payload\":{\"prompt\":\"second\"}}").formatted(
+                                    sessionId.orElseThrow())), emitterRef.get());
+                } catch (Throwable failure) {
+                    submissionFailure.set(failure);
+                }
+            }
+        };
+        emitterRef.set(emitter);
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(
+                ignored -> ModelTurn.text("done"), testOptions())) {
+            handlerRef.set(handler);
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"),
+                    emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"run.start\","
+                    + "\"requestId\":\"first\",\"sessionId\":\"%s\",\"sequence\":2,"
+                    + "\"payload\":{\"prompt\":\"first\"}}").formatted(sessionId)), emitter);
+            long deadline = System.nanoTime() + Duration.ofSeconds(3).toNanos();
+            while (System.nanoTime() < deadline && events.stream()
+                    .noneMatch(event -> event.type().equals("run.completed")
+                            && event.runId().isPresent() && event.requestId().equals("second"))) {
+                Thread.sleep(10);
+            }
+        }
+
+        assertThat(submissionFailure.get()).isNull();
+        assertThat(events.stream()
+                .filter(event -> event.type().equals("run.command.result")
+                        && event.requestId().equals("second"))
+                .map(event -> event.payload().get("disposition").stringValue()))
+                .containsExactly("queued");
+        assertThat(events.stream()
+                .filter(event -> event.type().equals("run.started") && event.requestId().equals("second")))
+                .hasSize(1);
+        assertThat(events.stream()
+                .filter(event -> event.type().equals("run.completed") && event.requestId().equals("second")))
+                .hasSize(1);
+    }
+
+    @Test
     void continuousPlanQuestionAndReviewUseSafeCorrelatedStdioEventsWithoutJsonLeak() throws Exception {
         StdioProtocolCodec codec = new StdioProtocolCodec();
         CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
@@ -372,7 +430,7 @@ class RuntimeStdioCommandHandlerTest {
                     .formatted(sessionId, payload.get("planId").stringValue(),
                             payload.get("revision").longValue(), payload.get("contentDigest").stringValue(),
                             payload.get("workspaceDigest").stringValue())), failing))
-                    .isInstanceOf(IllegalStateException.class);
+                    .isInstanceOf(RuntimeStdioCommandHandler.AcceptedRunTransportException.class);
         } finally {
             handler.close();
         }
@@ -1386,7 +1444,7 @@ class RuntimeStdioCommandHandlerTest {
             handler.handle(codec.decodeCommand(runStart("first", sessionId, 2, "first")), emitter);
             assertThat(firstEntered.await(3, TimeUnit.SECONDS)).isTrue();
             assertThatThrownBy(() -> handler.handle(codec.decodeCommand(runStart("queued", sessionId, 3, "UNSENT")), emitter))
-                    .isInstanceOf(IllegalStateException.class)
+                    .isInstanceOf(RuntimeStdioCommandHandler.AcceptedRunTransportException.class)
                     .hasMessageContaining("transport closed");
             releaseFirst.countDown();
             assertThatThrownBy(() -> handler.handle(codec.decodeCommand(runStart("later", sessionId, 4, "later")), emitter))
@@ -2009,6 +2067,17 @@ class RuntimeStdioCommandHandlerTest {
 
             CapturedEvent invoked = awaitEvent(events, "skill.invoked");
             CapturedEvent completed = awaitEvent(events, "skill.completed");
+            int acceptedIndex = java.util.stream.IntStream.range(0, events.size())
+                    .filter(index -> events.get(index).type().equals("run.command.result"))
+                    .findFirst().orElseThrow();
+            int invokedIndex = java.util.stream.IntStream.range(0, events.size())
+                    .filter(index -> events.get(index).type().equals("skill.invoked"))
+                    .findFirst().orElseThrow();
+            int startedIndex = java.util.stream.IntStream.range(0, events.size())
+                    .filter(index -> events.get(index).type().equals("run.started"))
+                    .findFirst().orElseThrow();
+            assertThat(acceptedIndex).isLessThan(invokedIndex);
+            assertThat(invokedIndex).isLessThan(startedIndex);
             assertThat(invoked.runId()).isEmpty();
             assertThat(invoked.payload().toString()).contains("missing-skill", "explicit")
                     .doesNotContain("ARG_SENTINEL");
@@ -2017,6 +2086,41 @@ class RuntimeStdioCommandHandlerTest {
                     .doesNotContain("ARG_SENTINEL");
             assertThat(modelCalls).hasValue(0);
         }
+    }
+
+    @Test
+    void skillLifecycleEmissionFailureAbortsBeforeRuntimeAndDoesNotLeakExecutorWorker() throws Exception {
+        workspace();
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        AtomicInteger modelCalls = new AtomicInteger();
+        RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            modelCalls.incrementAndGet();
+            return ModelTurn.text("must not execute");
+        }, testOptions());
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) -> {
+            if (type.equals("skill.invoked")) {
+                throw new IllegalStateException("transport closed");
+            }
+            events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        };
+        try {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\"," +
+                            "\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand(("{\"version\":0," +
+                    "\"type\":\"skill.invoke\",\"requestId\":\"skill\",\"sessionId\":\"%s\"," +
+                    "\"sequence\":2,\"payload\":{\"name\":\"missing-skill\",\"arguments\":\"args\"}}")
+                    .formatted(sessionId)), emitter))
+                    .isInstanceOf(RuntimeStdioCommandHandler.AcceptedRunTransportException.class)
+                    .hasMessageContaining("transport closed");
+        } finally {
+            handler.close();
+        }
+        assertThat(modelCalls).hasValue(0);
+        assertThat(events).filteredOn(event -> event.type().equals("run.command.result")).hasSize(1);
+        assertThat(events).noneMatch(event -> event.type().equals("run.started"));
     }
 
     @Test
@@ -2068,8 +2172,16 @@ class RuntimeStdioCommandHandlerTest {
 
     private record CapturedEvent(
             String type,
+            String requestId,
             Optional<String> sessionId,
             Optional<String> runId,
             ObjectNode payload) {
+        private CapturedEvent(
+                String type,
+                Optional<String> sessionId,
+                Optional<String> runId,
+                ObjectNode payload) {
+            this(type, "unavailable", sessionId, runId, payload);
+        }
     }
 }

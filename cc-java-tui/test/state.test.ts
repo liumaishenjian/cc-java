@@ -1,8 +1,88 @@
 import {describe, expect, it} from 'vitest';
-import {initialTuiState, reduceTuiState} from '../src/state.js';
+import {
+  initialTuiState,
+  reduceTuiState as reduceProductionState,
+  type TuiAction,
+  type TuiState,
+} from '../src/state.js';
 import type {ProtocolEvent} from '../src/protocol.js';
 
+/** 既有下游投影用例默认模拟 Java 已先发布 accepted；handshake 专项用例直接调用 production reducer。 */
+function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
+  if (action.type === 'event.received' && action.event.type === 'run.started') {
+    const pending = state.runs.findLast(run => run.requestId === action.event.requestId);
+    if (pending?.status === 'submitting' && action.event.sessionId === state.sessionId) {
+      state = reduceProductionState(state, {
+        type: 'event.received',
+        event: event('run.command.result', action.event.sequence, {
+          commandType: 'run.start', disposition: 'accepted', code: 'ACCEPTED',
+        }, action.event.requestId, action.event.sessionId),
+      });
+    }
+  }
+  return reduceProductionState(state, action);
+}
+
 describe('reduceTuiState', () => {
+  it('只有 acceptance 后的 run.started 才进入 running，并允许 authority 尚未启动时继续提交', () => {
+    let state = reduceProductionState(initialTuiState, {
+      type: 'event.received',
+      event: event('initialized', 1, {protocolVersion: 0}, 'init', 'session-1'),
+    });
+    state = reduceProductionState(state, {type: 'run.submitted', requestId: 'first', prompt: 'first'});
+    state = reduceProductionState(state, {
+      type: 'event.received', event: event('run.started', 2, {}, 'first', 'session-1', 'run-1'),
+    });
+    expect(state.runs[0]).toEqual(expect.objectContaining({status: 'submitting', runId: undefined}));
+    expect(state.phase).toBe('submitting');
+
+    state = reduceProductionState(state, {
+      type: 'event.received',
+      event: event('run.command.result', 3, {
+        commandType: 'run.start', disposition: 'accepted', code: 'ACCEPTED',
+      }, 'first', 'session-1'),
+    });
+    expect(state.phase).toBe('accepted');
+    state = reduceProductionState(state, {type: 'run.submitted', requestId: 'second', prompt: 'second'});
+    expect(state.runs.at(-1)).toEqual(expect.objectContaining({requestId: 'second', status: 'submitting'}));
+    state = reduceProductionState(state, {
+      type: 'event.received',
+      event: event('run.command.result', 4, {
+        commandType: 'run.start', disposition: 'queued', code: 'QUEUED', queueDepth: 1,
+      }, 'second', 'session-1'),
+    });
+    state = reduceProductionState(state, {
+      type: 'event.received', event: event('run.started', 5, {}, 'first', 'session-1', 'run-1'),
+    });
+    expect(state.phase).toBe('running');
+    expect(state.activeRunId).toBe('run-1');
+    expect(state.runs).toEqual([
+      expect.objectContaining({requestId: 'first', status: 'running', runId: 'run-1'}),
+      expect.objectContaining({requestId: 'second', status: 'queued', runId: undefined}),
+    ]);
+  });
+
+  it('accepted 后 Runtime 启动失败会删除未启动 Run 并恢复 ready', () => {
+    let state = reduceProductionState(initialTuiState, {
+      type: 'event.received', event: event('initialized', 1, {}, 'init', 'session-1'),
+    });
+    state = reduceProductionState(state, {type: 'run.submitted', requestId: 'launch', prompt: 'task'});
+    state = reduceProductionState(state, {type: 'event.received', event: event(
+      'run.command.result', 2,
+      {commandType: 'run.start', disposition: 'accepted', code: 'ACCEPTED'},
+      'launch', 'session-1',
+    )});
+    state = reduceProductionState(state, {type: 'event.received', event: event(
+      'run.launch.failed', 3,
+      {code: 'RUNTIME_LAUNCH_FAILED', stopReason: 'internal_error'},
+      'launch', 'session-1',
+    )});
+
+    expect(state.phase).toBe('ready');
+    expect(state.runs).toEqual([]);
+    expect(state.notice).toContain('Runtime 启动失败');
+  });
+
   it('只根据 Java 终态完成一次流式 Run', () => {
     let state = reduceTuiState(initialTuiState, {
       type: 'event.received',
@@ -201,18 +281,28 @@ describe('reduceTuiState', () => {
       type: 'event.received', event: event('initialized', 1, {}, 'init', 'session-1'),
     });
     state = reduceTuiState(state, {
+      type: 'run.submitted', requestId: 'steering-1', prompt: 'SECRET_PROMPT',
+    });
+    state = reduceTuiState(state, {
       type: 'event.received',
-      event: event('steering.queued', 2, {queueDepth: 1}, 'steering-1', 'session-1'),
+      event: event('run.command.result', 2, {
+        commandType: 'run.start', disposition: 'queued', code: 'QUEUED', queueDepth: 1,
+      }, 'steering-1', 'session-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('steering.queued', 3, {queueDepth: 1}, 'steering-1', 'session-1'),
     });
     expect(state.steeringQueueDepth).toBe(1);
     expect(state.notice).toBe('补充消息已排队（1/100）');
-    expect(JSON.stringify(state)).not.toContain('SECRET_PROMPT');
     state = reduceTuiState(state, {
       type: 'event.received',
-      event: event('steering.discarded', 3, {reason: 'cancelled'}, 'steering-1', 'session-1'),
+      event: event('steering.discarded', 4, {reason: 'cancelled'}, 'steering-1', 'session-1'),
     });
     expect(state.steeringQueueDepth).toBe(0);
     expect(state.notice).toBe('当前 Run 取消，已丢弃一条未发送补充消息');
+    expect(state.runs).toEqual([]);
+    expect(JSON.stringify(state)).not.toContain('SECRET_PROMPT');
     state = reduceTuiState(state, {type: 'transport.failed', message: 'transport closed'});
     expect(state.steeringQueueDepth).toBe(0);
   });
@@ -637,7 +727,7 @@ describe('reduceTuiState', () => {
     state = reduceTuiState(state, {
       type: 'event.received', event: event('run.started', 2, {}, 'unknown', 'session-1', 'run-unknown'),
     });
-    expect(state.phase).toBe('running');
+    expect(state.phase).toBe('submitting');
     expect(state.activeRunId).toBeUndefined();
     expect(state.notice).toContain('已忽略无法关联');
 
@@ -654,8 +744,8 @@ describe('reduceTuiState', () => {
     state = reduceTuiState(state, {
       type: 'event.received', event: event('run.started', 5, {}, 'current', 'session-stale', 'run-current'),
     });
-    expect(state.phase).toBe('running');
-    expect(state.runs[0]).toEqual(expect.objectContaining({runId: undefined, status: 'running', tools: []}));
+    expect(state.phase).toBe('submitting');
+    expect(state.runs[0]).toEqual(expect.objectContaining({runId: undefined, status: 'submitting', tools: []}));
 
     state = reduceTuiState(state, {
       type: 'event.received', event: event('run.started', 6, {}, 'current', 'session-1', 'run-current'),

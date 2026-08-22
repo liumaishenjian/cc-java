@@ -79,6 +79,18 @@ describe('decodeEvent', () => {
     expect(event.payload.reason).toBe('progress_extended');
   });
 
+  it('严格接受 accepted 后、run.started 前的隐私安全启动失败', () => {
+    const event = {
+      version: 0, type: 'run.launch.failed', requestId: 'req-launch',
+      sessionId: 'session-1', sequence: 1,
+      payload: {code: 'RUNTIME_LAUNCH_FAILED', stopReason: 'internal_error'},
+    };
+    expect(decodeEvent(JSON.stringify(event), 1).payload.code).toBe('RUNTIME_LAUNCH_FAILED');
+    expect(() => decodeEvent(JSON.stringify({...event, payload: {
+      ...event.payload, exception: 'SECRET_STACK',
+    }}), 1)).toThrowError(/run\.launch\.failed/);
+  });
+
   it('接受严格有界的 Plan proposal 并拒绝额外执行字段', () => {
     const base = {
       version: 0,

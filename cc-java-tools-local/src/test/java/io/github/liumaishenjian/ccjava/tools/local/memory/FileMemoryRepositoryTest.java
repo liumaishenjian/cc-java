@@ -436,11 +436,17 @@ class FileMemoryRepositoryTest {
         Path root = Files.createDirectory(temporary.resolve("junction-root"));
         Path target = Files.createDirectory(temporary.resolve("junction-target"));
         Path junction = root.resolve("linked-topic.md");
-        Process process = new ProcessBuilder(
-                "cmd.exe", "/u", "/d", "/c", "mklink", "/J",
-                junction.toString(), target.toString())
-                .redirectErrorStream(true)
-                .start();
+        Process process;
+        try {
+            process = new ProcessBuilder(
+                    "cmd.exe", "/u", "/d", "/c", "mklink", "/J",
+                    junction.toString(), target.toString())
+                    .redirectErrorStream(true)
+                    .start();
+        } catch (IOException unavailable) {
+            Assumptions.abort("当前 Windows 策略禁止启动 Junction 探测进程");
+            return;
+        }
         byte[] outputBytes = process.getInputStream().readAllBytes();
         int exit = process.waitFor();
         if (exit != 0) {

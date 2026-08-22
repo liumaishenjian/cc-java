@@ -1341,6 +1341,35 @@ Java → Node stderr: 脱敏诊断
 `protocol.error`。Envelope、序列、唯一终态、有界队列、慢消费者和版本规则以 ADR-023
 为准，精确 Schema 由 Spike 固定。
 
+ADR-085 为 Run-producing 扩展增加 `run.command.result`：`run.start`（含分块 commit）、
+`plan.start`、会继续规划/执行的 `plan.review.resolve` 与 `skill.invoke` 必须严格关联
+`requestId + sessionId + commandType`，并返回 `accepted|queued|rejected`、固定 code 及仅 queued
+可有的有界 queueDepth。Client 在首次 stdin write 前登记 generic submission，不再从本地 active Run
+快照猜测 fresh/steering。Java fresh Run 使用 executor-accept → blocked worker → accepted event → release
+的启动闸门，保证 `run.started` 不早于 accepted；应用层拒绝先投影 rejected disposition，再投影
+`protocol.error` 安全诊断。
+
+TUI projection 状态为：
+
+```text
+submitting
+  ├─ accepted ───────────────┐
+  ├─ queued ─────────────────┤
+  ├─ rejected ───────────> restore draft（连接可继续，不重发）
+  ├─ watchdog ───────────> restore draft + transport terminal
+  └─ transport terminal ─> 仅恢复尚未 accepted/queued 的草稿 + failed
+accepted/queued ── run.started ─> running ↔ retrying ─> terminal
+accepted/queued ── run.launch.failed ─> ready（不自动重放）
+```
+
+`run.started` 前不能显示“等待模型响应”、model attempt 或 retry。活连接内 rejection 的 requestId
+进入有界 tombstone；watchdog 则立即关闭 outcome-unknown transport。late/mismatched disposition、start 或 terminal
+不得完成其他请求或触发自动重放。
+Session command、Provider control、file suggestion、approval/question 保留各自 typed pending owner，child exit/
+transport failure 必须有界清理全部 map 和 timer。完整状态、恢复与测试契约见 ADR-085。
+durable Plan 的批准/拒绝仍是一次用户 Enter，但 TUI 内部先以 `session.command permissions` 恢复进入 Plan 前的
+选择，确认后才发送原子 `plan.review.resolve`；恢复失败时计划继续等待决定。
+
 这实现 `CLI-11` 的 S02 L1 内部边界，不是稳定外部 API；稳定 JSON/JSONL、SDK、
 Daemon 和兼容承诺仍在 S14。
 

@@ -6,8 +6,10 @@ import {
   type ToolOutputBuffer,
 } from './tool-output.js';
 
-export type RunStatus = 'running' | 'completed' | 'cancelled' | 'failed';
-export type ClientPhase = 'connecting' | 'ready' | 'running' | 'closing' | 'closed' | 'failed';
+export type RunStatus = 'submitting' | 'accepted' | 'queued' | 'running' | 'retrying'
+  | 'completed' | 'cancelled' | 'failed';
+export type ClientPhase = 'connecting' | 'ready' | 'submitting' | 'accepted' | 'running'
+  | 'closing' | 'closed' | 'failed';
 export type SearchMode = 'content' | 'files' | 'count';
 export type ModelFailureCategory =
   | 'provider_unavailable'
@@ -214,10 +216,11 @@ export type TuiAction =
     readonly type: 'run.submitted';
     readonly requestId: string;
     readonly prompt: string;
-    readonly steering?: boolean;
     readonly awaitingPlanVerification?: boolean;
   }
   | {readonly type: 'run.submission.rejected'; readonly requestId: string; readonly message: string}
+  | {readonly type: 'run.submission.timed_out'; readonly requestId: string}
+  | {readonly type: 'run.submission.late'; readonly requestId: string}
   | {readonly type: 'approval.submitted'; readonly approvalId: string}
   | {readonly type: 'plan.status.received'; readonly requestId: string; readonly proposal: PlanProposalView}
   | {readonly type: 'checkpoint.selected'; readonly checkpointId: string}
@@ -258,16 +261,14 @@ export const initialTuiState: TuiState = {
  */
 export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
   switch (action.type) {
-    case 'run.submitted':
-      if (state.phase !== 'ready') {
-        return {...state, notice: '当前状态不能开始新的 Run'};
+    case 'run.submitted': {
+      const hasAuthoritativeRun = state.activeRunId !== undefined;
+      if (state.phase !== 'ready' && state.phase !== 'accepted' && !hasAuthoritativeRun) {
+        return {...state, notice: '当前状态不能提交新的 Run command'};
       }
       return {
         ...state,
-        phase: 'running',
-        steeringQueueDepth: action.steering === true
-          ? Math.max(0, (state.steeringQueueDepth ?? 0) - 1)
-          : state.steeringQueueDepth,
+        phase: hasAuthoritativeRun ? state.phase : 'submitting',
         notice: undefined,
         historicalToolDetailOpen: false,
         runs: [
@@ -282,7 +283,7 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
             awaitingPlanVerification: action.awaitingPlanVerification,
             pendingApproval: undefined,
             planProposal: undefined,
-            status: 'running',
+            status: 'submitting',
             stopReason: undefined,
             modelFailure: undefined,
             modelTurns: undefined,
@@ -290,18 +291,17 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
           },
         ],
       };
-    case 'run.submission.rejected': {
-      const rejected = state.runs.find(run => run.requestId === action.requestId);
-      if (rejected === undefined || rejected.runId !== undefined) {
-        return {...state, notice: action.message};
-      }
-      return {
-        ...state,
-        phase: state.activeRunId === undefined ? 'ready' : state.phase,
-        runs: state.runs.filter(run => run.requestId !== action.requestId),
-        notice: action.message,
-      };
     }
+    case 'run.submission.rejected':
+      return rejectUnstartedSubmission(state, action.requestId, action.message);
+    case 'run.submission.timed_out':
+      return rejectUnstartedSubmission(
+        state,
+        action.requestId,
+        'Java 未在期限内确认请求；草稿已恢复，不会自动重放',
+      );
+    case 'run.submission.late':
+      return {...state, notice: '已忽略迟到的 Java acceptance；不会自动重放'};
     case 'approval.submitted':
       return {
         ...state,
@@ -372,8 +372,8 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
         activeRunId: undefined,
         steeringQueueDepth: 0,
         runs: state.runs
-          .filter(run => run.runId !== undefined || run.status !== 'running')
-          .map(run => run.status === 'running'
+          .filter(run => run.runId !== undefined || !isActiveRunStatus(run.status))
+          .map(run => isStartedRun(run) && isActiveRunStatus(run.status)
             ? {...run, status: 'failed' as const, stopReason: 'transport_closed', pendingApproval: undefined}
             : run),
       };
@@ -440,14 +440,21 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
     }
     case 'run.budget.governed':
       return {...state, notice: `交互预算：${String(event.payload.reason)}`};
+    case 'run.command.result':
+      return applyRunCommandResult(state, event);
+    case 'run.launch.failed':
+      return rejectUnstartedSubmission(state, event.requestId,
+        'Java 已接受请求，但 Runtime 启动失败；不会自动重放');
     case 'run.started':
       return updateCurrentRun(state, event, run => ({
         ...run,
         runId: event.runId,
-      }), event.runId);
+        status: 'running',
+      }), event.runId, 'running');
     case 'model.turn.started':
       return updateCurrentRun(state, event, run => ({
         ...run,
+        status: 'running',
         modelProgress: {
           turn: Number(event.payload.turn),
           phase: 'thinking',
@@ -464,6 +471,7 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
     case 'model.retry.attempt.started':
       return updateCurrentRun(state, event, run => ({
         ...run,
+        status: Number(event.payload.attempt) > 1 ? 'retrying' : 'running',
         modelProgress: run.modelProgress === undefined ? undefined : {
           ...run.modelProgress,
           retryAttempt: Number(event.payload.attempt),
@@ -475,6 +483,7 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
     case 'model.retry.scheduled':
       return updateCurrentRun(state, event, run => ({
         ...run,
+        status: 'retrying',
         modelProgress: run.modelProgress === undefined ? undefined : {
           ...run.modelProgress,
           retryAttempt: Number(event.payload.nextAttempt),
@@ -649,18 +658,77 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
         steeringQueueDepth: Number(event.payload.queueDepth),
         notice: `补充消息已排队（${event.payload.queueDepth}/100）`,
       };
-    case 'steering.discarded':
+    case 'steering.discarded': {
+      const rejected = rejectUnstartedSubmission(
+        state,
+        event.requestId,
+        steeringDiscardedNotice(event.payload.reason),
+      );
       return {
-        ...state,
+        ...rejected,
         steeringQueueDepth: Math.max(0, (state.steeringQueueDepth ?? 0) - 1),
         notice: steeringDiscardedNotice(event.payload.reason),
       };
+    }
     case 'protocol.error':
       return {
         ...state,
         notice: safeProtocolMessage(event.payload),
       };
   }
+}
+
+function applyRunCommandResult(state: TuiState, event: ProtocolEvent): TuiState {
+  const disposition = event.payload.disposition;
+  const index = state.runs.findLastIndex(run => run.requestId === event.requestId);
+  if (index < 0) return ignoredRunEvent(state, event);
+  const run = state.runs[index];
+  if (run === undefined || run.runId !== undefined || run.status !== 'submitting') {
+    return ignoredRunEvent(state, event);
+  }
+  if (disposition === 'rejected') {
+    return rejectUnstartedSubmission(
+      state,
+      event.requestId,
+      `Java 拒绝请求：${String(event.payload.code)}`,
+    );
+  }
+  const status = disposition === 'queued' ? 'queued' as const : 'accepted' as const;
+  const runs = [...state.runs];
+  runs[index] = {...run, status};
+  return {
+    ...state,
+    runs,
+    phase: state.activeRunId === undefined ? 'accepted' : state.phase,
+    steeringQueueDepth: disposition === 'queued'
+      ? Number(event.payload.queueDepth)
+      : state.steeringQueueDepth,
+    notice: disposition === 'queued'
+      ? `请求已排队（${String(event.payload.queueDepth)}/100）`
+      : state.notice,
+  };
+}
+
+function rejectUnstartedSubmission(state: TuiState, requestId: string, message: string): TuiState {
+  const rejected = state.runs.find(run => run.requestId === requestId);
+  if (rejected === undefined || rejected.runId !== undefined) {
+    return {...state, notice: message};
+  }
+  return {
+    ...state,
+    phase: state.activeRunId === undefined ? 'ready' : state.phase,
+    runs: state.runs.filter(run => run.requestId !== requestId),
+    notice: message,
+  };
+}
+
+function isActiveRunStatus(status: RunStatus): boolean {
+  return status === 'submitting' || status === 'accepted' || status === 'queued'
+    || status === 'running' || status === 'retrying';
+}
+
+function isStartedRun(run: RunView): boolean {
+  return run.runId !== undefined;
 }
 
 function applySessionCommandResult(state: TuiState, event: ProtocolEvent): TuiState {
@@ -857,7 +925,7 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 
 function updateToolDetail(state: TuiState, action: 'next' | 'toggle'): TuiState {
   const activeIndex = state.runs.findIndex(run =>
-    run.runId === state.activeRunId && run.status === 'running');
+    run.runId === state.activeRunId && isActiveRunStatus(run.status));
   const activeRun = state.runs[activeIndex];
   if (activeIndex >= 0 && activeRun !== undefined) {
     const candidates = outputToolOrdinals(activeRun);
@@ -879,10 +947,10 @@ function updateToolDetail(state: TuiState, action: 'next' | 'toggle'): TuiState 
 
   const selectedRun = state.runs.find(run =>
     run.runId === state.historicalToolDetailRunId
-      && run.status !== 'running'
+      && !isActiveRunStatus(run.status)
       && outputToolOrdinals(run).length > 0)
     ?? state.runs.findLast(run =>
-      run.status !== 'running' && outputToolOrdinals(run).length > 0);
+      !isActiveRunStatus(run.status) && outputToolOrdinals(run).length > 0);
   if (selectedRun === undefined || selectedRun.runId === undefined) return state;
   const candidates = outputToolOrdinals(selectedRun);
   if (action === 'toggle') {
@@ -960,14 +1028,14 @@ function settlePlanReview(state: TuiState, planId: string): TuiState {
 function finishRun(
   state: TuiState,
   event: ProtocolEvent,
-  status: Exclude<RunStatus, 'running'>,
+  status: 'completed' | 'cancelled' | 'failed',
 ): TuiState {
   const index = associatedRunIndex(state, event);
   if (index < 0) {
     return ignoredRunEvent(state, event);
   }
   const run = state.runs[index];
-  if (run === undefined || run.status !== 'running') {
+  if (run === undefined || !isActiveRunStatus(run.status) || run.runId === undefined) {
     return ignoredRunEvent(state, event);
   }
   const runs = [...state.runs];
@@ -1034,18 +1102,19 @@ function updateCurrentRun(
   event: ProtocolEvent,
   transform: (run: RunView) => RunView,
   activeRunId: string | undefined = state.activeRunId,
+  phase: ClientPhase = state.phase,
 ): TuiState {
   const index = associatedRunIndex(state, event);
   if (index < 0) {
     return ignoredRunEvent(state, event);
   }
   const run = state.runs[index];
-  if (run === undefined || run.status !== 'running') {
+  if (run === undefined || !isActiveRunStatus(run.status)) {
     return ignoredRunEvent(state, event);
   }
   const runs = [...state.runs];
   runs[index] = transform(run);
-  return {...state, runs, activeRunId};
+  return {...state, runs, activeRunId, phase};
 }
 
 /**
@@ -1060,7 +1129,8 @@ function associatedRunIndex(state: TuiState, event: ProtocolEvent): number {
   const run = state.runs[index];
   if (run === undefined) return -1;
   if (event.type === 'run.started') {
-    return run.runId === undefined || run.runId === event.runId ? index : -1;
+    return (run.status === 'accepted' || run.status === 'queued')
+      && (run.runId === undefined || run.runId === event.runId) ? index : -1;
   }
   return run.runId !== undefined && run.runId === event.runId ? index : -1;
 }

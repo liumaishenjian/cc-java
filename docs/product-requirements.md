@@ -431,6 +431,9 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
 - FR-EVENT-001：Runtime 发布 Session、Turn、Model、Tool、Permission 和 Stop 事件。
 - FR-EVENT-002：终端只消费事件，不直接读取 Runtime 内部状态。
 - FR-EVENT-003：默认事件不包含 API Key 或未经裁剪的敏感内容。
+- FR-EVENT-004：所有会产生 Run 的内部 stdio 命令必须在首次写入前建立 request correlation，并由 Java 以
+  `accepted/queued/rejected` 或 transport terminal 确定终结 acceptance handshake；`run.started` 前 Surface 不得
+  冒充模型已运行，watchdog/reject/断连只能恢复草稿而不得自动重发。
 
 ## 12. 第一轮对照验收任务
 
@@ -752,12 +755,17 @@ S01 已确认：
 - 批准 Markdown 直接作为不可信自然语言上下文进入普通 Agent Runtime，不解析成命令/步骤三元组；
 - AUTO 只替换最终 ASK reviewer，Hard Denial、显式 Deny、PLAN capability boundary 和 Tool 安全校验保持最终；
 - keep/clear 都保留批准工件；`APPROVED` 只能显式恢复，`EXECUTING` 崩溃必须进入 recovery gate，绝不自动重放；
-- APPROVE_AUTO/APPROVE_USER/CONTINUE_PLANNING 在 stdio 写入前必须登记 request correlation，Ink 在命令成功
-  返回 requestId 后立即预建 execution/planning Run；`plan.execution.accepted` 与 `run.started` 任一先到都必须可投影；
-  REJECT 不创建 Run，重复 Enter、同步提交异常和协议拒绝必须回滚且不残留幽灵 Run；
-- unknown/late/mismatched Run event 必须安全忽略且不能完成其他 Run；Reducer projection notice 与真实
-  transport failure/child exit 必须分离，只有 transport authority 失败才能显示连接关闭；真实 Java 与安装版
-  E2E 必须通过 Ink reducer/render 断言 Tool、最终文本、verification 和终态，不能只监听 raw event；
+- APPROVE_AUTO/APPROVE_USER/CONTINUE_PLANNING 在首次 stdio write 前必须登记 request correlation；本地发送只进入
+  `submitting`，Java 必须以统一 `run.command.result` 确定回答 `accepted`、`queued`、`rejected` 或由 transport terminal
+  终结；`plan.execution.accepted` 保留 durable handoff 语义，`run.started` 才允许进入 `running` 并显示模型等待/retry；
+  REJECT 不创建 Run，重复 Enter、同步提交异常、watchdog 和协议拒绝必须恢复尚未 accepted 的草稿且不残留幽灵 Run；
+  watchdog 后必须关闭 outcome-unknown transport，accepted/queued 后断连不得把可能已执行的输入恢复为可重提草稿；
+- durable Plan 审批/拒绝必须在内部先恢复进入 Plan 前的权限选择，再提交原子 review 决定；已经 accepted、但
+  Runtime 尚未产生 Run ID 的同步启动失败必须以独立安全终态恢复 ready，不能永久显示等待模型或自动重放；
+- unknown/late/mismatched acceptance 或 Run event 必须安全隔离且不能完成其他 Run；handshake watchdog、Reducer
+  projection notice、普通 protocol rejection 与真实 transport failure/child exit 必须分离，任何恢复都不得自动重发用户
+  输入或重放副作用；真实 Java 与安装版 E2E 必须通过 Ink reducer/render 断言 disposition、Tool、最终文本、verification、
+  新 `run.started` 和终态，不能只监听 raw event；
 - 只有 trusted BUILT_IN Plan artifact Tool 的 concurrency/state conflict 才能映射为隐私安全、模型可行动的
   typed error；普通/MCP/Plugin Tool 不得伪造该恢复语义或绕过 repeated-failure governance；typed Plan failure
   不得压成 generic execution failure，也不得泄漏物理路径、Markdown、JSON 或底层异常文本。

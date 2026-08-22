@@ -54,11 +54,14 @@ public final class StdioProtocolFixtureMain {
             String markdown = "# Cross-process plan\n\n1. Inspect workspace safely.\n";
             String revisedMarkdown = "# Cross-process plan\n\n1. Inspect workspace safely.\n2. Verify rollback behavior.\n";
             io.github.liumaishenjian.ccjava.core.ModelGateway model = request -> {
-                boolean executing = request.messages().stream()
+                String latestUser = request.messages().stream()
                         .filter(io.github.liumaishenjian.ccjava.domain.UserMessage.class::isInstance)
                         .map(io.github.liumaishenjian.ccjava.domain.UserMessage.class::cast)
-                        .anyMatch(message -> message.content().contains("Implement the approved plan"));
-                if (executing || directExecution.get()) {
+                        .map(io.github.liumaishenjian.ccjava.domain.UserMessage::content)
+                        .reduce((previous, current) -> current)
+                        .orElse("");
+                boolean executing = latestUser.contains("Implement the approved plan");
+                if (executing) {
                     directExecution.set(true);
                     int executionCall = executionCalls.getAndIncrement();
                     if (executionCall == 0) return io.github.liumaishenjian.ccjava.domain.ModelTurn.tools(List.of(
@@ -69,6 +72,9 @@ public final class StdioProtocolFixtureMain {
                         return io.github.liumaishenjian.ccjava.domain.ModelTurn.text("approved plan executed");
                     }
                     throw new IllegalStateException("Plan fixture 收到过多执行请求");
+                }
+                if (directExecution.get()) {
+                    return io.github.liumaishenjian.ccjava.domain.ModelTurn.text("follow-up completed");
                 }
                 int call = calls.getAndIncrement();
                 if (call == 0) return io.github.liumaishenjian.ccjava.domain.ModelTurn.tools(List.of(
@@ -122,11 +128,18 @@ public final class StdioProtocolFixtureMain {
                     null, io.github.liumaishenjian.ccjava.core.CancellationToken.none());
             providerAuth.addModel("anthropic", "fixture-model", true,
                     io.github.liumaishenjian.ccjava.core.CancellationToken.none());
+            Path sessionStore = Files.createDirectory(fixtureRoot.resolve("sessions"));
             RuntimeStdioCommandHandler delegate = new RuntimeStdioCommandHandler((events, approvals) ->
                     io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeSession.production(
                             model, events,
                             new io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeOptions(
-                                    workspace.toAbsolutePath().normalize(), "fixture-model", Duration.ofSeconds(5)),
+                                    workspace.toAbsolutePath().normalize(),
+                                    "fixture-model",
+                                    Duration.ofSeconds(5),
+                                    io.github.liumaishenjian.ccjava.domain.PermissionMode.DEFAULT,
+                                    List.of(),
+                                    io.github.liumaishenjian.ccjava.cli.session.SessionOpenRequest.create(),
+                                    sessionStore),
                             approvals), providerAuth);
             return ownedFixtureHandler(delegate, expectedParent, expectedRealParent, fixtureRoot,
                     "plan-runtime-");

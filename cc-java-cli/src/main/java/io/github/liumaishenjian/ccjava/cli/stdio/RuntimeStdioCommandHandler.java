@@ -511,6 +511,13 @@ public final class RuntimeStdioCommandHandler
     private StdioProtocol.Disposition startPlan(
             StdioProtocol.Command command,
             StdioProtocol.EventEmitter events) throws StdioProtocolException {
+        return startPlan(command, events, "plan.start");
+    }
+
+    private StdioProtocol.Disposition startPlan(
+            StdioProtocol.Command command,
+            StdioProtocol.EventEmitter events,
+            String commandType) throws StdioProtocolException {
         String task = requiredPrompt(command);
         ActiveRun run;
         synchronized (lock) {
@@ -520,7 +527,7 @@ public final class RuntimeStdioCommandHandler
             run = startRunLocked(command.requestId(), task.length(), events);
             run.suppressModelText = true;
         }
-        executor.submit(() -> executePlanRun(run, task));
+        submitAcceptedRun(command, run, events, commandType, () -> executePlanRun(run, task));
         return StdioProtocol.Disposition.CONTINUE;
     }
 
@@ -604,7 +611,7 @@ public final class RuntimeStdioCommandHandler
                 StdioProtocol.Command planCommand = new StdioProtocol.Command(command.version(), "plan.start",
                         command.requestId(), command.sessionId(), Optional.empty(), command.sequence(),
                         codec.objectNode().put("prompt", feedback));
-                return startPlan(planCommand, events);
+                return startPlan(planCommand, events, "plan.review.resolve");
             }
             return StdioProtocol.Disposition.CONTINUE;
         }
@@ -630,7 +637,7 @@ public final class RuntimeStdioCommandHandler
         }
         try {
             executor.submit(() -> {
-                if (run.planExecutionStart.awaitStart()) {
+                if (run.commandStart.awaitStart()) {
                     executeAcceptedPlanRun(run);
                 }
             });
@@ -648,15 +655,16 @@ public final class RuntimeStdioCommandHandler
         accepted.put("contextPolicy", contextPolicy.name().toLowerCase(Locale.ROOT));
         accepted.put("approvalReviewer", acceptance.brief().approvalReviewer().name().toLowerCase(Locale.ROOT));
         try {
+            emitRunCommandResult(events, command.requestId(), "plan.review.resolve", "accepted", "ACCEPTED", 0);
             events.emit("plan.execution.accepted", command.requestId(), Optional.of(application.sessionId().value()),
                     Optional.empty(), accepted);
         } catch (RuntimeException transportFailure) {
             synchronized (lock) {
                 closeForTransportFailureLocked();
             }
-            throw transportFailure;
+            throw new AcceptedRunTransportException(transportFailure);
         }
-        return run.planExecutionStart.start()
+        return run.commandStart.start()
                 ? StdioProtocol.Disposition.CONTINUE
                 : StdioProtocol.Disposition.SHUTDOWN;
     }
@@ -736,10 +744,10 @@ public final class RuntimeStdioCommandHandler
         ObjectNode invoked = codec.objectNode();
         invoked.put("skillId", name);
         invoked.put("invocationKind", "explicit");
-        events.emit("skill.invoked", command.requestId(), Optional.of(application.sessionId().value()),
-                Optional.empty(), invoked);
         var accepted = invocation;
-        executor.submit(() -> executeSkillRun(run, accepted));
+        submitAcceptedRun(command, run, events, "skill.invoke", () ->
+                events.emit("skill.invoked", command.requestId(), Optional.of(application.sessionId().value()),
+                        Optional.empty(), invoked), () -> executeSkillRun(run, accepted));
         return StdioProtocol.Disposition.CONTINUE;
     }
 
@@ -775,17 +783,19 @@ public final class RuntimeStdioCommandHandler
                         command.requestId(), application.sessionId().value(), message, events);
                 steeringQueue.addLast(steering);
                 try {
+                    emitRunCommandResult(events, command.requestId(), "run.start", "queued", "QUEUED",
+                            steeringQueue.size());
                     emitSteeringQueued(command, events, steeringQueue.size());
                 } catch (RuntimeException failure) {
                     closeForTransportFailureLocked();
-                    throw failure;
+                    throw new AcceptedRunTransportException(failure);
                 }
                 return StdioProtocol.Disposition.CONTINUE;
             }
             run = startRunLocked(command.requestId(), prompt.length(), events);
         }
         io.github.liumaishenjian.ccjava.domain.UserMessage accepted = message;
-        executor.submit(() -> executeRun(run, accepted));
+        submitAcceptedRun(command, run, events, "run.start", () -> executeRun(run, accepted));
         return StdioProtocol.Disposition.CONTINUE;
     }
 
@@ -1180,6 +1190,82 @@ public final class RuntimeStdioCommandHandler
         activeRun = run;
         state = State.RUNNING;
         return run;
+    }
+
+    /**
+     * 先让单线程 executor 接受 worker，再发布确定的 command acceptance，最后才允许进入 Runtime。
+     *
+     * <p>因此 {@code run.started} 不可能早于 acceptance；若入队、事件出口或连接关闭失败，尚未开始的
+     * worker 只退出等待，不会写 Session、请求模型或执行 Tool。</p>
+     */
+    private void submitAcceptedRun(
+            StdioProtocol.Command command,
+            ActiveRun run,
+            StdioProtocol.EventEmitter events,
+            String commandType,
+            Runnable work) throws StdioProtocolException {
+        submitAcceptedRun(command, run, events, commandType, () -> { }, work);
+    }
+
+    /**
+     * 在 acceptance 已进入事件出口、Runtime 尚未启动的确定性缝隙发布命令专属生命周期。
+     *
+     * <p>{@code afterAccepted} 失败与 acceptance 传输失败具有相同语义：关闭连接并中止 gate，
+     * 从而避免例如 {@code skill.invoked} 已发布但执行器拒绝任务，或 Runtime 抢先发布
+     * {@code run.started} 的乱序投影。</p>
+     */
+    private void submitAcceptedRun(
+            StdioProtocol.Command command,
+            ActiveRun run,
+            StdioProtocol.EventEmitter events,
+            String commandType,
+            Runnable afterAccepted,
+            Runnable work) throws StdioProtocolException {
+        try {
+            executor.submit(() -> {
+                if (run.commandStart.awaitStart()) {
+                    work.run();
+                }
+            });
+        } catch (RuntimeException enqueueFailure) {
+            synchronized (lock) {
+                run.commandStart.abort();
+                if (activeRun == run) {
+                    activeRun = null;
+                    state = State.READY;
+                }
+            }
+            throw protocolError("RUN_ENQUEUE_FAILED", command, "Run 未被执行器接受");
+        }
+        try {
+            emitRunCommandResult(events, command.requestId(), commandType, "accepted", "ACCEPTED", 0);
+            afterAccepted.run();
+        } catch (RuntimeException transportFailure) {
+            synchronized (lock) {
+                closeForTransportFailureLocked();
+            }
+            throw new AcceptedRunTransportException(transportFailure);
+        }
+        run.commandStart.start();
+    }
+
+    /** 发布不含用户正文的 Run-producing command disposition。 */
+    private void emitRunCommandResult(
+            StdioProtocol.EventEmitter events,
+            String requestId,
+            String commandType,
+            String disposition,
+            String code,
+            int queueDepth) {
+        ObjectNode payload = codec.objectNode();
+        payload.put("commandType", commandType);
+        payload.put("disposition", disposition);
+        payload.put("code", code);
+        if ("queued".equals(disposition)) {
+            payload.put("queueDepth", queueDepth);
+        }
+        events.emit("run.command.result", requestId, Optional.of(application.sessionId().value()),
+                Optional.empty(), payload);
     }
 
     private void emitSteeringQueued(
@@ -2305,10 +2391,28 @@ public final class RuntimeStdioCommandHandler
     }
 
     private void emitUnexpectedFailure(ActiveRun run) {
+        boolean failedBeforeStart;
         synchronized (lock) {
-            if (activeRun != run || run.runId == null) {
+            if (activeRun != run) {
                 return;
             }
+            failedBeforeStart = run.runId == null;
+        }
+        if (failedBeforeStart) {
+            ObjectNode payload = codec.objectNode();
+            payload.put("code", "RUNTIME_LAUNCH_FAILED");
+            payload.put("stopReason", "internal_error");
+            try {
+                run.events.emit("run.launch.failed", run.requestId,
+                        Optional.of(application.sessionId().value()), Optional.empty(), payload);
+            } catch (RuntimeException transportFailure) {
+                synchronized (lock) {
+                    closeForTransportFailureLocked();
+                }
+                throw transportFailure;
+            }
+            finish(run, false);
+            return;
         }
         ObjectNode payload = codec.objectNode();
         payload.put("code", "RUNTIME_FAILURE");
@@ -2355,7 +2459,22 @@ public final class RuntimeStdioCommandHandler
             application.cancel(activeRun.runId);
             return;
         }
-        releasePendingAcceptedPlanLocked(activeRun);
+        abortPendingRunLocked(activeRun);
+    }
+
+    /**
+     * 中止任何尚未越过 acceptance gate 的 Run；durable Plan 还必须归还批准句柄。
+     *
+     * <p>普通 Run、Plan 规划和 Skill 同样使用该 gate。若 transport 在 accepted 投影期间失败，
+     * 只释放 Plan 会让其他 worker 永久阻塞并占住单线程 executor。</p>
+     */
+    private void abortPendingRunLocked(ActiveRun run) {
+        if (!run.commandStart.abort()) {
+            return;
+        }
+        if (run.approvedPlanExecution && run.planAcceptance != null) {
+            application.releaseAcceptedPlan(run.planAcceptance);
+        }
     }
 
     /**
@@ -2366,11 +2485,10 @@ public final class RuntimeStdioCommandHandler
      * 不会发布 {@code run.started} 或执行 Tool。</p>
      */
     private void releasePendingAcceptedPlanLocked(ActiveRun run) {
-        if (!run.approvedPlanExecution || run.planAcceptance == null
-                || !run.planExecutionStart.abort()) {
+        if (!run.approvedPlanExecution || run.planAcceptance == null) {
             return;
         }
-        application.releaseAcceptedPlan(run.planAcceptance);
+        abortPendingRunLocked(run);
     }
 
     private static RuntimeException retainFirstFailure(
@@ -2682,7 +2800,7 @@ public final class RuntimeStdioCommandHandler
      * <p>{@code true} 只在 accepted 已成功进入事件出口后完成；{@code false} 表示 transport、关闭或
      * 入队失败已回收批准句柄。worker 不使用 timeout 或轮询，因此不存在慢机器上的假失败。</p>
      */
-    private static final class PlanExecutionStartGate {
+    private static final class CommandStartGate {
         private final java.util.concurrent.CompletableFuture<Boolean> decision =
                 new java.util.concurrent.CompletableFuture<>();
 
@@ -2699,12 +2817,24 @@ public final class RuntimeStdioCommandHandler
         }
     }
 
+    /**
+     * acceptance 输出的成败已经不可由 Server 判定，禁止再补发第二个 rejected disposition。
+     *
+     * <p>该异常只跨越同包 stdio composition boundary；Server 应直接关闭 transport，交由 Client
+     * watchdog/Session recovery 收敛 outcome-unknown 状态。</p>
+     */
+    static final class AcceptedRunTransportException extends RuntimeException {
+        AcceptedRunTransportException(RuntimeException cause) {
+            super(cause.getMessage(), cause);
+        }
+    }
+
     private static final class ActiveRun {
         private final String requestId;
         private final int promptChars;
         private final StdioProtocol.EventEmitter events;
         private final Map<Integer, String> toolModes = new LinkedHashMap<>();
-        private final PlanExecutionStartGate planExecutionStart = new PlanExecutionStartGate();
+        private final CommandStartGate commandStart = new CommandStartGate();
         private RunId runId;
         private boolean suppressModelText;
         private boolean approvedPlanExecution;

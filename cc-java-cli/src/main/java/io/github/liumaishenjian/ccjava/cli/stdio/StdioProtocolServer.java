@@ -119,10 +119,12 @@ public final class StdioProtocolServer {
                 }
 
                 if (command.sequence() != expectedCommandSequence) {
-                    emitError(new StdioProtocolException(
+                    StdioProtocolException invalidSequence = new StdioProtocolException(
                             "INVALID_SEQUENCE",
                             command.requestId(),
-                            "命令 sequence 与连接期望值不一致"));
+                            "命令 sequence 与连接期望值不一致");
+                    emitRunCommandRejection(command, invalidSequence);
+                    emitError(invalidSequence);
                     continue;
                 }
                 expectedCommandSequence++;
@@ -137,12 +139,19 @@ public final class StdioProtocolServer {
                         break;
                     }
                 } catch (StdioProtocolException exception) {
+                    emitRunCommandRejection(command, exception);
                     emitError(exception);
+                } catch (RuntimeStdioCommandHandler.AcceptedRunTransportException outcomeUnknown) {
+                    // acceptance write 已经 outcome-unknown；再写 rejected 会制造同 request 双 disposition。
+                    reason = ExitReason.INTERNAL_ERROR;
+                    break;
                 } catch (RuntimeException exception) {
-                    emitError(new StdioProtocolException(
+                    StdioProtocolException internal = new StdioProtocolException(
                             "INTERNAL_ERROR",
                             command.requestId(),
-                            "Application 命令处理失败"));
+                            "Application 命令处理失败");
+                    emitRunCommandRejection(command, internal);
+                    emitError(internal);
                     reason = ExitReason.INTERNAL_ERROR;
                     break;
                 }
@@ -166,6 +175,52 @@ public final class StdioProtocolServer {
                     StdioProtocol.UNAVAILABLE_REQUEST_ID,
                     "Application 资源清理失败"));
         }
+    }
+
+    /**
+     * 已完成解码的 Run-producing 命令即使被应用层拒绝，也必须得到确定的 correlated disposition。
+     *
+     * <p>{@code protocol.error} 继续承担安全诊断，但 Client 不再依靠未来是否出现
+     * {@code run.started} 猜测命令是否被 Java 接受。</p>
+     */
+    private void emitRunCommandRejection(
+            StdioProtocol.Command command,
+            StdioProtocolException exception) {
+        String commandType = runProducingCommandType(command);
+        if (commandType == null) {
+            return;
+        }
+        ObjectNode payload = codec.objectNode();
+        payload.put("commandType", commandType);
+        payload.put("disposition", "rejected");
+        payload.put("code", exception.code());
+        events.emit("run.command.result", exception.requestId(), command.sessionId(),
+                Optional.empty(), payload);
+    }
+
+    private String runProducingCommandType(StdioProtocol.Command command) {
+        return switch (command.type()) {
+            case "run.start", "input.begin", "input.chunk", "input.commit" -> "run.start";
+            case "plan.start" -> "plan.start";
+            case "skill.invoke" -> "skill.invoke";
+            case "plan.review.resolve" -> planReviewCreatesRun(command) ? "plan.review.resolve" : null;
+            default -> null;
+        };
+    }
+
+    private boolean planReviewCreatesRun(StdioProtocol.Command command) {
+        var decision = command.payload().get("decision");
+        if (decision == null || !decision.isString()) {
+            return true;
+        }
+        return switch (decision.stringValue()) {
+            case "REJECT" -> false;
+            case "CONTINUE_PLANNING" -> {
+                var feedback = command.payload().get("feedback");
+                yield feedback == null || !feedback.isString() || !feedback.stringValue().isBlank();
+            }
+            default -> true;
+        };
     }
 
     private void emitError(StdioProtocolException exception) {

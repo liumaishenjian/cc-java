@@ -781,6 +781,44 @@ describe('AgentView', () => {
     view.unmount();
   });
 
+  it('transport 在 acceptance 前失败时恢复草稿，避免静默丢失输入', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+    view.stdin.write('UNACCEPTED_DRAFT'); view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 1);
+    await waitForFrame(() => view.lastFrame()?.includes('正在等待 Java 接受') === true);
+    client.emitFailure('transport closed');
+    await waitForFrame(() => view.lastFrame()?.includes('连接已关闭') === true);
+    await waitForFrame(() => view.lastFrame()?.includes('❯ UNACCEPTED_DRAFT') === true);
+
+    expect(view.lastFrame()).toContain('连接已关闭');
+    expect(view.lastFrame()).toContain('❯ UNACCEPTED_DRAFT');
+    view.unmount();
+  });
+
+  it('transport 在 acceptance 后失败时不恢复输入，避免重复有副作用 Run', async () => {
+    const client = new FakeAgentClient();
+    const view = render(<AgentTui client={client} />);
+    await waitForFrame(() => client.initializeCalls === 1);
+    client.emit({version: 0, type: 'initialized', requestId: 'init', sessionId: 'session-1', sequence: 1, payload: {}});
+    await waitForFrame(() => view.lastFrame()?.includes('就绪') === true);
+    view.stdin.write('ACCEPTED_MUST_NOT_RESTORE'); view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 1);
+    client.emit({
+      version: 0, type: 'run.command.result', requestId: 'tui-2', sessionId: 'session-1', sequence: 2,
+      payload: {commandType: 'run.start', disposition: 'accepted', code: 'ACCEPTED'},
+    });
+    await waitForFrame(() => view.lastFrame()?.includes('Java 已接受，等待 Run 启动') === true);
+    client.emitFailure('transport closed');
+    await waitForFrame(() => view.lastFrame()?.includes('连接已关闭') === true);
+
+    expect(view.lastFrame()).not.toContain('❯ ACCEPTED_MUST_NOT_RESTORE');
+    view.unmount();
+  });
+
   it('Shift+Enter 写入多行缓冲，Enter 显式提交完整内容', async () => {
     const client = new FakeAgentClient();
     const view = render(<AgentTui client={client} />);
@@ -809,7 +847,7 @@ describe('AgentView', () => {
     view.stdin.write('initial');
     view.stdin.write('\r');
     await waitForFrame(() => client.prompts.length === 1);
-    await waitForFrame(() => view.lastFrame()?.includes('运行中') === true);
+    await waitForFrame(() => view.lastFrame()?.includes('正在等待 Java 接受') === true);
     client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1', runId: 'run-1', sequence: 2, payload: {}});
     view.stdin.write('follow');
     view.stdin.write(SHIFT_ENTER);
@@ -832,7 +870,7 @@ describe('AgentView', () => {
     view.stdin.write('initial');
     view.stdin.write('\r');
     await waitForFrame(() => client.prompts.length === 1);
-    await waitForFrame(() => view.lastFrame()?.includes('运行中') === true);
+    await waitForFrame(() => view.lastFrame()?.includes('正在等待 Java 接受') === true);
     client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1', runId: 'run-1', sequence: 2, payload: {}});
     view.stdin.write('REJECTED_STEERING_SECRET');
     view.stdin.write('\r');
@@ -858,7 +896,7 @@ describe('AgentView', () => {
     view.stdin.write('initial');
     view.stdin.write('\r');
     await waitForFrame(() => client.prompts.length === 1);
-    await waitForFrame(() => view.lastFrame()?.includes('运行中') === true);
+    await waitForFrame(() => view.lastFrame()?.includes('正在等待 Java 接受') === true);
     client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1', runId: 'run-1', sequence: 2, payload: {}});
     view.stdin.write('/doctor');
     view.stdin.write('\r');
@@ -1888,6 +1926,36 @@ describe('continuous plan Ink interaction', () => {
     view.unmount();
   });
 
+  it('/plan durable approval restores the entry permission before the atomic execution handoff', async () => {
+    const client = new FakeAgentClient();
+    const view = await initializedTui(client);
+    view.stdin.write('/plan durable task'); view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 1);
+    client.emit(permissionResult('tui-plan-1-query', 'ASK', 2));
+    await waitForFrame(() => client.sessionCommands.length === 2);
+    client.emit(permissionResult('tui-plan-2-enter', 'PLAN', 3));
+    await waitForFrame(() => client.planTasks.length === 1);
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-plan-1', sessionId: 'session-1',
+      runId: 'run-plan', sequence: 4, payload: {}});
+    client.emit({version: 0, type: 'plan.review.requested', requestId: 'tui-plan-1', sessionId: 'session-1',
+      runId: 'run-plan', sequence: 5, payload: {planId: 'plan-durable', status: 'awaiting_approval', revision: 3,
+        contentDigest: 'a'.repeat(64), markdown: '# Durable', workspaceDigest: 'b'.repeat(64),
+        originalPermissionMode: 'default', suggestedContextPolicy: 'keep'}});
+    client.emit({version: 0, type: 'run.completed', requestId: 'tui-plan-1', sessionId: 'session-1',
+      runId: 'run-plan', sequence: 6, payload: {stopReason: 'completed', modelTurns: 2, toolCalls: 2}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('批准并自动执行'));
+    view.stdin.write('\r');
+    await waitForFrame(() => client.sessionCommands.length === 3);
+
+    expect(client.planReviewResolutions).toEqual([]);
+    expect(client.sessionCommands[2]).toContain(':permissions:{"selection":"ASK"}');
+    const restoreCommandId = client.sessionCommands[2]!.split(':', 1)[0]!;
+    client.emit(permissionResult(restoreCommandId, 'ASK', 7));
+    await waitForFrame(() => client.planReviewResolutions.length === 1);
+    expect(client.planReviewResolutions[0]).toContain(':APPROVE_AUTO:KEEP:');
+    view.unmount();
+  });
+
   it('default approve auto and Tab context toggle are driven by actual key events', async () => {
     const client = new FakeAgentClient();
     const view = await initializedTui(client);
@@ -2272,6 +2340,7 @@ class FakeAgentClient implements AgentClient {
   terminateCalls = 0;
   shutdownCalls = 0;
   readonly #eventListeners = new Set<(event: ProtocolEvent) => void>();
+  readonly #runCommandResults = new Set<string>();
   readonly #failureListeners = new Set<(message: string) => void>();
   readonly #exitListeners = new Set<() => void>();
 
@@ -2404,6 +2473,25 @@ class FakeAgentClient implements AgentClient {
   }
 
   public emit(event: ProtocolEvent): void {
+    if (event.type === 'run.command.result') {
+      this.#runCommandResults.add(event.requestId);
+    } else if (event.type === 'run.started' && !this.#runCommandResults.has(event.requestId)) {
+      const commandType = event.requestId.startsWith('tui-plan-review-')
+        ? 'plan.review.resolve'
+        : event.requestId.startsWith('tui-plan-')
+          ? 'plan.start'
+          : event.requestId.startsWith('tui-skill-') ? 'skill.invoke' : 'run.start';
+      const accepted: ProtocolEvent = {
+        version: 0,
+        type: 'run.command.result',
+        requestId: event.requestId,
+        ...(event.sessionId === undefined ? {} : {sessionId: event.sessionId}),
+        sequence: event.sequence,
+        payload: {commandType, disposition: 'accepted', code: 'ACCEPTED'},
+      };
+      this.#runCommandResults.add(event.requestId);
+      for (const listener of this.#eventListeners) listener(accepted);
+    }
     for (const listener of this.#eventListeners) {
       listener(event);
     }
