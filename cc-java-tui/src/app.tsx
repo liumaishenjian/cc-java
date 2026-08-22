@@ -1,5 +1,5 @@
 import {useEffect, useReducer, useRef, useState} from 'react';
-import {Box, Text, useApp, useInput, usePaste, useWindowSize} from 'ink';
+import {Box, Static, Text, useApp, useInput, usePaste, useWindowSize} from 'ink';
 import {initialTuiState, reduceTuiState} from './state.js';
 import type {ProtocolEvent} from './protocol.js';
 import type {ProviderLoginRequest, ProviderLoginResult} from './stdio-client.js';
@@ -12,6 +12,7 @@ import type {
 } from './state.js';
 import {AssistantMarkdown} from './assistant-markdown.js';
 import {ToolActivityGroup} from './tool-activity.js';
+import {HistoricalToolDetail, ToolDetail} from './tool-detail.js';
 import {
   activeFileMention,
   boundedFileSuggestions,
@@ -107,6 +108,12 @@ type PlanDecisionState = {
 };
 type PlanSessionState = {
   readonly originalSelection: PublicPermissionSelection;
+};
+type PendingDurablePlanDecision = {
+  readonly requestId: string;
+  readonly review: PlanReviewPickerState;
+  readonly createsRun: boolean;
+  readonly feedback: string | undefined;
 };
 
 const CODEJ_BANNER = [
@@ -258,6 +265,7 @@ export function AgentTui({client}: AgentTuiProps) {
   const nextConnectGeneration = useRef(1);
   const pendingPlanEntryRef = useRef<PlanEntryState | undefined>(undefined);
   const pendingPlanDecisionRef = useRef<PlanDecisionState | undefined>(undefined);
+  const pendingDurablePlanDecisionRef = useRef<PendingDurablePlanDecision | undefined>(undefined);
   const planSessionRef = useRef<PlanSessionState | undefined>(undefined);
   const connectWizardRef = useRef<ModelSetupState | undefined>(undefined);
   const providerLoginActiveRef = useRef(false);
@@ -352,6 +360,7 @@ export function AgentTui({client}: AgentTuiProps) {
           pendingSubmissionsRef.current.clear();
           pendingPlanEntryRef.current = undefined;
           pendingPlanDecisionRef.current = undefined;
+          pendingDurablePlanDecisionRef.current = undefined;
           planSessionRef.current = undefined;
           replacePlanReviewPicker(undefined);
         }
@@ -547,6 +556,7 @@ export function AgentTui({client}: AgentTuiProps) {
           pendingSubmissionsRef.current.clear();
           pendingPlanEntryRef.current = undefined;
           pendingPlanDecisionRef.current = undefined;
+          pendingDurablePlanDecisionRef.current = undefined;
           planSessionRef.current = undefined;
           replacePlanReviewPicker(undefined);
         }
@@ -598,9 +608,16 @@ export function AgentTui({client}: AgentTuiProps) {
         dispatch({type: 'slash.notice', message: '反馈已接受，正在为同一计划启动新的规划回合'});
       }
       if (event.type === 'plan.execution.accepted') {
+        const pending = pendingDurablePlanDecisionRef.current;
         replacePlanReviewPicker(undefined);
         planSessionRef.current = undefined;
-        dispatch({type: 'slash.notice', message: '计划已批准并由 Java 接受执行，正在启动真实 Run'});
+        if (pending?.requestId === event.requestId) {
+          pendingDurablePlanDecisionRef.current = undefined;
+          dispatch({type: 'slash.notice', message: '计划已批准并由 Java 接受执行，正在启动真实 Run'});
+        }
+      }
+      if (event.type === 'plan.execution.failed') {
+        dispatch({type: 'slash.notice', message: `计划执行失败（${String(event.payload.stopReason)}），不会自动重放；可通过显式恢复重新处理`});
       }
       if (event.type === 'plan.verification.required') {
         dispatch({type: 'slash.notice', message: `计划尚未完成：需要验证 ${String(event.payload.blockingRequirementId ?? 'required-evidence-not-declared')}（${String(event.payload.satisfiedEvidence)}/${String(event.payload.requiredEvidence)}）`});
@@ -609,6 +626,9 @@ export function AgentTui({client}: AgentTuiProps) {
         dispatch({type: 'slash.notice', message: `计划证据已验证（${String(event.payload.satisfiedEvidence)}/${String(event.payload.requiredEvidence)}）`});
       }
       if (event.type === 'plan.review.rejected') {
+        if (pendingDurablePlanDecisionRef.current?.requestId === event.requestId) {
+          pendingDurablePlanDecisionRef.current = undefined;
+        }
         replacePlanReviewPicker(undefined);
         planSessionRef.current = undefined;
         dispatch({type: 'slash.notice', message: '计划已拒绝，未执行任何步骤'});
@@ -619,6 +639,23 @@ export function AgentTui({client}: AgentTuiProps) {
       if ((event.type === 'tool.completed' || event.type === 'tool.failed')
         && event.payload.toolName === 'ask_plan_question') {
         setQuestionPicker(undefined);
+      }
+      if (event.type === 'protocol.error') {
+        const pendingPlan = pendingDurablePlanDecisionRef.current;
+        if (pendingPlan?.requestId === event.requestId) {
+          pendingDurablePlanDecisionRef.current = undefined;
+          if (pendingPlan.createsRun) {
+            dispatch({
+              type: 'run.submission.rejected',
+              requestId: event.requestId,
+              message: 'Plan 决定被 Java 拒绝；durable review 保持待决定',
+            });
+          }
+          replacePlanReviewPicker({...pendingPlan.review, submitted: false});
+          if (pendingPlan.feedback !== undefined) {
+            replacePlanFeedbackInput({review: pendingPlan.review, text: pendingPlan.feedback});
+          }
+        }
       }
       if (event.type === 'steering.discarded' || event.type === 'protocol.error') {
         if (fileSuggestionRef.current?.requestId === event.requestId) {
@@ -642,6 +679,9 @@ export function AgentTui({client}: AgentTuiProps) {
         }
       }
       if (event.type === 'run.started') {
+        if (pendingDurablePlanDecisionRef.current?.requestId === event.requestId) {
+          pendingDurablePlanDecisionRef.current = undefined;
+        }
         const pending = pendingSubmissionsRef.current.get(event.requestId);
         if (pending !== undefined) {
           replaceComposer(acceptPendingComposer(composerRef.current, pending.composer));
@@ -659,6 +699,9 @@ export function AgentTui({client}: AgentTuiProps) {
         || event.type === 'run.cancelled'
       ) {
         cancelPending.current = false;
+        if (pendingDurablePlanDecisionRef.current?.requestId === event.requestId) {
+          pendingDurablePlanDecisionRef.current = undefined;
+        }
       }
       dispatch({type: 'event.received', event});
     });
@@ -668,6 +711,7 @@ export function AgentTui({client}: AgentTuiProps) {
       pendingSubmissionsRef.current.clear();
       pendingPlanEntryRef.current = undefined;
       pendingPlanDecisionRef.current = undefined;
+      pendingDurablePlanDecisionRef.current = undefined;
       planSessionRef.current = undefined;
       replacePlanReviewPicker(undefined);
       replacePlanFeedbackInput(undefined);
@@ -682,6 +726,7 @@ export function AgentTui({client}: AgentTuiProps) {
       pendingSubmissionsRef.current.clear();
       pendingPlanEntryRef.current = undefined;
       pendingPlanDecisionRef.current = undefined;
+      pendingDurablePlanDecisionRef.current = undefined;
       planSessionRef.current = undefined;
       replacePlanReviewPicker(undefined);
       replacePlanFeedbackInput(undefined);
@@ -784,8 +829,9 @@ export function AgentTui({client}: AgentTuiProps) {
           dispatch({type: 'slash.notice', message: '继续规划需要非空反馈；Esc 可返回计划选项'});
           return;
         }
+        const review = currentPlanFeedback.review;
+        replacePlanReviewPicker({...review, submitted: true});
         try {
-          const review = currentPlanFeedback.review;
           const requestId = client.resolvePlanReview!({
             planId: review.planId,
             revision: review.revision,
@@ -795,10 +841,13 @@ export function AgentTui({client}: AgentTuiProps) {
             contextPolicy: review.contextPolicy.toUpperCase() as 'KEEP' | 'CLEAR',
             feedback,
           });
+          pendingDurablePlanDecisionRef.current = {
+            requestId, review, createsRun: true, feedback,
+          };
           replacePlanFeedbackInput(undefined);
-          replacePlanReviewPicker({...review, submitted: true});
           dispatch({type: 'run.submitted', requestId, prompt: `继续规划 ${review.planId}`});
         } catch {
+          replacePlanReviewPicker({...review, submitted: false});
           dispatch({type: 'slash.notice', message: 'Plan 反馈未被连接接受；可修改后重新提交'});
         }
       } else if (key.backspace || key.delete) {
@@ -870,18 +919,36 @@ export function AgentTui({client}: AgentTuiProps) {
         }
         const protocolDecision = decision === 'approve_auto' ? 'APPROVE_AUTO'
           : decision === 'approve_user' ? 'APPROVE_USER' : 'REJECT';
+        const review = planReviewPickerRef.current ?? planReviewPicker;
+        if (review.submitted) return;
+        replacePlanReviewPicker({...review, submitted: true});
         try {
-          client.resolvePlanReview({
-            planId: planReviewPicker.planId,
-            revision: planReviewPicker.revision,
-            contentDigest: planReviewPicker.contentDigest,
-            workspaceDigest: planReviewPicker.workspaceDigest,
+          const requestId = client.resolvePlanReview({
+            planId: review.planId,
+            revision: review.revision,
+            contentDigest: review.contentDigest,
+            workspaceDigest: review.workspaceDigest,
             decision: protocolDecision,
-            contextPolicy: planReviewPicker.contextPolicy.toUpperCase() as 'KEEP' | 'CLEAR',
+            contextPolicy: review.contextPolicy.toUpperCase() as 'KEEP' | 'CLEAR',
             feedback: '',
           });
-          replacePlanReviewPicker({...planReviewPicker, submitted: true});
+          const createsRun = protocolDecision !== 'REJECT';
+          pendingDurablePlanDecisionRef.current = {
+            requestId, review, createsRun, feedback: undefined,
+          };
+          if (createsRun) {
+            dispatch({
+              type: 'run.submitted',
+              requestId,
+              prompt: protocolDecision === 'APPROVE_AUTO'
+                ? `执行计划 ${review.planId}（自动审批）`
+                : `执行计划 ${review.planId}`,
+              awaitingPlanVerification: true,
+            });
+          }
         } catch {
+          pendingDurablePlanDecisionRef.current = undefined;
+          replacePlanReviewPicker({...review, submitted: false});
           dispatch({type: 'slash.notice', message: 'Plan 决定未被连接接受；durable review 保持待决定'});
         }
       }
@@ -1043,6 +1110,14 @@ export function AgentTui({client}: AgentTuiProps) {
         });
         return;
       }
+    }
+    if (key.ctrl && text.toLowerCase() === 't') {
+      dispatch({type: 'tool.detail.next'});
+      return;
+    }
+    if (key.ctrl && text.toLowerCase() === 'o') {
+      dispatch({type: 'tool.detail.toggle'});
+      return;
     }
     if (!canEditInput(state.phase)) {
       return;
@@ -1351,7 +1426,7 @@ export function AgentView({state, composer, input = '', columns, rows, composerL
   const candidates = canEditInput(state.phase) ? effectiveComposer.completionCandidates : [];
   const selectedCompletion = effectiveComposer.completionIndex ?? 0;
   const composerFixedRows = renderedLines.length
-    + 4
+    + 3
     + (effectiveComposer.validationCode === undefined ? 0 : 1);
   const candidateRegionRows = viewportRows === undefined
     ? undefined
@@ -1366,13 +1441,19 @@ export function AgentView({state, composer, input = '', columns, rows, composerL
     && connectWizard === undefined
     && width >= 52
     && (viewportRows === undefined || viewportRows >= 16);
+  const archivedRuns = state.runs.filter(isArchivedRun);
+  const liveRuns = state.runs.filter(run => !isArchivedRun(run));
+  const historicalToolDetailRun = state.historicalToolDetailOpen === true
+    ? state.runs.find(run => run.runId === state.historicalToolDetailRunId)
+    : undefined;
+  const hasHistoricalToolOutput = state.runs.some(run =>
+    run.status !== 'running'
+      && run.tools.some(tool => tool.output.lines.length > 0));
   return (
-    <Box
-      flexDirection="column"
-      width={width}
-      height={viewportRows}
-      overflow={viewportRows === undefined ? 'visible' : 'hidden'}
-    >
+    <Box flexDirection="column" width={width}>
+      <Static items={archivedRuns}>
+        {run => <RunPresentation key={run.requestId} run={run} />}
+      </Static>
       <Box flexShrink={0}>
         <Text bold color="cyan">codej</Text>
         {width < 28 ? null : (
@@ -1385,9 +1466,7 @@ export function AgentView({state, composer, input = '', columns, rows, composerL
       <Box
         flexDirection="column"
         flexGrow={1}
-        flexShrink={1}
-        overflow="hidden"
-        justifyContent={state.runs.length === 0 ? 'flex-start' : 'flex-end'}
+        flexShrink={0}
       >
         <Box flexDirection="column" flexShrink={0}>
       {state.notice === undefined ? null : (
@@ -1401,57 +1480,22 @@ export function AgentView({state, composer, input = '', columns, rows, composerL
         </Box>
       ) : null}
       {connectWizard === undefined ? null : <ConnectWizardPanel state={connectWizard} />}
-      {state.runs.map(run => (
-        <Box key={run.requestId} flexDirection="column" marginTop={1}>
-          <Box>
-            <Text color="green" bold>❯ </Text>
-            <Text bold>{run.prompt}</Text>
-          </Box>
-          <ToolActivityGroup tools={run.tools} />
-          {run.tools.filter(tool => tool.output.length > 0).map(tool => (
-            <Box
-              key={`output-${tool.ordinal}`}
-              marginLeft={4}
-              flexDirection="column"
-            >
-              <Text dimColor>{tool.output}</Text>
-            </Box>
-          ))}
-          {run.pendingApproval === undefined
-            ? null
-            : <ApprovalPrompt approval={run.pendingApproval} picker={approvalPicker} />}
-          {run.planProposal === undefined
-            ? null
-            : <PlanReviewPanel proposal={run.planProposal} picker={planReviewPicker} />}
-          {run.planReview === undefined
-            ? null
-            : <DurablePlanReviewPanel review={run.planReview} picker={planReviewPicker} feedbackInput={planFeedbackInput} />}
-          {run.pendingQuestion === undefined
-            ? null
-            : <QuestionPrompt question={run.pendingQuestion} picker={questionPicker} />}
-          {run.status === 'running' && run.tools.length === 0 && run.text.length === 0 ? (
-            <Box marginTop={1} marginLeft={2}>
-              <Text color="yellow">◌ 等待模型响应…</Text>
-            </Box>
-          ) : null}
-          {run.text.length === 0 ? null : (
-            <Box marginTop={1} flexDirection="row">
-              <Text color="cyan">● </Text>
-              <Box flexDirection="column" flexGrow={1}>
-                <AssistantMarkdown text={run.text} />
-              </Box>
-            </Box>
-          )}
-          <RunTerminal run={run} />
-          {run.modelFailure === undefined ? null : (
-            <Box marginLeft={4}>
-              <Text color="red">{formatModelFailure(run.modelFailure)}</Text>
-            </Box>
-          )}
-        </Box>
-      ))}
+      {liveRuns.map(run => <RunPresentation
+        key={run.requestId}
+        run={run}
+        approvalPicker={approvalPicker}
+        planReviewPicker={planReviewPicker}
+        planFeedbackInput={planFeedbackInput}
+        questionPicker={questionPicker}
+      />)}
       <ChildTaskPanel state={state} />
       <CheckpointPanel state={state} />
+      {historicalToolDetailRun === undefined ? null : (
+        <HistoricalToolDetail
+          run={historicalToolDetailRun}
+          selectedOrdinal={state.historicalToolDetailOrdinal}
+        />
+      )}
       {state.phase === 'ready' ? (
         <Box marginTop={1} flexDirection="column">
           {state.runs.length === 0 ? (
@@ -1476,6 +1520,11 @@ export function AgentView({state, composer, input = '', columns, rows, composerL
                 </Box>
               ) : null}
             </>
+          ) : null}
+          {hasHistoricalToolOutput ? (
+            <Text dimColor>
+              Ctrl+O {state.historicalToolDetailOpen === true ? '关闭' : '查看'}最近历史 Tool 详情
+            </Text>
           ) : null}
           {state.checkpoints.length === 0 ? null : (
             <>
@@ -1522,9 +1571,6 @@ export function AgentView({state, composer, input = '', columns, rows, composerL
       {connectWizard !== undefined || effectiveComposer.validationCode === undefined ? null : (
         <Text color="red">输入未接受：{validationMessage(effectiveComposer.validationCode)}</Text>
       )}
-      {connectWizard === undefined ? <Text dimColor>
-        光标 {projection.cursorRow - projection.viewportTop + 1}:{projection.cursorColumn + 1}
-      </Text> : null}
       {connectWizard !== undefined || candidates.length === 0 || candidateRegionRows === 0 ? null : (
         <Box
           flexDirection="column"
@@ -1903,6 +1949,105 @@ export function formatModelFailure(summary: ModelFailureView): string {
           ? '；请检查 Provider 状态'
           : '；请稍后重试';
   return base + status + attempts + action;
+}
+
+/** 展示确定性模型阶段与数值 Usage；不展示或伪造隐藏思维链。 */
+function ModelProgressLine({run}: {readonly run: RunView}) {
+  const progress = run.modelProgress;
+  const activeTool = run.tools.some(tool => tool.status === 'started');
+  let status: string | undefined;
+  if (run.status === 'running' && !activeTool) {
+    if (progress?.retryAttempt !== undefined && progress.retryMaxAttempts !== undefined
+      && progress.retryWaitMillis !== undefined) {
+      const wait = progress.retryWaitMillis >= 1000
+        ? `${(progress.retryWaitMillis / 1000).toFixed(progress.retryWaitMillis % 1000 === 0 ? 0 : 1)} 秒`
+        : `${progress.retryWaitMillis} 毫秒`;
+      status = `模型请求暂时失败，${wait}后进行第 ${progress.retryAttempt}/${progress.retryMaxAttempts} 次尝试`;
+    } else if (progress?.retryAttempt !== undefined && progress.retryAttempt > 1
+      && progress.retryMaxAttempts !== undefined) {
+      status = `正在进行第 ${progress.retryAttempt}/${progress.retryMaxAttempts} 次模型尝试`;
+    } else if (progress?.phase === 'thinking') {
+      status = `正在分析 · 第 ${progress.turn} 回合`;
+    } else if (progress?.phase === 'preparing_tools') {
+      status = '正在准备工具调用';
+    } else if (run.text.length === 0) {
+      status = '等待模型响应';
+    }
+  }
+  const usage: string[] = [];
+  if (progress?.contextUsedTokens !== undefined
+    && progress.contextMaximumInputTokens !== undefined) {
+    usage.push(`上下文${progress.contextEstimateKind === 'exact' ? '实测' : '估算'} ${formatTokenCount(progress.contextUsedTokens)}/${formatTokenCount(progress.contextMaximumInputTokens)}`);
+  }
+  if (progress !== undefined && progress.usageReportedTurns > 0) {
+    const coverage = progress.usageMissingTurns === 0 ? 'Provider 实测' : 'Provider 部分实测';
+    usage.push(`${coverage} 累计 ${formatTokenCount(progress.providerTotalTokens)}（↑ ${formatTokenCount(progress.providerInputTokens)} · ↓ ${formatTokenCount(progress.providerOutputTokens)}）`);
+  }
+  if (status === undefined && usage.length === 0) return null;
+  return <Box marginLeft={2} flexDirection="column">
+    {status === undefined ? null : <Text color="yellow">◌ {status}…</Text>}
+    {usage.length === 0 ? null : <Text dimColor>Token · {usage.join(' · ')}</Text>}
+  </Box>;
+}
+
+function formatTokenCount(value: number): string {
+  if (value < 1_000) return String(value);
+  if (value < 1_000_000) return `${(value / 1_000).toFixed(value < 10_000 ? 1 : 0)}k`;
+  return `${(value / 1_000_000).toFixed(1)}m`;
+}
+
+/**
+ * 只有不再需要交互更新的 Run 才能进入 Ink Static；否则 picker 或流式文本会被冻结。
+ */
+function isArchivedRun(run: RunView): boolean {
+  return run.status !== 'running'
+    && run.pendingApproval === undefined
+    && run.planProposal === undefined
+    && (run.planReview === undefined || run.planReviewSettled === true)
+    && run.pendingQuestion === undefined
+    && run.awaitingPlanVerification !== true;
+}
+
+function RunPresentation({run, approvalPicker, planReviewPicker, planFeedbackInput, questionPicker}: {
+  readonly run: RunView;
+  readonly approvalPicker?: ApprovalPickerState | undefined;
+  readonly planReviewPicker?: PlanReviewPickerState | undefined;
+  readonly planFeedbackInput?: PlanFeedbackInputState | undefined;
+  readonly questionPicker?: QuestionPickerState | undefined;
+}) {
+  return <Box flexDirection="column" marginTop={1}>
+    <Box>
+      <Text color="green" bold>❯ </Text>
+      <Text bold>{run.prompt}</Text>
+    </Box>
+    <ModelProgressLine run={run} />
+    <ToolActivityGroup tools={run.tools} />
+    <ToolDetail run={run} />
+    {run.pendingApproval === undefined
+      ? null : <ApprovalPrompt approval={run.pendingApproval} picker={approvalPicker} />}
+    {run.planProposal === undefined
+      ? null : <PlanReviewPanel proposal={run.planProposal} picker={planReviewPicker} />}
+    {run.planReview === undefined
+      ? null : <DurablePlanReviewPanel review={run.planReview} picker={planReviewPicker}
+        feedbackInput={planFeedbackInput} />}
+    {run.pendingQuestion === undefined
+      ? null : <QuestionPrompt question={run.pendingQuestion} picker={questionPicker} />}
+    {run.text.length === 0 ? null : (
+      <Box marginTop={1} flexDirection="row">
+        <Text color="cyan">● </Text>
+        <Box flexDirection="column" flexGrow={1}>
+          <AssistantMarkdown text={run.text} />
+        </Box>
+      </Box>
+    )}
+    <RunTerminal run={run} />
+    {run.planVerification === undefined ? null : (
+      <Box marginLeft={4}><Text color="yellow">{run.planVerification}</Text></Box>
+    )}
+    {run.modelFailure === undefined ? null : (
+      <Box marginLeft={4}><Text color="red">{formatModelFailure(run.modelFailure)}</Text></Box>
+    )}
+  </Box>;
 }
 
 function RunTerminal({run}: {readonly run: RunView}) {

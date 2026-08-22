@@ -39,10 +39,15 @@ const EVENT_TYPES = new Set([
   'task.status',
   'task.terminal',
   'task.worktree',
+  'model.turn.started',
+  'model.retry.attempt.started',
+  'model.retry.scheduled',
+  'model.turn.completed',
   'model.text.delta',
   'plan.proposed',
   'plan.review.requested',
   'plan.execution.accepted',
+  'plan.execution.failed',
   'plan.review.rejected',
   'plan.verification.required',
   'plan.verification.completed',
@@ -76,10 +81,15 @@ export type EventType =
   | 'task.status'
   | 'task.terminal'
   | 'task.worktree'
+  | 'model.turn.started'
+  | 'model.retry.attempt.started'
+  | 'model.retry.scheduled'
+  | 'model.turn.completed'
   | 'model.text.delta'
   | 'plan.proposed'
   | 'plan.review.requested'
   | 'plan.execution.accepted'
+  | 'plan.execution.failed'
   | 'plan.review.rejected'
   | 'plan.verification.required'
   | 'plan.verification.completed'
@@ -305,6 +315,18 @@ function validateEventShape(
       throw new ProtocolViolation('plan.execution.accepted 投影无效');
     }
   }
+  if (type === 'plan.execution.failed') {
+    const allowedFields = new Set(['planId', 'status', 'stopReason', 'modelFailure']);
+    if (sessionId === undefined || runId !== undefined
+      || Object.keys(payload).some(key => !allowedFields.has(key))
+      || !['failed', 'cancelled', 'timed_out', 'limit_exceeded'].includes(String(payload.status))
+      || typeof payload.planId !== 'string' || payload.planId.trim().length === 0
+      || typeof payload.stopReason !== 'string'
+      || payload.stopReason === 'completed') {
+      throw new ProtocolViolation('plan.execution.failed 投影无效');
+    }
+    validateOptionalModelFailure(type, payload);
+  }
   if (type === 'plan.verification.required' || type === 'plan.verification.completed') {
     if (typeof payload.planId !== 'string' || typeof payload.status !== 'string'
       || !Number.isSafeInteger(payload.requiredEvidence) || !Number.isSafeInteger(payload.satisfiedEvidence)
@@ -359,6 +381,43 @@ function validateEventShape(
   if (type === 'approval.requested') {
     validateApprovalPreview(payload);
   }
+  if (type === 'model.turn.started') {
+    if (!hasExactFields(payload, new Set(['turn']))
+      || !Number.isSafeInteger(payload.turn) || (payload.turn as number) < 1) {
+      throw new ProtocolViolation('model.turn.started 投影无效');
+    }
+  }
+  if (type === 'model.retry.attempt.started') {
+    if (!hasExactFields(payload, new Set(['turn', 'attempt', 'maxAttempts']))
+      || !positiveSafeInteger(payload.turn)
+      || !positiveSafeInteger(payload.attempt)
+      || !positiveSafeInteger(payload.maxAttempts)
+      || (payload.attempt as number) > (payload.maxAttempts as number)
+      || (payload.maxAttempts as number) > 100) {
+      throw new ProtocolViolation('model.retry.attempt.started 投影无效');
+    }
+  }
+  if (type === 'model.retry.scheduled') {
+    if (!hasExactFields(payload, new Set([
+      'turn', 'failedAttempt', 'nextAttempt', 'maxAttempts', 'waitMillis', 'category',
+    ]))
+      || !positiveSafeInteger(payload.turn)
+      || !positiveSafeInteger(payload.failedAttempt)
+      || !positiveSafeInteger(payload.nextAttempt)
+      || !positiveSafeInteger(payload.maxAttempts)
+      || (payload.nextAttempt as number) !== (payload.failedAttempt as number) + 1
+      || (payload.nextAttempt as number) > (payload.maxAttempts as number)
+      || (payload.maxAttempts as number) > 100
+      || !Number.isSafeInteger(payload.waitMillis) || (payload.waitMillis as number) < 0
+      || (payload.waitMillis as number) > 300_000
+      || typeof payload.category !== 'string'
+      || !MODEL_FAILURE_CATEGORIES.has(payload.category)) {
+      throw new ProtocolViolation('model.retry.scheduled 投影无效');
+    }
+  }
+  if (type === 'model.turn.completed') {
+    validateModelTurnCompleted(payload);
+  }
   if (
     (type === 'tool.started' || type === 'tool.completed' || type === 'tool.failed')
     && (!Number.isSafeInteger(payload.ordinal)
@@ -382,6 +441,52 @@ function validateEventShape(
     validateOptionalTerminalCount(type, payload, 'modelTurns');
     validateOptionalTerminalCount(type, payload, 'toolCalls');
     validateOptionalModelFailure(type, payload);
+  }
+}
+
+/** Provider Usage 与本地 Context 估算严格分栏，禁止 Surface 把估算冒充实测值。 */
+function validateModelTurnCompleted(payload: Readonly<Record<string, unknown>>): void {
+  const allowedFields = new Set(['turn', 'finishReason', 'usage', 'context']);
+  if (!Object.keys(payload).every(field => allowedFields.has(field))
+    || !Object.hasOwn(payload, 'turn') || !Object.hasOwn(payload, 'finishReason')
+    || !Number.isSafeInteger(payload.turn) || (payload.turn as number) < 1
+    || typeof payload.finishReason !== 'string'
+    || !/^[a-z][a-z0-9_]{0,63}$/u.test(payload.finishReason)) {
+    throw new ProtocolViolation('model.turn.completed 投影无效');
+  }
+  if (payload.usage !== undefined) {
+    const usage = payload.usage;
+    if (typeof usage !== 'object' || usage === null || Array.isArray(usage)
+      || !hasExactFields(usage as Record<string, unknown>, new Set([
+        'inputTokens', 'outputTokens', 'totalTokens',
+      ]))) {
+      throw new ProtocolViolation('model.turn.completed Usage 无效');
+    }
+    const value = usage as Record<string, unknown>;
+    for (const field of ['inputTokens', 'outputTokens', 'totalTokens']) {
+      if (!Number.isSafeInteger(value[field]) || (value[field] as number) < 0) {
+        throw new ProtocolViolation('model.turn.completed Usage 无效');
+      }
+    }
+    if ((value.totalTokens as number) < (value.inputTokens as number)
+      + (value.outputTokens as number)) {
+      throw new ProtocolViolation('model.turn.completed Usage 总数无效');
+    }
+  }
+  if (payload.context !== undefined) {
+    const context = payload.context;
+    if (typeof context !== 'object' || context === null || Array.isArray(context)
+      || !hasExactFields(context as Record<string, unknown>, new Set([
+        'usedTokens', 'maximumInputTokens', 'estimateKind',
+      ]))) {
+      throw new ProtocolViolation('model.turn.completed Context 无效');
+    }
+    const value = context as Record<string, unknown>;
+    if (!Number.isSafeInteger(value.usedTokens) || (value.usedTokens as number) < 0
+      || !Number.isSafeInteger(value.maximumInputTokens) || (value.maximumInputTokens as number) < 1
+      || (value.estimateKind !== 'estimated' && value.estimateKind !== 'exact')) {
+      throw new ProtocolViolation('model.turn.completed Context 无效');
+    }
   }
 }
 
@@ -812,6 +917,10 @@ function hasExactFields(value: Readonly<Record<string, unknown>>, fields: Readon
   return keys.length === fields.size && keys.every(key => fields.has(key));
 }
 
+function positiveSafeInteger(value: unknown): boolean {
+  return Number.isSafeInteger(value) && (value as number) > 0;
+}
+
 function nonNegativeSafeIntegers(value: Readonly<Record<string, unknown>>, fields: readonly string[]): boolean {
   return fields.every(field => Number.isSafeInteger(value[field]) && (value[field] as number) >= 0);
 }
@@ -1048,6 +1157,13 @@ function validateOptionalToolPresentation(
   type: EventType,
   payload: Readonly<Record<string, unknown>>,
 ): void {
+  if ('activity' in payload
+    && (typeof payload.activity !== 'string'
+      || payload.activity.trim().length === 0
+      || Array.from(payload.activity).length > 320
+      || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(payload.activity))) {
+    throw new ProtocolViolation(`${type} 包含无效 Tool 活动摘要`);
+  }
   if (
     'mode' in payload
     && payload.mode !== 'content'
@@ -1062,6 +1178,15 @@ function validateOptionalToolPresentation(
       || (payload.returnedItems as number) < 0)
   ) {
     throw new ProtocolViolation(`${type} 的 returnedItems 必须是非负安全整数`);
+  }
+  if (
+    'exitCode' in payload
+    && (type === 'tool.started'
+      || !Number.isSafeInteger(payload.exitCode)
+      || (payload.exitCode as number) < -1
+      || (payload.exitCode as number) > 2_147_483_647)
+  ) {
+    throw new ProtocolViolation(`${type} 包含无效命令退出码`);
   }
   if (
     'truncationReason' in payload
@@ -1112,7 +1237,8 @@ function validateOptionalModelFailure(
   if (!('modelFailure' in payload)) {
     return;
   }
-  if (type !== 'run.failed' || !isRecord(payload.modelFailure)) {
+  if ((type !== 'run.failed' && type !== 'plan.execution.failed')
+    || !isRecord(payload.modelFailure)) {
     throw new ProtocolViolation(`${type} 包含无效模型失败摘要`);
   }
   const failure = payload.modelFailure;

@@ -8,6 +8,7 @@ export interface ToolActivityGroupProps {
 interface ToolGroup {
   readonly name: string;
   readonly mode: SearchMode | undefined;
+  readonly activity: string | undefined;
   readonly count: number;
   readonly status: ToolView['status'];
   readonly returnedCharacters: number;
@@ -34,9 +35,19 @@ export function ToolActivityGroup({tools}: ToolActivityGroupProps) {
   if (tools.length === 0) {
     return null;
   }
+  const groups = groupTools(tools);
+  const window = boundedActivityWindow(groups);
   return (
     <Box flexDirection="column" marginLeft={2}>
-      {groupTools(tools).map((group, index) => (
+      {window.omitted === undefined ? null : (
+        <Text color={window.omitted.failed > 0 ? 'red' : 'yellow'} dimColor={window.omitted.failed === 0}>
+          … 较早 {window.omitted.groups} 组 / {window.omitted.calls} 次 Tool
+          {window.omitted.failed > 0 ? ` · ${window.omitted.failed} 次失败` : ''}
+          {window.omitted.denied > 0 ? ` · ${window.omitted.denied} 次拒绝` : ''}
+          {window.omitted.truncated > 0 ? ` · ${window.omitted.truncated} 次截断` : ''}
+        </Text>
+      )}
+      {window.visible.map((group, index) => (
         <ToolActivityRow key={`${group.name}-${index}`} group={group} />
       ))}
     </Box>
@@ -46,12 +57,45 @@ export function ToolActivityGroup({tools}: ToolActivityGroupProps) {
 function ToolActivityRow({group}: {readonly group: ToolGroup}) {
   const appearance = toolAppearance(group);
   return (
-    <Text color={appearance.color} dimColor={appearance.dim}>
+    <Text color={appearance.color} dimColor={appearance.dim} wrap="truncate-end">
       {appearance.icon} {toolLabel(group.name, group.mode)}
       {group.count > 1 ? ` ×${group.count}` : ''}
+      {group.activity === undefined ? '' : ` · ${compactToolActivity(group.activity)}`}
       {group.status === 'started' ? '（进行中）…' : formatToolDetails(group)}
     </Text>
   );
+}
+
+export function compactToolActivity(activity: string, maximum = 120): string {
+  const singleLine = activity.replace(/\s+/gu, ' ').trim();
+  const codePoints = Array.from(singleLine);
+  if (codePoints.length <= maximum) return singleLine;
+  return `${codePoints.slice(0, Math.max(1, maximum - 1)).join('')}…`;
+}
+
+function boundedActivityWindow(groups: readonly ToolGroup[]): {
+  readonly visible: readonly ToolGroup[];
+  readonly omitted: {
+    readonly groups: number;
+    readonly calls: number;
+    readonly failed: number;
+    readonly denied: number;
+    readonly truncated: number;
+  } | undefined;
+} {
+  const maximumRows = 8;
+  if (groups.length <= maximumRows) return {visible: groups, omitted: undefined};
+  const omittedGroups = groups.slice(0, groups.length - (maximumRows - 1));
+  return {
+    visible: groups.slice(-(maximumRows - 1)),
+    omitted: {
+      groups: omittedGroups.length,
+      calls: omittedGroups.reduce((total, group) => total + group.count, 0),
+      failed: omittedGroups.reduce((total, group) => total + group.failedCount, 0),
+      denied: omittedGroups.reduce((total, group) => total + group.deniedCount, 0),
+      truncated: omittedGroups.reduce((total, group) => total + group.truncatedCount, 0),
+    },
+  };
 }
 
 function groupTools(tools: readonly ToolView[]): readonly ToolGroup[] {
@@ -62,6 +106,7 @@ function groupTools(tools: readonly ToolView[]): readonly ToolGroup[] {
       previous !== undefined
       && previous.name === tool.name
       && previous.mode === tool.mode
+      && previous.activity === tool.activity
     ) {
       groups[groups.length - 1] = mergeTool(previous, tool);
     } else {
@@ -75,6 +120,7 @@ function fromTool(tool: ToolView): ToolGroup {
   return {
     name: tool.name,
     mode: tool.mode,
+    activity: tool.activity,
     count: 1,
     status: tool.status,
     returnedCharacters: tool.returnedCharacters ?? 0,

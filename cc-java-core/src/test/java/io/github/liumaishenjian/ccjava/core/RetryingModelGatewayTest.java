@@ -162,6 +162,135 @@ class RetryingModelGatewayTest {
     }
 
     @Test
+    void productionPolicyMeansTenRetriesAndElevenTotalAttempts() {
+        AtomicInteger attempts = new AtomicInteger();
+        StreamingModelGateway delegate = (request, observer, cancellation) -> {
+            attempts.incrementAndGet();
+            throw new ModelGatewayException(RETRYABLE, "transient");
+        };
+        ModelRetryRuntime runtime = recordingRuntime(new java.util.ArrayList<>());
+
+        assertThatThrownBy(() -> new RetryingModelGateway(
+                delegate,
+                ModelRetryPolicy.PRODUCTION_DEFAULT,
+                runtime).complete(request(), ignored -> { }, CancellationToken.none()))
+                .isInstanceOfSatisfying(ModelGatewayException.class,
+                        failure -> assertThat(failure.kind()).isEqualTo(RETRY_EXHAUSTED));
+
+        assertThat(ModelRetryPolicy.PRODUCTION_DEFAULT.maxAttempts()).isEqualTo(11);
+        assertThat(attempts).hasValue(11);
+    }
+
+    @Test
+    void computesBoundedPositiveJitterDeterministically() {
+        ModelRetryPolicy policy = ModelRetryPolicy.exponential(
+                3,
+                Duration.ofSeconds(2),
+                Duration.ofSeconds(8),
+                0.25d,
+                Duration.ofMinutes(5));
+
+        assertThat(policy.delayAfter(1, 0d)).isEqualTo(Duration.ofSeconds(2));
+        assertThat(policy.delayAfter(1, Math.nextDown(1d)))
+                .isBetween(Duration.ofSeconds(2), Duration.ofMillis(2_500));
+        assertThat(policy.delayAfter(2, 0d)).isEqualTo(Duration.ofSeconds(4));
+    }
+
+    @Test
+    void retryAfterWinsAndLifecycleCarriesOnlyTypedProgress() throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+        java.util.ArrayList<Duration> waits = new java.util.ArrayList<>();
+        java.util.ArrayList<String> events = new java.util.ArrayList<>();
+        StreamingModelGateway delegate = (request, observer, cancellation) -> {
+            if (attempts.incrementAndGet() == 1) {
+                throw new ModelGatewayException(
+                        RETRYABLE,
+                        "private-provider-error",
+                        ModelFailureSummary.firstAttempt(
+                                ModelFailureCategory.RATE_LIMITED,
+                                java.util.Optional.of(ModelHttpStatusClass.CLIENT_ERROR),
+                                false),
+                        Duration.ofSeconds(3),
+                        null);
+            }
+            return ModelTurn.text("ok");
+        };
+        ModelStreamObserver observer = new ModelStreamObserver() {
+            @Override
+            public void onTextDelta(String delta) {
+            }
+
+            @Override
+            public void onAttemptStarted(int attempt, int maxAttempts) {
+                events.add("attempt:" + attempt + "/" + maxAttempts);
+            }
+
+            @Override
+            public void onRetryScheduled(int failedAttempt, int nextAttempt, int maxAttempts,
+                    Duration delay, ModelFailureCategory category) {
+                events.add("retry:" + failedAttempt + ":" + nextAttempt + ":" + delay.toMillis()
+                        + ":" + category.name());
+            }
+        };
+        ModelRetryPolicy policy = new ModelRetryPolicy(
+                2, List.of(Duration.ofMillis(500)), 0.25d, Duration.ofMinutes(5));
+
+        ModelTurn turn = new RetryingModelGateway(
+                delegate, policy, recordingRuntime(waits)).complete(
+                        request(), observer, CancellationToken.none());
+
+        assertThat(turn.assistantMessage().text()).isEqualTo("ok");
+        assertThat(waits).containsExactly(Duration.ofSeconds(3));
+        assertThat(events).containsExactly(
+                "attempt:1/2",
+                "retry:1:2:3000:RATE_LIMITED",
+                "attempt:2/2");
+        assertThat(events.toString()).doesNotContain("private-provider-error");
+    }
+
+    @Test
+    void deadlineRejectsWaitWithoutStartingAnotherAttempt() {
+        AtomicInteger attempts = new AtomicInteger();
+        java.util.ArrayList<Duration> waits = new java.util.ArrayList<>();
+        StreamingModelGateway delegate = (request, observer, cancellation) -> {
+            attempts.incrementAndGet();
+            throw new ModelGatewayException(RETRYABLE, "busy");
+        };
+        CancellationToken token = deadlineToken(Duration.ofMillis(100));
+
+        assertThatThrownBy(() -> new RetryingModelGateway(
+                delegate,
+                new ModelRetryPolicy(2, List.of(Duration.ofMillis(100))),
+                recordingRuntime(waits)).complete(request(), ignored -> { }, token))
+                .isInstanceOfSatisfying(ModelGatewayException.class,
+                        failure -> assertThat(failure.kind()).isEqualTo(CANCELLED));
+
+        assertThat(attempts).hasValue(1);
+        assertThat(waits).isEmpty();
+    }
+
+    @Test
+    void permanentFailureRunsOnlyOnce() {
+        AtomicInteger attempts = new AtomicInteger();
+        StreamingModelGateway delegate = (request, observer, cancellation) -> {
+            attempts.incrementAndGet();
+            throw new ModelGatewayException(
+                    ModelGatewayException.FailureKind.PERMANENT,
+                    "invalid request");
+        };
+
+        assertThatThrownBy(() -> new RetryingModelGateway(
+                delegate,
+                ModelRetryPolicy.PRODUCTION_DEFAULT,
+                recordingRuntime(new java.util.ArrayList<>())).complete(
+                        request(), ignored -> { }, CancellationToken.none()))
+                .isInstanceOfSatisfying(ModelGatewayException.class,
+                        failure -> assertThat(failure.kind())
+                                .isEqualTo(ModelGatewayException.FailureKind.PERMANENT));
+        assertThat(attempts).hasValue(1);
+    }
+
+    @Test
     void cancellationInterruptsBackoffBeforeNextAttempt() throws Exception {
         CountDownLatch firstFailure = new CountDownLatch(1);
         AtomicInteger attempts = new AtomicInteger();
@@ -201,6 +330,39 @@ class RetryingModelGatewayTest {
                                             .isEqualTo(CANCELLED));
                 });
         assertThat(attempts).hasValue(1);
+    }
+
+    private static ModelRetryRuntime recordingRuntime(java.util.List<Duration> waits) {
+        return new ModelRetryRuntime() {
+            @Override
+            public double nextRandom() {
+                return 0d;
+            }
+
+            @Override
+            public void await(Duration delay, CancellationToken cancellation) {
+                waits.add(delay);
+            }
+        };
+    }
+
+    private static CancellationToken deadlineToken(Duration remaining) {
+        return new CancellationToken() {
+            @Override
+            public boolean isCancellationRequested() {
+                return false;
+            }
+
+            @Override
+            public Registration onCancellation(Runnable action) {
+                return () -> { };
+            }
+
+            @Override
+            public java.util.Optional<Duration> remainingTime() {
+                return java.util.Optional.of(remaining);
+            }
+        };
     }
 
     private static ModelRetryPolicy immediatePolicy(int attempts) {

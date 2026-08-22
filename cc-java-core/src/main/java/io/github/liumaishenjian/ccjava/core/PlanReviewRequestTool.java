@@ -13,21 +13,26 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * 将已提交 DRAFT 工件推进为 AWAITING_APPROVAL，并标记本次 Plan Run 已请求 review。
+ * 将当前 durable DRAFT 工件推进为 AWAITING_APPROVAL，并标记本次 Plan Run 已请求 review。
  *
- * <p>Tool 只接受当前 revision 与 digest，不能携带 Plan 正文、步骤或可执行参数。Surface review
- * 必须读取 {@link #reviewArtifact()} 返回的 durable revision。</p>
+ * <p>模型面对的契约为空对象。Tool 在受信、run-scoped 边界重新读取当前 DRAFT，并以读取到的
+ * revision+digest 执行原子 CAS；因此 evidence declaration 推进 revision 后仍会 review 最新工件。
+ * Store 在读取与提交之间发生真正并发漂移时仍失败关闭。</p>
+ *
+ * <p>旧 revision/digest payload 只作为未宣传兼容输入接受并忽略，不再让模型提供的 bookkeeping
+ * 决定审批对象。Surface 必须读取 {@link #reviewArtifact()} 返回的已提交 durable revision。</p>
  *
  * @since 0.1.0
  */
 public final class PlanReviewRequestTool implements AgentTool {
     /** 供模型调用的独立稳定名称。 */
     public static final String NAME = "request_plan_review";
+    private static final Set<String> LEGACY_FIELDS = Set.of("revision", "contentDigest");
     private static final ToolDefinition DEFINITION = new ToolDefinition(
             NAME,
-            "Submit the current durable Markdown plan for user review after all exploration and clarification is complete.",
+            "Submit the latest durable Markdown plan for user review after all exploration and clarification is complete.",
             """
-            {"type":"object","additionalProperties":false,"required":["revision","contentDigest"],"properties":{"revision":{"type":"integer","minimum":1},"contentDigest":{"type":"string","pattern":"^[0-9a-f]{64}$"}}}
+            {"type":"object","additionalProperties":false,"properties":{}}
             """,
             ToolEffect.PLAN_ARTIFACT_WRITE, ToolSource.BUILT_IN, false,
             Duration.ofSeconds(5), "text/plain", 256,
@@ -51,35 +56,23 @@ public final class PlanReviewRequestTool implements AgentTool {
 
     @Override
     public ToolValidationResult validate(JsonObject arguments) {
-        if (!arguments.values().keySet().equals(Set.of("revision", "contentDigest"))) {
-            return ToolValidationResult.invalid("字段集合无效");
-        }
-        Object revision = arguments.values().get("revision");
-        try {
-            String digest = arguments.string("contentDigest").orElse("");
-            if (!(revision instanceof Number number) || number.longValue() < 1
-                    || number.doubleValue() != number.longValue() || !digest.matches("[0-9a-f]{64}")) {
-                return ToolValidationResult.invalid("review CAS 参数无效");
-            }
-        } catch (RuntimeException invalid) {
-            return ToolValidationResult.invalid("review CAS 参数无效");
+        Set<String> fields = arguments.values().keySet();
+        if (!fields.isEmpty() && !fields.equals(LEGACY_FIELDS)) {
+            return ToolValidationResult.invalid("字段集合无效；request_plan_review 不需要参数");
         }
         return ToolValidationResult.validResult();
     }
 
     @Override
     public synchronized ToolExecutionOutcome execute(ToolInvocation invocation) {
-        long revision = ((Number) invocation.call().arguments().values().get("revision")).longValue();
-        String digest = invocation.call().arguments().string("contentDigest").orElseThrow();
         PlanArtifact current = store.load(sessionId).orElseThrow(
                 () -> new PlanArtifactStoreException(PlanArtifactStoreException.Code.NOT_FOUND));
-        if (current.status() != PlanStatus.DRAFT || current.revision() != revision
-                || !current.contentDigest().equals(digest)) {
-            throw new PlanArtifactStoreException(PlanArtifactStoreException.Code.DIGEST_CONFLICT);
+        if (current.status() != PlanStatus.DRAFT) {
+            throw new PlanArtifactStoreException(PlanArtifactStoreException.Code.INVALID_STATE);
         }
         PlanArtifact candidate = current.nextRevision(current.markdownContent(),
                 PlanStatus.AWAITING_APPROVAL, clock.instant());
-        reviewArtifact = store.save(candidate, revision, digest);
+        reviewArtifact = store.save(candidate, current.revision(), current.contentDigest());
         return ToolExecutionOutcome.success("Plan review requested for revision %d".formatted(
                 reviewArtifact.revision()));
     }

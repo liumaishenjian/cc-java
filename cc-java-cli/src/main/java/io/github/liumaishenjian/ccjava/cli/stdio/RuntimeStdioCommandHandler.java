@@ -21,6 +21,7 @@ import io.github.liumaishenjian.ccjava.cli.session.SessionStorage;
 import io.github.liumaishenjian.ccjava.domain.AgentEventEnvelope;
 import io.github.liumaishenjian.ccjava.domain.AgentRunResult;
 import io.github.liumaishenjian.ccjava.domain.ApprovalResponse;
+import io.github.liumaishenjian.ccjava.domain.JsonObject;
 import io.github.liumaishenjian.ccjava.domain.LifecycleEvent;
 import io.github.liumaishenjian.ccjava.domain.ModelTextDelta;
 import io.github.liumaishenjian.ccjava.domain.PermissionMode;
@@ -62,8 +63,8 @@ import java.util.concurrent.ScheduledFuture;
  * 把 stdio v0 命令适配到真实 {@link HeadlessRuntimeSession}。
  *
  * <p>该类型只管理单连接的 Session/Run 状态和事件映射。模型循环、规范消息历史、
- * Tool Pipeline、取消与终态仍由 Core 拥有；S03 只把 Core Lifecycle 投影为不含参数、正文、
- * 绝对路径和原始异常的 Tool 进度事件。</p>
+ * Tool Pipeline、取消与终态仍由 Core 拥有；Tool 进度只投影固定白名单中的有界活动摘要，
+ * 不发送参数对象、正文型字段、绝对路径或原始异常。</p>
  *
  * @since 0.1.0
  */
@@ -563,8 +564,10 @@ public final class RuntimeStdioCommandHandler
     /**
      * 原子收敛 durable review 决定；批准时同一次命令可靠提交 APPROVED 并接受执行 Run。
      *
-     * <p>命令成功返回只表示执行已被服务端 executor 接受，而不是已经完成。入队失败会释放
-     * 尚未开始的句柄并保持 APPROVED，供显式恢复；不会伪造 EXECUTING 或 COMPLETED。</p>
+     * <p>命令成功返回只表示执行已被服务端 executor 接受，而不是已经完成。worker 在
+     * {@code plan.execution.accepted} 成功进入事件出口前受一次性闸门阻塞，因此该事件确定早于
+     * {@code run.started}；入队、传输或关闭失败会释放尚未开始的句柄并保持 APPROVED，供显式恢复，
+     * 不会伪造 EXECUTING 或 COMPLETED。</p>
      */
     private StdioProtocol.Disposition resolvePlanReview(
             StdioProtocol.Command command, StdioProtocol.EventEmitter events) throws StdioProtocolException {
@@ -626,10 +629,14 @@ public final class RuntimeStdioCommandHandler
             run = startAcceptedPlanRunLocked(command.requestId(), events, acceptance);
         }
         try {
-            executor.submit(() -> executeAcceptedPlanRun(run));
+            executor.submit(() -> {
+                if (run.planExecutionStart.awaitStart()) {
+                    executeAcceptedPlanRun(run);
+                }
+            });
         } catch (RuntimeException enqueueFailure) {
-            application.releaseAcceptedPlan(acceptance);
             synchronized (lock) {
+                releasePendingAcceptedPlanLocked(run);
                 if (activeRun == run) { activeRun = null; state = State.READY; }
             }
             throw protocolError("PLAN_ENQUEUE_FAILED", command, "Plan 已批准但执行未入队，可显式恢复");
@@ -640,9 +647,18 @@ public final class RuntimeStdioCommandHandler
         accepted.put("contentDigest", contentDigest);
         accepted.put("contextPolicy", contextPolicy.name().toLowerCase(Locale.ROOT));
         accepted.put("approvalReviewer", acceptance.brief().approvalReviewer().name().toLowerCase(Locale.ROOT));
-        events.emit("plan.execution.accepted", command.requestId(), Optional.of(application.sessionId().value()),
-                Optional.empty(), accepted);
-        return StdioProtocol.Disposition.CONTINUE;
+        try {
+            events.emit("plan.execution.accepted", command.requestId(), Optional.of(application.sessionId().value()),
+                    Optional.empty(), accepted);
+        } catch (RuntimeException transportFailure) {
+            synchronized (lock) {
+                closeForTransportFailureLocked();
+            }
+            throw transportFailure;
+        }
+        return run.planExecutionStart.start()
+                ? StdioProtocol.Disposition.CONTINUE
+                : StdioProtocol.Disposition.SHUTDOWN;
     }
 
     private ActiveRun startAcceptedPlanRunLocked(String requestId, StdioProtocol.EventEmitter events,
@@ -1871,8 +1887,12 @@ public final class RuntimeStdioCommandHandler
 
     private void executeAcceptedPlanRun(ActiveRun run) {
         try {
-            application.runAcceptedPlan(run.planAcceptance);
+            AgentRunResult result = application.runAcceptedPlan(run.planAcceptance);
             application.planArtifact().ifPresent(artifact -> {
+                if (result.stopReason() != io.github.liumaishenjian.ccjava.domain.StopReason.COMPLETED) {
+                    emitPlanExecutionFailure(run, result, artifact);
+                    return;
+                }
                 ObjectNode payload = codec.objectNode();
                 payload.put("planId", artifact.planId());
                 payload.put("status", artifact.status().name().toLowerCase(Locale.ROOT));
@@ -1892,6 +1912,29 @@ public final class RuntimeStdioCommandHandler
         } catch (RuntimeException exception) {
             emitUnexpectedFailure(run);
         }
+    }
+
+    private void emitPlanExecutionFailure(
+            ActiveRun run,
+            AgentRunResult result,
+            io.github.liumaishenjian.ccjava.domain.PlanArtifact artifact) {
+        ObjectNode payload = codec.objectNode();
+        payload.put("planId", artifact.planId());
+        payload.put("status", artifact.status().name().toLowerCase(Locale.ROOT));
+        payload.put("stopReason", result.stopReason().name().toLowerCase(Locale.ROOT));
+        result.modelFailure().ifPresent(failure -> {
+            ObjectNode summary = payload.putObject("modelFailure");
+            summary.put("category", failure.category().name().toLowerCase(Locale.ROOT));
+            failure.statusClass().ifPresent(status -> summary.put(
+                    "statusClass",
+                    status == io.github.liumaishenjian.ccjava.domain.ModelHttpStatusClass.CLIENT_ERROR
+                            ? "4xx"
+                            : "5xx"));
+            summary.put("attempts", failure.attempts());
+            summary.put("receivedOutput", failure.receivedOutput());
+        });
+        run.events.emit("plan.execution.failed", run.requestId,
+                Optional.of(application.sessionId().value()), Optional.empty(), payload);
     }
 
     private void executeSkillRun(ActiveRun run,
@@ -1940,6 +1983,45 @@ public final class RuntimeStdioCommandHandler
             ObjectNode payload = codec.objectNode();
             payload.put("promptChars", run.promptChars);
             emit(run, "run.started", payload);
+        } else if (envelope.event() instanceof LifecycleEvent.ModelTurnStarted started) {
+            ObjectNode payload = codec.objectNode();
+            payload.put("turn", started.turnNumber());
+            emit(run, "model.turn.started", payload);
+        } else if (envelope.event() instanceof LifecycleEvent.ModelAttemptStarted started) {
+            ObjectNode payload = codec.objectNode();
+            payload.put("turn", started.turnNumber());
+            payload.put("attempt", started.attempt());
+            payload.put("maxAttempts", started.maxAttempts());
+            emit(run, "model.retry.attempt.started", payload);
+        } else if (envelope.event() instanceof LifecycleEvent.ModelRetryScheduled scheduled) {
+            ObjectNode payload = codec.objectNode();
+            payload.put("turn", scheduled.turnNumber());
+            payload.put("failedAttempt", scheduled.failedAttempt());
+            payload.put("nextAttempt", scheduled.nextAttempt());
+            payload.put("maxAttempts", scheduled.maxAttempts());
+            payload.put("waitMillis", scheduled.waitMillis());
+            payload.put("category", scheduled.category().name().toLowerCase(Locale.ROOT));
+            emit(run, "model.retry.scheduled", payload);
+        } else if (envelope.event() instanceof LifecycleEvent.ModelTurnCompleted completed) {
+            ObjectNode payload = codec.objectNode();
+            payload.put("turn", completed.turnNumber());
+            payload.put("finishReason", completed.turn().metadata().finishReason()
+                    .name().toLowerCase(Locale.ROOT));
+            completed.turn().metadata().usage().ifPresent(usage -> {
+                ObjectNode usageNode = codec.objectNode();
+                usageNode.put("inputTokens", usage.inputTokens());
+                usageNode.put("outputTokens", usage.outputTokens());
+                usageNode.put("totalTokens", usage.totalTokens());
+                payload.set("usage", usageNode);
+            });
+            application.latestContextUsage().ifPresent(context -> {
+                ObjectNode contextNode = codec.objectNode();
+                contextNode.put("usedTokens", context.usage().totalTokens());
+                contextNode.put("maximumInputTokens", context.maximumInputTokens());
+                contextNode.put("estimateKind", context.usage().estimateKind().name().toLowerCase(Locale.ROOT));
+                payload.set("context", contextNode);
+            });
+            emit(run, "model.turn.completed", payload);
         } else if (envelope.event() instanceof LifecycleEvent.BeforeTool before) {
             ObjectNode payload = codec.objectNode();
             payload.put("ordinal", before.ordinal());
@@ -1949,6 +2031,7 @@ public final class RuntimeStdioCommandHandler
                 run.toolModes.put(before.ordinal(), mode);
                 payload.put("mode", mode);
             });
+            safeToolActivity(before.call()).ifPresent(activity -> payload.put("activity", activity));
             emit(run, "tool.started", payload);
         } else if (envelope.event() instanceof LifecycleEvent.AfterTool after) {
             ObjectNode payload = codec.objectNode();
@@ -1969,6 +2052,7 @@ public final class RuntimeStdioCommandHandler
                 payload.put("failureCategory", error.category().name().toLowerCase());
                 payload.put("retryable", error.retryable());
             });
+            safeCommandExitCode(after.result()).ifPresent(exitCode -> payload.put("exitCode", exitCode));
             String type = after.result().status()
                     == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS
                             ? "tool.completed" : "tool.failed";
@@ -2109,6 +2193,28 @@ public final class RuntimeStdioCommandHandler
     }
 
     /**
+     * 只从 run_command 的结构化执行事实投影退出码，不解析正文或外部诊断文本。
+     *
+     * @param result 已经过唯一 Tool Pipeline 规范化的结果
+     * @return 成功命令的 0，或失败错误 details 中的实际整数退出码
+     */
+    static Optional<Integer> safeCommandExitCode(
+            io.github.liumaishenjian.ccjava.domain.ToolResult result) {
+        Objects.requireNonNull(result, "result 不能为空");
+        if (!"run_command".equals(result.toolName())) {
+            return Optional.empty();
+        }
+        if (result.status() == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS) {
+            return Optional.of(0);
+        }
+        return result.error()
+                .map(error -> error.details().values().get("exitCode"))
+                .filter(Integer.class::isInstance)
+                .map(Integer.class::cast)
+                .filter(exitCode -> exitCode != -1);
+    }
+
+    /**
      * 从 Tool Call 中只提取允许进入展示协议的固定枚举，不暴露查询、路径或其他参数。
      *
      * @param call 原始 Tool Call
@@ -2130,6 +2236,72 @@ public final class RuntimeStdioCommandHandler
         } catch (IllegalArgumentException exception) {
             return Optional.empty();
         }
+    }
+
+    /**
+     * 为已通过 Tool 参数校验的内置调用生成有界、面向用户的执行摘要。
+     *
+     * <p>这里只识别固定 Tool/字段组合；未知、外部或正文型参数保持不可见。摘要只进入当前
+     * stdio/TUI 观察面，不写入 Session，也不能影响 Permission 或 Tool 执行。</p>
+     *
+     * @param call 已通过唯一 Pipeline 参数校验的调用
+     * @return 最多 320 个字符的本地展示摘要
+     */
+    static Optional<String> safeToolActivity(ToolCall call) {
+        Objects.requireNonNull(call, "call 不能为空");
+        JsonObject arguments = call.arguments();
+        return switch (call.name()) {
+            case "read_file" -> Optional.of(summaryWithTarget("读取", arguments, "path", 180));
+            case "list_files" -> Optional.of(summaryWithTarget("枚举", arguments, "path", 180)
+                    + arguments.string("glob").map(value -> " · 过滤 " + boundedInline(value, 96)).orElse(""));
+            case "search_text" -> arguments.string("query")
+                    .map(value -> "搜索 “" + boundedInline(value, 160) + "”"
+                            + arguments.string("path").map(path -> " · "
+                                    + safeWorkspaceTarget(path, 120)).orElse(""));
+            case "git_diff" -> Optional.of("查看 "
+                    + arguments.string("mode").orElse("unstaged") + " 变更"
+                    + arguments.string("path").map(path -> " · "
+                            + safeWorkspaceTarget(path, 140)).orElse(""));
+            case "run_command" -> arguments.string("command")
+                    .map(command -> "执行 “" + boundedInline(command, 240) + "”");
+            case "write_file" -> Optional.of(summaryWithTarget("创建", arguments, "path", 180));
+            case "apply_patch" -> Optional.of(summaryWithTarget("修改", arguments, "path", 180));
+            case "web_search" -> arguments.string("query")
+                    .map(query -> "查询 “" + boundedInline(query, 180) + "”");
+            case "revise_plan_artifact" -> Optional.of("更新计划文档");
+            case "request_plan_review" -> Optional.of("提交计划审核");
+            case "declare_plan_evidence" -> Optional.of("登记计划验证要求");
+            default -> Optional.empty();
+        };
+    }
+
+    private static String summaryWithTarget(
+            String verb, JsonObject arguments, String field, int maximumCharacters) {
+        return verb + " " + arguments.string(field)
+                .map(value -> safeWorkspaceTarget(value, maximumCharacters)).orElse("工作区");
+    }
+
+    /**
+     * 只允许相对工作区目标进入瞬时展示，避免把主机绝对路径或穿越表达式带到协议层。
+     */
+    private static String safeWorkspaceTarget(String value, int maximumCharacters) {
+        String normalized = boundedInline(value, maximumCharacters).replace('\\', '/');
+        if (normalized.startsWith("/")
+                || normalized.matches("^[A-Za-z]:/.*")
+                || java.util.Arrays.stream(normalized.split("/"))
+                        .anyMatch(segment -> segment.equals(".."))) {
+            return "工作区目标";
+        }
+        return normalized.isBlank() ? "工作区" : normalized;
+    }
+
+    private static String boundedInline(String value, int maximumCharacters) {
+        String normalized = value.replace("\r\n", " ↵ ").replace('\r', ' ').replace("\n", " ↵ ")
+                .replaceAll("[\\p{Cc}&&[^\\t]]", " ").trim();
+        int codePoints = normalized.codePointCount(0, normalized.length());
+        if (codePoints <= maximumCharacters) return normalized;
+        int end = normalized.offsetByCodePoints(0, maximumCharacters);
+        return normalized.substring(0, end) + "…";
     }
 
     private void emitUnexpectedFailure(ActiveRun run) {
@@ -2176,9 +2348,29 @@ public final class RuntimeStdioCommandHandler
     }
 
     private void cancelActiveRunLocked() {
-        if (activeRun != null && activeRun.runId != null) {
-            application.cancel(activeRun.runId);
+        if (activeRun == null) {
+            return;
         }
+        if (activeRun.runId != null) {
+            application.cancel(activeRun.runId);
+            return;
+        }
+        releasePendingAcceptedPlanLocked(activeRun);
+    }
+
+    /**
+     * 中止尚未进入 {@code runAcceptedPlan} 的批准交接，并把 durable APPROVED 句柄交还显式恢复入口。
+     *
+     * <p>启动闸门只有首次完成者生效：若 worker 已被允许进入 Runtime，本方法不会把正在启动的
+     * 执行错误释放；若 transport、shutdown 或 enqueue failure 先发生，则 worker 只退出等待，
+     * 不会发布 {@code run.started} 或执行 Tool。</p>
+     */
+    private void releasePendingAcceptedPlanLocked(ActiveRun run) {
+        if (!run.approvedPlanExecution || run.planAcceptance == null
+                || !run.planExecutionStart.abort()) {
+            return;
+        }
+        application.releaseAcceptedPlan(run.planAcceptance);
     }
 
     private static RuntimeException retainFirstFailure(
@@ -2484,11 +2676,35 @@ public final class RuntimeStdioCommandHandler
         }
     }
 
+    /**
+     * 把 executor 接受与 stdio accepted 事件发布拆成两个确定性阶段。
+     *
+     * <p>{@code true} 只在 accepted 已成功进入事件出口后完成；{@code false} 表示 transport、关闭或
+     * 入队失败已回收批准句柄。worker 不使用 timeout 或轮询，因此不存在慢机器上的假失败。</p>
+     */
+    private static final class PlanExecutionStartGate {
+        private final java.util.concurrent.CompletableFuture<Boolean> decision =
+                new java.util.concurrent.CompletableFuture<>();
+
+        private boolean start() {
+            return decision.complete(true);
+        }
+
+        private boolean abort() {
+            return decision.complete(false);
+        }
+
+        private boolean awaitStart() {
+            return decision.join();
+        }
+    }
+
     private static final class ActiveRun {
         private final String requestId;
         private final int promptChars;
         private final StdioProtocol.EventEmitter events;
         private final Map<Integer, String> toolModes = new LinkedHashMap<>();
+        private final PlanExecutionStartGate planExecutionStart = new PlanExecutionStartGate();
         private RunId runId;
         private boolean suppressModelText;
         private boolean approvedPlanExecution;

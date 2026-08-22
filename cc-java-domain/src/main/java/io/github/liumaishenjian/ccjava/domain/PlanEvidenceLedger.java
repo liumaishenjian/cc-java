@@ -72,17 +72,24 @@ public record PlanEvidenceLedger(SessionId sessionId, String planId, long approv
         return new PlanEvidenceLedger(sessionId, planId, 0, "", "", List.of(), List.of(), now, now);
     }
 
-    /** 在规划期幂等新增 requirement；批准后不可改变。 */
+    /**
+     * 在规划期声明或确定性替换 requirement；批准后不可改变。
+     *
+     * <p>相同 {@code requirementId} 表示同一逻辑要求。完全相同的重复声明幂等返回；内容变化时
+     * 原位替换，允许模型纠正 locator、label 或 required，而不会累计重复项或突破数量上限。</p>
+     */
     public PlanEvidenceLedger declare(PlanEvidenceRequirement requirement, Instant now) {
         if (approvedPlanRevision != 0) throw new IllegalStateException("批准后不能修改证据要求");
         Objects.requireNonNull(requirement, "requirement 不能为空");
-        Optional<PlanEvidenceRequirement> existing = requirements.stream()
-                .filter(item -> item.requirementId().equals(requirement.requirementId())).findFirst();
-        if (existing.isPresent()) {
-            if (existing.orElseThrow().equals(requirement)) return this;
-            throw new IllegalArgumentException("requirementId 已绑定不同要求");
-        }
         ArrayList<PlanEvidenceRequirement> next = new ArrayList<>(requirements);
+        for (int index = 0; index < next.size(); index++) {
+            PlanEvidenceRequirement existing = next.get(index);
+            if (!existing.requirementId().equals(requirement.requirementId())) continue;
+            if (existing.equals(requirement)) return this;
+            next.set(index, requirement);
+            return new PlanEvidenceLedger(sessionId, planId, 0, "", "", next, references,
+                    createdAt, monotonic(now));
+        }
         next.add(requirement);
         return new PlanEvidenceLedger(sessionId, planId, 0, "", "", next, references, createdAt, monotonic(now));
     }

@@ -93,7 +93,7 @@ describe('AgentView', () => {
     const view = render(<AgentView state={state} input="" columns={80} rows={8} />);
     const frame = view.lastFrame() ?? '';
 
-    expect(frame.split('\n').length).toBeLessThanOrEqual(8);
+    expect(frame).toContain('Credential profiles');
     expect(frame).not.toContain('██████  ██████  ██████');
     expect(frame).toContain('╭');
     expect(frame).toContain('❯');
@@ -124,15 +124,14 @@ describe('AgentView', () => {
     />);
     const frame = view.lastFrame() ?? '';
 
-    expect(frame.split('\n').length).toBeLessThanOrEqual(8);
     expect(frame).toContain('╭');
     expect(frame).toContain('❯ /connect');
-    expect(frame).toContain('光标 1:9');
+    expect(frame).not.toContain('光标 1:9');
     expect(frame).toContain('❯ /candidate-19');
     expect(frame).not.toContain('/candidate-0');
   });
 
-  it('极短 running 窗口和长历史仍保留最新状态与 Composer', () => {
+  it('极短 running 窗口不裁剪长历史并保留最新状态与 Composer', () => {
     const completedRuns = Array.from({length: 12}, (_, index) => ({
       requestId: `req-old-${index}`, prompt: `历史任务 ${index}`, runId: `run-old-${index}`,
       text: `历史回答 ${index}\n`.repeat(4), tools: [], status: 'completed' as const,
@@ -151,7 +150,9 @@ describe('AgentView', () => {
     const view = render(<AgentView state={state} input="可排队补充" columns={80} rows={9} />);
     const frame = view.lastFrame() ?? '';
 
-    expect(frame.split('\n').length).toBeLessThanOrEqual(9);
+    expect(frame).toContain('历史任务 0');
+    expect(frame).toContain('历史回答 0');
+    expect(frame).toContain('历史任务 11');
     expect(frame).toContain('等待模型响应');
     expect(frame).toContain('╭');
     expect(frame).toContain('❯');
@@ -159,7 +160,7 @@ describe('AgentView', () => {
     expect(frame).toContain('Enter 排队补充');
   });
 
-  it('短窗口审批状态优先于旧历史且 Composer 边界仍可见', () => {
+  it('短窗口审批状态、旧历史和 Composer 都保持可渲染', () => {
     const state: TuiState = {
       phase: 'running', sessionId: 'session-1', activeRunId: 'run-approval',
       checkpoints: [], checkpointPanelOpen: false, selectedCheckpointId: undefined,
@@ -180,7 +181,8 @@ describe('AgentView', () => {
     const view = render(<AgentView state={state} input="" columns={80} rows={12} />);
     const frame = view.lastFrame() ?? '';
 
-    expect(frame.split('\n').length).toBeLessThanOrEqual(12);
+    expect(frame).toContain('旧任务');
+    expect(frame).toContain('旧回答');
     expect(frame).toContain('Allow once');
     expect(frame).toContain('╭');
     expect(frame).toContain('❯');
@@ -198,6 +200,73 @@ describe('AgentView', () => {
     const view = render(<AgentView state={state} input="下一条" columns={80} />);
     expect(view.lastFrame()).toContain('等待模型响应');
     expect(view.lastFrame()).toContain('下一条');
+  });
+
+  it('已完成 Run 进入 Static transcript 后在后续动态重绘中仍保留', () => {
+    const completed = (index: number) => ({
+      requestId: `req-${index}`, prompt: `永久历史 ${index}`, runId: `run-${index}`,
+      text: `永久回答 ${index}`, tools: [], status: 'completed' as const,
+      stopReason: 'completed', modelTurns: 1, toolCalls: 0,
+    });
+    const base: TuiState = {
+      phase: 'ready', sessionId: 'session-1', activeRunId: undefined, runs: [completed(1)],
+      checkpoints: [], checkpointPanelOpen: false, selectedCheckpointId: undefined,
+      checkpointDiff: undefined, pendingUndoCheckpointId: undefined,
+      checkpointUndo: undefined, notice: undefined,
+    };
+    const view = render(<AgentView state={base} input="" columns={80} rows={8} />);
+    expect(view.lastFrame()).toContain('永久历史 1');
+    view.rerender(<AgentView state={{...base, phase: 'running', activeRunId: 'run-live',
+      runs: [completed(1), completed(2), {requestId: 'req-live', prompt: '当前动态',
+        runId: 'run-live', text: '流式片段', tools: [], status: 'running',
+        stopReason: undefined, modelTurns: undefined, toolCalls: undefined}]}}
+      input="补充" columns={80} rows={8} />);
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('永久历史 1');
+    expect(frame).toContain('永久历史 2');
+    expect(frame).toContain('当前动态');
+    expect(frame).toContain('流式片段');
+  });
+
+  it('展示确定性分析阶段与区分来源的 Token，不展示思维链标签', () => {
+    const state: TuiState = {
+      phase: 'running', sessionId: 'session-1', activeRunId: 'run-progress',
+      checkpoints: [], checkpointPanelOpen: false, selectedCheckpointId: undefined,
+      checkpointDiff: undefined, pendingUndoCheckpointId: undefined,
+      checkpointUndo: undefined, notice: undefined,
+      runs: [{requestId: 'req-progress', prompt: '分析', runId: 'run-progress', text: '', tools: [],
+        modelProgress: {turn: 3, phase: 'thinking', providerInputTokens: 12_400,
+          providerOutputTokens: 620, providerTotalTokens: 13_020, usageReportedTurns: 2,
+          usageMissingTurns: 1, contextUsedTokens: 18_500, contextMaximumInputTokens: 128_000,
+          contextEstimateKind: 'estimated'},
+        status: 'running', stopReason: undefined, modelTurns: undefined, toolCalls: undefined}],
+    };
+    const frame = render(<AgentView state={state} input="" columns={100} />).lastFrame() ?? '';
+    expect(frame).toContain('正在分析 · 第 3 回合');
+    expect(frame).toContain('上下文估算 19k/128k');
+    expect(frame).toContain('Provider 部分实测 累计 13k（↑ 12k · ↓ 620）');
+    expect(frame).not.toContain('思维链');
+    expect(frame).not.toContain('reasoning');
+  });
+
+  it('显示有界模型重试 attempt 与等待进度', () => {
+    const state: TuiState = {
+      phase: 'running', sessionId: 'session-1', activeRunId: 'run-retry',
+      checkpoints: [], checkpointPanelOpen: false, selectedCheckpointId: undefined,
+      checkpointDiff: undefined, pendingUndoCheckpointId: undefined,
+      checkpointUndo: undefined, notice: undefined,
+      runs: [{requestId: 'req-retry', prompt: '分析', runId: 'run-retry', text: '', tools: [],
+        modelProgress: {turn: 1, phase: 'thinking', providerInputTokens: 0,
+          providerOutputTokens: 0, providerTotalTokens: 0, usageReportedTurns: 0,
+          usageMissingTurns: 0, contextUsedTokens: undefined,
+          contextMaximumInputTokens: undefined, contextEstimateKind: undefined,
+          retryAttempt: 2, retryMaxAttempts: 11, retryWaitMillis: 2_000,
+          retryCategory: 'rate_limited'},
+        status: 'running', stopReason: undefined, modelTurns: undefined, toolCalls: undefined}],
+    };
+    const frame = render(<AgentView state={state} input="" columns={100} />).lastFrame() ?? '';
+    expect(frame).toContain('模型请求暂时失败，2 秒后进行第 2/11 次尝试');
+    expect(frame).not.toContain('rate_limited');
   });
 
   it('运行中只显示 Java 投影出的状态', () => {
@@ -230,7 +299,8 @@ describe('AgentView', () => {
           errorCode: undefined,
           failureCategory: undefined,
           retryable: undefined,
-          output: '',
+          exitCode: undefined,
+          output: {lines: [], characters: 0, truncated: false},
         }],
         status: 'running',
         stopReason: undefined,
@@ -243,6 +313,56 @@ describe('AgentView', () => {
     expect(view.lastFrame()).toContain('正在处理');
     expect(view.lastFrame()).toContain('阅读文件（进行中）');
     expect(view.lastFrame()).toContain('运行中');
+  });
+
+  it('Tool 输出默认折叠并在展开时保留 stderr、重复数与 exit', () => {
+    const tool = {
+      ordinal: 1, name: 'run_command', mode: undefined, activity: '运行测试', status: 'failed' as const,
+      returnedCharacters: 20, returnedItems: 0, filteredItems: 0, truncated: false,
+      truncationReason: undefined, errorCode: 'process_exit', failureCategory: 'process_exit',
+      retryable: false, exitCode: 9,
+      output: {characters: 30, truncated: false, lines: [
+        {stream: 'stderr' as const, text: 'test failed', complete: true, repetitions: 12},
+        {stream: 'stderr' as const, text: 'different error', complete: true, repetitions: 1},
+      ]},
+    };
+    const base: TuiState = {
+      phase: 'running', sessionId: 'session-1', activeRunId: 'run-tool', notice: undefined,
+      checkpoints: [], checkpointPanelOpen: false, selectedCheckpointId: undefined,
+      checkpointDiff: undefined, pendingUndoCheckpointId: undefined, checkpointUndo: undefined,
+      runs: [{requestId: 'req-tool', prompt: 'test', runId: 'run-tool', text: '', tools: [tool],
+        toolDetailOrdinal: 1, toolDetailExpanded: false, status: 'running', stopReason: undefined,
+        modelTurns: undefined, toolCalls: undefined}],
+    };
+    const collapsed = render(<AgentView state={base} input="" columns={100} />).lastFrame() ?? '';
+    expect(collapsed).toContain('详情 1/1 · run_command');
+    expect(collapsed).toContain('压缩重复 11');
+    expect(collapsed).toContain('Ctrl+O 展开');
+    expect(collapsed).not.toContain('test failed');
+
+    const expanded = render(<AgentView state={{...base, runs: [{...base.runs[0]!, toolDetailExpanded: true}]}}
+      input="" columns={100} />).lastFrame() ?? '';
+    expect(expanded).toContain('stderr │ test failed');
+    expect(expanded).toContain('×12');
+    expect(expanded).toContain('different error');
+    expect(expanded).toContain('failed · process_exit · process_exit · exit 9');
+
+    const archivedRun = {...base.runs[0]!, status: 'failed' as const,
+      toolDetailExpanded: false, stopReason: 'tool_failure'};
+    const archivedState = {...base, phase: 'ready' as const, activeRunId: undefined,
+      runs: [archivedRun]};
+    const archived = render(<AgentView state={archivedState} input="" columns={100} />)
+      .lastFrame() ?? '';
+    expect(archived).toContain('Ctrl+O 查看最近历史 Tool 详情');
+    expect(archived).not.toContain('Ctrl+O 展开');
+    expect(archived).not.toContain('test failed');
+
+    const historical = render(<AgentView state={{...archivedState,
+      historicalToolDetailRunId: 'run-tool', historicalToolDetailOrdinal: 1,
+      historicalToolDetailOpen: true}} input="" columns={100} />).lastFrame() ?? '';
+    expect(historical).toContain('最近历史 Tool 详情');
+    expect(historical).toContain('stderr │ test failed');
+    expect(historical).toContain('Ctrl+O 关闭详情');
   });
 
   it('审批面板展示受控相对路径和变更行数', () => {
@@ -1832,6 +1952,277 @@ describe('continuous plan Ink interaction', () => {
     view.unmount();
   });
 
+  it('preprojects approved execution before an early run.started and renders tools through completion', async () => {
+    const client = new FakeAgentClient();
+    const view = await initializedTui(client);
+    view.stdin.write('plan atomic handoff'); view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 1);
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-planning', sequence: 2, payload: {}});
+    client.emit({version: 0, type: 'plan.review.requested', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-planning', sequence: 3, payload: {planId: 'plan-atomic', status: 'awaiting_approval', revision: 3,
+        contentDigest: 'a'.repeat(64), markdown: '# Atomic plan\n\nRun two tools.', workspaceDigest: 'b'.repeat(64),
+        originalPermissionMode: 'default', suggestedContextPolicy: 'keep'}});
+    client.emit({version: 0, type: 'run.completed', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-planning', sequence: 4, payload: {stopReason: 'completed', modelTurns: 2, toolCalls: 2}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('Run two tools'));
+
+    view.stdin.write('\r');
+    view.stdin.write('\r');
+    await waitForFrame(() => client.planReviewResolutions.length === 1);
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('执行计划 plan-atomic（自动审批）'));
+    const requestId = 'tui-plan-review-1';
+    client.emit({version: 0, type: 'run.started', requestId, sessionId: 'session-1',
+      runId: 'run-execution', sequence: 5, payload: {}});
+    client.emit({version: 0, type: 'model.turn.started', requestId, sessionId: 'session-1',
+      runId: 'run-execution', sequence: 6, payload: {turn: 1}});
+    client.emit({version: 0, type: 'model.turn.completed', requestId, sessionId: 'session-1',
+      runId: 'run-execution', sequence: 7, payload: {turn: 1, finishReason: 'tool_calls',
+        usage: {inputTokens: 1200, outputTokens: 80, totalTokens: 1280},
+        context: {usedTokens: 4000, maximumInputTokens: 128000, estimateKind: 'estimated'}}});
+    client.emit({version: 0, type: 'tool.started', requestId, sessionId: 'session-1',
+      runId: 'run-execution', sequence: 8, payload: {ordinal: 1, toolName: 'read_file',
+        activity: '读取 src/Plan.java'}});
+    client.emit({version: 0, type: 'tool.completed', requestId, sessionId: 'session-1',
+      runId: 'run-execution', sequence: 9, payload: {ordinal: 1, toolName: 'read_file', status: 'success',
+        returnedCharacters: 12, returnedItems: 1, filteredItems: 0, truncated: false}});
+    client.emit({version: 0, type: 'tool.started', requestId, sessionId: 'session-1',
+      runId: 'run-execution', sequence: 10, payload: {ordinal: 2, toolName: 'git_status'}});
+    client.emit({version: 0, type: 'tool.completed', requestId, sessionId: 'session-1',
+      runId: 'run-execution', sequence: 11, payload: {ordinal: 2, toolName: 'git_status', status: 'success',
+        returnedCharacters: 20, returnedItems: 2, filteredItems: 0, truncated: false}});
+    client.emit({version: 0, type: 'model.turn.started', requestId, sessionId: 'session-1',
+      runId: 'run-execution', sequence: 12, payload: {turn: 2}});
+    client.emit({version: 0, type: 'model.text.delta', requestId, sessionId: 'session-1',
+      runId: 'run-execution', sequence: 13, payload: {text: 'execution verified'}});
+    client.emit({version: 0, type: 'model.turn.completed', requestId, sessionId: 'session-1',
+      runId: 'run-execution', sequence: 14, payload: {turn: 2, finishReason: 'stop',
+        usage: {inputTokens: 1800, outputTokens: 120, totalTokens: 1920},
+        context: {usedTokens: 5200, maximumInputTokens: 128000, estimateKind: 'estimated'}}});
+    client.emit({version: 0, type: 'run.completed', requestId, sessionId: 'session-1',
+      runId: 'run-execution', sequence: 15, payload: {stopReason: 'completed', modelTurns: 2, toolCalls: 2}});
+    client.emit({version: 0, type: 'plan.verification.completed', requestId, sessionId: 'session-1',
+      sequence: 16, payload: {planId: 'plan-atomic', status: 'completed', requiredEvidence: 1, satisfiedEvidence: 1}});
+    client.emit({version: 0, type: 'plan.execution.accepted', requestId, sessionId: 'session-1',
+      sequence: 17, payload: {planId: 'plan-atomic', status: 'approved', revision: 3,
+        contentDigest: 'a'.repeat(64), contextPolicy: 'keep', approvalReviewer: 'auto_review'}});
+
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('execution verified')
+      && (view.lastFrame() ?? '').includes('已完成 · 2 回合 · 2 次工具')
+      && (view.lastFrame() ?? '').includes('计划证据已验证'));
+    const frame = view.lastFrame() ?? '';
+    expect(frame).toContain('阅读文件 · 读取 src/Plan.java');
+    expect(frame).toContain('检查工作区');
+    expect(frame).toContain('Provider 实测 累计 3.2k（↑ 3.0k · ↓ 200）');
+    expect(frame).toContain('上下文估算 5.2k/128k');
+    expect(frame).not.toContain('无法关联');
+    expect(frame).not.toContain('连接已关闭');
+    view.unmount();
+  });
+
+  it('用专用组合键选择和折叠 Tool 详情且不抢 Approval picker', async () => {
+    const client = new FakeAgentClient();
+    const view = await initializedTui(client);
+    view.stdin.write('run command'); view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 1);
+    const requestId = 'tui-2';
+    client.emit({version: 0, type: 'run.started', requestId, sessionId: 'session-1',
+      runId: 'run-tool-detail', sequence: 2, payload: {}});
+    client.emit({version: 0, type: 'tool.started', requestId, sessionId: 'session-1',
+      runId: 'run-tool-detail', sequence: 3, payload: {ordinal: 1, toolName: 'run_command'}});
+    client.emit({version: 0, type: 'tool.output', requestId, sessionId: 'session-1',
+      runId: 'run-tool-detail', sequence: 4, payload: {ordinal: 1, toolName: 'run_command',
+        stream: 'stderr', text: 'failure\nfailure\n'}});
+    client.emit({version: 0, type: 'approval.requested', requestId, sessionId: 'session-1',
+      runId: 'run-tool-detail', sequence: 5, payload: {approvalId: 'approval-tool', ordinal: 1,
+        toolName: 'run_command', effect: 'execute_process', command: 'test', shell: 'powershell',
+        workingDirectory: '.'}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('Ctrl+O 展开'));
+    view.stdin.write(String.fromCharCode(15));
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(view.lastFrame()).not.toContain('stderr │ failure');
+
+    view.stdin.write('\r');
+    await new Promise(resolve => setTimeout(resolve, 20));
+    client.emit({version: 0, type: 'tool.failed', requestId, sessionId: 'session-1',
+      runId: 'run-tool-detail', sequence: 6, payload: {ordinal: 1, toolName: 'run_command',
+        status: 'failed', errorCode: 'process_exit', failureCategory: 'process_exit', retryable: false,
+        exitCode: 9}});
+    await waitForFrame(() => !(view.lastFrame() ?? '').includes('允许一次'));
+    await new Promise(resolve => setTimeout(resolve, 20));
+    view.stdin.write(String.fromCharCode(15));
+    await new Promise(resolve => setTimeout(resolve, 30));
+    expect(view.lastFrame()).toContain('stderr │ failure');
+    expect(view.lastFrame()).toContain('×2');
+    view.stdin.write(String.fromCharCode(15));
+    await waitForFrame(() => !(view.lastFrame() ?? '').includes('stderr │ failure'));
+
+    client.emit({version: 0, type: 'tool.started', requestId, sessionId: 'session-1',
+      runId: 'run-tool-detail', sequence: 7,
+      payload: {ordinal: 2, toolName: 'read_file'}});
+    client.emit({version: 0, type: 'tool.output', requestId, sessionId: 'session-1',
+      runId: 'run-tool-detail', sequence: 8,
+      payload: {ordinal: 2, toolName: 'read_file', stream: 'stdout', text: 'second detail\n'}});
+    client.emit({version: 0, type: 'tool.completed', requestId, sessionId: 'session-1',
+      runId: 'run-tool-detail', sequence: 9,
+      payload: {ordinal: 2, toolName: 'read_file', status: 'success'}});
+    client.emit({version: 0, type: 'run.failed', requestId, sessionId: 'session-1',
+      runId: 'run-tool-detail', sequence: 10,
+      payload: {stopReason: 'tool_failure', modelTurns: 1, toolCalls: 2}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('Ctrl+O 查看最近历史 Tool 详情'));
+    expect(view.lastFrame()).not.toContain('Ctrl+O 展开');
+    view.stdin.write(String.fromCharCode(15));
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('最近历史 Tool 详情')
+      && (view.lastFrame() ?? '').includes('stderr │ failure'));
+    expect(view.lastFrame()).toContain('Ctrl+O 关闭详情');
+    view.stdin.write(String.fromCharCode(20));
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('stdout │ second detail'));
+    expect(view.lastFrame()).not.toContain('stderr │ failure');
+    await new Promise(resolve => setTimeout(resolve, 20));
+    view.stdin.write(String.fromCharCode(15));
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('Ctrl+O 查看最近历史 Tool 详情'));
+    view.unmount();
+  });
+
+  it('rejects a durable review without creating an execution Run row', async () => {
+    const client = new FakeAgentClient();
+    const view = await initializedTui(client);
+    view.stdin.write('plan reject task'); view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 1);
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-reject', sequence: 2, payload: {}});
+    client.emit({version: 0, type: 'plan.review.requested', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-reject', sequence: 3, payload: {planId: 'plan-reject', status: 'awaiting_approval', revision: 2,
+        contentDigest: '4'.repeat(64), markdown: '# Reject plan', workspaceDigest: '5'.repeat(64),
+        originalPermissionMode: 'default', suggestedContextPolicy: 'keep'}});
+    client.emit({version: 0, type: 'run.completed', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-reject', sequence: 4, payload: {stopReason: 'completed', modelTurns: 1, toolCalls: 1}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('Reject plan'));
+    view.stdin.write(String.fromCharCode(27) + '[B');
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('❯ 批准并执行（后续 Tool 正常逐项询问）'));
+    view.stdin.write(String.fromCharCode(27) + '[B');
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('❯ 带反馈继续规划'));
+    view.stdin.write(String.fromCharCode(27) + '[B');
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('❯ 拒绝并退出'));
+    view.stdin.write('\r');
+    await waitForFrame(() => client.planReviewResolutions.length === 1);
+    client.emit({version: 0, type: 'plan.review.rejected', requestId: 'tui-plan-review-1', sessionId: 'session-1',
+      sequence: 5, payload: {planId: 'plan-reject', status: 'rejected'}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('计划已拒绝，未执行任何步骤'));
+    expect(client.planReviewResolutions[0]).toContain(':REJECT:KEEP:');
+    expect(view.lastFrame()).not.toContain('执行计划 plan-reject');
+    view.unmount();
+  });
+
+  it.each([
+    ['run.failed', '运行失败', 'execution_failed'],
+    ['run.cancelled', '已取消', 'cancelled'],
+  ] as const)('renders approved execution terminal %s without losing request correlation', async (terminalType, label, reason) => {
+    const client = new FakeAgentClient();
+    const view = await initializedTui(client);
+    view.stdin.write('plan terminal task'); view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 1);
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-plan-terminal', sequence: 2, payload: {}});
+    client.emit({version: 0, type: 'plan.review.requested', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-plan-terminal', sequence: 3, payload: {planId: 'plan-terminal', status: 'awaiting_approval', revision: 2,
+        contentDigest: '6'.repeat(64), markdown: '# Terminal plan', workspaceDigest: '7'.repeat(64),
+        originalPermissionMode: 'default', suggestedContextPolicy: 'keep'}});
+    client.emit({version: 0, type: 'run.completed', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-plan-terminal', sequence: 4, payload: {stopReason: 'completed', modelTurns: 1, toolCalls: 1}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('Terminal plan'));
+    view.stdin.write('\r');
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('执行计划 plan-terminal'));
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-plan-review-1', sessionId: 'session-1',
+      runId: 'run-terminal', sequence: 5, payload: {}});
+    client.emit({version: 0, type: terminalType, requestId: 'tui-plan-review-1', sessionId: 'session-1',
+      runId: 'run-terminal', sequence: 6, payload: {stopReason: reason, modelTurns: 1, toolCalls: 0}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes(label));
+    expect(view.lastFrame()).not.toContain('无法关联');
+    expect(view.lastFrame()).not.toContain('连接已关闭');
+    view.unmount();
+  });
+
+  it('submission exception restores durable review without creating an execution run', async () => {
+    const client = new FakeAgentClient();
+    const view = await initializedTui(client);
+    view.stdin.write('plan retry task'); view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 1);
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-retry', sequence: 2, payload: {}});
+    client.emit({version: 0, type: 'plan.review.requested', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-retry', sequence: 3, payload: {planId: 'plan-retry', status: 'awaiting_approval', revision: 2,
+        contentDigest: 'c'.repeat(64), markdown: '# Retry plan', workspaceDigest: 'd'.repeat(64),
+        originalPermissionMode: 'default', suggestedContextPolicy: 'keep'}});
+    client.emit({version: 0, type: 'run.completed', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-retry', sequence: 4, payload: {stopReason: 'completed', modelTurns: 1, toolCalls: 1}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('Retry plan'));
+    client.rejectPlanReviewResolution = true;
+    view.stdin.write('\r');
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('Plan 决定未被连接接受'));
+    expect(view.lastFrame()).toContain('批准并自动执行');
+    expect(view.lastFrame()).not.toContain('执行计划 plan-retry');
+    expect(client.planReviewResolutions).toEqual([]);
+    view.unmount();
+  });
+
+  it('protocol rejection removes the optimistic execution row and restores review choices', async () => {
+    const client = new FakeAgentClient();
+    const view = await initializedTui(client);
+    view.stdin.write('plan protocol retry'); view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 1);
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-protocol', sequence: 2, payload: {}});
+    client.emit({version: 0, type: 'plan.review.requested', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-protocol', sequence: 3, payload: {planId: 'plan-protocol', status: 'awaiting_approval', revision: 2,
+        contentDigest: 'e'.repeat(64), markdown: '# Protocol plan', workspaceDigest: 'f'.repeat(64),
+        originalPermissionMode: 'default', suggestedContextPolicy: 'keep'}});
+    client.emit({version: 0, type: 'run.completed', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-protocol', sequence: 4, payload: {stopReason: 'completed', modelTurns: 1, toolCalls: 1}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('Protocol plan'));
+    view.stdin.write('\r');
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('执行计划 plan-protocol'));
+    client.emit({version: 0, type: 'protocol.error', requestId: 'tui-plan-review-1', sequence: 5,
+      payload: {code: 'INVALID_STATE', message: 'unsafe detail'}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('Java 协议错误：INVALID_STATE'));
+    expect(view.lastFrame()).toContain('批准并自动执行');
+    expect(view.lastFrame()).not.toContain('执行计划 plan-protocol');
+    expect(view.lastFrame()).not.toContain('连接已关闭');
+    view.unmount();
+  });
+
+  it('protocol rejection restores durable feedback text and removes the optimistic planning row', async () => {
+    const client = new FakeAgentClient();
+    const view = await initializedTui(client);
+    view.stdin.write('plan feedback retry'); view.stdin.write('\r');
+    await waitForFrame(() => client.prompts.length === 1);
+    client.emit({version: 0, type: 'run.started', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-feedback-retry', sequence: 2, payload: {}});
+    client.emit({version: 0, type: 'plan.review.requested', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-feedback-retry', sequence: 3, payload: {planId: 'plan-feedback-retry', status: 'awaiting_approval', revision: 2,
+        contentDigest: '1'.repeat(64), markdown: '# Feedback retry plan', workspaceDigest: '2'.repeat(64),
+        originalPermissionMode: 'default', suggestedContextPolicy: 'keep'}});
+    client.emit({version: 0, type: 'run.completed', requestId: 'tui-2', sessionId: 'session-1',
+      runId: 'run-feedback-retry', sequence: 4, payload: {stopReason: 'completed', modelTurns: 1, toolCalls: 1}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('Feedback retry plan'));
+    view.stdin.write(String.fromCharCode(27) + '[B');
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('❯ 批准并执行（后续 Tool 正常逐项询问）'));
+    view.stdin.write(String.fromCharCode(27) + '[B');
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('❯ 带反馈继续规划'));
+    view.stdin.write('\r');
+    view.stdin.write('preserve this feedback');
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('preserve this feedback'));
+    view.stdin.write('\r');
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('继续规划 plan-feedback-retry'));
+    client.emit({version: 0, type: 'protocol.error', requestId: 'tui-plan-review-1', sequence: 5,
+      payload: {code: 'STALE_PLAN_REVIEW', message: 'unsafe detail'}});
+    await waitForFrame(() => (view.lastFrame() ?? '').includes('preserve this feedback')
+      && (view.lastFrame() ?? '').includes('请输入计划反馈'));
+    expect(view.lastFrame()).not.toContain('继续规划 plan-feedback-retry');
+    expect(view.lastFrame()).not.toContain('连接已关闭');
+    view.unmount();
+  });
+
   it('Escape cancels feedback input and returns to all four review choices', async () => {
     const client = new FakeAgentClient();
     const view = await initializedTui(client);
@@ -1873,6 +2264,7 @@ class FakeAgentClient implements AgentClient {
   providerLoginResult: ProviderLoginResult = {status: 'succeeded', exitCode: 0};
   rejectPlanStart = false;
   rejectPlanExecution = false;
+  rejectPlanReviewResolution = false;
   readonly fileSuggestions: string[] = [];
   readonly taskCommands: string[] = [];
   readonly skillInvocations: string[] = [];
@@ -1920,6 +2312,7 @@ class FakeAgentClient implements AgentClient {
     readonly decision: 'APPROVE_AUTO' | 'APPROVE_USER' | 'CONTINUE_PLANNING' | 'REJECT';
     readonly contextPolicy: 'KEEP' | 'CLEAR'; readonly feedback: string;
   }): string {
+    if (this.rejectPlanReviewResolution) throw new Error('rejected');
     this.planReviewResolutions.push(`${input.planId}:${input.revision}:${input.contentDigest}:${input.workspaceDigest}:${input.decision}:${input.contextPolicy}:${input.feedback}`);
     return `tui-plan-review-${this.planReviewResolutions.length}`;
   }

@@ -236,8 +236,9 @@ FixBug 可以在 S11 后实现为 Skill 或独立应用，也可以作为 S04 �
 - 内部 UTF-8 NDJSON v0 只承诺 S02 本地进程通信，不是稳定公共 API；
 - 支持流式文本、Tool Call Chunk 聚合和执行状态展示；
 - 支持模型流取消、不完整流、输出长度 finish reason、有界停止/续接、限流和 Usage 转换；
-- S02 的重试只发生在第一个可见 Delta 前，最多三次并受 Run Deadline/取消约束；
-  已输出后的断流 Fail Closed，`length` 以明确停止结束，自动续写留到 S14 评测；
+- S02 初始切片的重试只发生在第一个可见 Delta 前，最多三次并受 Run Deadline/取消约束；
+  S15 ADR-084 已将 production 确定 route 加固为最多 10 retries/11 total attempts、指数退避+jitter、
+  typed Retry-After 与 Provider-frame fence。已输出后的断流仍 Fail Closed，`length` 以明确停止结束；
 - Windows 验证 `Ctrl+C`、TTY/非 TTY、中文宽字符、粘贴、Resize 和无孤儿进程；
 - 用显式启用的真实 Provider E2E 验证 Adapter，但普通 CI 仍只使用 Fake。
 
@@ -281,6 +282,14 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
   TUI 不读取文件，候选只作为提示，提交必须由 Java 重新验证。迟到、重复、乱序或超限建议
   不得覆盖当前 token；接受建议只替换光标处活动 token，并保持 grapheme、多行、Paste、History
   与 Steering 语义。
+- FR-CLI-009：主屏交互必须保留完整 transcript 供终端原生 scrollback/鼠标滚轮访问；不得用固定高度
+  `overflow` 裁剪历史。若未来使用 alternate screen，必须提供真实虚拟 viewport 与鼠标滚动协议。
+- FR-CLI-010：运行中展示确定性的模型回合阶段、受控 Tool 活动摘要和来源明确的 Token 数值。Provider
+  Usage 与 Context 估算必须分开标注；不得展示、伪造或从模型 prose 猜测隐藏思维链。
+- FR-CLI-011：Tool stdout/stderr 默认折叠但不得丢失通道、失败或退出事实；运行中可选择并展开详情，
+  Run 完成后必须仍能从独立 live viewer 查看最近历史 Run 的所选 Tool 快照，且不得重绘已进入 Ink
+  `Static` 的 native scrollback。重复诊断只按相邻、同通道、完整且文本等价压缩；大量异构活动必须
+  有界折叠，并在汇总行保留失败、拒绝和截断计数。
 
 ### 11.2 Agent Runtime
 
@@ -303,6 +312,13 @@ S04 完成后，项目得到第一个可运行的 Mini Coding Agent CLI；随后
 - FR-MODEL-003：Adapter 支持文本增量事件，并在回合结束时返回聚合后的 Tool Call。
 - FR-MODEL-004：模型异常、限流和无效响应转换成 Runtime 错误。
 - FR-MODEL-005：Token Usage 不可用时允许缺省，但不得伪造。
+- FR-MODEL-010（S15，`LOOP-08/09`、`MODEL-10`）：生产同 Provider route 默认最多 10 retries，
+  即首次请求加最多十次重试、总计 11 attempts；使用 capped exponential backoff、0～25% 正 jitter、
+  typed delta-seconds `Retry-After` 和共享 Run deadline/cancel。只重试 transport、408/409/429/5xx/529
+  等明确瞬时失败；普通 401/403、404、validation/其他 4xx 永久失败。任何 visible Delta、Provider frame
+  或 Tool intent 后禁止自动重放；Context Overflow、cancel、incomplete stream、跨 Provider fallback、
+  credential refresh 与 durable Plan recovery 必须由各自状态机处理。retry lifecycle 只允许枚举、attempt 和
+  等待时长进入 stdio/TUI，不得投影 endpoint、Header、body、Prompt、Secret 或异常正文。
 - FR-MODEL-006（S15 已实现 L1，`MODEL-13`）：产品采用本地直连 BYOK，不提供官方模型中转 Gateway；非秘密 `ProviderDefinition` 已与用户级 `CredentialProfile`/SecretRef 分离，并已实现 OpenAI-compatible custom URL/model、Anthropic 与 OpenRouter 三类 Provider Factory。CLI、TUI 与 stdio 的 `auth/providers/models`（含 TUI `/connect`、`/auth list`、`/auth logout`、`/models`）共用 Java Application Service，真实请求仍仅走现有 `ModelGateway`/`ProviderRouter`。
 - FR-MODEL-007（S15 已实现 L1，`MODEL-13`）：API key 只支持权限受限用户文件 STORE 或显式 ENV SecretRef；restricted store 已实现，secret 不得进入 Domain、Canonical/Session、log、telemetry、Agent event、普通 error、argv、evidence 或 Provider Definition。Console `/connect` 已使用 masked input，普通文件不得称 OS vault；OAuth 仅保留 Provider 官方固定 issuer/client/redirect 的合法扩展，当前不实现。
 - FR-MODEL-008（S15 已实现 L1，`MODEL-13`）：profile 解析固定为显式 profile→Provider default→env ephemeral→legacy properties ephemeral；显式或 default profile 失效必须 fail closed，不 silent rotation/failover。list/status 不联网，显式单 profile 的有界 probe 已实现；logout 已实现先 fence 新 lease、取消并 drain 同进程 active runs、清应用 secret/Gateway cache，再原子删除本地 secret，同时明确本地删除不等于 Provider revoke。
@@ -722,6 +738,11 @@ S01 已确认：
 
 ### FR-PLAN-04：durable review 与原子执行交接（S15 Batch 3）
 
+- 模型只以 Markdown 调用 `revise_plan_artifact`，并以空 intent 调用 `request_plan_review`；revision、
+  contentDigest、Session/Plan identity 与 store CAS 必须由 trusted application control plane 重新加载和持有，
+  不能要求模型手工维护；真正并发漂移仍必须 Fail Closed；
+- active Run 资格检查、review feedback 转回 DRAFT 和 Plan Scope 占用必须原子收敛；被并发 Run 拒绝的
+  `runPlan` 不得提前修改 durable revision；
 - `plan.review.requested` 必须绑定同一 durable 工件的 `planId + revision + contentDigest + Markdown snapshot`
   和独立 workspace snapshot，严禁混用两个 digest；
 - 单一 picker 默认“批准并自动执行”，另含普通逐 Tool 审批、带反馈继续规划、拒绝退出；内部 approve/execute
@@ -730,16 +751,31 @@ S01 已确认：
   `ExecutionBrief` 构造和执行入队；入队接受前不得回送成功；
 - 批准 Markdown 直接作为不可信自然语言上下文进入普通 Agent Runtime，不解析成命令/步骤三元组；
 - AUTO 只替换最终 ASK reviewer，Hard Denial、显式 Deny、PLAN capability boundary 和 Tool 安全校验保持最终；
-- keep/clear 都保留批准工件；`APPROVED` 只能显式恢复，`EXECUTING` 崩溃必须进入 recovery gate，绝不自动重放。
+- keep/clear 都保留批准工件；`APPROVED` 只能显式恢复，`EXECUTING` 崩溃必须进入 recovery gate，绝不自动重放；
+- APPROVE_AUTO/APPROVE_USER/CONTINUE_PLANNING 在 stdio 写入前必须登记 request correlation，Ink 在命令成功
+  返回 requestId 后立即预建 execution/planning Run；`plan.execution.accepted` 与 `run.started` 任一先到都必须可投影；
+  REJECT 不创建 Run，重复 Enter、同步提交异常和协议拒绝必须回滚且不残留幽灵 Run；
+- unknown/late/mismatched Run event 必须安全忽略且不能完成其他 Run；Reducer projection notice 与真实
+  transport failure/child exit 必须分离，只有 transport authority 失败才能显示连接关闭；真实 Java 与安装版
+  E2E 必须通过 Ink reducer/render 断言 Tool、最终文本、verification 和终态，不能只监听 raw event；
+- 只有 trusted BUILT_IN Plan artifact Tool 的 concurrency/state conflict 才能映射为隐私安全、模型可行动的
+  typed error；普通/MCP/Plugin Tool 不得伪造该恢复语义或绕过 repeated-failure governance；typed Plan failure
+  不得压成 generic execution failure，也不得泄漏物理路径、Markdown、JSON 或底层异常文本。
 
 ### FR-PLAN-05：durable Evidence Gate（S15 Batch 5）
 
-- 规划期只能通过受控 Tool 声明有界交付物相对路径和验证 Tool 名；不得从 Markdown 解析命令、
-  executable triple、checkbox 或证据；声明不能写 Workspace。
+- 规划期只能通过受控 Tool 声明有界交付物相对路径和验证 Tool 名；VERIFICATION locator 必须是当前
+  Runtime 实际注册的可信 BUILT_IN Tool，而不只是通过名称 regex；拒绝反馈只给有界 alternatives；不得从
+  Markdown 解析命令、executable triple、checkbox 或证据，声明不能写 Workspace；
+- DRAFT 中相同 requirementId 必须允许幂等声明或确定性原位 correction/replacement；完全相同的幂等重试
+  不得重复 store save 或推进 revision；批准后冻结、稳定顺序、identity 和最大数量保持，错误 locator 不得永久污染 Plan。
 - `PlanEvidenceLedger` 绑定 sessionId、planId、批准 revision、ExecutionBrief digest 与批准时 workspace
   revision，并为每项 required evidence 保存有界隐私安全生命周期和引用。
 - 普通 Agent Run `COMPLETED` 只表示循环正常停止。只有确定性文件验证和 canonical 成功 ToolResult
   满足全部 required evidence 时，Plan 才能进入 `COMPLETED`；否则进入 `NEEDS_VERIFICATION`。
+- accepted Plan 的模型失败、重试耗尽、取消、deadline、limit 与 incomplete stream 必须进入 durable
+  failure status 并投影 `plan.execution.failed`；只有正常完成后才允许投影 `plan.verification.required/completed`。
+  Surface 必须明确“不自动重放”，恢复仍需显式领取并经过既有 recovery gate。
 - 用户可在策略允许时对具体 requirement 显式批准 typed skip；skip 必须使用独立 decision identity、
   durable/auditable，不能从模型文本暗示或批量推断。
 - Surface 必须显示 actionable 非完成状态；Evidence Gate 不改变 Permission、AutoReview、Hard Denial、

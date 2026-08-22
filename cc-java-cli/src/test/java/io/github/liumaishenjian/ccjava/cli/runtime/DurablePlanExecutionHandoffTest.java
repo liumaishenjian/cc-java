@@ -48,13 +48,12 @@ class DurablePlanExecutionHandoffTest {
             requests.add(request);
             return switch (calls.getAndIncrement()) {
                 case 0 -> ModelTurn.tools(List.of(new ToolCall("create", "revise_plan_artifact",
-                        new JsonObject(Map.of("markdown", markdown, "expectedRevision", 0,
-                                "expectedContentDigest", "")))));
+                        new JsonObject(Map.of("markdown", markdown)))));
                 case 1 -> ModelTurn.tools(List.of(new ToolCall("evidence", "declare_plan_evidence",
                         new JsonObject(Map.of("requirementId", "result-file", "kind", "DELIVERABLE",
                                 "locator", "result.txt", "label", "result file exists", "required", true)))));
                 case 2 -> ModelTurn.tools(List.of(new ToolCall("review", "request_plan_review",
-                        new JsonObject(Map.of("revision", 2, "contentDigest", PlanArtifact.digest(markdown))))));
+                        JsonObject.empty())));
                 case 3 -> ModelTurn.text("planning complete");
                 case 4 -> ModelTurn.tools(List.of(new ToolCall("write", "write_file",
                         new JsonObject(Map.of("path", "result.txt", "content", "done\n")))));
@@ -101,10 +100,9 @@ class DurablePlanExecutionHandoffTest {
             requests.add(request);
             return switch (calls.getAndIncrement()) {
             case 0 -> ModelTurn.tools(List.of(new ToolCall("create", "revise_plan_artifact",
-                    new JsonObject(Map.of("markdown", markdown, "expectedRevision", 0,
-                            "expectedContentDigest", "")))));
+                    new JsonObject(Map.of("markdown", markdown)))));
             case 1 -> ModelTurn.tools(List.of(new ToolCall("review", "request_plan_review",
-                    new JsonObject(Map.of("revision", 1, "contentDigest", PlanArtifact.digest(markdown))))));
+                    JsonObject.empty())));
             default -> ModelTurn.text("done");
             };
         };
@@ -140,10 +138,9 @@ class DurablePlanExecutionHandoffTest {
         AtomicInteger calls = new AtomicInteger();
         ModelGateway model = request -> switch (calls.getAndIncrement()) {
             case 0 -> ModelTurn.tools(List.of(new ToolCall("create", "revise_plan_artifact",
-                    new JsonObject(Map.of("markdown", markdown, "expectedRevision", 0,
-                            "expectedContentDigest", "")))));
+                    new JsonObject(Map.of("markdown", markdown)))));
             case 1 -> ModelTurn.tools(List.of(new ToolCall("review", "request_plan_review",
-                    new JsonObject(Map.of("revision", 1, "contentDigest", PlanArtifact.digest(markdown))))));
+                    JsonObject.empty())));
             default -> ModelTurn.text("done");
         };
         SessionId id;
@@ -260,14 +257,13 @@ class DurablePlanExecutionHandoffTest {
     private static ModelGateway planThenFinish(AtomicInteger calls, String markdown, boolean twoRequirements) {
         return request -> switch (calls.getAndIncrement()) {
             case 0 -> ModelTurn.tools(List.of(new ToolCall("create", "revise_plan_artifact",
-                    new JsonObject(Map.of("markdown", markdown, "expectedRevision", 0,
-                            "expectedContentDigest", "")))));
+                    new JsonObject(Map.of("markdown", markdown)))));
             case 1 -> twoRequirements
                     ? ModelTurn.tools(List.of(new ToolCall("tests", "declare_plan_evidence",
                             new JsonObject(Map.of("requirementId", "tests", "kind", "VERIFICATION",
                                     "locator", "run_command", "label", "tests pass", "required", true)))))
                     : ModelTurn.tools(List.of(new ToolCall("review", "request_plan_review",
-                            new JsonObject(Map.of("revision", 1, "contentDigest", PlanArtifact.digest(markdown))))));
+                            JsonObject.empty())));
             case 2 -> twoRequirements
                     ? ModelTurn.tools(List.of(new ToolCall("lint", "declare_plan_evidence",
                             new JsonObject(Map.of("requirementId", "lint", "kind", "VERIFICATION",
@@ -275,7 +271,7 @@ class DurablePlanExecutionHandoffTest {
                     : ModelTurn.text("planning complete");
             case 3 -> twoRequirements
                     ? ModelTurn.tools(List.of(new ToolCall("review", "request_plan_review",
-                            new JsonObject(Map.of("revision", 3, "contentDigest", PlanArtifact.digest(markdown))))))
+                            JsonObject.empty())))
                     : ModelTurn.text("must not execute");
             case 4 -> ModelTurn.text("planning complete");
             default -> ModelTurn.text("done without verification");

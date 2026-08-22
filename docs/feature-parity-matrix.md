@@ -255,15 +255,15 @@ Stage 完成项。
 
 | ID | 参考能力 | Java 重实现目标 | 当前 | Stage | 参考 |
 | --- | --- | --- | --- | --- | --- |
-| CLI-01 | Interactive Session | React/Ink TUI + Java Application Session | L2 | S02 | REF-02/AUTH-01 |
+| CLI-01 | Interactive Session | React/Ink TUI + Java Application Session；已封存 Run 经 Ink Static 永久进入终端 scrollback，终态 Tool 诊断由独立 live viewer 读取快照而不重绘历史；Plan approval 使用 accepted-first start gate，同时保留 requestId early-event 防御性 correlation | L2 | S02/S15 | REF-02/AUTH-01/CODEX-0.147 |
 | CLI-02 | Print / Headless | Picocli `--print` | L2 | S02 | REF-02 |
 | CLI-03 | 流式 Assistant Text | stdio Event → Markdown Ink 组件渲染 | L2 | S02/S03 | REF-02/AUTH-01 |
-| CLI-04 | Tool 进度与输出 | 有序 Agent Event → 连续 Tool 语义化聚合 | L2 | S02/S03 | REF-02/AUTH-01 |
+| CLI-04 | Tool 进度与输出 | 有序 Agent Event → 连续同类聚合、异构活动 8 行有界摘要、默认折叠结构化 stdout/stderr、运行中及最近历史 Tool 详情选择 | L2 | S02/S03/S15 | REF-02/AUTH-01/CODEX-0.147 |
 | CLI-05 | Permission Prompt | 终端 Approval UI | L2 | S04/S05 | REF-04/AUTH-01 |
 | CLI-06 | Ctrl+C Cancel | 当前 Run/Tool 取消 | L1 | S02/S04 | REF-02 |
 | CLI-07 | Steering | Java stdio 连接内存 FIFO 上限 100；只在当前 Run 终态后启动下一 Run，取消/clear/成功 resume/transport failure/shutdown 丢弃未发送项且不持久化 | L2 | S08 | REF-02 |
 | CLI-08 | Slash Commands | 封闭 Command Catalog、可见选择与类型化安全结果 Projection；ADR-048 Commit-scoped 协议、TTY 与 review 证据通过 | L2 | S08 | REF-02 |
-| CLI-09 | 多行、历史、补全 | `ComposerState` grapheme 光标、视觉多行/viewport、完整编辑键、History/Completion 优先级；8,192 仅限可见结构，约 1 MiB 无损大 Paste 经 stdio v0 原子分块提交后仍受 256K Token Context pipeline 权威治理；ADR-048 Commit-scoped 测试/TTY/review 通过 | L2 | S08 | REF-02 |
+| CLI-09 | 多行、历史、补全 | `ComposerState` grapheme 光标、视觉多行/viewport、完整编辑键、History/Completion 优先级；删除用户可见行列诊断，主屏历史不裁剪；8,192 仅限可见结构，约 1 MiB 无损大 Paste 经 stdio v0 原子分块提交后仍受 256K Token Context pipeline 权威治理 | L2 | S08/S15 | REF-02/AUTH-01 |
 | CLI-10 | TTY / Non-TTY 降级 | 无 ANSI 输出与管道模式 | L2 | S02/S14 | REF-02 |
 | CLI-11 | 机器输出协议 | stdio v0 保持兼容；项目自有 stable v1 strict codec/state 由 `--stdio-v1` 与 `--daemon` 生产入口使用，覆盖 initialize/token/negotiation/correlation/sequence/semantic idempotency/terminal/drain | L2 | S02/S14 | REF-02/AUTH-01/CODEX-0.147 |
 | CLI-12 | 多 Surface 共用引擎 | `ProductionHarnessFactory` 为 Print/Headless、SDK、stdio v1 与 loopback daemon 装配同一 `AgentApplicationService`、Runtime 与 Pipeline | L2 | S14 | REF-02/AUTH-01/CODEX-0.147 |
@@ -280,8 +280,8 @@ Stage 完成项。
 | LOOP-05 | Tool Result 驱动下一回合 | Canonical Message History | L1 | S01 | REF-08 |
 | LOOP-06 | 多 Continue 原因 | 显式 Transition/Stop Reason | L1 | S01/S07 | REF-01 |
 | LOOP-07 | 最大回合和工具数 | 显式硬上限 + 普通交互 progress-aware soft checkpoint/absolute ceiling/typed event | L1 | S01/S15 | REF-01/AUTH-01 |
-| LOOP-08 | Deadline 与取消 | Cancellation 传播 | L1 | S02/S04 | REF-02 |
-| LOOP-09 | 模型错误重试 | 有界 Retry Policy | L2 | S02/S14 | REF-01/AUTH-01 |
+| LOOP-08 | Deadline 与取消 | Cancellation 传播；同 Provider retry 的 attempt 与可取消等待共享 Run remaining-time，等待耗尽预算前不启动下一请求 | L1 | S02/S04/S15 | REF-02/AUTH-01 |
+| LOOP-09 | 模型错误重试 | ADR-084：production 确定 route 内最多 10 retries/11 total attempts，capped exponential+0～25% jitter、typed Retry-After、deadline/cancel、visible delta/Provider frame/Tool intent fence；不切 profile/provider、不重试永久错误/context overflow/incomplete stream | L2 | S02/S14/S15 | REF-01/AUTH-01 |
 | LOOP-10 | Model Output Length Recovery | S02 识别截断/不完整输出并有界停止或续接 → S14 L3 恢复策略 | L2 | S02/S14 | REF-01/AUTH-01 |
 | LOOP-11 | Context 溢出恢复 | typed overflow 后最多一次 C3/C4 恢复；失败或第二次 overflow 明确停止 | L2 | S07 | REF-01/02 |
 | LOOP-12 | Model Fallback | capability-aware stable route；tool request 要求 TOOL_CALLING，所有 route 共享 attempt/deadline/cancel/保守 cost unit；仅在无 visible delta 的 retryable failure 前 fallback。Gateway 返回前的 Provider 内部 durable intent 不可直接观察，必须由 Adapter 分类为不可重试 | L2 | S14 | REF-01/AUTH-01/CODEX-0.147 |
@@ -301,7 +301,7 @@ Stage 完成项。
 | MODEL-07 | 第二 Provider | Spring AI Anthropic Factory + protocol mock 覆盖 text/stream/tool/multi-tool/usage/cancel/429/5xx/context-limit；无真实凭证，保持 L1 Accepted Deviation | L1 | S14 | REF-02/AUTH-01 |
 | MODEL-08 | Model Switching | 有界 Session Command：仅接受启动时配置的当前单一模型名；Provider discovery/多模型注册延期 | L2 | S08 | REF-02 |
 | MODEL-09 | Prompt Cache | capability snapshot 与 Adapter optimization Gate；正确性仍走 S07 通用 Projection，真实 cache A/B 未运行 | L1 | S07/S14 | REF-01/AUTH-01 |
-| MODEL-10 | Rate Limit / Retry | ModelGatewayException typed Retry-After 已由 Adapter 解析并由 production ProviderRouter 在每请求 fresh shared deadline/cancel/attempt/cost budget 内有界消费；第三方 SDK 完整控制仍是 gap | L2 | S14 | REF-01/AUTH-01 |
+| MODEL-10 | Rate Limit / Retry | ADR-084：OpenAI-compatible/Anthropic/OpenRouter Adapter 分类 transport、408/409/429/5xx/529 与永久 401/403/404/validation；typed delta-seconds Retry-After 由确定 profile 的 production `RetryingModelGateway` 消费，SDK retry 关闭、Router 单 route attempt 保持 1；HTTP-date、安全 auth refresh 与真实在线矩阵仍是 gap | L2 | S14/S15 | REF-01/AUTH-01 |
 | MODEL-11 | Cost Budget | Provider Usage + 可信版本化价格才计算 ModelCost；Router 支持保守 attempt cost unit 上限，未知价格不伪造，精确执行中 token/cost 结算仍缺 | L2 | S14 | REF-01/AUTH-01 |
 | MODEL-12 | Capability Detection | configured/observed/effective 三层保守 snapshot；Unknown 不视为支持 | L2 | S14 | REF-02/AUTH-01/CODEX-0.147 |
 | MODEL-13 | Provider Auth / Credential Profiles | 已实现本地直连 BYOK：非秘密 ProviderDefinition 与 CredentialProfile/SecretRef 分离；OpenAI-compatible、Anthropic、OpenRouter；user-level restricted-file store、env/store、显式 profile>default>env>legacy、CLI/TUI/stdio 共用 service、严格四字段 `providers.add`、local status/显式 probe、logout active-run fence、非破坏迁移；无参数 `/connect` 为消费级 Ink 向导，普通路径隐藏 profile 并固定 `default`；自定义 compatible 逐步填写名称/ID/HTTPS URL/模型并保存后，均复用 Java masked Console/ENV 名称直接认证和选择模型；普通向导 login/models.use 显式持久默认并经 store 重开验证，已有 custom 有界稳定排序重现，保存 in-flight 锁定重复导航；`models.add/remove/use` exact result 已经真实 StdioClient child 验证；带参数命令保持高级兼容；禁止 secret durable/argv/evidence 与 silent rotation/failover，OAuth 仅留官方扩展；实现 Commit `f0e274f779143164e0859961437a53acd220e7bd` 已完成 L1 commit-scoped G6，G5 仅有离线 Demo，双 Provider 在线证据仍缺失 | L1 | S15 | AUTH-01/CODEX-0.147/OPENCODE-DOC-20260813/OPENCLAW-DOC-20260813 |
@@ -319,8 +319,8 @@ Stage 完成项。
 | TOOL-07 | Git Status / Diff | 脏工作区和证据 | L2 | S03/S04 | REF-02 |
 | TOOL-08 | Apply Patch / Edit | LF/CRLF 规范精确匹配、BOM/换行外观保留、先读覆盖证据、冲突重检、同目录原子替换与有界摘要 | L1 | S04 | REF-02/AUTH-01 |
 | TOOL-09 | Write / Create | 仅创建新 UTF-8 文件、父目录 realpath 与禁止覆盖 | L1 | S04 | REF-02/AUTH-01 |
-| TOOL-10 | Run Command | 固定 Shell/Workspace/审批/timeout；非零退出为 FAILURE/PROCESS_EXIT 且保留有界证据 | L1 | S04/S15 | REF-02/AUTH-01 |
-| TOOL-11 | Tool Output Streaming | 有界 stdout/stderr Lifecycle/stdio v0/TUI Event | L1 | S04 | REF-02/AUTH-01 |
+| TOOL-10 | Run Command | 固定 Shell/Workspace/审批/timeout；成功/非零/timeout/cancel 的实际 exit fact 结构化投影，未执行失败不伪造 | L1 | S04/S15 | REF-02/AUTH-01 |
+| TOOL-11 | Tool Output Streaming | 有界结构化 stdout/stderr Lifecycle/stdio v0/TUI Event；通用相邻等价行压缩、默认折叠与终态历史 viewer | L1 | S04/S15 | REF-02/AUTH-01 |
 | TOOL-12 | Result Truncation | 显式截断、超长行计数、与已返回正文一致的结构化 continuation 和摘要 | L2 | S03/S07 | REF-01/AUTH-01 |
 | TOOL-13 | Structured Tool Error | code + typed category/retryable；Run 内 canonical failure fingerprint 要求策略变化 | L2 | S01/S03/S15 | REF-01/AUTH-01 |
 | TOOL-14 | Tool Cancellation | 文件提交前取消 L1 → Process 取消与进程树 L2 | L1 | S04 | REF-02 |
@@ -346,7 +346,7 @@ Stage 完成项。
 | PERM-11 | Denial Tracking | 重复拒绝降级 | L2 | S05/S14 | REF-01/04 |
 | PERM-12 | Project/User/Managed Scope | user/project/local Settings 来源与 Session overlay；Managed Policy 延期 S13 | L2 | S08/S13 | REF-04 |
 | PERM-13 | Print Mode Policy | 无交互时确定性处理 ASK | L2 | S05 | REF-04 |
-| PLAN-01 | Durable Plan Workflow | ADR-076/077/078：Session-owned revisioned Markdown PlanArtifact、revision+digest CAS、canonical journal/manifest 恢复与 Fork 隔离；持续规划按 capability/effect 双 Gate 开放只读/Plan controls。review 事件严格分离 content/workspace digest；四项单一 Ink picker 的一次 Enter 发送 `plan.review.resolve`，Java 原子校验 revision、提交携带 immutable ExecutionBrief 的 APPROVED、选择 USER/AUTO_REVIEW 与 keep/clear、接受正常 Agent Run；Markdown 直接作为不可信自然语言进入统一 Pipeline，不解析 legacy triple。feedback/reject、APPROVED 显式恢复、EXECUTING recovery gate、取消/终态和真实 Java stdio E2E 已覆盖；旧 PlanDocument/plan.execute 仅隐藏兼容且 durable 调用固定拒绝。Batch 5 又加入 codej 独立 PlanEvidenceLedger：受控声明交付/验证要求，绑定 approved revision/ExecutionBrief/workspace digest，只以 WorkspaceGuard 文件与 canonical 成功 ToolResult 作为证据；普通 Run 完成但证据不足进入 NEEDS_VERIFICATION，typed user skip durable/auditable。安装包 commit/source/JAR/TUI digest 和真实 Java stdio smoke 已验证。真实 Provider 计划质量/完整跨平台故障矩阵/多人冲突/稳定 migration 与 L4 A/B Eval 尚缺，因此保持 L1 | L1 | S15 | REF-01/AUTH-01 |
+| PLAN-01 | Durable Plan Workflow | ADR-076/077/078/081：Session-owned revisioned Markdown PlanArtifact、revision+digest CAS、canonical journal/manifest 恢复与 Fork 隔离；持续规划按 capability/effect 双 Gate 开放只读/Plan controls。ADR-081 将 CAS bookkeeping 收回 trusted application control plane：模型只提交 Markdown 或空 review intent，run-scoped Tool 加载最新 DRAFT 后 CAS；active Run 检查、feedback 转 DRAFT 与 Scope 占用原子收敛；真正并发冲突仅由 trusted Plan Tool 映射 typed/fail-closed，外部 Tool 不能伪造或绕过重复失败治理，旧 CAS payload 仅为 schema 外兼容。review 事件严格分离 content/workspace digest；四项单一 Ink picker 的一次 Enter 发送 `plan.review.resolve`，Java 原子校验 revision、提交携带 immutable ExecutionBrief 的 APPROVED、选择 USER/AUTO_REVIEW 与 keep/clear、接受正常 Agent Run；executor 接受后由无 timeout 的一次性 gate 保证 `plan.execution.accepted` 成功投影才进入 `runAcceptedPlan`，enqueue/transport/close 失败释放尚未开始的 acceptance。Markdown 直接作为不可信自然语言进入统一 Pipeline，不解析 legacy triple。真实 Java Fixture 使用系统临时父目录内最小 Git Workspace，避免冷 Maven、大 dirty repo 与杀软污染 digest/`git_status` 生命周期证据；feedback/reject、APPROVED 显式恢复、EXECUTING recovery gate、取消/终态和真实 Java stdio E2E 已覆盖；旧 PlanDocument/plan.execute 仅隐藏兼容且 durable 调用固定拒绝。Batch 5 又加入 codej 独立 PlanEvidenceLedger：受控声明交付/验证要求，绑定 approved revision/ExecutionBrief/workspace digest；VERIFICATION locator 必须绑定当前注册 BUILT_IN Tool，DRAFT 同 identity 可确定性 replacement，完全相同重试不 save/不推进 revision，只以 WorkspaceGuard 文件与 canonical 成功 ToolResult 作为证据；普通 Run 完成但证据不足进入 NEEDS_VERIFICATION，typed user skip durable/auditable。安装包 commit/source/JAR/TUI digest 和真实 Java stdio smoke 已验证。ADR-084 进一步将模型失败/重试耗尽/取消/deadline/incomplete stream 投影为 `plan.execution.failed`，不再误报 `plan.verification.required`，且只允许 durable 显式恢复、不自动重放副作用。真实 Provider 计划质量/完整跨平台故障矩阵/多人冲突/稳定 migration 与 L4 A/B Eval 尚缺，因此保持 L1 | L1 | S15 | REF-01/AUTH-01 |
 
 ## 12. Lifecycle / Hooks 对照
 
@@ -392,14 +392,14 @@ Stage 完成项。
 | CTX-03 | Hierarchical Instructions | User/Project/Directory | L2 | S08 | REF-05 |
 | CTX-04 | Path-scoped Rules | 只在相关目标路径加载并保持固定顺序 | L2 | S08 | REF-05 |
 | CTX-05 | Tool Result Limits | 类型化裁剪 | L2 | S03/S04 | REF-01 |
-| CTX-06 | Token Budget | 显式容量元组的 model-aware 预算与来源 Usage View；`codej` 默认显式传递 256,000/8,192/4,096 且允许覆盖 | L2 | S07 | REF-01/02 |
+| CTX-06 | Token Budget | 显式容量元组的 model-aware 预算与来源 Usage View；TUI 分栏显示累计 Provider Usage 与当前 Context used/max；`codej` 默认显式传递 256,000/8,192/4,096 且允许覆盖 | L2 | S07/S15 | REF-01/02 |
 | CTX-07 | Complete Turn Eviction | 完整 Tool Call/Result 协议边界、C2 占位与 Canonical 不变 | L2 | S07 | REF-01 |
 | CTX-08 | Old Tool Output Clear | 按压力选择 C2 清理低价值旧 Tool 输出 | L2 | S07 | REF-02 |
 | CTX-09 | Conversation Summary | C3/C4 有界候选、严格提交 Gate 与零 Tool Provider Summarizer | L2 | S07 | REF-01/02 |
 | CTX-10 | Multi-level Compaction | C1/C2 后条件式 C3→C4、预算满足即停 | L2 | S07 | REF-01 |
 | CTX-11 | Thrashing Guard | Run/revision/tier 冷却与单次 typed-overflow 恢复 | L2 | S07 | REF-02 |
 | CTX-12 | Compact Instructions | 无参数时针对当前 Session、有界 anchors 可选的显式 compact，经既有 S07 Gate 生成一次性下一 Run 首个模型请求 Projection | L2 | S08 | REF-02 |
-| CTX-13 | `/context` | 最新 `ContextUsageView` 的数值/枚举白名单命令、stdio/封闭 Slash/TUI 协议投影 | L2 | S07/S08 | REF-02 |
+| CTX-13 | `/context` | 最新 `ContextUsageView` 的数值/枚举白名单命令、stdio/封闭 Slash/TUI 协议投影；Surface 明确区分估算/实测 | L2 | S07/S08/S15 | REF-02 |
 | CTX-14 | Skill Lazy Loading | Metadata-first catalog，正文/资源仅在调用时进入 transient Projection；S11 Commit-scoped 验收达到 L2 | L2 | S11 | REF-03 |
 | CTX-15 | Sub-Agent Isolation | 独立 child Session/Context/Permission/Tool scope 与 Workspace identity；完整 transcript/正文不注入父 Context，仅有界 report 与 Hook context | L2 | S12 | REF-02/03 |
 | CTX-16 | Prompt Cache | 通用 S07 Projection 保持正确性；Provider cache/native editing 仅受 capability/gate 控制，真实 A/B 未达 L2 | L1 | S14 | REF-01/AUTH-01 |
@@ -498,8 +498,8 @@ Stage 完成项。
 | --- | --- | --- | --- | --- | --- |
 | OBS-01 | Agent Event | 可重放控制流 | L1 | S01 | REF-01 |
 | OBS-02 | Turn/Tool Timing | S02 事件边界采集 L2 → S14 Metrics Backend L3 | L2 | S02/S14 | REF-01/AUTH-01 |
-| OBS-03 | Token / Cost | S02 可信 Provider Usage L2 → S14 Cost 治理 L3 | L2 | S02/S14 | REF-01/AUTH-01 |
-| OBS-04 | Stop / Recovery Analytics | production 从 RunTelemetry 投影真实 run/turn/tool/stop latency 与 usage-known；当前无独立 retry/recovery/cost-known 权威事件，因此不声明这些信号，保持 L1 | L1 | S07/S08/S14 | REF-01/AUTH-01 |
+| OBS-03 | Token / Cost | S02 可信 Provider Usage；TUI 区分累计 Provider 实测/部分实测与 Context estimate kind → S14 Cost 治理 L3 | L2 | S02/S14/S15 | REF-01/AUTH-01/CODEX-0.147 |
+| OBS-04 | Stop / Recovery Analytics | production 从 RunTelemetry 投影真实 run/turn/tool/stop latency 与 usage-known；ADR-084 新增 privacy-safe model attempt/retry-wait lifecycle 与 stdio/TUI 进度，但尚无稳定外部协议、完整 retry/recovery/cost-known Metrics backend，保持 L1 | L1 | S07/S08/S14/S15 | REF-01/AUTH-01 |
 | OBS-05 | Privacy Controls | S02 最小化 Telemetry L2 → S14 Export Policy L3 | L2 | S02/S14 | REF-01/AUTH-01 |
 | OBS-06 | OpenTelemetry | direct SDK adapter 与真实 Headless production lifecycle wiring、真实非零 duration/usage-known、隐私白名单、故障隔离、有界 drop、flush/close 已验证；retry/recovery/cost-known 归 OBS-04/L3 gap | L2 | S14 | REF-01/AUTH-01/CODEX-0.147 |
 | EVAL-01 | Seed Tasks | 12 个注册 seed×5 共 60 次真实 production-harness 路径，覆盖 direct final、built-in Tool loop、Call/Result ID、permission/tool failure 恢复、cancel、limit、context preparation、canonical Session create/continue/resume、SDK 与 stable initialize/run/event/唯一 terminal/idempotency；真实 Provider suite 分开计数，保持 L1 | L1 | S04/S14 | REF-01 |
@@ -786,7 +786,7 @@ ADR-063/064 冻结的范围已在实现 Commit `8a75d5f5e977ce4c5fcd19fafb3e5776
 
 ### S15：Independent Innovation
 
-状态：`IN_PROGRESS`，Stage Exit `OPEN`。ADR-067/068 的 `TOOL-18 L2` 与真实 Exa/codej 证据继续有效；网络读取仍经唯一 Permission/Approval/Hook/Pipeline，NetworkAccessPort 不是 OS Sandbox。ADR-076/077 已把 `PLAN-01` 推进为 durable continuous-planning L1：`/plan <task>` 在同一 Session 复用 AgentRuntime/ModelGateway/Context/Canonical Transcript，按显式 capability/effect 开放本地只读、Permission-gated 只读网络、唯一 PlanArtifact CAS 写入与 callId 结构化问题，并在 definitions 与 Pipeline 双重拒绝 Workspace mutation、process 和未声明能力的外部 Tool。模型可增量维护 Markdown；request-review 只发布已提交 revision，stdio/Ink 不显示 Tool/final JSON；反馈执行 `AWAITING_APPROVAL -> DRAFT` 并保持同一 planId/revision chain，Resume 可继续。旧严格 JSON parser、`PlanDocument`、`plan.proposed` 和 execute 命令只保留内部兼容，不属于新 TUI `/plan task` 路径。离线 Fake/loopback 覆盖 read→update→ask→answer→update→review、network deny hit=0、mutation/external default denial、duplicate/late/cancel/disconnect、feedback/revision/Resume。Batch 3 已完成 durable review 原子 approval-to-execution、ExecutionBrief、USER/AUTO、keep/clear 和 restart recovery；真实 Provider 计划质量、完整 fault matrix 与 S15 L4 A/B Eval 尚缺；Batch 5 Evidence Gate/安装版构建身份闭环已完成但不改变 Capability Level，`PLAN-01` 保持 L1，Stage Exit 保持 OPEN。S07 的 Context compaction 证据继续有效。 Batch 4 又完成 adaptive interactive budget、typed Tool failure taxonomy、Run-owned repeated-failure governance、Web 403/429/5xx 与 command process-exit 语义；本轮不提升 Capability Level，S15 仍 OPEN。
+状态：`IN_PROGRESS`，Stage Exit `OPEN`。ADR-067/068 的 `TOOL-18 L2` 与真实 Exa/codej 证据继续有效；网络读取仍经唯一 Permission/Approval/Hook/Pipeline，NetworkAccessPort 不是 OS Sandbox。ADR-076/077 已把 `PLAN-01` 推进为 durable continuous-planning L1：`/plan <task>` 在同一 Session 复用 AgentRuntime/ModelGateway/Context/Canonical Transcript，按显式 capability/effect 开放本地只读、Permission-gated 只读网络、唯一 PlanArtifact CAS 写入与 callId 结构化问题，并在 definitions 与 Pipeline 双重拒绝 Workspace mutation、process 和未声明能力的外部 Tool。模型可增量维护 Markdown；request-review 只发布已提交 revision，stdio/Ink 不显示 Tool/final JSON；反馈执行 `AWAITING_APPROVAL -> DRAFT` 并保持同一 planId/revision chain，Resume 可继续。旧严格 JSON parser、`PlanDocument`、`plan.proposed` 和 execute 命令只保留内部兼容，不属于新 TUI `/plan task` 路径。离线 Fake/loopback 覆盖 read→update→ask→answer→update→review、network deny hit=0、mutation/external default denial、duplicate/late/cancel/disconnect、feedback/revision/Resume。Batch 3 已完成 durable review 原子 approval-to-execution、ExecutionBrief、USER/AUTO、keep/clear 和 restart recovery；真实 Provider 计划质量、完整 fault matrix 与 S15 L4 A/B Eval 尚缺；Batch 5 Evidence Gate/安装版构建身份闭环已完成但不改变 Capability Level；Batch 7 又修复 durable approval execution Run 的 requestId 预投影、协议拒绝回滚、unknown/late event 安全忽略及 projection/transport 状态分离，并要求真实 Java/安装版通过 Ink reducer/render 验证。`PLAN-01` 保持 L1，Stage Exit 保持 OPEN。S07 的 Context compaction 证据继续有效。 Batch 4 又完成 adaptive interactive budget、typed Tool failure taxonomy、Run-owned repeated-failure governance、Web 403/429/5xx 与 command process-exit 语义；本轮不提升 Capability Level，S15 仍 OPEN。
 
 ADR-069/070 冻结的 `MODEL-13` Provider/Auth 受控双源研究与契约已绑定实现 Commit `f0e274f779143164e0859961437a53acd220e7bd`：本地直连 BYOK，不建设官方中转 Gateway；ProviderDefinition 与多 CredentialProfile/SecretRef 分离，覆盖 OpenAI-compatible、Anthropic、OpenRouter，提供 `/connect`、`/auth list/logout`、`/models` 及 headless 对等入口。list/status 零网络，probe 显式有界；profile 优先级为显式→default→env→legacy，logout 对同进程 active run 建 fence/cancel/drain 并明确不等于 Provider revoke。secret 不进入 Domain/Session/log/event/error/argv/evidence；普通文件只能称权限受限存储；不实现 silent rotation/failover、Gateway、SQLite 或通用 OAuth。`MODEL-13` L1 切片已完成 commit-scoped G6；G5 仅有离线 Demo，双 Provider 在线证据仍缺失，不得虚报；S15 Stage Exit 仍为 OPEN。
 

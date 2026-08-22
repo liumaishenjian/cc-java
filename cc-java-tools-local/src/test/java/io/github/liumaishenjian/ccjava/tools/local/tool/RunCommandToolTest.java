@@ -48,8 +48,17 @@ class RunCommandToolTest {
         assertThat(result.error().orElseThrow().category())
                 .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolFailureCategory.PROCESS_EXIT);
         assertThat(result.error().orElseThrow().retryable()).isFalse();
+        assertThat(result.error().orElseThrow().details().values())
+                .containsEntry("exitCode", 9);
         assertThat(result.content())
                 .contains("workingDirectory: .", "exitCode: 9", "failed-test");
+    }
+
+    @Test
+    void omitsUnknownTerminatedExitCodeButKeepsObservedCode() {
+        assertThat(RunCommandTool.commandExitDetails(-1).values()).isEmpty();
+        assertThat(RunCommandTool.commandExitDetails(137).values())
+                .containsEntry("exitCode", 137);
     }
 
     private static ToolInvocation invocation(String command) {

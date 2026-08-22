@@ -16,6 +16,59 @@ describe('decodeEvent', () => {
     expect(event.payload.text).toBe('你好');
   });
 
+  it('严格接受模型阶段、Provider Usage 与上下文估算投影', () => {
+    const started = {
+      version: 0, type: 'model.turn.started', requestId: 'req-1', sessionId: 'session-1',
+      runId: 'run-1', sequence: 1, payload: {turn: 2},
+    };
+    expect(decodeEvent(JSON.stringify(started), 1).payload.turn).toBe(2);
+    const completed = {
+      ...started, type: 'model.turn.completed', sequence: 2,
+      payload: {
+        turn: 2, finishReason: 'tool_calls',
+        usage: {inputTokens: 1_200, outputTokens: 80, totalTokens: 1_280},
+        context: {usedTokens: 4_000, maximumInputTokens: 128_000, estimateKind: 'estimated'},
+      },
+    };
+    expect(decodeEvent(JSON.stringify(completed), 2).payload.usage).toEqual(completed.payload.usage);
+    expect(() => decodeEvent(JSON.stringify({
+      ...completed, payload: {...completed.payload, reasoning: 'PRIVATE_CHAIN_OF_THOUGHT'},
+    }), 2)).toThrowError(/model\.turn\.completed/);
+    expect(() => decodeEvent(JSON.stringify({
+      ...completed, payload: {...completed.payload,
+        usage: {...completed.payload.usage, totalTokens: 1}},
+    }), 2)).toThrowError(/Usage/);
+  });
+
+  it('严格接受模型重试与 Plan 执行失败的脱敏投影', () => {
+    const attempt = {
+      version: 0, type: 'model.retry.attempt.started', requestId: 'req-retry',
+      sessionId: 'session-1', runId: 'run-1', sequence: 1,
+      payload: {turn: 1, attempt: 2, maxAttempts: 11},
+    };
+    expect(decodeEvent(JSON.stringify(attempt), 1).payload.attempt).toBe(2);
+    const scheduled = {
+      ...attempt, type: 'model.retry.scheduled', sequence: 2,
+      payload: {turn: 1, failedAttempt: 1, nextAttempt: 2, maxAttempts: 11,
+        waitMillis: 2_000, category: 'rate_limited'},
+    };
+    expect(decodeEvent(JSON.stringify(scheduled), 2).payload.waitMillis).toBe(2_000);
+    const planFailure = {
+      version: 0, type: 'plan.execution.failed', requestId: 'req-plan',
+      sessionId: 'session-1', sequence: 3,
+      payload: {planId: 'plan-1', status: 'failed', stopReason: 'model_retry_exhausted',
+        modelFailure: {category: 'provider_unavailable', statusClass: '5xx',
+          attempts: 11, receivedOutput: false}},
+    };
+    expect(decodeEvent(JSON.stringify(planFailure), 3).payload.status).toBe('failed');
+    expect(() => decodeEvent(JSON.stringify({...scheduled, payload: {
+      ...scheduled.payload, endpoint: 'https://private.example',
+    }}), 2)).toThrowError(/model\.retry\.scheduled/);
+    expect(() => decodeEvent(JSON.stringify({...planFailure, payload: {
+      ...planFailure.payload, body: 'SECRET_PROVIDER_BODY',
+    }}), 3)).toThrowError(/plan\.execution\.failed/);
+  });
+
   it('接受关联 Run 的类型化预算治理事件', () => {
     const event = decodeEvent(JSON.stringify({
       version: 0, type: 'run.budget.governed', requestId: 'req-budget',
@@ -455,6 +508,13 @@ describe('decodeEvent', () => {
     }), 1);
 
     expect(event.payload.returnedItems).toBe(12);
+    const command = {...event, payload: {
+      ordinal: 2, toolName: 'run_command', status: 'failed', exitCode: 9,
+    }};
+    expect(decodeEvent(JSON.stringify(command), 1).payload.exitCode).toBe(9);
+    expect(() => decodeEvent(JSON.stringify({
+      ...command, payload: {...command.payload, exitCode: -2},
+    }), 1)).toThrowError(/退出码/);
     expect(() => decodeEvent(JSON.stringify({
       ...event,
       payload: {...event.payload, mode: 'raw'},

@@ -2,14 +2,18 @@ package io.github.liumaishenjian.ccjava.model.springai;
 
 import com.openai.core.http.Headers;
 import com.openai.errors.BadRequestException;
-import com.openai.errors.InternalServerException;
 import com.openai.errors.OpenAIRetryableException;
-import com.openai.errors.RateLimitException;
 import com.openai.models.ErrorObject;
 import io.github.liumaishenjian.ccjava.core.CancellationSource;
 import io.github.liumaishenjian.ccjava.core.CancellationToken;
+import io.github.liumaishenjian.ccjava.core.ModelDiagnosticRecorder;
 import io.github.liumaishenjian.ccjava.core.ModelGatewayException;
+import io.github.liumaishenjian.ccjava.core.ModelRetryPolicy;
+import io.github.liumaishenjian.ccjava.core.RetryingModelGateway;
+import io.github.liumaishenjian.ccjava.domain.ModelDiagnosticEvent;
+import io.github.liumaishenjian.ccjava.domain.ModelDiagnosticMode;
 import io.github.liumaishenjian.ccjava.domain.ModelFailureCategory;
+import io.github.liumaishenjian.ccjava.domain.ModelFailureReason;
 import io.github.liumaishenjian.ccjava.domain.ModelFinishReason;
 import io.github.liumaishenjian.ccjava.domain.ModelRequest;
 import io.github.liumaishenjian.ccjava.domain.ModelTurn;
@@ -18,6 +22,9 @@ import io.github.liumaishenjian.ccjava.domain.SessionId;
 import io.github.liumaishenjian.ccjava.domain.ToolDefinition;
 import io.github.liumaishenjian.ccjava.domain.UserMessage;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.metadata.ChatGenerationMetadata;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
@@ -29,13 +36,18 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import reactor.core.publisher.Flux;
 
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -276,6 +288,95 @@ class SpringAiModelGatewayTest {
     }
 
     @Test
+    void timeoutAfterAnyProviderFrameIsIncompleteEvenWithoutVisibleDelta() {
+        Flux<ChatResponse> responses = Flux.concat(
+                Flux.just(response("", null, null)),
+                Flux.error(new java.util.concurrent.TimeoutException("private timeout")));
+        SpringAiModelGateway gateway = new SpringAiModelGateway(
+                new RecordingChatModel(responses),
+                "test-model");
+
+        assertThat(captureFailure(gateway).kind())
+                .isEqualTo(ModelGatewayException.FailureKind.INCOMPLETE_STREAM);
+    }
+
+    @ParameterizedTest(name = "{0} before first frame -> {2}/{3}")
+    @MethodSource("transportFailures")
+    void classifiesConcreteTransportFailuresBeforeFirstFrame(
+            String name,
+            Throwable transportFailure,
+            ModelFailureCategory expectedCategory,
+            ModelFailureReason expectedReason) {
+        List<ModelDiagnosticEvent> events = new ArrayList<>();
+        SpringAiModelGateway gateway = gatewayFailure(transportFailure, events);
+
+        ModelGatewayException failure = captureFailure(gateway);
+
+        assertThat(failure.kind()).isEqualTo(ModelGatewayException.FailureKind.RETRYABLE);
+        assertThat(failure.summary()).hasValueSatisfying(summary -> {
+            assertThat(summary.category()).isEqualTo(expectedCategory);
+            assertThat(summary.receivedOutput()).isFalse();
+        });
+        assertThat(events).singleElement().satisfies(event -> {
+            assertThat(event.reason()).isEqualTo(expectedReason);
+            assertThat(event.receivedProviderFrame()).isFalse();
+        });
+        assertThat(failure.getMessage()).doesNotContain("private");
+    }
+
+    @ParameterizedTest(name = "{0} after provider frame -> incomplete stream")
+    @MethodSource("transportFailures")
+    void classifiesEveryConcreteTransportFailureAfterAnyFrameAsIncompleteStream(
+            String name,
+            Throwable transportFailure,
+            ModelFailureCategory ignoredCategory,
+            ModelFailureReason expectedRootReason) {
+        List<ModelDiagnosticEvent> events = new ArrayList<>();
+        AtomicInteger subscriptions = new AtomicInteger();
+        Flux<ChatResponse> responses = Flux.defer(() -> {
+            subscriptions.incrementAndGet();
+            return Flux.concat(
+                    Flux.just(response("", null, null)),
+                    Flux.error(transportFailure));
+        });
+        RetryingModelGateway gateway = new RetryingModelGateway(
+                gateway(responses, events),
+                new ModelRetryPolicy(3, List.of(Duration.ZERO, Duration.ZERO)));
+
+        ModelGatewayException failure = captureFailure(gateway);
+
+        assertThat(failure.kind()).isEqualTo(ModelGatewayException.FailureKind.INCOMPLETE_STREAM);
+        assertThat(subscriptions).hasValue(1);
+        assertThat(failure.summary()).hasValueSatisfying(summary -> {
+            assertThat(summary.category()).isEqualTo(ModelFailureCategory.INCOMPLETE_STREAM);
+            assertThat(summary.receivedOutput()).isTrue();
+        });
+        assertThat(events).singleElement().satisfies(event -> {
+            ModelFailureReason expected = expectedRootReason == ModelFailureReason.TIMEOUT
+                    ? ModelFailureReason.TIMEOUT
+                    : ModelFailureReason.TRANSPORT_CLOSED;
+            assertThat(event.reason()).isEqualTo(expected);
+            assertThat(event.receivedProviderFrame()).isTrue();
+        });
+    }
+
+    private static Stream<Arguments> transportFailures() {
+        return Stream.of(
+                Arguments.of("dns", new java.net.UnknownHostException("private dns"),
+                        ModelFailureCategory.NETWORK_ERROR, ModelFailureReason.NETWORK_IO),
+                Arguments.of("connect", new java.net.ConnectException("private connect"),
+                        ModelFailureCategory.NETWORK_ERROR, ModelFailureReason.NETWORK_IO),
+                Arguments.of("reset", new java.net.SocketException("private reset"),
+                        ModelFailureCategory.NETWORK_ERROR, ModelFailureReason.NETWORK_IO),
+                Arguments.of("socket-timeout", new java.net.SocketTimeoutException("private socket timeout"),
+                        ModelFailureCategory.REQUEST_TIMEOUT, ModelFailureReason.TIMEOUT),
+                Arguments.of("http-timeout", new java.net.http.HttpTimeoutException("private http timeout"),
+                        ModelFailureCategory.REQUEST_TIMEOUT, ModelFailureReason.TIMEOUT),
+                Arguments.of("tls", new javax.net.ssl.SSLHandshakeException("private tls"),
+                        ModelFailureCategory.NETWORK_ERROR, ModelFailureReason.NETWORK_IO));
+    }
+
+    @Test
     void classifiesRetryableFailureBeforeFirstResponse() {
         SpringAiModelGateway gateway = new SpringAiModelGateway(
                 new RecordingChatModel(Flux.error(
@@ -350,28 +451,69 @@ class SpringAiModelGatewayTest {
         assertThat(failure.getMessage()).doesNotContain("private");
     }
 
-    @Test
-    void rateLimitAndServerErrorsRemainRetryable() {
-        ModelGatewayException rateLimit = captureFailure(gatewayFailure(
-                RateLimitException.builder()
-                        .headers(Headers.builder().build())
-                        .error(error("rate_limit", "private"))
-                        .build()));
-        ModelGatewayException server = captureFailure(gatewayFailure(
-                InternalServerException.builder()
-                        .statusCode(503)
-                        .headers(Headers.builder().build())
-                        .error(error("server_error", "private"))
-                        .build()));
+    @ParameterizedTest(name = "HTTP {0} -> {1}/{2}")
+    @MethodSource("httpStatusClassifications")
+    void classifiesHttpStatusMatrixDirectly(
+            int status,
+            ModelGatewayException.FailureKind expectedKind,
+            ModelFailureCategory expectedCategory) {
+        ModelGatewayException failure = captureFailure(gatewayFailure(
+                serviceFailure(status, Headers.builder().build())));
 
-        assertThat(rateLimit.kind()).isEqualTo(ModelGatewayException.FailureKind.RETRYABLE);
-        assertThat(rateLimit.summary()).hasValueSatisfying(summary ->
-                assertThat(summary.category()).isEqualTo(ModelFailureCategory.RATE_LIMITED));
-        assertThat(server.kind()).isEqualTo(ModelGatewayException.FailureKind.RETRYABLE);
-        assertThat(server.summary()).hasValueSatisfying(summary ->
-                assertThat(summary.category()).isEqualTo(ModelFailureCategory.PROVIDER_UNAVAILABLE));
-        assertThat(rateLimit.getMessage()).doesNotContain("private");
-        assertThat(server.getMessage()).doesNotContain("private");
+        assertThat(failure.kind()).isEqualTo(expectedKind);
+        assertThat(failure.summary()).hasValueSatisfying(summary ->
+                assertThat(summary.category()).isEqualTo(expectedCategory));
+    }
+
+    private static Stream<Arguments> httpStatusClassifications() {
+        return Stream.of(
+                Arguments.of(408, ModelGatewayException.FailureKind.RETRYABLE,
+                        ModelFailureCategory.REQUEST_TIMEOUT),
+                Arguments.of(409, ModelGatewayException.FailureKind.RETRYABLE,
+                        ModelFailureCategory.REQUEST_CONFLICT),
+                Arguments.of(429, ModelGatewayException.FailureKind.RETRYABLE,
+                        ModelFailureCategory.RATE_LIMITED),
+                Arguments.of(500, ModelGatewayException.FailureKind.RETRYABLE,
+                        ModelFailureCategory.PROVIDER_UNAVAILABLE),
+                Arguments.of(503, ModelGatewayException.FailureKind.RETRYABLE,
+                        ModelFailureCategory.PROVIDER_UNAVAILABLE),
+                Arguments.of(529, ModelGatewayException.FailureKind.RETRYABLE,
+                        ModelFailureCategory.PROVIDER_UNAVAILABLE),
+                Arguments.of(400, ModelGatewayException.FailureKind.PERMANENT,
+                        ModelFailureCategory.INVALID_REQUEST),
+                Arguments.of(401, ModelGatewayException.FailureKind.PERMANENT,
+                        ModelFailureCategory.AUTHENTICATION_FAILED),
+                Arguments.of(403, ModelGatewayException.FailureKind.PERMANENT,
+                        ModelFailureCategory.AUTHENTICATION_FAILED),
+                Arguments.of(404, ModelGatewayException.FailureKind.PERMANENT,
+                        ModelFailureCategory.INVALID_REQUEST));
+    }
+
+    @ParameterizedTest(name = "Retry-After {0}")
+    @MethodSource("retryAfterHeaders")
+    void acceptsOnlyUniqueDeltaSecondsAndCapsAtFiveMinutes(
+            String name,
+            List<String> values,
+            Duration expected) {
+        Headers headers = Headers.builder().put("retry-after", values).build();
+        ModelGatewayException failure = captureFailure(gatewayFailure(serviceFailure(429, headers)));
+
+        if (expected == null) {
+            assertThat(failure.retryAfter()).isEmpty();
+        } else {
+            assertThat(failure.retryAfter()).contains(expected);
+        }
+    }
+
+    private static Stream<Arguments> retryAfterHeaders() {
+        return Stream.of(
+                Arguments.of("unique delta-seconds", List.of("17"), Duration.ofSeconds(17)),
+                Arguments.of("five minute cap", List.of("301"), Duration.ofMinutes(5)),
+                Arguments.of("negative ignored", List.of("-1"), null),
+                Arguments.of("decimal ignored", List.of("1.5"), null),
+                Arguments.of("http date ignored", List.of("Sat, 22 Aug 2026 10:00:00 GMT"), null),
+                Arguments.of("overflow ignored", List.of("99999999999"), null),
+                Arguments.of("duplicate ignored", List.of("1", "2"), null));
     }
 
     @Test
@@ -450,10 +592,39 @@ class SpringAiModelGatewayTest {
                 new RecordingChatModel(Flux.error(failure)), "test-model");
     }
 
+    private static SpringAiModelGateway gatewayFailure(
+            Throwable failure,
+            List<ModelDiagnosticEvent> events) {
+        return gateway(Flux.error(failure), events);
+    }
+
+    private static SpringAiModelGateway gateway(
+            Flux<ChatResponse> responses,
+            List<ModelDiagnosticEvent> events) {
+        return new SpringAiModelGateway(
+                new RecordingChatModel(responses),
+                "test-model",
+                new ModelDiagnosticRecorder(
+                        ModelDiagnosticMode.SAFE,
+                        events::add,
+                        Clock.fixed(Instant.EPOCH, ZoneOffset.UTC),
+                        () -> 1_000_000L));
+    }
+
     private static BadRequestException badRequest(String code, String message) {
         return BadRequestException.builder()
                 .headers(Headers.builder().build())
                 .error(error(code, message))
+                .build();
+    }
+
+    private static com.openai.errors.UnexpectedStatusCodeException serviceFailure(
+            int status,
+            Headers headers) {
+        return com.openai.errors.UnexpectedStatusCodeException.builder()
+                .statusCode(status)
+                .headers(headers)
+                .error(error("status_" + status, "private"))
                 .build();
     }
 
@@ -469,6 +640,16 @@ class SpringAiModelGatewayTest {
     private static ModelGatewayException captureFailure(SpringAiModelGateway gateway) {
         try {
             gateway.complete(request(List.of()), ignored -> { }, CancellationToken.none());
+            throw new AssertionError("expected ModelGatewayException");
+        } catch (ModelGatewayException failure) {
+            return failure;
+        }
+    }
+
+    private static ModelGatewayException captureFailure(
+            io.github.liumaishenjian.ccjava.core.ModelGateway gateway) {
+        try {
+            gateway.complete(request(List.of()));
             throw new AssertionError("expected ModelGatewayException");
         } catch (ModelGatewayException failure) {
             return failure;

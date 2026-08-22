@@ -109,6 +109,8 @@ reader.on('line', line => {
         emit('steering.discarded', command.requestId, {reason: 'clear'}, sessionId);
       } else if (mode === 'steering-start-before-queued') {
         emit('run.started', command.requestId, {promptChars: command.payload.prompt.length}, sessionId, 'run-2');
+      } else if (mode === 'steering-late-terminal' && command.payload.prompt === 'late') {
+        emit('run.completed', command.requestId, {stopReason: 'completed'}, sessionId, 'run-late');
       } else {
         emit('steering.queued', command.requestId, {queueDepth: 1}, sessionId);
         emit('steering.discarded', command.requestId, {reason: 'clear'}, sessionId);
@@ -178,6 +180,42 @@ reader.on('line', line => {
         sessionId,
         activeRunId,
       );
+      activeRunId = undefined;
+      return;
+    }
+    if (mode === 'tool-output-terminal') {
+      emit('tool.started', command.requestId, {
+        ordinal: 1,
+        toolName: 'run_command',
+        status: 'started',
+        activity: 'run tests',
+      }, sessionId, activeRunId);
+      emit('tool.output', command.requestId, {
+        ordinal: 1,
+        toolName: 'run_command',
+        stream: 'stdout',
+        text: 'starting\n',
+      }, sessionId, activeRunId);
+      emit('tool.output', command.requestId, {
+        ordinal: 1,
+        toolName: 'run_command',
+        stream: 'stderr',
+        text: 'test failed\ntest failed\nother failure\n',
+      }, sessionId, activeRunId);
+      emit('tool.failed', command.requestId, {
+        ordinal: 1,
+        toolName: 'run_command',
+        status: 'failed',
+        failureCategory: 'process_exit',
+        errorCode: 'process_exit',
+        retryable: false,
+        exitCode: 9,
+      }, sessionId, activeRunId);
+      emit('run.failed', command.requestId, {
+        stopReason: 'tool_failure',
+        modelTurns: 1,
+        toolCalls: 1,
+      }, sessionId, activeRunId);
       activeRunId = undefined;
       return;
     }

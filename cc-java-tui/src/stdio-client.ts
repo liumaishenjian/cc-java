@@ -335,11 +335,18 @@ export class StdioClient {
       || this.#pendingRunStartRequestId !== undefined) {
       throw new Error('只有就绪 Session 可以决定 Plan review');
     }
-    const requestId = this.#send('plan.review.resolve', input, this.#sessionId);
+    const requestId = `tui-${this.#nextRequestNumber++}`;
     if (input.decision !== 'REJECT') {
       this.#pendingRunStartRequestId = requestId;
     }
-    return requestId;
+    try {
+      return this.#send('plan.review.resolve', input, this.#sessionId, undefined, requestId);
+    } catch (error) {
+      if (this.#pendingRunStartRequestId === requestId) {
+        this.#pendingRunStartRequestId = undefined;
+      }
+      throw error;
+    }
   }
 
   /** 隐藏兼容方法；durable review 的 UI 不再调用第二次 plan.execute。 */
@@ -816,15 +823,15 @@ export class StdioClient {
       }
       this.#sessionId = event.sessionId;
     } else if (event.type === 'run.started') {
-      if (event.sessionId !== this.#sessionId) {
-        throw new ProtocolViolation('run.started 与当前 Session 不匹配');
+      if (event.sessionId !== this.#sessionId || this.#activeRunId !== undefined) {
+        return;
       }
       if (event.requestId === this.#pendingRunStartRequestId) {
         this.#pendingRunStartRequestId = undefined;
       } else if (this.#pendingSteeringRequests.get(event.requestId) === 'queued') {
         this.#pendingSteeringRequests.delete(event.requestId);
       } else {
-        throw new ProtocolViolation('run.started 与已签发 run.start 请求不匹配');
+        return;
       }
       this.#activeRunId = event.runId;
     } else if (
@@ -832,6 +839,9 @@ export class StdioClient {
       || event.type === 'run.failed'
       || event.type === 'run.cancelled'
     ) {
+      if (event.sessionId !== this.#sessionId || event.runId !== this.#activeRunId) {
+        return;
+      }
       this.#activeRunId = undefined;
       this.#clearCancelTimer();
     }

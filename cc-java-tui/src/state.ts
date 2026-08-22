@@ -1,4 +1,10 @@
 import type {ProtocolEvent} from './protocol.js';
+import {
+  appendToolOutput as appendOutputChunk,
+  EMPTY_TOOL_OUTPUT,
+  finalizeToolOutput,
+  type ToolOutputBuffer,
+} from './tool-output.js';
 
 export type RunStatus = 'running' | 'completed' | 'cancelled' | 'failed';
 export type ClientPhase = 'connecting' | 'ready' | 'running' | 'closing' | 'closed' | 'failed';
@@ -44,6 +50,7 @@ export interface ToolView {
   readonly ordinal: number;
   readonly name: string;
   readonly mode: SearchMode | undefined;
+  readonly activity?: string | undefined;
   readonly status: 'started' | 'success' | 'failed' | 'denied';
   readonly returnedCharacters: number | undefined;
   readonly returnedItems: number | undefined;
@@ -53,7 +60,25 @@ export interface ToolView {
   readonly errorCode: string | undefined;
   readonly failureCategory: string | undefined;
   readonly retryable: boolean | undefined;
-  readonly output: string;
+  readonly exitCode: number | undefined;
+  readonly output: ToolOutputBuffer;
+}
+
+export interface ModelProgressView {
+  readonly turn: number;
+  readonly phase: 'thinking' | 'responding' | 'preparing_tools';
+  readonly providerInputTokens: number;
+  readonly providerOutputTokens: number;
+  readonly providerTotalTokens: number;
+  readonly usageReportedTurns: number;
+  readonly usageMissingTurns: number;
+  readonly contextUsedTokens: number | undefined;
+  readonly contextMaximumInputTokens: number | undefined;
+  readonly contextEstimateKind: 'estimated' | 'exact' | undefined;
+  readonly retryAttempt?: number | undefined;
+  readonly retryMaxAttempts?: number | undefined;
+  readonly retryWaitMillis?: number | undefined;
+  readonly retryCategory?: ModelFailureCategory | undefined;
 }
 
 export interface PlanProposalView {
@@ -96,15 +121,21 @@ export interface RunView {
   readonly runId: string | undefined;
   readonly text: string;
   readonly tools: readonly ToolView[];
+  readonly toolDetailOrdinal?: number | undefined;
+  readonly toolDetailExpanded?: boolean | undefined;
+  readonly modelProgress?: ModelProgressView | undefined;
   readonly pendingApproval?: ApprovalView | undefined;
   readonly planProposal?: PlanProposalView | undefined;
   readonly planReview?: PlanReviewView | undefined;
+  readonly planReviewSettled?: boolean | undefined;
   readonly pendingQuestion?: UserQuestionView | undefined;
   readonly status: RunStatus;
   readonly stopReason: string | undefined;
   readonly modelFailure?: ModelFailureView | undefined;
   readonly modelTurns: number | undefined;
   readonly toolCalls: number | undefined;
+  readonly planVerification?: string | undefined;
+  readonly awaitingPlanVerification?: boolean | undefined;
 }
 
 export type CheckpointPhase =
@@ -172,6 +203,9 @@ export interface TuiState {
   readonly pendingUndoCheckpointId: string | undefined;
   readonly checkpointUndo: CheckpointUndoView | undefined;
   readonly steeringQueueDepth?: number | undefined;
+  readonly historicalToolDetailRunId?: string | undefined;
+  readonly historicalToolDetailOrdinal?: number | undefined;
+  readonly historicalToolDetailOpen?: boolean | undefined;
   readonly notice: string | undefined;
 }
 
@@ -181,12 +215,16 @@ export type TuiAction =
     readonly requestId: string;
     readonly prompt: string;
     readonly steering?: boolean;
+    readonly awaitingPlanVerification?: boolean;
   }
+  | {readonly type: 'run.submission.rejected'; readonly requestId: string; readonly message: string}
   | {readonly type: 'approval.submitted'; readonly approvalId: string}
   | {readonly type: 'plan.status.received'; readonly requestId: string; readonly proposal: PlanProposalView}
   | {readonly type: 'checkpoint.selected'; readonly checkpointId: string}
   | {readonly type: 'checkpoint.undo.requested'; readonly checkpointId: string}
   | {readonly type: 'checkpoint.undo.cancelled'}
+  | {readonly type: 'tool.detail.next'}
+  | {readonly type: 'tool.detail.toggle'}
   | {readonly type: 'event.received'; readonly event: ProtocolEvent}
   | {readonly type: 'transport.failed'; readonly message: string}
   | {readonly type: 'slash.notice'; readonly message: string}
@@ -206,6 +244,9 @@ export const initialTuiState: TuiState = {
   pendingUndoCheckpointId: undefined,
   checkpointUndo: undefined,
   steeringQueueDepth: 0,
+  historicalToolDetailRunId: undefined,
+  historicalToolDetailOrdinal: undefined,
+  historicalToolDetailOpen: false,
   notice: undefined,
 };
 
@@ -228,6 +269,7 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
           ? Math.max(0, (state.steeringQueueDepth ?? 0) - 1)
           : state.steeringQueueDepth,
         notice: undefined,
+        historicalToolDetailOpen: false,
         runs: [
           ...state.runs,
           {
@@ -236,6 +278,8 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
             runId: undefined,
             text: '',
             tools: [],
+            modelProgress: undefined,
+            awaitingPlanVerification: action.awaitingPlanVerification,
             pendingApproval: undefined,
             planProposal: undefined,
             status: 'running',
@@ -246,6 +290,18 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
           },
         ],
       };
+    case 'run.submission.rejected': {
+      const rejected = state.runs.find(run => run.requestId === action.requestId);
+      if (rejected === undefined || rejected.runId !== undefined) {
+        return {...state, notice: action.message};
+      }
+      return {
+        ...state,
+        phase: state.activeRunId === undefined ? 'ready' : state.phase,
+        runs: state.runs.filter(run => run.requestId !== action.requestId),
+        notice: action.message,
+      };
+    }
     case 'approval.submitted':
       return {
         ...state,
@@ -274,6 +330,7 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
           runId: undefined,
           text: '',
           tools: [],
+          modelProgress: undefined,
           pendingApproval: undefined,
           planProposal: action.proposal,
           status: 'completed',
@@ -301,6 +358,10 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
         : {...state, notice: '当前 Checkpoint 不可 Undo'};
     case 'checkpoint.undo.cancelled':
       return {...state, pendingUndoCheckpointId: undefined};
+    case 'tool.detail.next':
+      return updateToolDetail(state, 'next');
+    case 'tool.detail.toggle':
+      return updateToolDetail(state, 'toggle');
     case 'event.received':
       return applyEvent(state, action.event);
     case 'transport.failed':
@@ -310,6 +371,11 @@ export function reduceTuiState(state: TuiState, action: TuiAction): TuiState {
         notice: action.message,
         activeRunId: undefined,
         steeringQueueDepth: 0,
+        runs: state.runs
+          .filter(run => run.runId !== undefined || run.status !== 'running')
+          .map(run => run.status === 'running'
+            ? {...run, status: 'failed' as const, stopReason: 'transport_closed', pendingApproval: undefined}
+            : run),
       };
     case 'slash.notice':
       return {...state, notice: action.message};
@@ -379,10 +445,55 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
         ...run,
         runId: event.runId,
       }), event.runId);
+    case 'model.turn.started':
+      return updateCurrentRun(state, event, run => ({
+        ...run,
+        modelProgress: {
+          turn: Number(event.payload.turn),
+          phase: 'thinking',
+          providerInputTokens: run.modelProgress?.providerInputTokens ?? 0,
+          providerOutputTokens: run.modelProgress?.providerOutputTokens ?? 0,
+          providerTotalTokens: run.modelProgress?.providerTotalTokens ?? 0,
+          usageReportedTurns: run.modelProgress?.usageReportedTurns ?? 0,
+          usageMissingTurns: run.modelProgress?.usageMissingTurns ?? 0,
+          contextUsedTokens: run.modelProgress?.contextUsedTokens,
+          contextMaximumInputTokens: run.modelProgress?.contextMaximumInputTokens,
+          contextEstimateKind: run.modelProgress?.contextEstimateKind,
+        },
+      }));
+    case 'model.retry.attempt.started':
+      return updateCurrentRun(state, event, run => ({
+        ...run,
+        modelProgress: run.modelProgress === undefined ? undefined : {
+          ...run.modelProgress,
+          retryAttempt: Number(event.payload.attempt),
+          retryMaxAttempts: Number(event.payload.maxAttempts),
+          retryWaitMillis: undefined,
+          retryCategory: undefined,
+        },
+      }));
+    case 'model.retry.scheduled':
+      return updateCurrentRun(state, event, run => ({
+        ...run,
+        modelProgress: run.modelProgress === undefined ? undefined : {
+          ...run.modelProgress,
+          retryAttempt: Number(event.payload.nextAttempt),
+          retryMaxAttempts: Number(event.payload.maxAttempts),
+          retryWaitMillis: Number(event.payload.waitMillis),
+          retryCategory: String(event.payload.category) as ModelFailureCategory,
+        },
+      }));
+    case 'model.turn.completed':
+      return updateCurrentRun(state, event, run => ({
+        ...run,
+        modelProgress: completedModelProgress(run.modelProgress, event.payload),
+      }));
     case 'model.text.delta':
       return updateCurrentRun(state, event, run => ({
         ...run,
         text: run.text + String(event.payload.text),
+        modelProgress: run.modelProgress === undefined
+          ? undefined : {...run.modelProgress, phase: 'responding'},
       }));
     case 'plan.proposed':
       return updateCurrentRun(state, event, run => ({
@@ -450,6 +561,8 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
       return updateCurrentRun(state, event, run => ({
         ...run,
         tools: upsertStartedTool(run.tools, event),
+        modelProgress: run.modelProgress === undefined
+          ? undefined : {...run.modelProgress, phase: 'preparing_tools'},
       }));
     case 'tool.completed':
     case 'tool.failed':
@@ -465,6 +578,8 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
       return updateCurrentRun(state, event, run => ({
         ...run,
         tools: appendToolOutput(run.tools, event),
+        toolDetailOrdinal: run.toolDetailOrdinal ?? Number(event.payload.ordinal),
+        toolDetailExpanded: run.toolDetailExpanded ?? false,
       }));
     case 'run.completed':
       return finishRun(state, event, 'completed');
@@ -509,13 +624,23 @@ function applyEvent(state: TuiState, event: ProtocolEvent): TuiState {
       };
     case 'session.command.result':
       return applySessionCommandResult(state, event);
+    case 'plan.execution.failed':
+      return {
+        ...state,
+        notice: `计划执行失败（${String(event.payload.stopReason)}），不会自动重放；可通过显式恢复重新处理`,
+      };
+    case 'plan.verification.required':
+      return annotatePlanVerification(state, event,
+        `计划尚未完成：需要验证 ${String(event.payload.blockingRequirementId ?? 'required-evidence-not-declared')}（${String(event.payload.satisfiedEvidence)}/${String(event.payload.requiredEvidence)}）`);
+    case 'plan.verification.completed':
+      return annotatePlanVerification(state, event,
+        `计划证据已验证（${String(event.payload.satisfiedEvidence)}/${String(event.payload.requiredEvidence)}）`);
     case 'provider.control.result':
+      return state;
     case 'plan.feedback.accepted':
     case 'plan.execution.accepted':
     case 'plan.review.rejected':
-    case 'plan.verification.required':
-    case 'plan.verification.completed':
-      return state;
+      return settlePlanReview(state, String(event.payload.planId));
     case 'file.suggestions':
       return state;
     case 'steering.queued':
@@ -647,6 +772,7 @@ function upsertStartedTool(
     ordinal,
     name: String(event.payload.toolName),
     mode: searchMode(event.payload.mode),
+    activity: optionalText(event.payload.activity),
     status: 'started',
     returnedCharacters: undefined,
     returnedItems: undefined,
@@ -656,7 +782,8 @@ function upsertStartedTool(
     errorCode: undefined,
     failureCategory: undefined,
     retryable: undefined,
-    output: '',
+    exitCode: undefined,
+    output: EMPTY_TOOL_OUTPUT,
   };
   return [...tools.filter(tool => tool.ordinal !== ordinal), item]
     .sort((left, right) => left.ordinal - right.ordinal);
@@ -671,10 +798,12 @@ function upsertFinishedTool(
   const status: ToolView['status'] = rawStatus === 'success'
     ? 'success'
     : rawStatus === 'denied' ? 'denied' : 'failed';
+  const previous = tools.find(tool => tool.ordinal === ordinal);
   const item: ToolView = {
     ordinal,
     name: String(event.payload.toolName),
     mode: searchMode(event.payload.mode),
+    activity: optionalText(event.payload.activity) ?? previous?.activity,
     status,
     returnedCharacters: safeCount(event.payload.returnedCharacters),
     returnedItems: safeCount(event.payload.returnedItems),
@@ -688,10 +817,105 @@ function upsertFinishedTool(
       ? event.payload.failureCategory : undefined,
     retryable: typeof event.payload.retryable === 'boolean'
       ? event.payload.retryable : undefined,
-    output: tools.find(tool => tool.ordinal === ordinal)?.output ?? '',
+    exitCode: safeSignedCount(event.payload.exitCode),
+    output: finalizeToolOutput(previous?.output ?? EMPTY_TOOL_OUTPUT),
   };
   return [...tools.filter(tool => tool.ordinal !== ordinal), item]
     .sort((left, right) => left.ordinal - right.ordinal);
+}
+
+function completedModelProgress(
+  previous: ModelProgressView | undefined,
+  payload: Readonly<Record<string, unknown>>,
+): ModelProgressView {
+  const usage = isRecord(payload.usage) ? payload.usage : undefined;
+  const context = isRecord(payload.context) ? payload.context : undefined;
+  const hasUsage = usage !== undefined;
+  const finishReason = String(payload.finishReason);
+  return {
+    turn: Number(payload.turn),
+    phase: finishReason === 'tool_calls' ? 'preparing_tools' : 'responding',
+    providerInputTokens: (previous?.providerInputTokens ?? 0)
+      + (hasUsage ? Number(usage.inputTokens) : 0),
+    providerOutputTokens: (previous?.providerOutputTokens ?? 0)
+      + (hasUsage ? Number(usage.outputTokens) : 0),
+    providerTotalTokens: (previous?.providerTotalTokens ?? 0)
+      + (hasUsage ? Number(usage.totalTokens) : 0),
+    usageReportedTurns: (previous?.usageReportedTurns ?? 0) + (hasUsage ? 1 : 0),
+    usageMissingTurns: (previous?.usageMissingTurns ?? 0) + (hasUsage ? 0 : 1),
+    contextUsedTokens: context === undefined ? previous?.contextUsedTokens : Number(context.usedTokens),
+    contextMaximumInputTokens: context === undefined
+      ? previous?.contextMaximumInputTokens : Number(context.maximumInputTokens),
+    contextEstimateKind: context === undefined
+      ? previous?.contextEstimateKind : context.estimateKind as 'estimated' | 'exact',
+  };
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function updateToolDetail(state: TuiState, action: 'next' | 'toggle'): TuiState {
+  const activeIndex = state.runs.findIndex(run =>
+    run.runId === state.activeRunId && run.status === 'running');
+  const activeRun = state.runs[activeIndex];
+  if (activeIndex >= 0 && activeRun !== undefined) {
+    const candidates = outputToolOrdinals(activeRun);
+    if (candidates.length === 0) return state;
+    const currentIndex = candidates.indexOf(activeRun.toolDetailOrdinal ?? candidates[0]!);
+    const ordinal = action === 'next'
+      ? candidates[(Math.max(0, currentIndex) + 1) % candidates.length]
+      : (activeRun.toolDetailOrdinal ?? candidates[0]);
+    const runs = [...state.runs];
+    runs[activeIndex] = {
+      ...activeRun,
+      toolDetailOrdinal: ordinal,
+      toolDetailExpanded: action === 'toggle'
+        ? !(activeRun.toolDetailExpanded ?? false)
+        : false,
+    };
+    return {...state, historicalToolDetailOpen: false, runs};
+  }
+
+  const selectedRun = state.runs.find(run =>
+    run.runId === state.historicalToolDetailRunId
+      && run.status !== 'running'
+      && outputToolOrdinals(run).length > 0)
+    ?? state.runs.findLast(run =>
+      run.status !== 'running' && outputToolOrdinals(run).length > 0);
+  if (selectedRun === undefined || selectedRun.runId === undefined) return state;
+  const candidates = outputToolOrdinals(selectedRun);
+  if (action === 'toggle') {
+    if (state.historicalToolDetailOpen === true) {
+      return {...state, historicalToolDetailOpen: false};
+    }
+    return {
+      ...state,
+      historicalToolDetailRunId: selectedRun.runId,
+      historicalToolDetailOrdinal:
+        state.historicalToolDetailOrdinal !== undefined
+          && candidates.includes(state.historicalToolDetailOrdinal)
+          ? state.historicalToolDetailOrdinal
+          : candidates[0],
+      historicalToolDetailOpen: true,
+    };
+  }
+  if (state.historicalToolDetailOpen !== true) return state;
+  const currentIndex = candidates.indexOf(
+    state.historicalToolDetailOrdinal ?? candidates[0]!,
+  );
+  return {
+    ...state,
+    historicalToolDetailRunId: selectedRun.runId,
+    historicalToolDetailOrdinal:
+      candidates[(Math.max(0, currentIndex) + 1) % candidates.length],
+  };
+}
+
+function outputToolOrdinals(run: RunView): readonly number[] {
+  return run.tools
+    .filter(tool => tool.output.lines.length > 0)
+    .map(tool => tool.ordinal);
 }
 
 function appendToolOutput(
@@ -703,11 +927,34 @@ function appendToolOutput(
   if (current === undefined) {
     return tools;
   }
-  const prefix = event.payload.stream === 'stderr' ? '[stderr] ' : '';
-  const next = Array.from(current.output + prefix + String(event.payload.text))
-    .slice(0, 64 * 1024)
-    .join('');
-  return tools.map(tool => tool.ordinal === ordinal ? {...tool, output: next} : tool);
+  const output = appendOutputChunk(
+    current.output,
+    event.payload.stream as 'stdout' | 'stderr',
+    String(event.payload.text),
+  );
+  return tools.map(tool => tool.ordinal === ordinal ? {...tool, output} : tool);
+}
+
+function annotatePlanVerification(
+  state: TuiState,
+  event: ProtocolEvent,
+  message: string,
+): TuiState {
+  const index = state.runs.findLastIndex(run => run.requestId === event.requestId);
+  if (index < 0) return state;
+  const run = state.runs[index];
+  if (run === undefined) return state;
+  const runs = [...state.runs];
+  runs[index] = {...run, planVerification: message, awaitingPlanVerification: false};
+  return {...state, runs};
+}
+
+function settlePlanReview(state: TuiState, planId: string): TuiState {
+  return {
+    ...state,
+    runs: state.runs.map(run => run.planReview?.planId === planId
+      ? {...run, planReviewSettled: true} : run),
+  };
 }
 
 function finishRun(
@@ -715,19 +962,32 @@ function finishRun(
   event: ProtocolEvent,
   status: Exclude<RunStatus, 'running'>,
 ): TuiState {
-  const updated = updateCurrentRun(state, event, run => ({
+  const index = associatedRunIndex(state, event);
+  if (index < 0) {
+    return ignoredRunEvent(state, event);
+  }
+  const run = state.runs[index];
+  if (run === undefined || run.status !== 'running') {
+    return ignoredRunEvent(state, event);
+  }
+  const runs = [...state.runs];
+  const finalText = terminalText(event.payload.finalText);
+  runs[index] = {
     ...run,
+    text: run.text.length === 0 && finalText !== undefined ? finalText : run.text,
     status,
     pendingApproval: undefined,
     stopReason: terminalText(event.payload.stopReason),
     modelFailure: modelFailureView(event.payload.modelFailure),
     modelTurns: terminalCount(event.payload.modelTurns),
     toolCalls: terminalCount(event.payload.toolCalls),
-  }));
+    awaitingPlanVerification: status === 'completed' ? run.awaitingPlanVerification : false,
+  };
   return {
-    ...updated,
-    phase: 'ready',
-    activeRunId: undefined,
+    ...state,
+    runs,
+    phase: state.activeRunId === event.runId ? 'ready' : state.phase,
+    activeRunId: state.activeRunId === event.runId ? undefined : state.activeRunId,
   };
 }
 
@@ -747,6 +1007,11 @@ function modelFailureView(value: unknown): ModelFailureView | undefined {
 
 function safeCount(value: unknown): number | undefined {
   return Number.isSafeInteger(value) && (value as number) >= 0
+    ? value as number : undefined;
+}
+
+function safeSignedCount(value: unknown): number | undefined {
+  return Number.isSafeInteger(value) && (value as number) >= -1
     ? value as number : undefined;
 }
 
@@ -770,20 +1035,41 @@ function updateCurrentRun(
   transform: (run: RunView) => RunView,
   activeRunId: string | undefined = state.activeRunId,
 ): TuiState {
-  const index = state.runs.findLastIndex(run => run.requestId === event.requestId);
+  const index = associatedRunIndex(state, event);
   if (index < 0) {
-    return {...state, phase: 'failed', notice: '收到无法关联到请求的 Run 事件'};
+    return ignoredRunEvent(state, event);
   }
   const run = state.runs[index];
-  if (run === undefined) {
-    return {...state, phase: 'failed', notice: 'Run 投影索引无效'};
-  }
-  if (run.runId !== undefined && event.runId !== run.runId) {
-    return {...state, phase: 'failed', notice: 'Run ID 与当前投影不匹配'};
+  if (run === undefined || run.status !== 'running') {
+    return ignoredRunEvent(state, event);
   }
   const runs = [...state.runs];
   runs[index] = transform(run);
   return {...state, runs, activeRunId};
+}
+
+/**
+ * 只接受由本地 submission 预建、且 sessionId/requestId/runId 均能证明归属的 Run 事件。
+ * `run.started` 是唯一可绑定尚未设置 runId 的事件；未知、提前、迟到或错配事件
+ * 不会改变 Transport 状态，也不会完成其他仍在运行的 Run。
+ */
+function associatedRunIndex(state: TuiState, event: ProtocolEvent): number {
+  if (event.sessionId !== state.sessionId) return -1;
+  const index = state.runs.findLastIndex(run => run.requestId === event.requestId);
+  if (index < 0) return -1;
+  const run = state.runs[index];
+  if (run === undefined) return -1;
+  if (event.type === 'run.started') {
+    return run.runId === undefined || run.runId === event.runId ? index : -1;
+  }
+  return run.runId !== undefined && run.runId === event.runId ? index : -1;
+}
+
+function ignoredRunEvent(state: TuiState, event: ProtocolEvent): TuiState {
+  return {
+    ...state,
+    notice: `已忽略无法关联的 ${event.type} 事件`,
+  };
 }
 
 function safeProtocolMessage(payload: Readonly<Record<string, unknown>>): string {

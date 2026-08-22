@@ -59,14 +59,111 @@ describe('reduceTuiState', () => {
         stopReason: 'completed',
         modelTurns: 2,
         toolCalls: 1,
+        finalText: '不应重复追加的完整文本',
       }, 'req-run', 'session-1', 'run-1'),
     });
     expect(state.phase).toBe('ready');
     expect(state.runs[0]).toEqual(expect.objectContaining({
+      text: '你好',
       status: 'completed',
       stopReason: 'completed',
       modelTurns: 2,
       toolCalls: 1,
+    }));
+  });
+
+  it('累加实测 Provider Usage 并保留最新上下文估算，不投影隐藏思维文本', () => {
+    let state = reduceTuiState(initialTuiState, {
+      type: 'event.received', event: event('initialized', 1, {}, 'init', 'session-1'),
+    });
+    state = reduceTuiState(state, {type: 'run.submitted', requestId: 'req-run', prompt: '分析项目'});
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('run.started', 2, {}, 'req-run', 'session-1', 'run-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('model.turn.started', 3, {turn: 1}, 'req-run', 'session-1', 'run-1'),
+    });
+    expect(state.runs[0]?.modelProgress).toEqual(expect.objectContaining({turn: 1, phase: 'thinking'}));
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('model.turn.completed', 4, {
+        turn: 1, finishReason: 'tool_calls',
+        usage: {inputTokens: 1_200, outputTokens: 80, totalTokens: 1_280},
+        context: {usedTokens: 4_000, maximumInputTokens: 128_000, estimateKind: 'estimated'},
+      }, 'req-run', 'session-1', 'run-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('model.turn.started', 5, {turn: 2}, 'req-run', 'session-1', 'run-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('model.turn.completed', 6, {
+        turn: 2, finishReason: 'stop',
+      }, 'req-run', 'session-1', 'run-1'),
+    });
+    expect(state.runs[0]?.modelProgress).toEqual(expect.objectContaining({
+      turn: 2, providerInputTokens: 1_200, providerOutputTokens: 80,
+      providerTotalTokens: 1_280, usageReportedTurns: 1, usageMissingTurns: 1,
+      contextUsedTokens: 4_000, contextMaximumInputTokens: 128_000,
+    }));
+    expect(JSON.stringify(state)).not.toContain('PRIVATE_CHAIN_OF_THOUGHT');
+  });
+
+  it('投影重试进度并把 Plan 执行失败与验证状态分离', () => {
+    let state = reduceTuiState(initialTuiState, {
+      type: 'event.received', event: event('initialized', 1, {}, 'init', 'session-1'),
+    });
+    state = reduceTuiState(state, {type: 'run.submitted', requestId: 'req-plan', prompt: '执行计划'});
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('run.started', 2, {}, 'req-plan', 'session-1', 'run-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('model.turn.started', 3, {turn: 1}, 'req-plan', 'session-1', 'run-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('model.retry.scheduled', 4, {
+        turn: 1, failedAttempt: 1, nextAttempt: 2, maxAttempts: 11,
+        waitMillis: 2_000, category: 'rate_limited',
+      }, 'req-plan', 'session-1', 'run-1'),
+    });
+    expect(state.runs[0]?.modelProgress).toEqual(expect.objectContaining({
+      retryAttempt: 2, retryMaxAttempts: 11, retryWaitMillis: 2_000,
+      retryCategory: 'rate_limited',
+    }));
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('plan.execution.failed', 5, {
+        planId: 'plan-1', status: 'failed', stopReason: 'model_retry_exhausted',
+        modelFailure: {category: 'provider_unavailable', statusClass: '5xx',
+          attempts: 11, receivedOutput: false},
+      }, 'req-plan', 'session-1'),
+    });
+    expect(state.notice).toContain('不会自动重放');
+    expect(state.notice).not.toContain('需要验证');
+  });
+
+  it('在没有流式 delta 时使用 Java 终态 finalText', () => {
+    let state = reduceTuiState(initialTuiState, {
+      type: 'event.received',
+      event: event('initialized', 1, {protocolVersion: 0}, 'req-init', 'session-1'),
+    });
+    state = reduceTuiState(state, {type: 'run.submitted', requestId: 'req-run', prompt: '执行计划'});
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('run.started', 2, {}, 'req-run', 'session-1', 'run-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('run.completed', 3, {
+        stopReason: 'completed', modelTurns: 2, toolCalls: 1, finalText: 'approved plan executed',
+      }, 'req-run', 'session-1', 'run-1'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('plan.verification.completed', 4, {
+        satisfiedEvidence: 1, requiredEvidence: 1,
+      }, 'req-run', 'session-1'),
+    });
+
+    expect(state.runs[0]).toEqual(expect.objectContaining({
+      text: 'approved plan executed', status: 'completed', planVerification: '计划证据已验证（1/1）',
     }));
   });
 
@@ -494,7 +591,107 @@ describe('reduceTuiState', () => {
       }, 'req-command', 'session-1', 'run-1'),
     });
 
-    expect(state.runs[0]?.tools[0]?.output).toBe('[stderr] test failed\n');
+    expect(state.runs[0]?.tools[0]?.output.lines).toEqual([
+      {stream: 'stderr', text: 'test failed', complete: true, repetitions: 1},
+    ]);
+    expect(state.runs[0]).toEqual(expect.objectContaining({
+      toolDetailOrdinal: 1,
+      toolDetailExpanded: false,
+    }));
+
+    state = reduceTuiState(state, {type: 'tool.detail.toggle'});
+    expect(state.runs[0]?.toolDetailExpanded).toBe(true);
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('tool.failed', 5, {
+        ordinal: 1,
+        toolName: 'run_command',
+        status: 'failed',
+        failureCategory: 'process_exit',
+        errorCode: 'process_exit',
+        exitCode: 9,
+      }, 'req-command', 'session-1', 'run-1'),
+    });
+    expect(state.runs[0]?.tools[0]).toEqual(expect.objectContaining({exitCode: 9}));
+    state = reduceTuiState(state, {
+      type: 'event.received',
+      event: event('run.failed', 6, {
+        stopReason: 'tool_failure', modelTurns: 1, toolCalls: 1,
+      }, 'req-command', 'session-1', 'run-1'),
+    });
+    const historical = reduceTuiState(state, {type: 'tool.detail.toggle'});
+    expect(historical.runs[0]?.toolDetailExpanded).toBe(true);
+    expect(historical).toEqual(expect.objectContaining({
+      historicalToolDetailRunId: 'run-1',
+      historicalToolDetailOrdinal: 1,
+      historicalToolDetailOpen: true,
+    }));
+    const closed = reduceTuiState(historical, {type: 'tool.detail.toggle'});
+    expect(closed.historicalToolDetailOpen).toBe(false);
+  });
+  it('ignores unknown and late Run events without claiming the transport closed', () => {
+    let state = reduceTuiState(initialTuiState, {
+      type: 'event.received', event: event('initialized', 1, {}, 'init', 'session-1'),
+    });
+    state = reduceTuiState(state, {type: 'run.submitted', requestId: 'current', prompt: 'current'});
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('run.started', 2, {}, 'unknown', 'session-1', 'run-unknown'),
+    });
+    expect(state.phase).toBe('running');
+    expect(state.activeRunId).toBeUndefined();
+    expect(state.notice).toContain('已忽略无法关联');
+
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('tool.started', 3, {
+        ordinal: 1, toolName: 'before_start',
+      }, 'current', 'session-1', 'run-current'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('run.completed', 4, {
+        stopReason: 'completed', modelTurns: 1, toolCalls: 1,
+      }, 'current', 'session-1', 'run-current'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('run.started', 5, {}, 'current', 'session-stale', 'run-current'),
+    });
+    expect(state.phase).toBe('running');
+    expect(state.runs[0]).toEqual(expect.objectContaining({runId: undefined, status: 'running', tools: []}));
+
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('run.started', 6, {}, 'current', 'session-1', 'run-current'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('run.completed', 7, {
+        stopReason: 'completed', modelTurns: 1, toolCalls: 0,
+      }, 'current', 'session-1', 'run-current'),
+    });
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('tool.started', 8, {
+        ordinal: 1, toolName: 'late_tool',
+      }, 'current', 'session-1', 'run-current'),
+    });
+    expect(state.phase).toBe('ready');
+    expect(state.runs[0]?.tools).toEqual([]);
+    expect(state.notice).toContain('已忽略无法关联');
+  });
+
+  it('rolls back an unstarted submission and marks a started Run interrupted only on real transport failure', () => {
+    let state = reduceTuiState({
+      ...initialTuiState, phase: 'ready', sessionId: 'session-1',
+    }, {type: 'run.submitted', requestId: 'optimistic', prompt: 'execution'});
+    state = reduceTuiState(state, {
+      type: 'run.submission.rejected', requestId: 'optimistic', message: 'rejected',
+    });
+    expect(state.phase).toBe('ready');
+    expect(state.runs).toEqual([]);
+
+    state = reduceTuiState(state, {type: 'run.submitted', requestId: 'started', prompt: 'execution'});
+    state = reduceTuiState(state, {
+      type: 'event.received', event: event('run.started', 1, {}, 'started', 'session-1', 'run-1'),
+    });
+    state = reduceTuiState(state, {type: 'transport.failed', message: 'transport closed'});
+    expect(state.phase).toBe('failed');
+    expect(state.runs[0]).toEqual(expect.objectContaining({status: 'failed', stopReason: 'transport_closed'}));
   });
 });
 

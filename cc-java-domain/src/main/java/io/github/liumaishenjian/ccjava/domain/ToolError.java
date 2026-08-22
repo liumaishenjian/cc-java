@@ -56,7 +56,7 @@ public record ToolError(ToolErrorCode code, ToolFailureCategory category, boolea
             case INVALID_ARGUMENTS, INVALID_PATH, WORKSPACE_BOUNDARY_VIOLATION, PATH_NOT_FOUND,
                     PATH_TYPE_MISMATCH, LINK_ESCAPE, SENSITIVE_PATH, FILE_TOO_LARGE, FILE_CONFLICT,
                     UNSUPPORTED_ENCODING, NOT_A_GIT_REPOSITORY, WEB_SEARCH_DISABLED,
-                    WEB_SEARCH_INVALID_TARGET -> ToolFailureCategory.VALIDATION;
+                    WEB_SEARCH_INVALID_TARGET, PLAN_ARTIFACT_CONFLICT -> ToolFailureCategory.VALIDATION;
             case WEB_SEARCH_FORBIDDEN -> ToolFailureCategory.HTTP_FORBIDDEN;
             case WEB_SEARCH_REMOTE_CLIENT_ERROR -> ToolFailureCategory.HTTP_CLIENT;
             case WEB_SEARCH_RATE_LIMITED -> ToolFailureCategory.HTTP_RATE_LIMIT;

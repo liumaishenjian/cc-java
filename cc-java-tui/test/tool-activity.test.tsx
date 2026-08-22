@@ -1,9 +1,17 @@
 import {render} from 'ink-testing-library';
 import {describe, expect, it} from 'vitest';
-import {ToolActivityGroup} from '../src/tool-activity.js';
+import {compactToolActivity, ToolActivityGroup} from '../src/tool-activity.js';
 import type {ToolView} from '../src/state.js';
 
 describe('ToolActivityGroup', () => {
+  it('把长 activity 归一为有界单行', () => {
+    const compact = compactToolActivity(`run  command\n${'x'.repeat(200)}`, 32);
+    expect(compact).not.toContain('\n');
+    expect(Array.from(compact)).toHaveLength(32);
+    expect(compact).toMatch(/^run command /u);
+    expect(compact).toMatch(/…$/u);
+  });
+
   it('聚合连续同类 Tool 并显示有界元数据', () => {
     const tools: ToolView[] = [
       {...tool(1, 'search_text', 'success', 900), mode: 'content', returnedItems: 7},
@@ -36,6 +44,34 @@ describe('ToolActivityGroup', () => {
     expect(frame).toContain('搜索内容（进行中）');
     expect(frame).toContain('阅读文件 · READ_FAILED');
     expect(frame).toContain('查看变更');
+  });
+
+  it('展示 Java 白名单活动摘要且不同目标不错误聚合', () => {
+    const tools: ToolView[] = [
+      {...tool(1, 'read_file', 'success', 20), activity: '读取 src/App.java'},
+      {...tool(2, 'read_file', 'success', 30), activity: '读取 README.md'},
+    ];
+    const frame = render(<ToolActivityGroup tools={tools} />).lastFrame() ?? '';
+    expect(frame).toContain('阅读文件 · 读取 src/App.java');
+    expect(frame).toContain('阅读文件 · 读取 README.md');
+    expect(frame).not.toContain('阅读文件 ×2');
+  });
+
+  it('大量异构历史活动保持有界并汇总被折叠区间的失败事实', () => {
+    const tools = Array.from({length: 30}, (_, index) => ({
+      ...tool(index + 1, `tool_${index + 1}`, index === 2 ? 'failed' : index === 4 ? 'denied' : 'success'),
+      activity: `activity-${index + 1}`,
+      truncated: index === 6,
+    } satisfies ToolView));
+    const frame = render(<ToolActivityGroup tools={tools} />).lastFrame() ?? '';
+
+    expect(frame.split('\n')).toHaveLength(8);
+    expect(frame).toContain('较早 23 组 / 23 次 Tool');
+    expect(frame).toContain('1 次失败');
+    expect(frame).toContain('1 次拒绝');
+    expect(frame).toContain('1 次截断');
+    expect(frame).not.toContain('activity-1');
+    expect(frame).toContain('activity-30');
   });
 
   it('同类 Tool 失败后恢复时显示混合结果而不是伪装成全失败', () => {
@@ -81,6 +117,7 @@ function tool(
     errorCode: undefined,
           failureCategory: undefined,
           retryable: undefined,
-    output: '',
+    exitCode: undefined,
+    output: {lines: [], characters: 0, truncated: false},
   };
 }

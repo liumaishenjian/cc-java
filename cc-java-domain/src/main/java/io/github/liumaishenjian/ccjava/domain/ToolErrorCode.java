@@ -121,6 +121,12 @@ public enum ToolErrorCode {
     /** 子进程已启动但以非零状态退出。 */
     PROCESS_EXIT,
 
+    /** Plan 工件在可信控制面提交前发生并发漂移或生命周期前置条件变化。 */
+    PLAN_ARTIFACT_CONFLICT,
+
+    /** Plan 工件持久层损坏、不可用或无法安全收敛。 */
+    PLAN_ARTIFACT_UNAVAILABLE,
+
     /** Runtime 阻止了没有策略变化的相同失败调用。 */
     REPEATED_FAILURE,
 

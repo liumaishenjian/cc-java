@@ -31,6 +31,7 @@ import io.github.liumaishenjian.ccjava.domain.PermissionMode;
 import io.github.liumaishenjian.ccjava.domain.PermissionRule;
 import io.github.liumaishenjian.ccjava.domain.PermissionRuleSource;
 import io.github.liumaishenjian.ccjava.domain.PermissionSelector;
+import io.github.liumaishenjian.ccjava.domain.PlanArtifact;
 import io.github.liumaishenjian.ccjava.domain.StopReason;
 import io.github.liumaishenjian.ccjava.domain.SystemMessage;
 import io.github.liumaishenjian.ccjava.domain.ToolCall;
@@ -2108,25 +2109,24 @@ class HeadlessRuntimeSessionTest {
         List<ModelRequest> requests = new CopyOnWriteArrayList<>();
         String first = "# Plan\n\nInspect sample and choose a rollout.\n";
         String second = "# Plan\n\n1. Inspect sample.\n2. Use the selected safe rollout.\n";
-        String firstDigest = io.github.liumaishenjian.ccjava.domain.PlanArtifact.digest(first);
-        String secondDigest = io.github.liumaishenjian.ccjava.domain.PlanArtifact.digest(second);
         ModelGateway model = request -> {
             requests.add(request);
             return switch (calls.getAndIncrement()) {
                 case 0 -> ModelTurn.tools(List.of(new ToolCall("read-1", "read_file",
                         new JsonObject(Map.of("path", "sample.txt")))));
                 case 1 -> ModelTurn.tools(List.of(new ToolCall("update-1", "revise_plan_artifact",
-                        new JsonObject(Map.of("markdown", first, "expectedRevision", 0,
-                                "expectedContentDigest", "")))));
+                        new JsonObject(Map.of("markdown", first)))));
                 case 2 -> ModelTurn.tools(List.of(new ToolCall("ask-1", "ask_plan_question",
                         new JsonObject(Map.of("question", "Which rollout should the plan use?", "options", List.of(
                                 Map.of("optionId", "safe", "label", "Safe", "description", "Use staged rollout"),
                                 Map.of("optionId", "fast", "label", "Fast", "description", "Use direct rollout")))))));
-                case 3 -> ModelTurn.tools(List.of(new ToolCall("update-2", "revise_plan_artifact",
-                        new JsonObject(Map.of("markdown", second, "expectedRevision", 1,
-                                "expectedContentDigest", firstDigest)))));
-                case 4 -> ModelTurn.tools(List.of(new ToolCall("review-1", "request_plan_review",
-                        new JsonObject(Map.of("revision", 2, "contentDigest", secondDigest)))));
+                case 3 -> ModelTurn.tools(List.of(new ToolCall("evidence-1", "declare_plan_evidence",
+                        new JsonObject(Map.of("requirementId", "rollout-notes", "kind", "DELIVERABLE",
+                                "locator", "rollout.md", "label", "rollout notes exist", "required", true)))));
+                case 4 -> ModelTurn.tools(List.of(new ToolCall("update-2", "revise_plan_artifact",
+                        new JsonObject(Map.of("markdown", second)))));
+                case 5 -> ModelTurn.tools(List.of(new ToolCall("review-1", "request_plan_review",
+                        JsonObject.empty())));
                 default -> ModelTurn.text("internal completion should not become the plan");
             };
         };
@@ -2138,13 +2138,13 @@ class HeadlessRuntimeSessionTest {
                     new io.github.liumaishenjian.ccjava.domain.UserQuestionAnswer(request.callId(), "safe"));
             sessionId = runtime.open();
             assertThat(runtime.runPlan("plan a safe update").stopReason()).isEqualTo(StopReason.COMPLETED);
-            assertThat(requests).hasSize(6);
+            assertThat(requests).hasSize(7);
             assertThat(requests).allSatisfy(request -> assertThat(request.sessionId()).isEqualTo(sessionId));
             assertThat(requests.getFirst().toolDefinitions()).extracting(definition -> definition.name())
                     .contains("read_file", "revise_plan_artifact", "ask_plan_question", "request_plan_review")
                     .doesNotContain("write_file", "apply_patch", "run_command", "delegate_agent");
             var artifact = runtime.planArtifact().orElseThrow();
-            assertThat(artifact.revision()).isEqualTo(3);
+            assertThat(artifact.revision()).isEqualTo(4);
             assertThat(artifact.status()).isEqualTo(io.github.liumaishenjian.ccjava.domain.PlanStatus.AWAITING_APPROVAL);
             assertThat(artifact.markdownContent()).isEqualTo(second);
             assertThat(events).anySatisfy(event -> {
@@ -2160,7 +2160,7 @@ class HeadlessRuntimeSessionTest {
                     artifact.planId(), artifact.revision(), artifact.contentDigest()).orElseThrow();
             assertThat(draft.status()).isEqualTo(io.github.liumaishenjian.ccjava.domain.PlanStatus.DRAFT);
             assertThat(draft.planId()).isEqualTo(artifact.planId());
-            assertThat(draft.revision()).isEqualTo(4);
+            assertThat(draft.revision()).isEqualTo(5);
         }
         try (HeadlessRuntimeSession resumed = new HeadlessRuntimeSession(
                 ignored -> ModelTurn.text("unused"), AgentEventSink.noop(),
@@ -2169,7 +2169,146 @@ class HeadlessRuntimeSessionTest {
             var artifact = resumed.planArtifact().orElseThrow();
             assertThat(artifact.status()).isEqualTo(io.github.liumaishenjian.ccjava.domain.PlanStatus.DRAFT);
             assertThat(artifact.markdownContent()).isEqualTo(second);
-            assertThat(artifact.revision()).isEqualTo(4);
+            assertThat(artifact.revision()).isEqualTo(5);
+            assertThat(artifact.evidenceLedger().requirements()).hasSize(1);
+        }
+    }
+
+    @Test
+    void evidenceMutationsUseLatestDurableRevisionAndInvalidVerificationCanBeCorrectedBeforeReview() {
+        AtomicInteger calls = new AtomicInteger();
+        List<ModelRequest> requests = new CopyOnWriteArrayList<>();
+        List<AgentEventEnvelope> events = new CopyOnWriteArrayList<>();
+        String first = "# Plan\n\nGenerate the requested workbook.\n";
+        String second = "# Plan\n\nGenerate the requested workbook and verify it.\n";
+        String staleDigest = io.github.liumaishenjian.ccjava.domain.PlanArtifact.digest(second);
+        ModelGateway model = request -> {
+            requests.add(request);
+            return switch (calls.getAndIncrement()) {
+                case 0 -> ModelTurn.tools(List.of(new ToolCall("create", "revise_plan_artifact",
+                        new JsonObject(Map.of("markdown", first)))));
+                case 1 -> ModelTurn.tools(List.of(new ToolCall("revise", "revise_plan_artifact",
+                        new JsonObject(Map.of("markdown", second)))));
+                case 2 -> ModelTurn.tools(List.of(new ToolCall("deliverable", "declare_plan_evidence",
+                        new JsonObject(Map.of("requirementId", "workbook", "kind", "DELIVERABLE",
+                                "locator", "weather.xlsx", "label", "workbook exists", "required", true)))));
+                case 3 -> ModelTurn.tools(List.of(new ToolCall("bad-verification", "declare_plan_evidence",
+                        new JsonObject(Map.of("requirementId", "validation", "kind", "VERIFICATION",
+                                "locator", "validation-output", "label", "validation succeeds", "required", true)))));
+                case 4 -> ModelTurn.tools(List.of(new ToolCall("correct-verification", "declare_plan_evidence",
+                        new JsonObject(Map.of("requirementId", "validation", "kind", "VERIFICATION",
+                                "locator", "run_command", "label", "validation succeeds", "required", true)))));
+                case 5 -> ModelTurn.tools(List.of(new ToolCall("stale-review", "request_plan_review",
+                        new JsonObject(Map.of("revision", 2, "contentDigest", staleDigest)))));
+                default -> ModelTurn.text("planning complete");
+            };
+        };
+        io.github.liumaishenjian.ccjava.domain.SessionId sessionId;
+        try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(
+                model, events::add, testOptions(temporaryWorkspace, Duration.ofSeconds(5)))) {
+            sessionId = runtime.open();
+            assertThat(runtime.runPlan("plan workbook delivery").stopReason()).isEqualTo(StopReason.COMPLETED);
+            PlanArtifact artifact = runtime.planArtifact().orElseThrow();
+            assertThat(artifact.revision()).isEqualTo(5);
+            assertThat(artifact.status()).isEqualTo(
+                    io.github.liumaishenjian.ccjava.domain.PlanStatus.AWAITING_APPROVAL);
+            assertThat(artifact.evidenceLedger().requirements()).extracting(
+                    io.github.liumaishenjian.ccjava.domain.PlanEvidenceRequirement::requirementId)
+                    .containsExactly("workbook", "validation");
+            assertThat(artifact.evidenceLedger().requirements().get(1).locator()).isEqualTo("run_command");
+            assertThat(events).extracting(AgentEventEnvelope::event)
+                    .anyMatch(io.github.liumaishenjian.ccjava.domain.PlanReviewEvent.class::isInstance);
+
+            var failedResult = requests.get(4).messages().stream()
+                    .filter(io.github.liumaishenjian.ccjava.domain.ToolResultMessage.class::isInstance)
+                    .map(io.github.liumaishenjian.ccjava.domain.ToolResultMessage.class::cast)
+                    .map(io.github.liumaishenjian.ccjava.domain.ToolResultMessage::result)
+                    .filter(result -> result.callId().equals("bad-verification"))
+                    .findFirst().orElseThrow();
+            assertThat(failedResult.error().orElseThrow().code())
+                    .isEqualTo(io.github.liumaishenjian.ccjava.domain.ToolErrorCode.INVALID_ARGUMENTS);
+            assertThat(failedResult.error().orElseThrow().details().toString())
+                    .contains("run_command")
+                    .doesNotContain(first, second, temporaryWorkspace.toString());
+
+            var updateDefinition = requests.getFirst().toolDefinitions().stream()
+                    .filter(definition -> definition.name().equals("revise_plan_artifact"))
+                    .findFirst().orElseThrow();
+            var reviewDefinition = requests.getFirst().toolDefinitions().stream()
+                    .filter(definition -> definition.name().equals("request_plan_review"))
+                    .findFirst().orElseThrow();
+            assertThat(updateDefinition.inputSchemaJson())
+                    .contains("markdown").doesNotContain("expectedRevision", "expectedContentDigest");
+            assertThat(reviewDefinition.inputSchemaJson())
+                    .doesNotContain("revision", "contentDigest");
+            assertThat(requests.getFirst().messages().toString())
+                    .doesNotContain("current content digest", "Current plan revision");
+        }
+        try (HeadlessRuntimeSession resumed = new HeadlessRuntimeSession(
+                ignored -> ModelTurn.text("unused"), AgentEventSink.noop(),
+                optionsFor(SessionOpenRequest.resume(sessionId)))) {
+            assertThat(resumed.open()).isEqualTo(sessionId);
+            PlanArtifact restored = resumed.planArtifact().orElseThrow();
+            assertThat(restored.revision()).isEqualTo(5);
+            assertThat(restored.status()).isEqualTo(
+                    io.github.liumaishenjian.ccjava.domain.PlanStatus.AWAITING_APPROVAL);
+            assertThat(restored.evidenceLedger().requirements()).hasSize(2);
+        }
+    }
+
+    @Test
+    void rejectedConcurrentPlanRunDoesNotReopenAwaitingApprovalArtifact() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        CountDownLatch ordinaryRunEntered = new CountDownLatch(1);
+        CountDownLatch releaseOrdinaryRun = new CountDownLatch(1);
+        AtomicReference<Throwable> ordinaryFailure = new AtomicReference<>();
+        ModelGateway model = request -> switch (calls.getAndIncrement()) {
+            case 0 -> ModelTurn.tools(List.of(new ToolCall("create", "revise_plan_artifact",
+                    new JsonObject(Map.of("markdown", "# Plan\n\nWait for review.\n")))));
+            case 1 -> ModelTurn.tools(List.of(new ToolCall(
+                    "review", "request_plan_review", JsonObject.empty())));
+            case 2 -> ModelTurn.text("plan ready for review");
+            default -> {
+                ordinaryRunEntered.countDown();
+                try {
+                    if (!releaseOrdinaryRun.await(5, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("test timeout");
+                    }
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(exception);
+                }
+                yield ModelTurn.text("ordinary run complete");
+            }
+        };
+        try (HeadlessRuntimeSession runtime = new HeadlessRuntimeSession(
+                model, AgentEventSink.noop(), testOptions(temporaryWorkspace, Duration.ofSeconds(5)))) {
+            runtime.open();
+            assertThat(runtime.runPlan("create a reviewable plan").stopReason()).isEqualTo(StopReason.COMPLETED);
+            PlanArtifact awaiting = runtime.planArtifact().orElseThrow();
+            assertThat(awaiting.status()).isEqualTo(
+                    io.github.liumaishenjian.ccjava.domain.PlanStatus.AWAITING_APPROVAL);
+
+            Thread ordinary = Thread.ofPlatform().start(() -> {
+                try {
+                    runtime.run("hold the active run");
+                } catch (Throwable failure) {
+                    ordinaryFailure.set(failure);
+                }
+            });
+            assertThat(ordinaryRunEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThatThrownBy(() -> runtime.runPlan("feedback must not commit"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessage("Headless Session 已有活动 Run");
+            PlanArtifact unchanged = runtime.planArtifact().orElseThrow();
+            assertThat(unchanged.status()).isEqualTo(
+                    io.github.liumaishenjian.ccjava.domain.PlanStatus.AWAITING_APPROVAL);
+            assertThat(unchanged.revision()).isEqualTo(awaiting.revision());
+            assertThat(unchanged.contentDigest()).isEqualTo(awaiting.contentDigest());
+
+            releaseOrdinaryRun.countDown();
+            ordinary.join(5_000);
+            assertThat(ordinaryFailure.get()).isNull();
         }
     }
 

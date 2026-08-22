@@ -16,6 +16,8 @@ public sealed interface LifecycleEvent extends AgentEvent
                 LifecycleEvent.SessionEnded,
                 LifecycleEvent.RunStarted,
                 LifecycleEvent.ModelTurnStarted,
+                LifecycleEvent.ModelAttemptStarted,
+                LifecycleEvent.ModelRetryScheduled,
                 LifecycleEvent.ModelTurnCompleted,
                 LifecycleEvent.BeforeTool,
                 LifecycleEvent.PermissionEvaluationStarted,
@@ -86,6 +88,51 @@ public sealed interface LifecycleEvent extends AgentEvent
             if (turnNumber < 1) {
                 throw new IllegalArgumentException("turnNumber 必须从 1 开始");
             }
+        }
+    }
+
+    /**
+     * 一个实际 Provider attempt 即将开始。
+     *
+     * @param turnNumber 当前模型回合序号
+     * @param attempt 当前从 1 开始的实际请求序号
+     * @param maxAttempts 本回合最大请求数
+     */
+    record ModelAttemptStarted(int turnNumber, int attempt, int maxAttempts)
+            implements LifecycleEvent {
+        /** 校验回合与 attempt 计数。 */
+        public ModelAttemptStarted {
+            if (turnNumber < 1 || attempt < 1 || maxAttempts < attempt || maxAttempts > 100) {
+                throw new IllegalArgumentException("模型 attempt 计数非法");
+            }
+        }
+    }
+
+    /**
+     * 瞬时模型失败已安排下一次 attempt。
+     *
+     * @param turnNumber 当前模型回合序号
+     * @param failedAttempt 已失败的请求序号
+     * @param nextAttempt 下一次请求序号
+     * @param maxAttempts 本回合最大请求数
+     * @param waitMillis 实际有界等待毫秒数
+     * @param category 隐私安全失败类别
+     */
+    record ModelRetryScheduled(
+            int turnNumber,
+            int failedAttempt,
+            int nextAttempt,
+            int maxAttempts,
+            long waitMillis,
+            ModelFailureCategory category) implements LifecycleEvent {
+        /** 校验只包含固定分类和有界计数。 */
+        public ModelRetryScheduled {
+            if (turnNumber < 1 || failedAttempt < 1 || nextAttempt != failedAttempt + 1
+                    || maxAttempts < nextAttempt || maxAttempts > 100
+                    || waitMillis < 0 || waitMillis > java.time.Duration.ofMinutes(5).toMillis()) {
+                throw new IllegalArgumentException("模型重试摘要非法");
+            }
+            category = Objects.requireNonNull(category, "category 不能为空");
         }
     }
 

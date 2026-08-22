@@ -937,13 +937,44 @@ public final class AgentRuntime {
             try {
                 return streamingGateway.complete(
                         modelRequest,
-                        delta -> {
-                            emittedText.set(true);
-                            if (!cancellation.token().isCancellationRequested()) {
+                        new ModelStreamObserver() {
+                            @Override
+                            public void onTextDelta(String delta) {
+                                emittedText.set(true);
+                                if (!cancellation.token().isCancellationRequested()) {
+                                    lifecycle.dispatch(
+                                            session,
+                                            runId,
+                                            new ModelTextDelta(turnNumber, delta));
+                                }
+                            }
+
+                            @Override
+                            public void onAttemptStarted(int attempt, int maxAttempts) {
                                 lifecycle.dispatch(
                                         session,
                                         runId,
-                                        new ModelTextDelta(turnNumber, delta));
+                                        new LifecycleEvent.ModelAttemptStarted(
+                                                turnNumber, attempt, maxAttempts));
+                            }
+
+                            @Override
+                            public void onRetryScheduled(
+                                    int failedAttempt,
+                                    int nextAttempt,
+                                    int maxAttempts,
+                                    java.time.Duration delay,
+                                    io.github.liumaishenjian.ccjava.domain.ModelFailureCategory category) {
+                                lifecycle.dispatch(
+                                        session,
+                                        runId,
+                                        new LifecycleEvent.ModelRetryScheduled(
+                                                turnNumber,
+                                                failedAttempt,
+                                                nextAttempt,
+                                                maxAttempts,
+                                                delay.toMillis(),
+                                                category));
                             }
                         },
                         cancellation.token());

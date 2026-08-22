@@ -1,6 +1,10 @@
+import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import React from 'react';
+import {render} from 'ink-testing-library';
 import {describe, expect, it} from 'vitest';
+import {AgentTui} from '../src/app.js';
 import {StdioClient} from '../src/stdio-client.js';
 import type {ProtocolEvent} from '../src/protocol.js';
 
@@ -28,7 +32,7 @@ describe('real Java stdio plan flow', () => {
     const client = new StdioClient({
       executable: 'java',
       args: ['-cp', launchClasspath,
-        'io.github.liumaishenjian.ccjava.cli.stdio.StdioProtocolFixtureMain', 'plan-runtime', workspace],
+        'io.github.liumaishenjian.ccjava.cli.stdio.StdioProtocolFixtureMain', 'plan-runtime', os.tmpdir()],
       cwd: workspace,
       env: {...process.env, CC_JAVA_PLAN_FAKE_CLASSPATH: planFakeClasspath!},
     }, {shutdownTimeoutMs: 2_000});
@@ -85,6 +89,11 @@ describe('real Java stdio plan flow', () => {
       });
       await waitFor(() => events.some(event => event.type === 'plan.execution.accepted'
         && event.requestId === executionRequest), () => diagnostic(events, failures, exit));
+      await waitFor(() => events.some(event => event.type === 'run.started'
+        && event.requestId === executionRequest), () => diagnostic(events, failures, exit));
+      await waitFor(() => events.some(event => event.type === 'tool.started'
+        && event.requestId === executionRequest && event.payload.toolName === 'git_status'),
+      () => diagnostic(events, failures, exit));
       await waitFor(() => events.some(event => event.type === 'tool.completed'
         && event.requestId === executionRequest && event.payload.toolName === 'git_status'),
       () => diagnostic(events, failures, exit));
@@ -97,6 +106,15 @@ describe('real Java stdio plan flow', () => {
         && event.requestId === executionRequest && event.payload.toolName === 'git_status')).toHaveLength(1);
       await waitFor(() => events.some(event => event.type === 'plan.verification.completed'
         && event.requestId === executionRequest), () => diagnostic(events, failures, exit));
+      const executionTypes = events.filter(event => event.requestId === executionRequest)
+        .map(event => event.type);
+      expect(executionTypes.indexOf('plan.execution.accepted')).toBeLessThan(
+        executionTypes.indexOf('run.started'));
+      expect(executionTypes.indexOf('run.started')).toBeLessThan(executionTypes.indexOf('tool.started'));
+      expect(executionTypes.indexOf('tool.started')).toBeLessThan(executionTypes.indexOf('tool.completed'));
+      expect(executionTypes.indexOf('tool.completed')).toBeLessThan(executionTypes.indexOf('run.completed'));
+      expect(executionTypes.indexOf('run.completed')).toBeLessThan(
+        executionTypes.indexOf('plan.verification.completed'));
       expect(events.some(event => event.type === 'plan.verification.required')).toBe(false);
       expect(events.filter(event => event.requestId === executionRequest)
         .some(event => event.type === 'plan.proposed')).toBe(false);
@@ -107,6 +125,62 @@ describe('real Java stdio plan flow', () => {
     await waitFor(() => exit !== undefined, () => diagnostic(events, failures, exit));
     expect(exit?.code).toBe(0);
     expect(exit?.signal).toBeNull();
+    expect(exit?.stderrBytes).toBe(0);
+  }, 30_000);
+
+  it('renders early approved execution events through the real Ink reducer path', async () => {
+    const classpath = process.env.CC_JAVA_TEST_CLASSPATH;
+    expect(classpath, 'CC_JAVA_TEST_CLASSPATH must point to compiled Java classes and dependencies').toBeTruthy();
+    const workspace = workspacePath.replaceAll('\\', '/');
+    const dependencyClasspath = process.env.CC_JAVA_TEST_DEPENDENCY_CLASSPATH;
+    const planFakeClasspath = process.env.CC_JAVA_PLAN_FAKE_CLASSPATH;
+    const effectiveClasspath = dependencyClasspath === undefined
+      ? classpath!
+      : [...moduleClassDirectories, dependencyClasspath].join(path.delimiter);
+    expect(planFakeClasspath,
+      'CC_JAVA_PLAN_FAKE_CLASSPATH must point to the deterministic Plan model fixture').toBeTruthy();
+    const client = new StdioClient({
+      executable: 'java',
+      args: ['-cp', [planFakeClasspath!, effectiveClasspath].join(path.delimiter),
+        'io.github.liumaishenjian.ccjava.cli.stdio.StdioProtocolFixtureMain', 'plan-runtime', os.tmpdir()],
+      cwd: workspace,
+      env: {...process.env, CC_JAVA_PLAN_FAKE_CLASSPATH: planFakeClasspath!},
+    }, {shutdownTimeoutMs: 2_000});
+    const events: ProtocolEvent[] = [];
+    const failures: string[] = [];
+    let exit: {code: number | null; signal: NodeJS.Signals | null; stderrBytes: number} | undefined;
+    client.onEvent(event => events.push(event));
+    client.onFailure(message => failures.push(message));
+    client.onExit(result => { exit = result; });
+    const view = render(React.createElement(AgentTui, {client}));
+    try {
+      await waitFor(() => view.lastFrame()?.includes('就绪') === true,
+        () => diagnostic(events, failures, exit));
+      view.stdin.write('/plan source Ink lifecycle');
+      view.stdin.write('\r');
+      await waitFor(() => view.lastFrame()?.includes('实施计划 · revision 3') === true
+        && view.lastFrame()?.includes('批准并自动执行') === true,
+      () => diagnostic(events, failures, exit));
+      await waitFor(() => events.some(event => event.type === 'run.completed'
+        && event.requestId === events.find(item => item.type === 'plan.review.requested')?.requestId),
+      () => diagnostic(events, failures, exit));
+      view.stdin.write('\r');
+      await waitFor(() => view.lastFrame()?.includes('检查工作区') === true
+        && view.lastFrame()?.includes('approved plan executed') === true
+        && view.lastFrame()?.includes('已完成') === true,
+      () => diagnostic(events, failures, exit));
+      await waitFor(() => view.lastFrame()?.includes('计划证据已验证') === true,
+        () => diagnostic(events, failures, exit));
+      const frame = view.lastFrame() ?? '';
+      expect(frame).not.toContain('无法关联');
+      expect(frame).not.toContain('连接已关闭');
+      expect(failures).toEqual([]);
+    } finally {
+      await client.shutdown();
+      view.unmount();
+    }
+    await waitFor(() => exit !== undefined, () => diagnostic(events, failures, exit));
+    expect(exit?.code).toBe(0);
     expect(exit?.stderrBytes).toBe(0);
   }, 30_000);
 
@@ -186,18 +260,21 @@ function diagnostic(
     .map(([type, count]) => `${type}=${count}`).join(',');
   const terminalReasons = events.filter(event => event.type === 'run.completed' || event.type === 'run.failed')
     .map(event => safeStopReason(event.payload.stopReason)).join(',');
+  const startedTools = events.filter(event => event.type === 'tool.started')
+    .map(event => safeToolName(event.payload.toolName)).join(',');
   const completedTools = events.filter(event => event.type === 'tool.completed')
     .map(event => safeToolName(event.payload.toolName)).join(',');
   const exitMetadata = exit === undefined ? 'pending'
     : `code=${exit.code ?? 'null'}:signal=${safeSignal(exit.signal)}:stderrBytes=${Math.min(exit.stderrBytes, 999_999)}`;
-  return `等待真实 Java 事件超时；eventCount=${events.length}, eventTypes=[${eventCounts}], terminalReasons=[${terminalReasons}], completedTools=[${completedTools}], failureCount=${failures.length}, exit=${exitMetadata}`;
+  return `等待真实 Java 事件超时；eventCount=${events.length}, eventTypes=[${eventCounts}], terminalReasons=[${terminalReasons}], startedTools=[${startedTools}], completedTools=[${completedTools}], failureCount=${failures.length}, exit=${exitMetadata}`;
 }
 
 function safeEventType(type: string): string {
   const known = new Set([
-    'plan.execution.accepted', 'plan.feedback.submitted', 'plan.review.requested',
-    'plan.verification.completed', 'plan.verification.required', 'run.completed', 'run.failed',
-    'session.command.result', 'tool.completed',
+    'plan.execution.accepted', 'plan.execution.blocked', 'plan.feedback.submitted',
+    'plan.review.requested', 'plan.verification.completed', 'plan.verification.required',
+    'protocol.error', 'run.cancelled', 'run.completed', 'run.failed', 'run.started',
+    'session.command.result', 'tool.completed', 'tool.failed', 'tool.started',
   ]);
   return known.has(type) ? type : 'other';
 }

@@ -20,6 +20,7 @@ import io.github.liumaishenjian.ccjava.domain.ToolCall;
 import io.github.liumaishenjian.ccjava.domain.ToolDefinition;
 import io.github.liumaishenjian.ccjava.domain.ToolError;
 import io.github.liumaishenjian.ccjava.domain.ToolErrorCode;
+import io.github.liumaishenjian.ccjava.domain.ToolFailureCategory;
 import io.github.liumaishenjian.ccjava.domain.ToolResult;
 import io.github.liumaishenjian.ccjava.domain.ToolOutputStream;
 import io.github.liumaishenjian.ccjava.domain.hook.HookAggregateResult;
@@ -617,6 +618,10 @@ public final class ToolExecutionPipeline {
             result = execution.successful()
                     ? normalizeSuccess(call, definition, execution)
                     : normalizeFailure(call, definition, execution);
+        } catch (PlanArtifactStoreException planFailure) {
+            result = ToolResult.failure(call.id(), call.name(), trustedPlanArtifactTool(definition)
+                    ? planArtifactFailure(planFailure)
+                    : ToolError.of(ToolErrorCode.EXECUTION_FAILED, "Tool 执行失败"));
         } catch (Exception exception) {
             result = ToolResult.failure(
                     call.id(),
@@ -643,7 +648,9 @@ public final class ToolExecutionPipeline {
                     journalFailure);
         }
         if (result.status() != io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS
-                && result.error().isPresent()) {
+                && result.error().isPresent()
+                && !(trustedPlanArtifactTool(definition)
+                        && result.error().orElseThrow().code() == ToolErrorCode.PLAN_ARTIFACT_CONFLICT)) {
             governance.record(call, result.error().orElseThrow());
         } else if (result.status() == io.github.liumaishenjian.ccjava.domain.ToolResultStatus.SUCCESS) {
             governance.recordSuccess(call, definition.effect());
@@ -653,6 +660,45 @@ public final class ToolExecutionPipeline {
             permissionState.clearDenials(session.id(), finalOutcome.selector());
         }
         return finish(session, runId, ordinal, result, cancellationToken);
+    }
+
+    /**
+     * 把 Plan durable CAS/状态失败映射为不泄漏路径或正文的模型可行动错误。
+     *
+     * <p>并发与生命周期冲突允许模型重新提交同一高层 intent；持久层损坏或 I/O 不确定性要求
+     * 停止当前写入并恢复 Session。固定 {@code reason/action} 只来自封闭枚举，不拼接底层异常。</p>
+     */
+    private static boolean planArtifactError(ToolErrorCode code) {
+        return code == ToolErrorCode.PLAN_ARTIFACT_CONFLICT
+                || code == ToolErrorCode.PLAN_ARTIFACT_UNAVAILABLE;
+    }
+
+    private static boolean trustedPlanArtifactTool(ToolDefinition definition) {
+        return definition.source() == io.github.liumaishenjian.ccjava.domain.ToolSource.BUILT_IN
+                && definition.effect() == io.github.liumaishenjian.ccjava.domain.ToolEffect.PLAN_ARTIFACT_WRITE
+                && definition.planCapabilities().contains(
+                        io.github.liumaishenjian.ccjava.domain.PlanToolCapability.PLAN_ARTIFACT_WRITE);
+    }
+
+    private static ToolError planArtifactFailure(PlanArtifactStoreException failure) {
+        boolean conflict = switch (failure.code()) {
+            case NOT_FOUND, ALREADY_EXISTS, STALE_REVISION, DIGEST_CONFLICT, INVALID_STATE -> true;
+            case CORRUPT, IDENTITY_MISMATCH, PATH_REJECTED, LIMIT_EXCEEDED,
+                    ATOMIC_MOVE_UNAVAILABLE, IO_FAILURE -> false;
+        };
+        if (conflict) {
+            String action = failure.code() == PlanArtifactStoreException.Code.NOT_FOUND
+                    ? "revise_plan_artifact"
+                    : "retry_current_plan_intent";
+            return ToolError.classified(ToolErrorCode.PLAN_ARTIFACT_CONFLICT,
+                    ToolFailureCategory.VALIDATION, true,
+                    "Plan durable state changed; the runtime did not commit this mutation",
+                    new JsonObject(Map.of("reason", failure.code().name(), "action", action)));
+        }
+        return ToolError.classified(ToolErrorCode.PLAN_ARTIFACT_UNAVAILABLE,
+                ToolFailureCategory.INTERNAL, false,
+                "Plan durable storage is unavailable; stop mutations and resume the session safely",
+                new JsonObject(Map.of("reason", failure.code().name(), "action", "resume_session")));
     }
 
     private static boolean isPlanSideEffect(io.github.liumaishenjian.ccjava.domain.ToolEffect effect) {
@@ -921,7 +967,11 @@ public final class ToolExecutionPipeline {
                         TRUNCATION_MARKER.codePointCount(0, TRUNCATION_MARKER.length()))))
                         + prefixByCodePoints(TRUNCATION_MARKER, Math.min(limit,
                                 TRUNCATION_MARKER.codePointCount(0, TRUNCATION_MARKER.length())));
-        return ToolResult.failure(call.id(), call.name(), normalized, outcome.error().orElseThrow(),
+        ToolError error = outcome.error().orElseThrow();
+        if (planArtifactError(error.code()) && !trustedPlanArtifactTool(definition)) {
+            error = ToolError.of(ToolErrorCode.EXECUTION_FAILED, "Tool 执行失败");
+        }
+        return ToolResult.failure(call.id(), call.name(), normalized, error,
                 outcome.metadata().normalize(normalized, originalCharacters > limit, originalCharacters));
     }
 

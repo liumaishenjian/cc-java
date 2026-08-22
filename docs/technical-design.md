@@ -564,7 +564,23 @@ User-Controlled Tool Execution。S02 Spike 已确认使用 Spring AI 2.0.0 的�
 2. 前两次 HTTP 429、第三次成功时只在首个可见 Delta 前重试；
 3. 已输出 Delta 后断流不重试，正常 EOF 缺少支持的 Finish Reason 也 Fail Closed；
 4. `length` 被保留给 Runtime，并映射为 `OUTPUT_LIMIT_REACHED`；
-5. SDK 内建重试保持关闭，Core 默认最多三次并受同一 CancellationToken/Deadline 控制。
+5. SDK 内建重试保持关闭。S02 初始 Core 策略最多三次；S15 ADR-084 的 production composition 已改为
+   raw Provider → `RetryingModelGateway(maxAttempts=11)` → 单 route `ProviderRouter(maxAttempts=1)`。
+
+ADR-084 进一步固定同 Provider retry：attempt 1 是首次请求，最多 10 retries 因而总计最多 11 attempts；
+基准 500 ms capped exponential backoff（32 s）叠加 0～25% 正 jitter，typed delta-seconds
+`Retry-After` 与 policy delay 取较大值并封顶五分钟。`ModelRetryRuntime` 提供 deterministic random/sleeper
+测试 seam，生产等待经同一 `CancellationToken` 可取消；若等待大于或等于 `remainingTime()`，不启动下一次请求。
+
+Spring AI Adapter 将 `SocketTimeoutException`/`HttpTimeoutException` 明确分类为
+`REQUEST_TIMEOUT + TIMEOUT`，将 DNS/connect/socket reset/TLS 与其他 IO 分类为
+`NETWORK_ERROR + NETWORK_IO`；两类 transport failure、408、409、429、5xx/529 只在首个 Provider frame
+前 retryable。401/403、404、validation/其他 4xx 为 permanent，401/403 不做 speculative refresh。结构化
+Context Overflow 仍交给 S07 一次性恢复。收到任意 Provider `ChatResponse` frame 后的异常统一转
+`INCOMPLETE_STREAM`；Core
+另以 visible Delta 作第二道 fence，返回 Tool intent 后由 Runtime commit boundary 禁止自动重放。OpenAI 与
+Anthropic typed Header 只接受唯一非负十进制 `Retry-After` 秒值；HTTP-date、重复、非法和溢出值不猜测。
+selection/profile/credential lease 在 Run 边界冻结，所有 attempts 共用同一 client，Router 不切换 Provider。
 
 Tool Result 进入下一轮模型消息已有 S01/Fake 证据。当前真实中转模型的显式同回合双
 Tool Spike 只返回第一个调用，因此该 Provider/模型能力仍为兼容性差距；本机 Fixture
@@ -1354,6 +1370,12 @@ Endpoint、Prompt、Header、Request ID、SDK 类型和异常 message。TUI 严�
 用本地固定中文文案展示，原 StopReason 和退出码保持不变。完整契约见
 [ADR-037](./adr/ADR-037-privacy-safe-model-failure-summary.md)。
 
+ADR-084 新增不进入 Canonical Session 的 `ModelAttemptStarted/ModelRetryScheduled` lifecycle。AgentRuntime
+只投影 turn、attempt/maxAttempts、waitMillis 与固定 category；stdio 使用 exact schema，TUI reducer 在新回合、
+成功或终态清理 retry 状态。accepted Plan 的执行结果由真实 `AgentRunResult` 分流：正常完成后才进入 evidence
+verification 事件；其他 StopReason 投影 session-level `plan.execution.failed` 和 durable status，可附相同脱敏
+modelFailure，但不发 `plan.verification.required`，也不自动再次执行已批准 Plan。
+
 ### 19.4 S02 隐私安全 Telemetry
 
 `RunTelemetryCollector` 作为 Core 的只读 `AgentEventSink`，从 `RunStarted/RunFinished`、
@@ -1434,16 +1456,37 @@ content 子集进入 Java 有界扫描，其他请求返回 `SEARCH_UNAVAILABLE`
 S03 退出后的体验维护仍保持 Java Runtime 为状态权威。TUI 把现有有序事件投影为三类
 展示：用户任务、聚合 Tool 活动和 Markdown Assistant 正文。连续同类 Tool 默认合并，
 失败、拒绝与截断保持显著；成功终态只显示低噪声计数，非成功终态继续显示 Java
-`stopReason`。Tool 展示只消费名称、状态、返回字符数、过滤数量、截断和安全错误码，
-以及通用 `returnedItems`。`search_text` 额外投影固定的
-`content/files/count` 模式，分别显示匹配数、文件数和已统计文件数；查询、路径、
-其他参数和 Tool Result 正文不进入 TUI 事件。模型默认应总结并引用相关证据，而不是
+`stopReason`。Tool 展示消费名称、状态、返回字符数、过滤数量、截断、安全错误码、
+通用 `returnedItems`，以及由 Java 在参数校验后按固定 Tool/字段白名单生成的有界瞬时活动摘要。
+活动摘要可包含相对工作区目标、搜索词或待执行命令，但绝不携带参数对象、正文型字段、绝对路径、
+穿越目标或原始异常，也不写入 Canonical Session。`search_text` 额外投影固定的
+`content/files/count` 模式，分别显示匹配数、文件数和已统计文件数。模型默认应总结并引用相关证据，而不是
 把完整搜索结果重新抄入最终回答；用户明确要求穷举时不由 TUI 强行裁剪。
 
 Markdown 使用 `marked` 解析为词法 Token，再映射为项目自有 Ink 组件；解析异常退回纯
 文本，因此流式未闭合片段不会破坏 Session。该切片不增加写入、Command、Approval、
 多行输入、历史、补全或 Slash Command，完整边界见
 [ADR-034](./adr/ADR-034-s03-tui-presentation.md)。
+
+S15 Batch 8 纠正主屏 transcript：根容器不再用终端行数固定高度或 `overflow=hidden`；完成且不再等待
+审批、问题或 Plan 验证更新的 Run 进入 Ink `Static`，永久写入动态 live region 上方的终端 scrollback，
+当前 Run/picker 继续动态更新。这样也规避 Ink 7 在 Windows 满屏动态帧上的整屏重绘；候选列表仍局部窗口化。Composer 删除无产品意义的行列诊断，但实际
+grapheme 光标与编辑 viewport 不变。stdio v0 从 Core lifecycle 投影严格的 `model.turn.started/completed`：
+TUI 只显示确定性的分析/响应/Tool 准备阶段；Provider Usage 按回合累加并标记实测/部分实测，Context Usage
+按 `estimateKind` 标记估算/实测。协议不接受 reasoning 字段，也不展示或伪造隐藏思维链。
+
+Tool output Surface 使用每 Tool 64 Ki code point 的结构化缓冲，逐项记录 stdout/stderr、完整行/尾部残片和
+相邻重复次数。Reducer 只合并相邻、同 stream、完整且文本完全相等的行；CRLF 仅做通用行终止归一，
+不同错误和不同 stream 永不合并。运行中详情选择/展开保存在 `RunView`，picker 先取得键盘所有权；终态
+`RunView` 进入 Ink `Static` 后不再修改。Ready live region 的历史 viewer 读取最近终态 Run 的快照，支持
+`Ctrl+T` 切换 Tool 和 `Ctrl+O` 打开/关闭，因此完成后仍可查看诊断但不会重绘 native scrollback。Static
+摘要不展示失效快捷键。活动分组最多渲染 8 行：超限时保留最近 7 行，并用一行汇总较早调用及其失败、
+拒绝、截断数；每个 activity 先归一为最多 120 code point 的单行。
+
+Java stdio 只对白名单 `run_command` 投影可选 exit code：成功事实对应 0，失败只读取
+`ToolError.details.exitCode`；未执行的 denied/validation failure 不伪造，TUI 不解析 Tool content、
+stdout/stderr 或错误 prose。完整边界见
+[ADR-083](./adr/ADR-083-s15-tui-scrollback-runtime-visibility.md)。
 
 Windows PowerShell 启动器在创建 Node/Java 子进程前调用同一个只读 resolver：
 显式 `CC_JAVA_RIPGREP_PATH` 优先，其次系统 PATH，最后允许复用本机已经存在的 Codex
@@ -1861,6 +1904,7 @@ FixBug、Review 和 Test Generation 最早可在 S11 作为示例 Skill 或独�
 | [ADR-067](./adr/ADR-067-s15-dual-source-web-search-study.md) | Accepted | TOOL-18 双源研究、托管搜索偏离、来源/许可证/Unknown 与可证伪边界 |
 | [ADR-068](./adr/ADR-068-s15-controlled-web-search-contract.md) | Accepted | 固定 endpoint、BUILT_IN Network Tool、NetworkAccessPort、JDK HTTP、结果与隐私上限的独立契约 |
 | [ADR-076](./adr/ADR-076-s15-durable-markdown-plan-artifact.md) | Accepted | 部分取代 ADR-074 主体；固定 Session-owned Markdown artifact、revision/digest CAS、generation/manifest 单提交点、journal projection recovery、Fork 新 identity/重新审批与旧协议兼容 |
+| [ADR-084](./adr/ADR-084-s15-model-request-retry-hardening.md) | Accepted | 固定 production 同 Provider 11 total attempts、退避/jitter/Retry-After、deadline/cancel、stream fence、privacy-safe retry lifecycle 与 Plan failure 分流 |
 
 ## 26. 需求追踪
 
@@ -1942,15 +1986,18 @@ Stage Exit 为 Accepted。S03-S14 也已按各自 Evidence 完成 Commit-scoped 
 
 `HeadlessRuntimeSession.runPlan` 复用当前 Session、Canonical Transcript、ModelGateway、Context 和 AgentRuntime，临时 Scope 以 `PlanEligibilityPolicy` 同时过滤 definitions 并在 `ToolExecutionPipeline` 重检。可信 `ToolDefinition.planCapabilities` 区分 `READ_ONLY_LOCAL`、`READ_ONLY_NETWORK`、`PLAN_ARTIFACT_WRITE`、`USER_QUESTION` 与尚未启用的 bounded read-only subagent；Workspace write/process/system 固定拒绝，外部 Tool 未显式声明 capability 默认隐藏。受控 `web_search` 声明只读网络能力但继续进入 Permission/AutoReview。
 
-三个独立控制 Tool 是 `revise_plan_artifact`、`ask_plan_question` 与 `request_plan_review`。前者只经 `SessionPlanArtifactStore` 写 canonical journal/manifest，不接受路径或身份；问题通过 Core `UserQuestionHandler` 适配 stdio/Ink picker，duplicate/late/cancel/disconnect fail closed；review 事件只来自 `AWAITING_APPROVAL` durable revision。Plan stdio Run 抑制 `model.text.delta` 和 terminal `finalText`，防止模型 JSON/payload 旁路展示。反馈命令只接受 planId/revision/contentDigest 并推进 `AWAITING_APPROVAL -> DRAFT`。Batch 2 本节本身不实现批准执行；Batch 3 已由后续 `plan.review.resolve`/ExecutionBrief 路径完成，legacy execute 仍不作为新 Markdown flow 的完成声明。
+三个独立控制 Tool 是 `revise_plan_artifact`、`ask_plan_question` 与 `request_plan_review`。ADR-081 将模型契约纠正为 `revise_plan_artifact(markdown)` 和空输入 `request_plan_review({})`：两者都由 run-scoped trusted Tool 在执行时重新加载当前 DRAFT，并在 application control plane 内使用当前 revision+contentDigest 调用 `SessionPlanArtifactStore` CAS。模型不再维护 optimistic-concurrency bookkeeping；Store CAS、single-writer fence、canonical journal/manifest commit point 和真正并发漂移 Fail Closed 保持。旧 CAS 字段只作为未宣传兼容输入接受并忽略，不进入 advertised schema、System projection 或 Surface。`runPlan` 在同一 lifecycle lock 内完成 active Run 资格检查、必要的 `AWAITING_APPROVAL -> DRAFT` feedback 转换和 Plan Scope 占用，因此被并发 Run 拒绝的请求不能提前推进 durable revision。问题通过 Core `UserQuestionHandler` 适配 stdio/Ink picker，duplicate/late/cancel/disconnect fail closed；review 事件只来自成功提交的最新 `AWAITING_APPROVAL` durable revision。Plan stdio Run 抑制 `model.text.delta` 和 terminal `finalText`，防止模型 JSON/payload 旁路展示。反馈命令只接受 Surface 当前 planId/revision/contentDigest 并推进 `AWAITING_APPROVAL -> DRAFT`；这是用户对已展示 review snapshot 的决定 CAS，与模型 Tool 契约不同。Batch 2 本节本身不实现批准执行；Batch 3 已由后续 `plan.review.resolve`/ExecutionBrief 路径完成，legacy execute 仍不作为新 Markdown flow 的完成声明。
 
 ## 30. durable Plan review 与 ExecutionBrief 原子交接（ADR-078）
 
 Batch 3 用 `plan.review.resolve` 取代 durable review 的客户端 `plan-approve → permissions → plan.execute`
 临时链。命令携带精确 `planId/revision/contentDigest/workspaceDigest`、封闭 decision、显式 keep/clear 和有界
 feedback；Java 在 lifecycle lock 内先构造完整 execution scope，再以 canonical journal + manifest CAS 提交
-携带 `ExecutionBrief` 的 APPROVED revision，最后领取 ActiveRun 并交给 executor。只有 enqueue 接受后才发布
-`plan.execution.accepted`；失败保留 APPROVED 可恢复状态，不伪造 EXECUTING。
+携带 `ExecutionBrief` 的 APPROVED revision，最后领取 ActiveRun 并交给 executor。executor 接受 task 后，
+worker 先等待无 timeout 的一次性 start gate；只有 `plan.execution.accepted` 成功进入 stdio 事件出口才放行
+`runAcceptedPlan`，因此当前 Java child 确定满足 accepted 早于 `run.started`。enqueue 失败不发布 accepted；
+accepted 投影失败或连接关闭会 abort gate、释放尚未开始的 acceptance，并保留 APPROVED 供显式恢复，
+不伪造 EXECUTING。
 
 `ExecutionBrief` 是 Domain 不可变值：工件 snapshot/hash、Plan/Session、planning/transcript locator、原始/
 有效 permission、ASK reviewer、context policy、feedback 和 workspace snapshot。持久层只存一份 Markdown，
@@ -1962,6 +2009,29 @@ journal 不删除。Context 使用率 70% 只生成默认建议，picker 显式�
 USER 保留普通审批。APPROVED restart 需要显式领取；EXECUTING restart 由 `PLAN_EXECUTION_RECOVERY` 阻止可写
 resume，避免副作用重放。legacy `plan.execute` 只保留协议识别并固定拒绝，Surface 不暴露。
 
+### 30.1 stdio/Ink Run correlation 与调度无关投影（ADR-082）
+
+当前 Java Plan 交接在 executor 接受后先发布 `plan.execution.accepted`，再通过一次性 start gate 放行 worker，
+因此同一 execution request 的 `run.started` 不会抢在 accepted 前。Surface 仍不得把该顺序当作唯一安全边界：
+`StdioClient.resolvePlanReview` 对会产生 Run 的决定先预登记 requestId 再写 stdin，写入失败同步回滚；Ink 在
+方法返回后同一输入处理内 dispatch `run.submitted`。因此 execution `RunView` 在任意服务端 Run event 消费前已
+存在，仍能兼容旧 Java child 或其他事件乱序，随后以 requestId 找到行、以首个 `run.started.runId` 固定身份。
+REJECT 不建立 Run；feedback 复用相同协议建立下一 planning Run。
+
+pending durable decision 使用 ref 在发送前封住重复 Enter。同步异常恢复 picker；关联 `protocol.error` 在
+`run.started` 前删除 optimistic Run 并恢复 review/feedback。unknown request、错配 runId、完成后迟到 Tool/terminal
+只产生有界 projection notice，不改变 transport phase，也不能把另一个活动 Run变为 ready。真实 stdio decode/
+authority/child failure 才进入 `transport.failed`：未开始 submission 被移除，已开始 Run 标记本地
+`transport_closed`，并显示真实连接失败。Resume/session switch/close 清空 pending correlation；Java recovery gate
+仍是副作用恢复权威。
+
+真实 Java 与安装版测试必须启动 `AgentTui` 并通过 reducer/render 断言 execution 行、Tool activity、最终文本、
+verification 和终态；raw event 只作为诊断与精确协议补充。Plan 跨进程 Fixture 不得把项目仓库根直接作为
+被测 Runtime Workspace：每个 child 在系统临时父目录中创建并严格清理最小真实 Git Workspace，防止冷 Maven
+产物、大 dirty worktree、文件缓存或杀软把 Workspace digest/`git_status` 延迟混入 lifecycle 证据。真实 Tool
+仍经过统一 Pipeline；Fixture 使用 ADR-081 的 markdown-only/empty-review schema，不把 legacy CAS 字段重新暴露给
+模型。完整分支与来源边界见 ADR-082，后续回归纠正见 ADR-083。
+
 ## 31. Batch 5 PlanEvidenceLedger 与安装版构建身份
 
 `PlanEvidenceLedger` 是 codej 独立增强，并非观察到的参考内部类型。Domain 值绑定
@@ -1971,9 +2041,21 @@ reference 只允许相对路径或 callId、SHA-256、封闭 reason 与时间，
 或异常文本。
 
 规划 Runtime 新增 `declare_plan_evidence`，Effect 仍是 `PLAN_ARTIFACT_WRITE`，只更新 Session-owned
-artifact/Ledger；locator 分别是后续 WorkspaceGuard 校验的相对普通文件或匹配 canonical ToolResult 的 Tool
-名。它不接受命令、路径外身份或正文，也不写 Workspace。批准 revision 以 ExecutionBrief digest 和
-workspace digest 固定 Ledger；journal 与 manifest 完整持久化。
+artifact/Ledger；locator 分别是后续 WorkspaceGuard 校验的相对普通文件，或当前 Runtime 实际注册且来源为
+`BUILT_IN` 的可信 Tool 名。稳定名称 regex 只是第一层，未注册的 `validation-output` 等语义 locator 在执行前
+以有界 alternatives 拒绝；反馈不包含路径、正文、命令输出或 Secret。DRAFT 中相同 requirementId 可幂等
+声明或原位 replacement；完全相同的重试直接复用 durable Ledger，不执行 store save、也不推进 revision。
+批准后继续冻结，保持顺序、identity 和 64 项上限。它不接受命令、路径外身份或
+正文，也不写 Workspace。批准 revision 以 ExecutionBrief digest 和 workspace digest 固定 Ledger；journal
+与 manifest 完整持久化。
+
+只有来源为 `BUILT_IN`、Effect 与 capability 均为 `PLAN_ARTIFACT_WRITE` 的 trusted Plan Tool 抛出的
+`PlanArtifactStoreException` 才在唯一 Pipeline 中保留类型：并发或生命周期漂移映射
+`PLAN_ARTIFACT_CONFLICT`，给出封闭 reason 与 retry/revise action；损坏、身份/路径、原子提交或 I/O
+不确定性映射 `PLAN_ARTIFACT_UNAVAILABLE`，要求停止 mutation 并安全 Resume。两者都不拼接底层异常、
+物理路径、Markdown 或 JSON；可信冲突不进入 repeated-failure fingerprint，使空 review intent 能在重新加载最新
+DRAFT 后重试。普通、MCP、Plugin 或其他 Tool 即使抛出同一 Java 异常，也只能得到 generic
+`EXECUTION_FAILED` 并继续进入重复失败治理，不能伪造 trusted Plan 恢复语义。
 
 执行 Run 正常终止后，Java 验证器重新解析 Workspace 普通文件并计算 digest，或从规范消息查找同名
 `SUCCESS` ToolResult。最终回答、Markdown、stderr 与模型自述永不构成证据。required 项为空或存在未通过

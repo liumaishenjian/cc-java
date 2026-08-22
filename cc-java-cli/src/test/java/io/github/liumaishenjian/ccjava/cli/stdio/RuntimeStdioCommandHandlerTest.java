@@ -77,10 +77,9 @@ class RuntimeStdioCommandHandlerTest {
                                     java.util.Map.of("optionId", "safe", "label", "Safe", "description", "Staged"),
                                     java.util.Map.of("optionId", "fast", "label", "Fast", "description", "Direct")))))));
                     case 1 -> ModelTurn.tools(List.of(new ToolCall("update-stdio", "revise_plan_artifact",
-                            new JsonObject(java.util.Map.of("markdown", markdown, "expectedRevision", 0,
-                                    "expectedContentDigest", "")))));
+                            new JsonObject(java.util.Map.of("markdown", markdown)))));
                     case 2 -> ModelTurn.tools(List.of(new ToolCall("review-stdio", "request_plan_review",
-                            new JsonObject(java.util.Map.of("revision", 1, "contentDigest", digest)))));
+                            JsonObject.empty())));
                     default -> ModelTurn.text("{\"internal\":\"must-not-leak\"}");
                 }, testOptions())) {
             handler.handle(codec.decodeCommand(
@@ -124,10 +123,9 @@ class RuntimeStdioCommandHandlerTest {
         try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request ->
                 switch (calls.getAndIncrement()) {
                     case 0 -> ModelTurn.tools(List.of(new ToolCall("update-review", "revise_plan_artifact",
-                            new JsonObject(java.util.Map.of("markdown", markdown, "expectedRevision", 0,
-                                    "expectedContentDigest", "")))));
+                            new JsonObject(java.util.Map.of("markdown", markdown)))));
                     case 1 -> ModelTurn.tools(List.of(new ToolCall("review", "request_plan_review",
-                            new JsonObject(java.util.Map.of("revision", 1, "contentDigest", digest)))));
+                            JsonObject.empty())));
                     case 2 -> ModelTurn.text("plan complete");
                     default -> ModelTurn.text("execution complete");
                 }, testOptions())) {
@@ -158,6 +156,13 @@ class RuntimeStdioCommandHandlerTest {
             }
             assertThat(events.stream().filter(event -> event.type().equals("run.completed")).count())
                     .isGreaterThanOrEqualTo(2L);
+            int acceptedIndex = java.util.stream.IntStream.range(0, events.size())
+                    .filter(index -> events.get(index).type().equals("plan.execution.accepted"))
+                    .findFirst().orElseThrow();
+            int executionStartedIndex = java.util.stream.IntStream.range(0, events.size())
+                    .filter(index -> events.get(index).type().equals("run.started"))
+                    .reduce((first, second) -> second).orElseThrow();
+            assertThat(acceptedIndex).isLessThan(executionStartedIndex);
             assertThat(events).noneMatch(event -> event.type().equals("plan.proposed"));
             assertThatThrownBy(() -> handler.handle(codec.decodeCommand(("{\"version\":0,"
                     + "\"type\":\"plan.execute\",\"requestId\":\"legacy\",\"sessionId\":\"%s\","
@@ -165,6 +170,214 @@ class RuntimeStdioCommandHandlerTest {
                     .formatted(sessionId, planId, workspaceDigest)), emitter))
                     .isInstanceOf(StdioProtocolException.class);
         }
+    }
+
+    @Test
+    void acceptedPlanModelFailureIsNotProjectedAsVerificationRequired() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        AtomicInteger calls = new AtomicInteger();
+        String markdown = "# Plan\n\nFail safely during execution.\n";
+        String digest = io.github.liumaishenjian.ccjava.domain.PlanArtifact.digest(markdown);
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request ->
+                switch (calls.getAndIncrement()) {
+                    case 0 -> ModelTurn.tools(List.of(new ToolCall("update-failure", "revise_plan_artifact",
+                            new JsonObject(java.util.Map.of("markdown", markdown)))));
+                    case 1 -> ModelTurn.tools(List.of(new ToolCall("review-failure", "request_plan_review",
+                            JsonObject.empty())));
+                    case 2 -> ModelTurn.text("plan ready");
+                    default -> throw new io.github.liumaishenjian.ccjava.core.ModelGatewayException(
+                            io.github.liumaishenjian.ccjava.core.ModelGatewayException.FailureKind.PERMANENT,
+                            "SECRET_PROVIDER_BODY",
+                            new io.github.liumaishenjian.ccjava.domain.ModelFailureSummary(
+                                    io.github.liumaishenjian.ccjava.domain.ModelFailureCategory.NETWORK_ERROR,
+                                    Optional.empty(), 1, false));
+                }, testOptions())) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"plan.start\","
+                    + "\"requestId\":\"plan\",\"sessionId\":\"%s\",\"sequence\":2,"
+                    + "\"payload\":{\"prompt\":\"plan\"}}").formatted(sessionId)), emitter);
+            CapturedEvent review = awaitEvent(events, "plan.review.requested");
+            awaitTerminal(events);
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"plan.review.resolve\","
+                    + "\"requestId\":\"decision\",\"sessionId\":\"%s\",\"sequence\":3,"
+                    + "\"payload\":{\"planId\":\"%s\",\"revision\":%d,\"contentDigest\":\"%s\","
+                    + "\"workspaceDigest\":\"%s\",\"decision\":\"APPROVE_USER\","
+                    + "\"contextPolicy\":\"KEEP\",\"feedback\":\"\"}}").formatted(
+                            sessionId,
+                            review.payload().get("planId").stringValue(),
+                            review.payload().get("revision").longValue(),
+                            digest,
+                            review.payload().get("workspaceDigest").stringValue())), emitter);
+
+            CapturedEvent failed = awaitEvent(events, "plan.execution.failed");
+            assertThat(failed.payload().get("status").stringValue()).isEqualTo("failed");
+            assertThat(failed.payload().get("stopReason").stringValue()).isEqualTo("model_error");
+            assertThat(failed.payload().get("modelFailure").toString())
+                    .contains("network_error", "\"attempts\":1")
+                    .doesNotContain("SECRET_PROVIDER_BODY");
+            assertThat(events).noneMatch(event -> event.type().equals("plan.verification.required"));
+            assertThat(calls).hasValue(4);
+        }
+    }
+
+    @Test
+    void approvedPlanWorkerWaitsUntilAcceptedEventReturns() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        AtomicInteger planningCalls = new AtomicInteger();
+        AtomicInteger executionCalls = new AtomicInteger();
+        String markdown = "# Plan\n\nVerify accepted handoff.\n";
+        CountDownLatch acceptedEntered = new CountDownLatch(1);
+        CountDownLatch releaseAccepted = new CountDownLatch(1);
+        StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) -> {
+            if (type.equals("plan.execution.accepted")) {
+                acceptedEntered.countDown();
+                try {
+                    if (!releaseAccepted.await(2, TimeUnit.SECONDS)) {
+                        throw new AssertionError("测试未释放 accepted 事件");
+                    }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(interrupted);
+                }
+            }
+            events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        };
+        try (RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            boolean executing = request.messages().stream()
+                    .filter(io.github.liumaishenjian.ccjava.domain.UserMessage.class::isInstance)
+                    .map(io.github.liumaishenjian.ccjava.domain.UserMessage.class::cast)
+                    .anyMatch(message -> message.content().contains("Implement the approved plan"));
+            if (executing) {
+                executionCalls.incrementAndGet();
+                return ModelTurn.text("execution complete");
+            }
+            return switch (planningCalls.getAndIncrement()) {
+                case 0 -> ModelTurn.tools(List.of(new ToolCall("update", "revise_plan_artifact",
+                        new JsonObject(java.util.Map.of("markdown", markdown)))));
+                case 1 -> ModelTurn.tools(List.of(new ToolCall("review", "request_plan_review",
+                        JsonObject.empty())));
+                default -> ModelTurn.text("planning complete");
+            };
+        }, testOptions())) {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), emitter);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"plan.start\","
+                    + "\"requestId\":\"plan\",\"sessionId\":\"%s\",\"sequence\":2,"
+                    + "\"payload\":{\"prompt\":\"plan\"}}").formatted(sessionId)), emitter);
+            CapturedEvent review = awaitEvent(events, "plan.review.requested");
+            awaitTerminal(events);
+            long completedBeforeExecution = events.stream()
+                    .filter(event -> event.type().equals("run.completed")).count();
+            ObjectNode payload = review.payload();
+            StdioProtocol.Command approve = codec.decodeCommand(("{\"version\":0,"
+                    + "\"type\":\"plan.review.resolve\",\"requestId\":\"decision\","
+                    + "\"sessionId\":\"%s\",\"sequence\":3,\"payload\":{"
+                    + "\"planId\":\"%s\",\"revision\":%d,\"contentDigest\":\"%s\","
+                    + "\"workspaceDigest\":\"%s\",\"decision\":\"APPROVE_USER\","
+                    + "\"contextPolicy\":\"KEEP\",\"feedback\":\"\"}}")
+                    .formatted(sessionId, payload.get("planId").stringValue(),
+                            payload.get("revision").longValue(), payload.get("contentDigest").stringValue(),
+                            payload.get("workspaceDigest").stringValue()));
+            java.util.concurrent.atomic.AtomicReference<Throwable> failure =
+                    new java.util.concurrent.atomic.AtomicReference<>();
+            Thread commandThread = Thread.ofPlatform().start(() -> {
+                try {
+                    handler.handle(approve, emitter);
+                } catch (Throwable throwable) {
+                    failure.set(throwable);
+                }
+            });
+            assertThat(acceptedEntered.await(1, TimeUnit.SECONDS)).isTrue();
+            assertThat(executionCalls).hasValue(0);
+            assertThat(events.stream().filter(event -> event.type().equals("run.completed")).count())
+                    .isEqualTo(completedBeforeExecution);
+            releaseAccepted.countDown();
+            commandThread.join(2_000);
+            assertThat(commandThread.isAlive()).isFalse();
+            assertThat(failure.get()).isNull();
+            awaitEvent(events, "run.started");
+            long deadline = System.nanoTime() + Duration.ofSeconds(3).toNanos();
+            while (System.nanoTime() < deadline && events.stream()
+                    .filter(event -> event.type().equals("run.completed")).count() == completedBeforeExecution) {
+                Thread.sleep(10);
+            }
+            assertThat(executionCalls).hasValue(1);
+            int acceptedIndex = java.util.stream.IntStream.range(0, events.size())
+                    .filter(index -> events.get(index).type().equals("plan.execution.accepted"))
+                    .findFirst().orElseThrow();
+            int executionStartedIndex = java.util.stream.IntStream.range(acceptedIndex + 1, events.size())
+                    .filter(index -> events.get(index).type().equals("run.started"))
+                    .findFirst().orElseThrow();
+            assertThat(acceptedIndex).isLessThan(executionStartedIndex);
+        } finally {
+            releaseAccepted.countDown();
+        }
+    }
+
+    @Test
+    void acceptedEmissionFailureAbortsWorkerAndReleasesExecutorWait() throws Exception {
+        StdioProtocolCodec codec = new StdioProtocolCodec();
+        CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
+        AtomicInteger planningCalls = new AtomicInteger();
+        AtomicInteger executionCalls = new AtomicInteger();
+        String markdown = "# Plan\n\nFail accepted transport.\n";
+        RuntimeStdioCommandHandler handler = new RuntimeStdioCommandHandler(request -> {
+            boolean executing = request.messages().stream()
+                    .filter(io.github.liumaishenjian.ccjava.domain.UserMessage.class::isInstance)
+                    .map(io.github.liumaishenjian.ccjava.domain.UserMessage.class::cast)
+                    .anyMatch(message -> message.content().contains("Implement the approved plan"));
+            if (executing) {
+                executionCalls.incrementAndGet();
+                return ModelTurn.text("must not execute");
+            }
+            return switch (planningCalls.getAndIncrement()) {
+                case 0 -> ModelTurn.tools(List.of(new ToolCall("update", "revise_plan_artifact",
+                        new JsonObject(java.util.Map.of("markdown", markdown)))));
+                case 1 -> ModelTurn.tools(List.of(new ToolCall("review", "request_plan_review",
+                        JsonObject.empty())));
+                default -> ModelTurn.text("planning complete");
+            };
+        }, testOptions());
+        StdioProtocol.EventEmitter collecting = (type, requestId, sessionId, runId, payload) ->
+                events.add(new CapturedEvent(type, sessionId, runId, payload.deepCopy()));
+        try {
+            handler.handle(codec.decodeCommand(
+                    "{\"version\":0,\"type\":\"initialize\",\"requestId\":\"init\",\"sequence\":1,\"payload\":{}}"), collecting);
+            String sessionId = events.getFirst().sessionId().orElseThrow();
+            handler.handle(codec.decodeCommand(("{\"version\":0,\"type\":\"plan.start\","
+                    + "\"requestId\":\"plan\",\"sessionId\":\"%s\",\"sequence\":2,"
+                    + "\"payload\":{\"prompt\":\"plan\"}}").formatted(sessionId)), collecting);
+            CapturedEvent review = awaitEvent(events, "plan.review.requested");
+            awaitTerminal(events);
+            ObjectNode payload = review.payload();
+            StdioProtocol.EventEmitter failing = (type, requestId, eventSessionId, runId, eventPayload) -> {
+                if (type.equals("plan.execution.accepted")) {
+                    throw new IllegalStateException("transport closed");
+                }
+                events.add(new CapturedEvent(type, eventSessionId, runId, eventPayload.deepCopy()));
+            };
+            assertThatThrownBy(() -> handler.handle(codec.decodeCommand(("{\"version\":0,"
+                    + "\"type\":\"plan.review.resolve\",\"requestId\":\"decision\","
+                    + "\"sessionId\":\"%s\",\"sequence\":3,\"payload\":{"
+                    + "\"planId\":\"%s\",\"revision\":%d,\"contentDigest\":\"%s\","
+                    + "\"workspaceDigest\":\"%s\",\"decision\":\"APPROVE_USER\","
+                    + "\"contextPolicy\":\"KEEP\",\"feedback\":\"\"}}")
+                    .formatted(sessionId, payload.get("planId").stringValue(),
+                            payload.get("revision").longValue(), payload.get("contentDigest").stringValue(),
+                            payload.get("workspaceDigest").stringValue())), failing))
+                    .isInstanceOf(IllegalStateException.class);
+        } finally {
+            handler.close();
+        }
+        assertThat(executionCalls).hasValue(0);
+        assertThat(events).noneMatch(event -> event.type().equals("plan.execution.accepted"));
     }
 
     @Test
@@ -222,6 +435,21 @@ class RuntimeStdioCommandHandlerTest {
                             "baseUrl");
             assertThat(terminal.payload().get("finalText").stringValue())
                     .isEqualTo("COMPLETION_SENTINEL");
+            CapturedEvent turnStarted = events.stream()
+                    .filter(event -> event.type().equals("model.turn.started"))
+                    .findFirst().orElseThrow();
+            CapturedEvent turnCompleted = events.stream()
+                    .filter(event -> event.type().equals("model.turn.completed"))
+                    .findFirst().orElseThrow();
+            assertThat(turnStarted.payload().toString()).isEqualTo("{\"turn\":1}");
+            assertThat(turnCompleted.payload().toString())
+                    .contains(
+                            "\"turn\":1",
+                            "\"finishReason\":\"stop\"",
+                            "\"inputTokens\":12",
+                            "\"outputTokens\":3",
+                            "\"totalTokens\":15")
+                    .doesNotContain("PROMPT_SENTINEL", "COMPLETION_SENTINEL", "MODEL_SENTINEL");
         }
     }
 
@@ -267,7 +495,7 @@ class RuntimeStdioCommandHandlerTest {
     }
 
     @Test
-    void projectsToolLifecycleWithoutArgumentsContentOrAbsolutePaths() throws Exception {
+    void projectsBoundedToolActivityWithoutArgumentsOrContentBodies() throws Exception {
         StdioProtocolCodec codec = new StdioProtocolCodec();
         CopyOnWriteArrayList<CapturedEvent> events = new CopyOnWriteArrayList<>();
         StdioProtocol.EventEmitter emitter = (type, requestId, sessionId, runId, payload) ->
@@ -300,8 +528,8 @@ class RuntimeStdioCommandHandlerTest {
                 .filter(event -> event.type().equals("tool.failed"))
                 .findFirst().orElseThrow();
         assertThat(started.payload().toString())
-                .contains("read_file", "ordinal")
-                .doesNotContain("MISSING_SECRET_PATH", "PROMPT_SECRET", "arguments", "content");
+                .contains("read_file", "ordinal", "\"activity\":\"读取 MISSING_SECRET_PATH\"")
+                .doesNotContain("PROMPT_SECRET", "arguments", "content");
         assertThat(failed.payload().toString())
                 .contains(
                         "sensitive_path",
@@ -311,6 +539,76 @@ class RuntimeStdioCommandHandlerTest {
                         "\"returnedItems\":0",
                         "\"truncationReason\":\"none\"")
                 .doesNotContain("MISSING_SECRET_PATH", "PROMPT_SECRET", "arguments", "content");
+    }
+
+    @Test
+    void commandExitCodeUsesOnlyStructuredRunCommandFacts() {
+        var success = io.github.liumaishenjian.ccjava.domain.ToolResult.success(
+                "call-success", "run_command", "ok");
+        var failed = io.github.liumaishenjian.ccjava.domain.ToolResult.failure(
+                "call-failed",
+                "run_command",
+                io.github.liumaishenjian.ccjava.domain.ToolError.classified(
+                        io.github.liumaishenjian.ccjava.domain.ToolErrorCode.PROCESS_EXIT,
+                        io.github.liumaishenjian.ccjava.domain.ToolFailureCategory.PROCESS_EXIT,
+                        false,
+                        "命令失败",
+                        new JsonObject(java.util.Map.of("exitCode", 9))));
+        var unknown = io.github.liumaishenjian.ccjava.domain.ToolResult.failure(
+                "call-unknown",
+                "run_command",
+                io.github.liumaishenjian.ccjava.domain.ToolError.classified(
+                        io.github.liumaishenjian.ccjava.domain.ToolErrorCode.OPERATION_TIMED_OUT,
+                        io.github.liumaishenjian.ccjava.domain.ToolFailureCategory.TIMEOUT,
+                        false,
+                        "命令超时",
+                        new JsonObject(java.util.Map.of("exitCode", -1))));
+        var denied = io.github.liumaishenjian.ccjava.domain.ToolResult.denied(
+                "call-denied", "run_command", "未执行");
+        var other = io.github.liumaishenjian.ccjava.domain.ToolResult.success(
+                "call-read", "read_file", "exitCode: 7");
+
+        assertThat(RuntimeStdioCommandHandler.safeCommandExitCode(success)).contains(0);
+        assertThat(RuntimeStdioCommandHandler.safeCommandExitCode(failed)).contains(9);
+        assertThat(RuntimeStdioCommandHandler.safeCommandExitCode(unknown)).isEmpty();
+        assertThat(RuntimeStdioCommandHandler.safeCommandExitCode(denied)).isEmpty();
+        assertThat(RuntimeStdioCommandHandler.safeCommandExitCode(other)).isEmpty();
+    }
+
+    @Test
+    void toolActivityUsesOnlyWhitelistedBoundedFieldsAndHidesAbsoluteTargets() {
+        ToolCall patch = new ToolCall(
+                "call-patch",
+                "apply_patch",
+                new JsonObject(java.util.Map.of(
+                        "path", "src/App.java",
+                        "oldText", "OLD_BODY_SECRET",
+                        "newText", "NEW_BODY_SECRET")));
+        ToolCall absolute = new ToolCall(
+                "call-absolute",
+                "read_file",
+                new JsonObject(java.util.Map.of("path", "C:\\Users\\private\\secret.txt")));
+        ToolCall external = new ToolCall(
+                "call-external",
+                "external_tool",
+                new JsonObject(java.util.Map.of("query", "PRIVATE_QUERY")));
+        ToolCall traversal = new ToolCall(
+                "call-traversal",
+                "search_text",
+                new JsonObject(java.util.Map.of("query", "needle", "path", "../private")));
+
+        assertThat(RuntimeStdioCommandHandler.safeToolActivity(patch))
+                .contains("修改 src/App.java")
+                .get().asString()
+                .doesNotContain("OLD_BODY_SECRET", "NEW_BODY_SECRET");
+        assertThat(RuntimeStdioCommandHandler.safeToolActivity(absolute))
+                .contains("读取 工作区目标")
+                .get().asString()
+                .doesNotContain("Users", "private", "secret.txt");
+        assertThat(RuntimeStdioCommandHandler.safeToolActivity(external)).isEmpty();
+        assertThat(RuntimeStdioCommandHandler.safeToolActivity(traversal))
+                .contains("搜索 “needle” · 工作区目标")
+                .get().asString().doesNotContain("../private");
     }
 
     @Test
@@ -607,6 +905,10 @@ class RuntimeStdioCommandHandlerTest {
                     .contains("\"stream\":\"stdout\"", "command-stream")
                     .doesNotContain(workspace().toString());
             awaitTerminal(events);
+            CapturedEvent completed = events.stream()
+                    .filter(event -> event.type().equals("tool.completed"))
+                    .findFirst().orElseThrow();
+            assertThat(completed.payload().get("exitCode").intValue()).isZero();
         }
 
         assertThat(Files.readString(workspace().resolve("command.txt"))).contains("ok");

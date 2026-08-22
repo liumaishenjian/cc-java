@@ -127,20 +127,22 @@ public final class RunCommandTool implements AgentTool {
                 return ToolExecutionOutcome.failure(content,
                         ToolError.classified(ToolErrorCode.OPERATION_CANCELLED,
                                 io.github.liumaishenjian.ccjava.domain.ToolFailureCategory.CANCELLATION,
-                                false, "命令已取消", JsonObject.empty()), metadata);
+                                false, "命令已取消",
+                                commandExitDetails(result.exitCode())), metadata);
             }
             if (result.timedOut()) {
                 return ToolExecutionOutcome.failure(content,
                         ToolError.classified(ToolErrorCode.OPERATION_TIMED_OUT,
                                 io.github.liumaishenjian.ccjava.domain.ToolFailureCategory.TIMEOUT,
-                                false, "命令达到墙钟期限", JsonObject.empty()), metadata);
+                                false, "命令达到墙钟期限",
+                                commandExitDetails(result.exitCode())), metadata);
             }
             if (result.exitCode() != 0) {
                 return ToolExecutionOutcome.failure(content,
                         ToolError.classified(ToolErrorCode.PROCESS_EXIT,
                                 io.github.liumaishenjian.ccjava.domain.ToolFailureCategory.PROCESS_EXIT,
                                 false, "命令以非零状态退出",
-                                new JsonObject(java.util.Map.of("exitCode", result.exitCode()))), metadata);
+                                commandExitDetails(result.exitCode())), metadata);
             }
             return ToolExecutionOutcome.success(content, metadata);
         } catch (IOException exception) {
@@ -148,6 +150,15 @@ public final class RunCommandTool implements AgentTool {
                     ToolErrorCode.EXECUTION_FAILED,
                     "命令进程无法启动"));
         }
+    }
+
+    /**
+     * 只在执行后端取得真实退出码时投影结构化事实；{@code -1} 表示终止后未知。
+     */
+    static JsonObject commandExitDetails(int exitCode) {
+        return exitCode == -1
+                ? JsonObject.empty()
+                : new JsonObject(java.util.Map.of("exitCode", exitCode));
     }
 
     private static String render(CommandExecutionResult result) {

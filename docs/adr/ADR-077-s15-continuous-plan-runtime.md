@@ -7,6 +7,7 @@
 - Current → Batch Target: `L1 → L1`；补齐用户可用链路但仍缺 Batch 3 执行与真实 Provider Eval
 - Reference Behavior Baseline: `R2026.03`
 - Authorized Snapshot ID: `AUTH-SRC-2026-07-29-A`
+- Superseded in Part by: [ADR-081](./ADR-081-s15-plan-trusted-cas-evidence-validation.md) 的 trusted CAS 模型契约纠正
 - Supersedes in Part: ADR-074 的用户严格 JSON proposal、静态五 Tool 白名单与一次性提案路径
 - Builds On: ADR-076 的 Session-owned durable Markdown `PlanArtifact`
 
@@ -41,6 +42,9 @@ Workspace write、process execution 和 system/destructive effect 在规划期�
 | Unknown | 准确上游 Revision、全部远程/协作语义、所有外部 Tool 的分类保证，以及参考实现是否具有通用 capability registry。 |
 
 ## 3. 独立契约与状态
+
+> 下列第 1、2 项记录 Batch 2 历史契约，已由 ADR-081 纠正为模型只提交 Markdown、空 review intent，
+> CAS bookkeeping 由 trusted application control plane 持有；不得继续作为 advertised schema。
 
 1. `revise_plan_artifact(markdown, expectedRevision, expectedContentDigest)`：创建或替换当前 Session 的唯一 Markdown 工件；不接受路径、Session ID 或 Plan ID。
 2. `request_plan_review(revision, contentDigest)`：仅把匹配的 `DRAFT` revision 推进到 `AWAITING_APPROVAL`；review 事件携带同一已提交正文、revision 和 digest。

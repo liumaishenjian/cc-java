@@ -124,6 +124,8 @@ AutoReview、Checkpoint、取消和预算。
 - APPROVED 显式重启，EXECUTING recovery gate；
 - no legacy triple/JSON leakage、无第二次 plan.execute；
 - stdio 事件和 React/Ink 四项 picker；
+- executor 与 stdio emitter 的并发顺序：`plan.execution.accepted`/`run.started` 任一先到，Surface 均以预登记
+  requestId 建立 execution Run；关联失败不得伪装 transport closed（独立投影契约见 ADR-082）；
 - ASK/AUTO/PLAN、Hard Denial 和历史测试回归。
 
 ## 5. 差距与 Batch 4

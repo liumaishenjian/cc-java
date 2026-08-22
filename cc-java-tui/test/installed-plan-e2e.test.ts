@@ -88,7 +88,15 @@ describe('installed Plan TUI to Java flow', () => {
       await waitFor(() => events.some(event => event.type === 'plan.verification.completed'
         && event.requestId === executionRequestId),
       () => diagnostic(view.lastFrame(), events, failures, exitResult));
+      await waitFor(() => view.lastFrame()?.includes('检查工作区') === true
+        && view.lastFrame()?.includes('approved plan executed') === true
+        && view.lastFrame()?.includes('已完成') === true,
+      () => diagnostic(view.lastFrame(), events, failures, exitResult));
 
+      const finalFrame = view.lastFrame() ?? '';
+      expect(finalFrame).not.toContain('无法关联');
+      expect(finalFrame).not.toContain('连接已关闭');
+      expect(finalFrame).toContain('计划证据已验证');
       expect(events.filter(event => event.type === 'tool.completed'
         && event.requestId === executionRequestId && event.payload.toolName === 'git_status')).toHaveLength(1);
       expect(events.some(event => event.type === 'plan.verification.required'

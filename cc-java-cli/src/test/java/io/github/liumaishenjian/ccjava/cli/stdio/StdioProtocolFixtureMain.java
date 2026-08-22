@@ -41,89 +41,118 @@ public final class StdioProtocolFixtureMain {
         if (failed) System.exit(2);
     }
 
-    private static StdioProtocol.CommandHandler planRuntimeHandler(Path workspace) throws Exception {
-        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
-        java.util.concurrent.atomic.AtomicInteger executionCalls = new java.util.concurrent.atomic.AtomicInteger();
-        java.util.concurrent.atomic.AtomicBoolean directExecution = new java.util.concurrent.atomic.AtomicBoolean();
-        String markdown = "# Cross-process plan\n\n1. Inspect workspace safely.\n";
-        String revisedMarkdown = "# Cross-process plan\n\n1. Inspect workspace safely.\n2. Verify rollback behavior.\n";
-        String digest = io.github.liumaishenjian.ccjava.domain.PlanArtifact.digest(markdown);
-        String revisedDigest = io.github.liumaishenjian.ccjava.domain.PlanArtifact.digest(revisedMarkdown);
-        io.github.liumaishenjian.ccjava.core.ModelGateway model = request -> {
-            boolean executing = request.messages().stream()
-                    .filter(io.github.liumaishenjian.ccjava.domain.UserMessage.class::isInstance)
-                    .map(io.github.liumaishenjian.ccjava.domain.UserMessage.class::cast)
-                    .anyMatch(message -> message.content().contains("Implement the approved plan"));
-            if (executing || directExecution.get()) {
-                directExecution.set(true);
-                int executionCall = executionCalls.getAndIncrement();
-                if (executionCall == 0) return io.github.liumaishenjian.ccjava.domain.ModelTurn.tools(List.of(
-                        new io.github.liumaishenjian.ccjava.domain.ToolCall(
-                                "approved-plan-tool", "git_status",
-                                io.github.liumaishenjian.ccjava.domain.JsonObject.empty())));
-                if (executionCall == 1) return io.github.liumaishenjian.ccjava.domain.ModelTurn.text("approved plan executed");
-                throw new IllegalStateException("Plan fixture 收到过多执行请求");
-            }
-            int call = calls.getAndIncrement();
-            if (call == 0) return io.github.liumaishenjian.ccjava.domain.ModelTurn.tools(List.of(
-                    new io.github.liumaishenjian.ccjava.domain.ToolCall("plan-update", "revise_plan_artifact",
-                            new io.github.liumaishenjian.ccjava.domain.JsonObject(Map.of(
-                                    "markdown", markdown, "expectedRevision", 0, "expectedContentDigest", "")))));
-            if (call == 1) return io.github.liumaishenjian.ccjava.domain.ModelTurn.tools(List.of(
-                    new io.github.liumaishenjian.ccjava.domain.ToolCall("plan-evidence", "declare_plan_evidence",
-                            new io.github.liumaishenjian.ccjava.domain.JsonObject(Map.of(
-                                    "requirementId", "git-check", "kind", "VERIFICATION", "locator", "git_status",
-                                    "label", "workspace status inspected", "required", true)))));
-            if (call == 2) return io.github.liumaishenjian.ccjava.domain.ModelTurn.tools(List.of(
-                    new io.github.liumaishenjian.ccjava.domain.ToolCall("plan-review", "request_plan_review",
-                            new io.github.liumaishenjian.ccjava.domain.JsonObject(Map.of(
-                                    "revision", 2, "contentDigest", digest)))));
-            if (call == 3) return io.github.liumaishenjian.ccjava.domain.ModelTurn.text("planning finished");
-            if (call == 4) {
-                boolean feedbackReachedModel = request.messages().stream()
+    private static StdioProtocol.CommandHandler planRuntimeHandler(Path parent) throws Exception {
+        Path expectedParent = parent.toAbsolutePath().normalize();
+        Path expectedRealParent = expectedParent.toRealPath();
+        Path fixtureRoot = Files.createTempDirectory(expectedRealParent, "plan-runtime-");
+        try {
+            Path workspace = Files.createDirectory(fixtureRoot.resolve("workspace"));
+            initializeGitRepository(workspace);
+            java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+            java.util.concurrent.atomic.AtomicInteger executionCalls = new java.util.concurrent.atomic.AtomicInteger();
+            java.util.concurrent.atomic.AtomicBoolean directExecution = new java.util.concurrent.atomic.AtomicBoolean();
+            String markdown = "# Cross-process plan\n\n1. Inspect workspace safely.\n";
+            String revisedMarkdown = "# Cross-process plan\n\n1. Inspect workspace safely.\n2. Verify rollback behavior.\n";
+            io.github.liumaishenjian.ccjava.core.ModelGateway model = request -> {
+                boolean executing = request.messages().stream()
                         .filter(io.github.liumaishenjian.ccjava.domain.UserMessage.class::isInstance)
                         .map(io.github.liumaishenjian.ccjava.domain.UserMessage.class::cast)
-                        .anyMatch(message -> message.content().equals("add rollback verification"));
-                if (!feedbackReachedModel) throw new IllegalStateException("Plan feedback 未进入新的模型回合");
-                return io.github.liumaishenjian.ccjava.domain.ModelTurn.tools(List.of(
-                        new io.github.liumaishenjian.ccjava.domain.ToolCall("plan-revise-feedback", "revise_plan_artifact",
+                        .anyMatch(message -> message.content().contains("Implement the approved plan"));
+                if (executing || directExecution.get()) {
+                    directExecution.set(true);
+                    int executionCall = executionCalls.getAndIncrement();
+                    if (executionCall == 0) return io.github.liumaishenjian.ccjava.domain.ModelTurn.tools(List.of(
+                            new io.github.liumaishenjian.ccjava.domain.ToolCall(
+                                    "approved-plan-tool", "git_status",
+                                    io.github.liumaishenjian.ccjava.domain.JsonObject.empty())));
+                    if (executionCall == 1) {
+                        return io.github.liumaishenjian.ccjava.domain.ModelTurn.text("approved plan executed");
+                    }
+                    throw new IllegalStateException("Plan fixture 收到过多执行请求");
+                }
+                int call = calls.getAndIncrement();
+                if (call == 0) return io.github.liumaishenjian.ccjava.domain.ModelTurn.tools(List.of(
+                        new io.github.liumaishenjian.ccjava.domain.ToolCall("plan-update", "revise_plan_artifact",
+                                new io.github.liumaishenjian.ccjava.domain.JsonObject(Map.of("markdown", markdown)))));
+                if (call == 1) return io.github.liumaishenjian.ccjava.domain.ModelTurn.tools(List.of(
+                        new io.github.liumaishenjian.ccjava.domain.ToolCall("plan-evidence", "declare_plan_evidence",
                                 new io.github.liumaishenjian.ccjava.domain.JsonObject(Map.of(
-                                        "markdown", revisedMarkdown, "expectedRevision", 4,
-                                        "expectedContentDigest", digest)))));
+                                        "requirementId", "git-check", "kind", "VERIFICATION", "locator", "git_status",
+                                        "label", "workspace status inspected", "required", true)))));
+                if (call == 2) return io.github.liumaishenjian.ccjava.domain.ModelTurn.tools(List.of(
+                        new io.github.liumaishenjian.ccjava.domain.ToolCall("plan-review", "request_plan_review",
+                                io.github.liumaishenjian.ccjava.domain.JsonObject.empty())));
+                if (call == 3) return io.github.liumaishenjian.ccjava.domain.ModelTurn.text("planning finished");
+                if (call == 4) {
+                    boolean feedbackReachedModel = request.messages().stream()
+                            .filter(io.github.liumaishenjian.ccjava.domain.UserMessage.class::isInstance)
+                            .map(io.github.liumaishenjian.ccjava.domain.UserMessage.class::cast)
+                            .anyMatch(message -> message.content().equals("add rollback verification"));
+                    if (!feedbackReachedModel) throw new IllegalStateException("Plan feedback 未进入新的模型回合");
+                    return io.github.liumaishenjian.ccjava.domain.ModelTurn.tools(List.of(
+                            new io.github.liumaishenjian.ccjava.domain.ToolCall(
+                                    "plan-revise-feedback", "revise_plan_artifact",
+                                    new io.github.liumaishenjian.ccjava.domain.JsonObject(Map.of(
+                                            "markdown", revisedMarkdown)))));
+                }
+                if (call == 5) return io.github.liumaishenjian.ccjava.domain.ModelTurn.tools(List.of(
+                        new io.github.liumaishenjian.ccjava.domain.ToolCall(
+                                "plan-review-feedback", "request_plan_review",
+                                io.github.liumaishenjian.ccjava.domain.JsonObject.empty())));
+                if (call == 6) return io.github.liumaishenjian.ccjava.domain.ModelTurn.text("replanning finished");
+                throw new IllegalStateException("Plan fixture 收到过多规划请求");
+            };
+            Path providerRoot = Files.createDirectory(fixtureRoot.resolve("provider"));
+            Path providerHome = Files.createDirectory(providerRoot.resolve("home"));
+            Path providerRepository = Files.createDirectory(providerRoot.resolve("repository"));
+            var credentials = new io.github.liumaishenjian.ccjava.cli.auth.RestrictedFileCredentialStore(providerHome);
+            var definitions = new io.github.liumaishenjian.ccjava.cli.provider.ProviderDefinitionStore(providerHome);
+            var providerAuth = new io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService(
+                    definitions, credentials,
+                    new io.github.liumaishenjian.ccjava.cli.auth.LegacyCredentialMigrationService(
+                            new io.github.liumaishenjian.ccjava.cli.auth.LegacyProviderConfigurationReader(
+                                    providerRepository),
+                            definitions, credentials),
+                    Map.of("CC_JAVA_PLAN_FIXTURE_KEY", "fixture-provider-sentinel"));
+            providerAuth.login(
+                    new io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService.LoginRequest(
+                            "anthropic", "fixture", io.github.liumaishenjian.ccjava.cli.runtime
+                                    .ProviderAuthApplicationService.RefKind.ENV,
+                            "CC_JAVA_PLAN_FIXTURE_KEY", true),
+                    null, io.github.liumaishenjian.ccjava.core.CancellationToken.none());
+            providerAuth.addModel("anthropic", "fixture-model", true,
+                    io.github.liumaishenjian.ccjava.core.CancellationToken.none());
+            RuntimeStdioCommandHandler delegate = new RuntimeStdioCommandHandler((events, approvals) ->
+                    io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeSession.production(
+                            model, events,
+                            new io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeOptions(
+                                    workspace.toAbsolutePath().normalize(), "fixture-model", Duration.ofSeconds(5)),
+                            approvals), providerAuth);
+            return ownedFixtureHandler(delegate, expectedParent, expectedRealParent, fixtureRoot,
+                    "plan-runtime-");
+        } catch (Exception failure) {
+            try {
+                deleteFixtureTree(expectedParent, expectedRealParent, fixtureRoot, "plan-runtime-");
+            } catch (Exception cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
             }
-            if (call == 5) return io.github.liumaishenjian.ccjava.domain.ModelTurn.tools(List.of(
-                    new io.github.liumaishenjian.ccjava.domain.ToolCall("plan-review-feedback", "request_plan_review",
-                            new io.github.liumaishenjian.ccjava.domain.JsonObject(Map.of(
-                                    "revision", 5, "contentDigest", revisedDigest)))));
-            if (call == 6) return io.github.liumaishenjian.ccjava.domain.ModelTurn.text("replanning finished");
-            throw new IllegalStateException("Plan fixture 收到过多规划请求");
-        };
-        Path providerRoot = Files.createTempDirectory("cc-java-plan-provider-fixture-");
-        Path providerHome = Files.createDirectory(providerRoot.resolve("home"));
-        Path providerRepository = Files.createDirectory(providerRoot.resolve("repository"));
-        var credentials = new io.github.liumaishenjian.ccjava.cli.auth.RestrictedFileCredentialStore(providerHome);
-        var definitions = new io.github.liumaishenjian.ccjava.cli.provider.ProviderDefinitionStore(providerHome);
-        var providerAuth = new io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService(
-                definitions, credentials,
-                new io.github.liumaishenjian.ccjava.cli.auth.LegacyCredentialMigrationService(
-                        new io.github.liumaishenjian.ccjava.cli.auth.LegacyProviderConfigurationReader(providerRepository),
-                        definitions, credentials),
-                Map.of("CC_JAVA_PLAN_FIXTURE_KEY", "fixture-provider-sentinel"));
-        providerAuth.login(new io.github.liumaishenjian.ccjava.cli.runtime.ProviderAuthApplicationService.LoginRequest(
-                        "anthropic", "fixture", io.github.liumaishenjian.ccjava.cli.runtime
-                                .ProviderAuthApplicationService.RefKind.ENV,
-                        "CC_JAVA_PLAN_FIXTURE_KEY", true),
-                null, io.github.liumaishenjian.ccjava.core.CancellationToken.none());
-        providerAuth.addModel("anthropic", "fixture-model", true,
-                io.github.liumaishenjian.ccjava.core.CancellationToken.none());
-        RuntimeStdioCommandHandler delegate = new RuntimeStdioCommandHandler((events, approvals) ->
-                io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeSession.production(
-                        model, events,
-                        new io.github.liumaishenjian.ccjava.cli.runtime.HeadlessRuntimeOptions(
-                                workspace.toAbsolutePath().normalize(), "fixture-model", Duration.ofSeconds(5)),
-                        approvals), providerAuth);
-        return ownedFixtureHandler(delegate, providerRoot.getParent(), providerRoot,
-                "cc-java-plan-provider-fixture-");
+            throw failure;
+        }
+    }
+
+    /** 使用固定 argv 为 Plan E2E 创建一个最小、独立的本地 Git Workspace。 */
+    private static void initializeGitRepository(Path workspace) throws Exception {
+        Process process = new ProcessBuilder("git", "init", "--quiet", workspace.toString())
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start();
+        if (!process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            throw new java.io.IOException("Plan fixture Git 初始化超时");
+        }
+        if (process.exitValue() != 0) {
+            throw new java.io.IOException("Plan fixture Git 初始化失败");
+        }
     }
 
     static StdioProtocol.CommandHandler planRuntimeHandlerForTest(Path workspace) throws Exception {

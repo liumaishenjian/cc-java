@@ -48,6 +48,8 @@
 
 - Fake/真实 Java Plan 测试覆盖 evidence pass、缺失→NEEDS_VERIFICATION、显式 skip 与 restart；
 - stdio/TUI 覆盖 question、durable review、Arrow/Tab/Enter、真实 Tool delivery、唯一终态与干净 child exit；
+  Batch 7 进一步要求真实 Java与安装副本通过 Ink reducer/render 断言 execution Run、Tool、final text、verification
+  与终态，并按 ADR-082 分离 projection notice 和 transport failure；
 - packaged launcher 对 current commit/source/JAR/TUI digest 对账，并用篡改 manifest、attestation、JAR 与普通
   code-executing 入口负例证明失败关闭；
 - 不声称真实 Provider 默认验证、在线 Plan 质量、多人并发、多平台安装或 L4 收益已经完成。

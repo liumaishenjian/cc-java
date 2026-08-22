@@ -6,6 +6,9 @@ import io.github.liumaishenjian.ccjava.cli.auth.ProviderAuthException;
 import io.github.liumaishenjian.ccjava.core.CancellationToken;
 import io.github.liumaishenjian.ccjava.core.ModelGatewayException;
 import io.github.liumaishenjian.ccjava.core.ModelStreamObserver;
+import io.github.liumaishenjian.ccjava.core.ModelRetryPolicy;
+import io.github.liumaishenjian.ccjava.core.ModelRetryRuntime;
+import io.github.liumaishenjian.ccjava.core.RetryingModelGateway;
 import io.github.liumaishenjian.ccjava.core.RunScopedModelGateway;
 import io.github.liumaishenjian.ccjava.core.StreamingModelGateway;
 import io.github.liumaishenjian.ccjava.core.model.ModelProviderRoute;
@@ -39,6 +42,8 @@ public final class SelectedProviderRouteFactory {
     private final CredentialResolver resolver;
     private final CredentialLeaseRegistry leases;
     private final ProviderGatewayFactoryRegistry factories;
+    private final ModelRetryPolicy retryPolicy;
+    private final ModelRetryRuntime retryRuntime;
 
     /**
      * 创建无 fallback 的 selected-route factory。
@@ -50,8 +55,32 @@ public final class SelectedProviderRouteFactory {
      */
     public SelectedProviderRouteFactory(ProviderDefinitionStore definitions, CredentialResolver resolver,
                                         CredentialLeaseRegistry leases, ProviderGatewayFactoryRegistry factories) {
+        this(definitions, resolver, leases, factories,
+                ModelRetryPolicy.PRODUCTION_DEFAULT, ModelRetryRuntime.system());
+    }
+
+    /** 包级测试 seam：保留生产默认策略，只替换等待与随机数，避免测试真实休眠。 */
+    SelectedProviderRouteFactory(
+            ProviderDefinitionStore definitions,
+            CredentialResolver resolver,
+            CredentialLeaseRegistry leases,
+            ProviderGatewayFactoryRegistry factories,
+            ModelRetryRuntime retryRuntime) {
+        this(definitions, resolver, leases, factories,
+                ModelRetryPolicy.PRODUCTION_DEFAULT, retryRuntime);
+    }
+
+    /** 包级测试 seam：仅供更小 attempt 策略的聚焦行为测试。 */
+    SelectedProviderRouteFactory(
+            ProviderDefinitionStore definitions,
+            CredentialResolver resolver,
+            CredentialLeaseRegistry leases,
+            ProviderGatewayFactoryRegistry factories,
+            ModelRetryPolicy retryPolicy,
+            ModelRetryRuntime retryRuntime) {
         this.definitions=Objects.requireNonNull(definitions); this.resolver=Objects.requireNonNull(resolver);
         this.leases=Objects.requireNonNull(leases); this.factories=Objects.requireNonNull(factories);
+        this.retryPolicy=Objects.requireNonNull(retryPolicy); this.retryRuntime=Objects.requireNonNull(retryRuntime);
     }
 
     /**
@@ -91,7 +120,8 @@ public final class SelectedProviderRouteFactory {
                 throw failure;
             }
             ModelProviderCapabilitySnapshot capabilities=capabilities(selection);
-            ProviderRouter router=new ProviderRouter(List.of(new ModelProviderRoute(selection.providerId(),provider,capabilities)),
+            RetryingModelGateway retrying = new RetryingModelGateway(provider, retryPolicy, retryRuntime);
+            ProviderRouter router=new ProviderRouter(List.of(new ModelProviderRoute(selection.providerId(),retrying,capabilities)),
                     new io.github.liumaishenjian.ccjava.core.model.ProviderRoutePolicy(1,
                             java.time.Duration.ofMinutes(30),java.time.Duration.ZERO,-1,1,java.time.Clock.systemUTC()));
             return new OpenedRoute(router,lease);

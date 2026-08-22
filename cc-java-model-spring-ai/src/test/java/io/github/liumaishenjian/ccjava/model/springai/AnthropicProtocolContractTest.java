@@ -9,6 +9,7 @@ import io.github.liumaishenjian.ccjava.core.CancellationSource;
 import io.github.liumaishenjian.ccjava.core.CancellationToken;
 import io.github.liumaishenjian.ccjava.core.ModelGatewayException;
 import io.github.liumaishenjian.ccjava.core.ModelRetryPolicy;
+import io.github.liumaishenjian.ccjava.core.ModelRetryRuntime;
 import io.github.liumaishenjian.ccjava.core.RetryingModelGateway;
 import io.github.liumaishenjian.ccjava.domain.ModelFinishReason;
 import io.github.liumaishenjian.ccjava.domain.ModelRequest;
@@ -59,17 +60,23 @@ class AnthropicProtocolContractTest {
 
     @Test void retries429WithRetryAfterAndClassifies5xxAndContextLimit() throws Exception {
         AtomicInteger attempts = new AtomicInteger();
+        java.util.concurrent.atomic.AtomicReference<Duration> waited = new java.util.concurrent.atomic.AtomicReference<>();
         try (Fixture fixture = Fixture.dynamic(exchange -> {
             if (attempts.incrementAndGet() == 1) {
-                exchange.getResponseHeaders().set("retry-after", "0");
+                exchange.getResponseHeaders().set("retry-after", "2");
                 json(exchange, 429, "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"busy\"}}");
             } else sse(exchange, textStream());
         })) {
+            ModelRetryRuntime runtime = new ModelRetryRuntime() {
+                @Override public double nextRandom() { return 0d; }
+                @Override public void await(Duration delay, CancellationToken cancellation) { waited.set(delay); }
+            };
             ModelTurn turn = new RetryingModelGateway(gateway(fixture),
-                    new ModelRetryPolicy(2, List.of(Duration.ZERO))).complete(
+                    new ModelRetryPolicy(2, List.of(Duration.ZERO)), runtime).complete(
                             request(List.of()), ignored -> { }, CancellationToken.none());
             assertThat(turn.assistantMessage().text()).isEqualTo("ok");
             assertThat(attempts).hasValue(2);
+            assertThat(waited.get()).isEqualTo(Duration.ofSeconds(2));
         }
         try (Fixture fixture = Fixture.respond(503,
                 "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"SECRET\"}}",

@@ -142,9 +142,9 @@ public final class SpringAiModelGateway implements StreamingModelGateway {
             }
             Throwable cause = unwrap(exception);
             FailureClassification classification = classify(cause);
-            if (receivedResponse.get()
-                    && classification.reason() != ModelFailureReason.TIMEOUT) {
-                classification = incompleteStream();
+            if (receivedResponse.get()) {
+                // 任意 Provider frame 都是重放 fence；timeout 也不能在该边界后重新发起请求。
+                classification = incompleteStream(classification.reason());
             }
             recordFailure(
                     request,
@@ -156,11 +156,20 @@ public final class SpringAiModelGateway implements StreamingModelGateway {
                     receivedResponse.get(),
                     emittedUserText.get(),
                     startedNanos);
+            String safeMessage = classification.kind() == INCOMPLETE_STREAM
+                    ? "Model stream ended before a complete response"
+                    : "Model request failed";
+            if (classification.retryAfter().isPresent()) {
+                throw new ModelGatewayException(
+                        classification.kind(),
+                        safeMessage,
+                        classification.summary(),
+                        classification.retryAfter().orElseThrow(),
+                        cause);
+            }
             throw new ModelGatewayException(
                     classification.kind(),
-                    classification.kind() == INCOMPLETE_STREAM
-                            ? "OpenAI-compatible model stream ended before a complete response"
-                            : "OpenAI-compatible model request failed",
+                    safeMessage,
                     classification.summary(),
                     cause);
         }
@@ -422,7 +431,9 @@ public final class SpringAiModelGateway implements StreamingModelGateway {
             if (current instanceof com.anthropic.errors.AnthropicServiceException service) {
                 return classifyAnthropicService(service);
             }
-            if (current instanceof java.util.concurrent.TimeoutException) {
+            if (current instanceof java.util.concurrent.TimeoutException
+                    || current instanceof java.net.SocketTimeoutException
+                    || current instanceof java.net.http.HttpTimeoutException) {
                 return retryable(
                         ModelFailureCategory.REQUEST_TIMEOUT,
                         Optional.empty(),
@@ -454,27 +465,34 @@ public final class SpringAiModelGateway implements StreamingModelGateway {
                             statusClass,
                             false),
                     ModelFailureReason.UNKNOWN,
-                    ModelDiagnosticStatusClass.CLIENT_ERROR);
+                    ModelDiagnosticStatusClass.CLIENT_ERROR,
+                    Optional.empty());
         }
-        return classifyStatus(service.statusCode());
+        return classifyStatus(service.statusCode(), parseRetryAfter(service.headers().values("retry-after")));
     }
 
     private static FailureClassification classifyAnthropicService(
             com.anthropic.errors.AnthropicServiceException service) {
-        return classifyStatus(service.statusCode());
+        return classifyStatus(service.statusCode(), parseRetryAfter(service.headers().values("retry-after")));
     }
 
     private static FailureClassification classifyStatus(int status) {
+        return classifyStatus(status, Optional.empty());
+    }
+
+    private static FailureClassification classifyStatus(
+            int status,
+            Optional<java.time.Duration> retryAfter) {
         Optional<ModelHttpStatusClass> statusClass = status >= 500
                 ? Optional.of(ModelHttpStatusClass.SERVER_ERROR)
                 : Optional.of(ModelHttpStatusClass.CLIENT_ERROR);
         if (status >= 500) {
-            return retryable(ModelFailureCategory.PROVIDER_UNAVAILABLE, statusClass);
+            return retryable(ModelFailureCategory.PROVIDER_UNAVAILABLE, statusClass, retryAfter);
         }
         return switch (status) {
-            case 408 -> retryable(ModelFailureCategory.REQUEST_TIMEOUT, statusClass);
-            case 409 -> retryable(ModelFailureCategory.REQUEST_CONFLICT, statusClass);
-            case 429 -> retryable(ModelFailureCategory.RATE_LIMITED, statusClass);
+            case 408 -> retryable(ModelFailureCategory.REQUEST_TIMEOUT, statusClass, retryAfter);
+            case 409 -> retryable(ModelFailureCategory.REQUEST_CONFLICT, statusClass, retryAfter);
+            case 429 -> retryable(ModelFailureCategory.RATE_LIMITED, statusClass, retryAfter);
             case 401, 403 -> permanent(ModelFailureCategory.AUTHENTICATION_FAILED, statusClass);
             default -> permanent(ModelFailureCategory.INVALID_REQUEST, statusClass);
         };
@@ -483,21 +501,37 @@ public final class SpringAiModelGateway implements StreamingModelGateway {
     private static FailureClassification retryable(
             ModelFailureCategory category,
             Optional<ModelHttpStatusClass> statusClass) {
+        return retryable(category, statusClass, Optional.empty());
+    }
+
+    private static FailureClassification retryable(
+            ModelFailureCategory category,
+            Optional<ModelHttpStatusClass> statusClass,
+            Optional<java.time.Duration> retryAfter) {
         ModelFailureReason reason = category == ModelFailureCategory.REQUEST_TIMEOUT
                 ? ModelFailureReason.TIMEOUT
                 : ModelFailureReason.UNKNOWN;
-        return retryable(category, statusClass, reason);
+        return retryable(category, statusClass, reason, retryAfter);
     }
 
     private static FailureClassification retryable(
             ModelFailureCategory category,
             Optional<ModelHttpStatusClass> statusClass,
             ModelFailureReason reason) {
+        return retryable(category, statusClass, reason, Optional.empty());
+    }
+
+    private static FailureClassification retryable(
+            ModelFailureCategory category,
+            Optional<ModelHttpStatusClass> statusClass,
+            ModelFailureReason reason,
+            Optional<java.time.Duration> retryAfter) {
         return new FailureClassification(
                 RETRYABLE,
                 ModelFailureSummary.firstAttempt(category, statusClass, false),
                 reason,
-                diagnosticStatus(statusClass));
+                diagnosticStatus(statusClass),
+                retryAfter);
     }
 
     private static FailureClassification permanent(
@@ -507,18 +541,44 @@ public final class SpringAiModelGateway implements StreamingModelGateway {
                 PERMANENT,
                 ModelFailureSummary.firstAttempt(category, statusClass, false),
                 ModelFailureReason.UNKNOWN,
-                diagnosticStatus(statusClass));
+                diagnosticStatus(statusClass),
+                Optional.empty());
     }
 
-    private static FailureClassification incompleteStream() {
+    private static FailureClassification incompleteStream(ModelFailureReason rootReason) {
+        ModelFailureReason reason = rootReason == ModelFailureReason.TIMEOUT
+                ? ModelFailureReason.TIMEOUT
+                : ModelFailureReason.TRANSPORT_CLOSED;
         return new FailureClassification(
                 INCOMPLETE_STREAM,
                 ModelFailureSummary.firstAttempt(
                         ModelFailureCategory.INCOMPLETE_STREAM,
                         Optional.empty(),
                         true),
-                ModelFailureReason.TRANSPORT_CLOSED,
-                ModelDiagnosticStatusClass.NONE);
+                reason,
+                ModelDiagnosticStatusClass.NONE,
+                Optional.empty());
+    }
+
+    /**
+     * 只解析 RFC 允许的 delta-seconds 形式；SDK Header 值重复、非法或溢出时忽略。
+     */
+    private static Optional<java.time.Duration> parseRetryAfter(List<String> values) {
+        if (values == null || values.size() != 1) {
+            return Optional.empty();
+        }
+        String value = values.getFirst();
+        if (value == null || !value.matches("[0-9]{1,10}")) {
+            return Optional.empty();
+        }
+        try {
+            long seconds = Long.parseLong(value);
+            java.time.Duration parsed = java.time.Duration.ofSeconds(seconds);
+            java.time.Duration maximum = java.time.Duration.ofMinutes(5);
+            return Optional.of(parsed.compareTo(maximum) > 0 ? maximum : parsed);
+        } catch (RuntimeException invalid) {
+            return Optional.empty();
+        }
     }
 
     private static ModelDiagnosticStatusClass diagnosticStatus(
@@ -564,7 +624,11 @@ public final class SpringAiModelGateway implements StreamingModelGateway {
             ModelGatewayException.FailureKind kind,
             ModelFailureSummary summary,
             ModelFailureReason reason,
-            ModelDiagnosticStatusClass statusClass) {
+            ModelDiagnosticStatusClass statusClass,
+            Optional<java.time.Duration> retryAfter) {
+        private FailureClassification {
+            retryAfter = Objects.requireNonNull(retryAfter, "retryAfter 不能为空");
+        }
     }
 
     private static String requireText(String value, String fieldName) {

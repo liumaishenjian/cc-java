@@ -25,6 +25,22 @@ class PlanEvidenceLedgerTest {
     }
 
     @Test
+    void draftRequirementCanBeCorrectedInPlaceWithoutChangingIdentityOrCount() {
+        var ledger = PlanEvidenceLedger.planning(new SessionId("session-correction"), "plan-correction", NOW)
+                .declare(new PlanEvidenceRequirement("tests", PlanEvidenceKind.VERIFICATION,
+                        "validation-output", "old validation", true), NOW);
+        var corrected = ledger.declare(new PlanEvidenceRequirement("tests", PlanEvidenceKind.VERIFICATION,
+                "run_command", "tests pass", true), NOW.plusSeconds(1));
+        assertThat(corrected.requirements()).singleElement().satisfies(requirement -> {
+            assertThat(requirement.requirementId()).isEqualTo("tests");
+            assertThat(requirement.locator()).isEqualTo("run_command");
+            assertThat(requirement.label()).isEqualTo("tests pass");
+        });
+        assertThat(corrected.createdAt()).isEqualTo(ledger.createdAt());
+        assertThat(corrected.updatedAt()).isEqualTo(NOW.plusSeconds(1));
+    }
+
+    @Test
     void skipMustBeExplicitUserDecisionAndRequirementsFreezeAtApproval() {
         var ledger = PlanEvidenceLedger.planning(new SessionId("session-skip"), "plan-skip", NOW)
                 .declare(new PlanEvidenceRequirement("artifact", PlanEvidenceKind.DELIVERABLE,

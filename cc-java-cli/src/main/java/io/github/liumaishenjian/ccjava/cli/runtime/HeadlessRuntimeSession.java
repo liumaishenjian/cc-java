@@ -105,8 +105,9 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
             "You are in continuous planning mode in the current session. Explore with available read-only "
                     + "tools, ask a structured question only when the answer materially changes the approach, "
                     + "and incrementally maintain a user-readable Markdown plan with revise_plan_artifact. "
-                    + "Use the current durable revision and content digest supplied below for compare-and-set. "
-                    + "When the plan is ready, call request_plan_review. Do not return JSON, executable step "
+                    + "The runtime owns durable revision and content-digest concurrency control; provide only Markdown "
+                    + "when revising and no arguments when requesting review. When the plan is ready, call "
+                    + "request_plan_review. Do not return JSON, executable step "
                     + "payloads, workspace digests, or hidden objective/title/detail triples. Workspace writes, "
                     + "process execution, and undeclared extension tools are unavailable while planning.";
 
@@ -776,7 +777,9 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
      * <p>Run 使用 capability/effect Gate 而非工具名白名单：本地只读、受控只读网络、PlanArtifact
      * CAS 写入和结构化用户问题可用；Workspace mutation、进程与未声明安全能力的扩展 Tool 在
      * definitions 与 Pipeline 两处拒绝。Markdown 工件增量提交到 canonical Session journal；只有
-     * request_plan_review 成功后才发布读取该 durable revision 的 review 事件。</p>
+     * request_plan_review 成功后才发布读取该 durable revision 的 review 事件。活动 Run 资格检查、
+     * review feedback 的 {@code AWAITING_APPROVAL -> DRAFT} 转换与 Plan Scope 占用在同一生命周期锁内完成，
+     * 被并发 Run 拒绝的请求不会提前修改 durable 状态。</p>
      *
      * @param prompt 自然语言规划任务或对当前计划的反馈
      * @return Agent Runtime 权威终态；未请求 review 时仍以普通完成结束，不伪造提案
@@ -784,11 +787,11 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
     public AgentRunResult runPlan(String prompt) {
         validatePrompt(Objects.requireNonNull(prompt, "prompt 不能为空"));
         UserMessage userMessage = fileMentions.resolve(prompt);
-        PlanRunResources planning = preparePlanRun();
         ActiveRun captured;
         synchronized (lifecycleMonitor) {
             requireOpenLocked();
             if (activeRun != null) throw new IllegalStateException("Headless Session 已有活动 Run");
+            PlanRunResources planning = preparePlanRun();
             captured = new ActiveRun(createPlanRuntimeScope(planning), session.id());
             activeRun = captured;
             runEventSink = null;
@@ -834,8 +837,13 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                 store, session.id(), planId, java.time.Clock.systemUTC());
         var review = new io.github.liumaishenjian.ccjava.core.PlanReviewRequestTool(
                 store, session.id(), java.time.Clock.systemUTC());
+        Set<String> trustedVerificationTools = registeredTools().stream()
+                .map(io.github.liumaishenjian.ccjava.core.AgentTool::definition)
+                .filter(definition -> definition.source() == ToolSource.BUILT_IN)
+                .map(io.github.liumaishenjian.ccjava.domain.ToolDefinition::name)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
         var evidence = new io.github.liumaishenjian.ccjava.core.PlanEvidenceDeclarationTool(
-                store, session.id(), java.time.Clock.systemUTC());
+                store, session.id(), java.time.Clock.systemUTC(), trustedVerificationTools);
         var ask = new io.github.liumaishenjian.ccjava.core.PlanAskUserTool(userQuestionHandler);
         return new PlanRunResources(store, current, update, review, evidence, ask);
     }
@@ -862,14 +870,10 @@ public final class HeadlessRuntimeSession implements AutoCloseable {
                     public io.github.liumaishenjian.ccjava.domain.ModelRequest project(
                             io.github.liumaishenjian.ccjava.domain.ModelRequest request,
                             io.github.liumaishenjian.ccjava.core.CancellationToken cancellationToken) {
-                        String revision = planning.initial().map(value -> Long.toString(value.revision())).orElse("0");
-                        String digest = planning.initial().map(
-                                io.github.liumaishenjian.ccjava.domain.PlanArtifact::contentDigest).orElse("");
                         List<io.github.liumaishenjian.ccjava.domain.AgentMessage> messages =
                                 new java.util.ArrayList<>(request.messages());
                         messages.add(1, new io.github.liumaishenjian.ccjava.domain.SystemMessage(
-                                PLAN_RUNTIME_INSTRUCTIONS + " Current plan revision: " + revision
-                                        + "; current content digest: " + digest + "."));
+                                PLAN_RUNTIME_INSTRUCTIONS));
                         return new io.github.liumaishenjian.ccjava.domain.ModelRequest(
                                 request.sessionId(), request.runId(), request.turnNumber(), messages,
                                 request.toolDefinitions());
